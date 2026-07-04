@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Arsenal JobFill</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="container">
+    <header class="header">
+      <div class="logo">
+        <div class="logo-mark" aria-hidden="true">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+            <rect x="5" y="3" width="14" height="18" rx="2" stroke="currentColor" stroke-width="2"/>
+            <path d="M9 9h6M9 13h6M9 17h4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+          </svg>
+        </div>
+        <div>
+          <h1>JobFill</h1>
+          <span class="logo-sub">Job application helper</span>
+        </div>
+      </div>
+      <div class="header-actions">
+        <button type="button" class="btn btn-ghost btn-sm" id="btn-open-dashboard">Dashboard</button>
+        <span class="version-tag">v0.1.2</span>
+      </div>
+    </header>
+
+    <nav class="tabs" role="tablist">
+      <button class="tab-btn active" data-tab="tab-actions" role="tab">Actions</button>
+      <button class="tab-btn" data-tab="tab-profile" role="tab">Profile</button>
+      <button class="tab-btn" data-tab="tab-files" role="tab">Files</button>
+      <button class="tab-btn" data-tab="tab-learning" role="tab">Learn</button>
+      <button class="tab-btn" data-tab="tab-tracker" role="tab">Tracker <span class="tab-badge" id="tracker-applied-count" hidden>0</span></button>
+    </nav>
+
+    <main class="content-wrapper">
+      <!-- Actions Tab -->
+      <section id="tab-actions" class="tab-content active">
+        <div class="actions-panel">
+          <div class="action-bar">
+            <div class="action-status">
+              <span class="status-dot" id="status-dot" aria-hidden="true"></span>
+              <div>
+                <p class="action-title" id="action-title">On a job application?</p>
+                <p class="action-sub" id="scan-status">We scan fields automatically when you open this popup.</p>
+              </div>
+            </div>
+            <button type="button" class="btn btn-primary" id="btn-autofill" disabled>Fill form</button>
+          </div>
+          <button type="button" class="btn btn-secondary btn-sm btn-scan-link" id="btn-scan">Rescan page</button>
+
+          <div id="autofill-progress-container" class="autofill-loader" style="display: none;" aria-live="polite">
+            <div class="autofill-loader-visual" aria-hidden="true">
+              <div class="autofill-loader-ring-track"></div>
+              <div class="autofill-loader-ring-spin"></div>
+              <div class="autofill-loader-icon">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"/>
+                  <rect x="9" y="3" width="6" height="4" rx="1" stroke="currentColor" stroke-width="1.75"/>
+                  <path class="autofill-pen-stroke" d="M9 12h6M9 16h4" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"/>
+                </svg>
+              </div>
+            </div>
+            <div class="autofill-loader-body">
+              <p class="autofill-loader-title">Filling your application</p>
+              <p class="autofill-loader-message" id="progress-status">Working…</p>
+              <div class="autofill-loader-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-label="Autofill progress">
+                <div id="progress-bar-fill" class="autofill-loader-track-shine"></div>
+              </div>
+              <div class="autofill-loader-steps" aria-hidden="true">
+                <span class="autofill-step"></span>
+                <span class="autofill-step"></span>
+                <span class="autofill-step"></span>
+                <span class="autofill-step"></span>
+                <span class="autofill-step"></span>
+              </div>
+            </div>
+          </div>
+
+          <div class="job-info-card" id="job-info-card" style="display: none;">
+            <div class="job-info-header">
+              <span class="job-info-label">Detected job</span>
+              <span class="job-platform-pill" id="job-platform">Generic</span>
+            </div>
+            <h3 class="job-role-title" id="job-role">—</h3>
+            <p class="job-company-name" id="job-company">—</p>
+            <p class="job-location"><span>📍</span> <span id="job-location">Remote</span></p>
+          </div>
+
+          <div class="review-section">
+            <div class="review-header">
+              <div>
+                <h3>Field mapping</h3>
+                <p class="desc">Review answers before filling the form.</p>
+              </div>
+              <span class="field-count-badge" id="field-count-badge" style="display: none;">0 fields</span>
+            </div>
+
+            <div class="fields-review-list" id="review-list">
+              <div class="empty-state">
+                <div class="empty-icon">🔍</div>
+                <p class="empty-title">No fields scanned yet</p>
+                <p class="empty-desc">Navigate to a job application form — we'll detect fields automatically.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Profile Tab -->
+      <section id="tab-profile" class="tab-content">
+        <div class="feature-card">
+          <div class="feature-icon-wrap">👤</div>
+          <h3>Master profile</h3>
+          <p>Configure personal details, salary targets, and work authorization in the full-screen editor.</p>
+          <button type="button" class="btn btn-secondary" id="btn-popup-open-profile">Open profile editor</button>
+        </div>
+      </section>
+
+      <!-- Files Tab -->
+      <section id="tab-files" class="tab-content">
+        <div class="files-panel">
+          <div class="file-box">
+            <h3>Default resume</h3>
+            <div class="upload-zone" id="resume-zone">
+              <span class="upload-icon">📄</span>
+              <p class="upload-label">Drop PDF or DOCX here</p>
+              <span class="file-name" id="resume-filename">No file selected</span>
+              <input type="file" id="resume-input" accept=".pdf,.doc,.docx" hidden>
+            </div>
+          </div>
+
+          <div class="file-box">
+            <h3>Default cover letter</h3>
+            <div class="upload-zone" id="coverletter-zone">
+              <span class="upload-icon">✉️</span>
+              <p class="upload-label">Drop PDF or DOCX here</p>
+              <span class="file-name" id="coverletter-filename">No file selected</span>
+              <input type="file" id="coverletter-input" accept=".pdf,.doc,.docx" hidden>
+            </div>
+          </div>
+
+          <div class="cover-letter-generator">
+            <h3>Cover letter generator</h3>
+            <div class="form-group">
+              <label for="cl-template-select">Template</label>
+              <select id="cl-template-select">
+                <option value="standard">Standard template</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="cl-output">Generated body</label>
+              <textarea id="cl-output" rows="5" readonly placeholder="Scan a job page, then compile…"></textarea>
+            </div>
+            <button type="button" class="btn btn-primary" id="btn-compile-cl">Compile cover letter</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- Learning Center Tab -->
+      <section id="tab-learning" class="tab-content">
+        <div class="learning-panel">
+          <div class="learning-header">
+            <div>
+              <h3>Learning center</h3>
+              <p class="desc">Saved answers from past applications.</p>
+            </div>
+            <input type="search" id="learning-search" placeholder="Search questions…" class="search-input">
+          </div>
+
+          <div class="table-container">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Question</th>
+                  <th>Answer</th>
+                  <th>Scope</th>
+                  <th>Uses</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody id="learning-list">
+                <tr>
+                  <td colspan="5" class="empty-table">No learned mappings yet.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- Application Tracker Tab -->
+      <section id="tab-tracker" class="tab-content">
+        <div class="tracker-panel">
+          <div class="review-header">
+            <div>
+              <h3>Application log</h3>
+              <p class="desc">Auto-tracks when you click <strong>Submit</strong> or <strong>Apply</strong> on job sites. Autofill alone does not count.</p>
+              <p class="desc tracker-applied-summary"><strong id="tracker-submitted-total">0</strong> applications submitted</p>
+            </div>
+            <button type="button" class="btn btn-secondary btn-sm" id="btn-add-tracker">+ Add entry</button>
+          </div>
+
+          <form id="tracker-form" class="tracker-manual-form" hidden>
+            <div class="form-row">
+              <div class="form-group">
+                <label for="track-company">Company</label>
+                <input type="text" id="track-company" required placeholder="Acme Corp">
+              </div>
+              <div class="form-group">
+                <label for="track-role">Role</label>
+                <input type="text" id="track-role" required placeholder="Software Engineer">
+              </div>
+            </div>
+            <div class="form-group">
+              <label for="track-url">URL</label>
+              <input type="url" id="track-url" placeholder="https://…">
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label for="track-status">Status</label>
+                <select id="track-status">
+                  <option value="viewed">Viewed</option>
+                  <option value="autofilled">Autofilled</option>
+                  <option value="readyToSubmit">Ready to submit</option>
+                  <option value="submittedManually">Submitted</option>
+                </select>
+              </div>
+              <div class="form-group form-group-end">
+                <button type="submit" class="btn btn-success">Save entry</button>
+              </div>
+            </div>
+          </form>
+
+          <div class="table-container">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Company</th>
+                  <th>Role</th>
+                  <th>Date</th>
+                  <th>Status</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody id="tracker-list">
+                <tr>
+                  <td colspan="5" class="empty-table">No applications logged yet.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+  <script src="popup.global.js"></script>
+</body>
+</html>

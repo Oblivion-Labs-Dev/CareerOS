@@ -1,0 +1,10 @@
+packages:
+  - "apps/*"
+  - "packages/*"
+  - "../Arsenal/packages/shared"
+  - "../Arsenal/packages/logging"
+  - "../Arsenal/packages/telemetry"
+allowBuilds:
+  esbuild: true
+  sharp: true
+  spawn-sync: true

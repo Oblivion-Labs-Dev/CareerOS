@@ -1,0 +1,463 @@
+/* Arsenal Station — landing page layout & instrument cards */
+
+html, body, #root {
+  width: 100%;
+  min-height: 100vh;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background:
+    radial-gradient(ellipse 70% 45% at 15% -5%, rgba(46, 229, 157, 0.16), transparent),
+    radial-gradient(ellipse 50% 40% at 95% 10%, rgba(20, 184, 166, 0.1), transparent),
+    linear-gradient(165deg, #040706 0%, #0a1210 40%, #0d1612 100%);
+  color: var(--text-primary);
+  font-family: 'Outfit', sans-serif;
+  overflow-x: hidden;
+}
+
+.station {
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 48px 28px 64px;
+  display: flex;
+  flex-direction: column;
+  gap: 36px;
+}
+
+/* ── Header ── */
+.station-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 20px;
+  padding-bottom: 24px;
+  border-bottom: 1px solid var(--panel-border);
+}
+
+.station-brand h1 {
+  font-size: clamp(1.8rem, 4vw, 2.4rem);
+  font-weight: 700;
+  margin: 0;
+  letter-spacing: -0.04em;
+  background: linear-gradient(120deg, #d1fae5 0%, var(--accent-color) 45%, #14b8a6 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.station-brand p {
+  font-size: 0.92rem;
+  color: var(--text-secondary);
+  margin: 6px 0 0;
+}
+
+.station-status {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.status-pill {
+  font-size: 0.76rem;
+  font-weight: 600;
+  padding: 8px 14px;
+  border-radius: 999px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.status-pill--online {
+  background: rgba(52, 211, 153, 0.12);
+  color: var(--success-color);
+  border: 1px solid rgba(52, 211, 153, 0.25);
+}
+
+.status-pill--offline {
+  background: rgba(251, 191, 36, 0.1);
+  color: var(--warning-color);
+  border: 1px solid rgba(251, 191, 36, 0.25);
+}
+
+.status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+  box-shadow: 0 0 8px currentColor;
+}
+
+/* ── Hero banner ── */
+.station-hero {
+  position: relative;
+  padding: 28px 32px;
+  border-radius: 18px;
+  border: 1px solid rgba(46, 229, 157, 0.2);
+  background:
+    linear-gradient(135deg, rgba(46, 229, 157, 0.08) 0%, rgba(46, 229, 157, 0.02) 50%, transparent 100%);
+  overflow: hidden;
+}
+
+.station-hero::before {
+  content: '';
+  position: absolute;
+  top: -40%;
+  right: -10%;
+  width: 280px;
+  height: 280px;
+  background: radial-gradient(circle, rgba(46, 229, 157, 0.12), transparent 70%);
+  pointer-events: none;
+}
+
+.station-hero h2 {
+  font-size: 1.2rem;
+  font-weight: 600;
+  margin: 0 0 10px;
+  color: var(--accent-color);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.station-hero p {
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+  line-height: 1.65;
+  margin: 0;
+  max-width: 720px;
+}
+
+.station-hero code {
+  background: rgba(0, 0, 0, 0.35);
+  padding: 3px 8px;
+  border-radius: 6px;
+  font-size: 0.82rem;
+  color: #a7f3d0;
+  border: 1px solid var(--panel-border);
+}
+
+/* ── Section titles ── */
+.station-section-title {
+  font-size: 1.1rem;
+  font-weight: 600;
+  margin: 0 0 18px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--panel-border);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  letter-spacing: -0.02em;
+}
+
+/* ── Getting started timeline ── */
+.guide-panel {
+  padding: 28px 32px !important;
+}
+
+.guide-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  position: relative;
+}
+
+.guide-step {
+  display: flex;
+  gap: 20px;
+  padding: 20px 0;
+  position: relative;
+}
+
+.guide-step:not(:last-child)::after {
+  content: '';
+  position: absolute;
+  left: 15px;
+  top: 52px;
+  bottom: 0;
+  width: 2px;
+  background: linear-gradient(to bottom, rgba(46, 229, 157, 0.35), rgba(46, 229, 157, 0.05));
+}
+
+.guide-step-num {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--accent-color), #14b8a6);
+  color: #042f1e;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 0.9rem;
+  flex-shrink: 0;
+  box-shadow: 0 4px 14px var(--accent-glow);
+  z-index: 1;
+}
+
+.guide-step-body h3 {
+  margin: 0 0 6px;
+  font-size: 0.98rem;
+  font-weight: 600;
+}
+
+.guide-step-body p {
+  margin: 0;
+  font-size: 0.86rem;
+  color: var(--text-secondary);
+  line-height: 1.55;
+}
+
+.guide-step-body code {
+  color: var(--accent-color);
+  font-size: 0.84rem;
+}
+
+.path-box {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid var(--panel-border);
+  border-radius: 10px;
+  padding: 10px 14px;
+  margin-top: 12px;
+}
+
+.path-box code {
+  flex: 1;
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+  word-break: break-all;
+  background: none;
+  border: none;
+  padding: 0;
+}
+
+.guide-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--accent-color);
+  font-size: 0.86rem;
+  font-weight: 500;
+  margin-top: 8px;
+  text-decoration: none;
+}
+
+.guide-link:hover {
+  text-decoration: underline;
+}
+
+/* ── Instrument cards grid ── */
+.instruments-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 20px;
+}
+
+.instrument-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 24px;
+  border-radius: 18px;
+  border: 1px solid var(--panel-border);
+  background: rgba(8, 16, 13, 0.65);
+  backdrop-filter: blur(20px);
+  transition: transform 0.25s ease, box-shadow 0.25s ease, border-color 0.25s ease;
+  overflow: hidden;
+  min-height: 260px;
+}
+
+.instrument-card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(145deg, rgba(46, 229, 157, 0.06) 0%, transparent 55%);
+  pointer-events: none;
+}
+
+.instrument-card::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, transparent, var(--accent-color), transparent);
+  opacity: 0;
+  transition: opacity 0.25s ease;
+}
+
+.instrument-card:hover {
+  transform: translateY(-4px);
+  border-color: rgba(46, 229, 157, 0.28);
+  box-shadow:
+    0 20px 40px rgba(0, 0, 0, 0.45),
+    0 0 32px rgba(46, 229, 157, 0.08);
+}
+
+.instrument-card:hover::after {
+  opacity: 1;
+}
+
+.instrument-card--active {
+  border-color: rgba(46, 229, 157, 0.25);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35), 0 0 24px rgba(46, 229, 157, 0.06);
+}
+
+.instrument-card--inactive {
+  opacity: 0.55;
+}
+
+.instrument-card--inactive:hover {
+  transform: none;
+  box-shadow: none;
+  border-color: var(--panel-border);
+}
+
+.instrument-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  position: relative;
+  z-index: 1;
+}
+
+.instrument-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.35rem;
+  background: var(--accent-dim);
+  border: 1px solid rgba(46, 229, 157, 0.2);
+  flex-shrink: 0;
+}
+
+.instrument-card-title {
+  flex: 1;
+  min-width: 0;
+}
+
+.instrument-card-title h3 {
+  margin: 0;
+  font-size: 1.08rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.instrument-card-title span {
+  display: block;
+  font-size: 0.72rem;
+  color: var(--text-faint);
+  margin-top: 3px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.instrument-badge {
+  font-size: 0.65rem;
+  font-weight: 700;
+  padding: 4px 10px;
+  border-radius: 999px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  flex-shrink: 0;
+}
+
+.instrument-badge--active {
+  background: rgba(52, 211, 153, 0.15);
+  color: var(--success-color);
+  border: 1px solid rgba(52, 211, 153, 0.3);
+}
+
+.instrument-badge--soon {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text-faint);
+  border: 1px solid var(--panel-border);
+}
+
+.instrument-desc {
+  font-size: 0.84rem;
+  color: var(--text-secondary);
+  line-height: 1.55;
+  margin: 0;
+  position: relative;
+  z-index: 1;
+  flex: 1;
+}
+
+.instrument-stats {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  position: relative;
+  z-index: 1;
+}
+
+.stat-chip {
+  flex: 1;
+  min-width: 120px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(46, 229, 157, 0.12);
+  text-align: center;
+}
+
+.stat-chip-value {
+  display: block;
+  font-size: 1.35rem;
+  font-weight: 700;
+  color: var(--accent-color);
+  line-height: 1.2;
+}
+
+.stat-chip-label {
+  display: block;
+  font-size: 0.68rem;
+  color: var(--text-faint);
+  margin-top: 2px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.instrument-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: auto;
+  position: relative;
+  z-index: 1;
+}
+
+.instrument-actions .btn {
+  flex: 1;
+  text-decoration: none;
+  font-size: 0.8rem;
+  padding: 10px 14px;
+}
+
+.instrument-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  position: relative;
+  z-index: 1;
+}
+
+.tag {
+  font-size: 0.68rem;
+  padding: 4px 9px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-faint);
+  border: 1px solid var(--panel-border);
+}

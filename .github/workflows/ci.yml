@@ -1,0 +1,78 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  typecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --no-frozen-lockfile
+      - run: pnpm --filter @career-os/core build
+      - run: pnpm typecheck
+
+  extension-unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --no-frozen-lockfile
+      - run: pnpm --filter @career-os/extension test
+
+  api:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt pytest httpx
+        working-directory: apps/api
+      - run: python -m compileall app
+        working-directory: apps/api
+      - run: pytest tests -q
+        working-directory: apps/api
+
+  web-e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pnpm install --no-frozen-lockfile
+      - run: pnpm --filter @career-os/core build
+      - run: pnpm --filter @career-os/web build
+      - run: pnpm --filter @career-os/web exec playwright install chromium --with-deps
+      - run: pip install -r requirements.txt
+        working-directory: apps/api
+      - name: Start API and web for e2e
+        run: |
+          python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 &
+          cd apps/web && pnpm start --port 3000 &
+          npx --yes wait-on http://127.0.0.1:8000/health http://127.0.0.1:3000
+      - run: pnpm --filter @career-os/web exec playwright test
+        env:
+          CI: "1"

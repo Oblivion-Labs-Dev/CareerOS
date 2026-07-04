@@ -1,0 +1,25 @@
+{
+  "name": "CareerOS",
+  "version": "0.1.0",
+  "private": true,
+  "description": "CareerOS — AI-powered career operating system",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "pnpm -r --filter './packages/*' --filter './apps/extension' --filter './apps/web' run build",
+    "dev:web": "pnpm --filter @career-os/web dev",
+    "dev:api": "pnpm --filter @career-os/api dev",
+    "dev:extension": "pnpm --filter @career-os/extension dev",
+    "typecheck": "pnpm -r run typecheck",
+    "test": "pnpm -r run test",
+    "test:api": "cd apps/api && python -m pytest tests -q",
+    "test:web": "pnpm --filter @career-os/web test:e2e",
+    "ci": "pnpm typecheck && pnpm --filter @career-os/extension test && pnpm test:api"
+  },
+  "devDependencies": {
+    "@types/node": "^20.17.0",
+    "typescript": "^5.7.2"
+  }
+}
