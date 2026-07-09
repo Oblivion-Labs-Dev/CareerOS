@@ -1,4 +1,5 @@
 import { WorkflowPage } from "@/components/scaffold-page";
+import { BackendRequiredBanner } from "@/components/backend-required-banner";
 import { fetchJson } from "@/lib/api";
 
 export default async function JobsPage() {
@@ -7,12 +8,16 @@ export default async function JobsPage() {
   );
 
   return (
-    <WorkflowPage
+    <>
+      <div className="page-content">
+        <BackendRequiredBanner />
+      </div>
+      <WorkflowPage
       title="Jobs"
       eyebrow="Apply"
       subtitle="Collect roles worth considering, preserve the original context, and decide what deserves a real application."
       primaryAction={{ href: "/apply-pilot", label: "Open ApplyPilot" }}
-      secondaryAction={{ href: "/resumes", label: "Review documents" }}
+      secondaryAction={{ href: "/apply/job-search-guide", label: "Job search guide" }}
       outcomes={[
         "Keep interesting roles out of browser-tab limbo.",
         "Compare opportunities before spending time on forms.",
@@ -57,5 +62,6 @@ export default async function JobsPage() {
         )}
       </section>
     </WorkflowPage>
+    </>
   );
 }

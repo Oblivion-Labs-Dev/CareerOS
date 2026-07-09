@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { getClientApiBaseUrl, postJson } from "@/lib/api";
+import { copyTextToClipboard } from "@/lib/clipboard";
 
 export interface ReferralContact {
   id: string;
@@ -28,21 +29,38 @@ const EMPTY_FORM = {
   notes: "",
 };
 
+const DEFAULT_REFERRAL_ASK_MESSAGE = `I hope you're doing well! I came across a job that aligns closely with my background and was wondering if you'd be open to referring me. I have 7+ years of experience at Microsoft and Amazon building distributed systems, AI infrastructure, and cloud-native platforms, and I've recently been focused on agentic AI and developer tooling.
+
+I believe my experience is a strong match for the role. If you're comfortable referring me, I'd really appreciate it. I've attached the job link and my resume for context. Thanks for taking the time to consider my request!`;
+
 export function ReferralsManager() {
   const [referrals, setReferrals] = useState<ReferralContact[]>([]);
   const [form, setForm] = useState(EMPTY_FORM);
+  const [askMessage, setAskMessage] = useState(DEFAULT_REFERRAL_ASK_MESSAGE);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [savingMessage, setSavingMessage] = useState(false);
+  const [messageCopied, setMessageCopied] = useState(false);
   const [error, setError] = useState("");
 
   const load = useCallback(async () => {
     setLoading(true);
     setError("");
     try {
-      const res = await fetch(`${getClientApiBaseUrl()}/referrals`, { cache: "no-store" });
-      if (!res.ok) throw new Error("Could not load referrals");
-      const data = (await res.json()) as { referrals: ReferralContact[] };
-      setReferrals(data.referrals || []);
+      const base = getClientApiBaseUrl();
+      const [referralsRes, messageRes] = await Promise.all([
+        fetch(`${base}/referrals`, { cache: "no-store" }),
+        fetch(`${base}/referrals/ask-message`, { cache: "no-store" }),
+      ]);
+      if (!referralsRes.ok) throw new Error("Could not load referrals");
+      const referralsData = (await referralsRes.json()) as { referrals: ReferralContact[] };
+      setReferrals(referralsData.referrals || []);
+      if (messageRes.ok) {
+        const messageData = (await messageRes.json()) as { message?: string };
+        if (messageData.message?.trim()) {
+          setAskMessage(messageData.message);
+        }
+      }
     } catch {
       setError("Backend offline — start the API to save referral contacts.");
       setReferrals([]);
@@ -85,8 +103,61 @@ export function ReferralsManager() {
     }
   }
 
+  async function handleSaveMessage() {
+    if (!askMessage.trim()) return;
+    setSavingMessage(true);
+    setError("");
+    try {
+      await postJson("/referrals/ask-message", { message: askMessage }, "PUT");
+    } catch {
+      setError("Could not save referral message.");
+    } finally {
+      setSavingMessage(false);
+    }
+  }
+
+  async function handleCopyMessage() {
+    const ok = await copyTextToClipboard(askMessage);
+    if (!ok) {
+      setError("Could not copy message to clipboard.");
+      return;
+    }
+    setMessageCopied(true);
+    window.setTimeout(() => setMessageCopied(false), 2000);
+  }
+
   return (
-    <div className="referrals-layout">
+    <div className="referrals-page">
+      <article className="workflow-panel referral-message-panel">
+        <div className="referral-message-header">
+          <div>
+            <span className="toc-card-kicker">Referral ask</span>
+            <h2>Outreach message</h2>
+            <p className="muted">Saved template for LinkedIn or email when you ask someone for a referral.</p>
+          </div>
+          <div className="referral-message-actions">
+            <button
+              type="button"
+              className={`btn-secondary referral-copy-btn${messageCopied ? " referral-copy-btn--copied" : ""}`}
+              onClick={() => void handleCopyMessage()}
+            >
+              {messageCopied ? "Copied!" : "Copy message"}
+            </button>
+            <button type="button" className="btn-primary" disabled={savingMessage} onClick={() => void handleSaveMessage()}>
+              {savingMessage ? "Saving…" : "Save message"}
+            </button>
+          </div>
+        </div>
+        <textarea
+          className="referral-message-textarea"
+          value={askMessage}
+          onChange={(e) => setAskMessage(e.target.value)}
+          rows={8}
+          spellCheck
+        />
+      </article>
+
+      <div className="referrals-layout">
       <article className="workflow-panel">
         <span className="toc-card-kicker">Add referral contact</span>
         <h2>Someone who can refer you</h2>
@@ -221,6 +292,7 @@ export function ReferralsManager() {
           </p>
         )}
       </article>
+      </div>
     </div>
   );
 }

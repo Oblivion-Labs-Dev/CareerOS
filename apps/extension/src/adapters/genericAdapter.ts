@@ -1,4 +1,6 @@
 import { JobDetails } from '../shared/types';
+import { parseCompanyFromJobUrl } from '../shared/jobUrlMatching';
+import { parseFromDocumentTitle } from '../shared/jobContextResolver';
 
 export interface PlatformAdapter {
   detect(doc: Document): boolean;
@@ -11,7 +13,9 @@ export class GenericAdapter implements PlatformAdapter {
   }
 
   extractJobDetails(doc: Document): JobDetails {
-    // Try standard page title
+    const titleParts = parseFromDocumentTitle(doc.title || '');
+    const urlCompany = parseCompanyFromJobUrl(doc.location.href);
+
     let title = doc.title || 'Unknown Role';
     if (title.includes(' - ')) {
       title = title.split(' - ')[0];
@@ -20,8 +24,8 @@ export class GenericAdapter implements PlatformAdapter {
     }
 
     return {
-      company: 'Unknown Company',
-      role: title.trim(),
+      company: urlCompany || titleParts.company || 'Unknown Company',
+      role: titleParts.role || title.trim(),
       location: 'Remote / Unspecified',
       description: doc.body.innerText.slice(0, 500) + '...',
       platform: 'Generic'

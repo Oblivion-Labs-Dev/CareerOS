@@ -27,7 +27,11 @@ export const DEFAULT_SUBMIT_TRACKER_CONFIG: SubmitTrackerConfig = {
     'complete application',
     'review and submit',
     'apply for (this )?job',
-    'submit application'
+    'submit application',
+    'apply now',
+    'confirm application',
+    'finish application',
+    '\\bapply\\b'
   ],
   continueButtonPatterns: ['save and continue', '\\bnext\\b', 'continue application'],
   requireJobPageUrl: true,

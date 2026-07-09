@@ -1,0 +1,8 @@
+{
+  "name": "Generic recruiter outreach",
+  "subject": "Senior Software Engineer | Microsoft & Amazon Experience",
+  "body": "Hi {{FirstName}},\n\nI hope you're doing well.\n\nI'm reaching out because I'm exploring Senior Software Engineer opportunities and wanted to introduce myself.\n\nI'm currently a Senior Software Engineer at Microsoft, and before that I spent nearly six years at Amazon. Over the past seven years I've worked on large-scale backend systems, distributed infrastructure, cloud services, and developer platforms.\n\nSome of the work I've led includes:\n\n* Building enterprise-scale security and platform services used across thousands of organizations.\n* Designing distributed systems processing over 100K transactions per second.\n* Creating internal developer tooling that reduced service setup from weeks to hours.\n* Leading infrastructure improvements that reduced operational costs by more than $250K per month.\n\nI'm looking for opportunities where I can continue building reliable, large-scale systems and would appreciate the chance to learn more about any roles that might be a good fit.\n\nIf you think my background aligns with your hiring needs, I'd love to schedule a brief conversation.\n\nI've attached my resume for reference. Thanks for your time, and I hope to hear from you.\n\nBest,\n\nAkshay Borse\n\nLinkedIn: https://linkedin.com/in/amsborse\nGitHub: https://github.com/amsborse",
+  "placeholders": {
+    "FirstName": "Recruiter first name from recruiters.json"
+  }
+}

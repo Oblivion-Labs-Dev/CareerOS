@@ -78,6 +78,75 @@ export function getLabelText(element: HTMLElement, doc: Document): string {
   return '';
 }
 
+const OPTION_LABEL_RE = /^(yes|no|true|false)$/i;
+const MAX_GROUP_QUESTION_LENGTH = 600;
+
+function extractQuestionText(node: Element): string {
+  const text = node.textContent?.replace(/\s+/g, ' ').trim().replace(/\*+$/, '') || '';
+  if (
+    text.length > 12 &&
+    text.length < MAX_GROUP_QUESTION_LENGTH &&
+    !OPTION_LABEL_RE.test(text) &&
+    !/^(search|textbox|select\.\.\.|select)$/i.test(text)
+  ) {
+    return text;
+  }
+  return '';
+}
+
+/** Resolve the screening question text for a radio/checkbox group (not the Yes/No option label). */
+export function getFieldGroupQuestion(element: HTMLElement, doc: Document): string {
+  const fieldset = element.closest('fieldset');
+  if (fieldset) {
+    const legend = fieldset.querySelector('legend');
+    const legendText = legend?.textContent?.replace(/\s+/g, ' ').trim().replace(/\*+$/, '') || '';
+    if (legendText && !OPTION_LABEL_RE.test(legendText)) return legendText;
+  }
+
+  const groupedControl = element.closest('[role="radiogroup"], [role="group"]') as HTMLElement | null;
+  if (groupedControl) {
+    const labelledBy = groupedControl.getAttribute('aria-labelledby');
+    if (labelledBy) {
+      const labelEl = doc.getElementById(labelledBy);
+      const labelText = labelEl?.textContent?.replace(/\s+/g, ' ').trim().replace(/\*+$/, '') || '';
+      if (labelText && !OPTION_LABEL_RE.test(labelText)) return labelText;
+    }
+  }
+
+  let walk: HTMLElement | null = element;
+  for (let depth = 0; depth < 8 && walk; depth++) {
+    let prev = walk.previousElementSibling;
+    while (prev) {
+      const text = extractQuestionText(prev);
+      if (text) return text;
+      prev = prev.previousElementSibling;
+    }
+    walk = walk.parentElement;
+  }
+
+  let node: HTMLElement | null = element.parentElement;
+  while (node && node.tagName !== 'BODY') {
+    for (const child of Array.from(node.children)) {
+      if (child === element || child.contains(element)) continue;
+      if (
+        child.querySelector('input[type="radio"], input[type="checkbox"], [role="radio"]') &&
+        child.contains(element)
+      ) {
+        continue;
+      }
+
+      const text = extractQuestionText(child);
+      if (text) return text;
+    }
+    node = node.parentElement;
+  }
+
+  return '';
+}
+
+/** @deprecated Use getFieldGroupQuestion */
+export const getRadioGroupQuestion = getFieldGroupQuestion;
+
 /**
  * Scans the page and returns all input fields
  */
@@ -108,7 +177,8 @@ export function scanPage(doc: Document): ScannedField[] {
       continue;
     }
 
-    const labelText = getLabelText(input, doc);
+    const directLabel = getLabelText(input, doc);
+    let resolvedLabel = directLabel;
 
     // Group radio buttons by name
     if (tagName === 'INPUT' && typeAttr === 'radio') {
@@ -122,11 +192,13 @@ export function scanPage(doc: Document): ScannedField[] {
         return optionLabel;
       });
 
+      const groupQuestion = getFieldGroupQuestion(input, doc);
+
       scanned.push({
         id: Math.random().toString(36).substring(2, 9),
         element: input,
         type: 'radio',
-        labelText: labelText || name,
+        labelText: groupQuestion || resolvedLabel || name,
         placeholder: '',
         name,
         htmlId,
@@ -168,14 +240,15 @@ export function scanPage(doc: Document): ScannedField[] {
       type = 'file';
     } else if (tagName === 'INPUT' && typeAttr === 'checkbox') {
       type = 'checkbox';
-      options = [labelText || 'Yes'];
+      resolvedLabel = getFieldGroupQuestion(input, doc) || resolvedLabel;
+      options = [resolvedLabel || 'Yes'];
     }
 
     scanned.push({
       id: Math.random().toString(36).substring(2, 9),
       element: input,
       type,
-      labelText,
+      labelText: resolvedLabel,
       placeholder,
       name,
       htmlId,

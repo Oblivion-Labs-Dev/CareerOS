@@ -1,6 +1,7 @@
 import { ScreeningAnswer, UserProfile } from './types';
 import { normalizeQuestionText, removeCompanyNoise } from '../learning/questionNormalizer';
 import { stringSimilarity } from '../learning/fuzzyMatcher';
+import { SCREENING_PROFILE_FIELD_LINKS } from './screeningAnswerProfile';
 
 /** Snap / common ATS yes-no screening questions saved on profile. */
 export const DEFAULT_SCREENING_ANSWERS: ScreeningAnswer[] = [
@@ -8,7 +9,13 @@ export const DEFAULT_SCREENING_ANSWERS: ScreeningAnswer[] = [
     id: 'us-work-authorization',
     question: 'Are you authorized to work in the U.S.?',
     answer: 'Yes',
-    matchPatterns: ['authorized to work in the us', 'authorized to work in the united states']
+    matchPatterns: [
+      'authorized to work in the us',
+      'authorized to work in the united states',
+      'legally authorized to work',
+      'legally authorized to work in the country',
+      'country/region you are applying'
+    ]
   },
   {
     id: 'spouse-visa-status',
@@ -19,10 +26,22 @@ export const DEFAULT_SCREENING_ANSWERS: ScreeningAnswer[] = [
   },
   {
     id: 'visa-sponsorship-needed',
-    question:
-      'Will you need Snap to sponsor you for a visa to work legally in the United States, now or in the future?',
+    question: 'Will you now or in the future require a visa sponsorship?',
     answer: 'Yes',
-    matchPatterns: ['need.*sponsor you for a visa', 'visa sponsorship', 'sponsor you for a visa']
+    matchPatterns: [
+      'require a visa sponsorship',
+      'now or in the future require.*visa sponsorship',
+      'now or in the future require.*sponsorship',
+      'need.*sponsor you for a visa',
+      'visa sponsorship',
+      'sponsor you for a visa',
+      'immigration-related employment benefit',
+      'require.*company.*sponsorship',
+      'require.*sponsorship.*immigration',
+      'commence.*sponsor.*immigration case',
+      'employment-based visa status',
+      'qualtrics.*sponsor'
+    ]
   },
   {
     id: 'snap-eligibility-followup',
@@ -56,6 +75,105 @@ export const DEFAULT_SCREENING_ANSWERS: ScreeningAnswer[] = [
     question: 'Are you a current or former (prior 18 months) employee of EY, PwC, Deloitte or KPMG?',
     answer: 'No',
     matchPatterns: ['employee of ey', 'pwc', 'deloitte', 'kpmg']
+  },
+  {
+    id: 'bachelors-cs-engineering-experience',
+    question:
+      "Do you have a Bachelor's Degree in Computer Science or related technical field AND 4+ years technical engineering experience with coding in languages including, but not limited to, C, C++, C#, Java, JavaScript, or Python?",
+    answer: 'Yes',
+    matchPatterns: [
+      "bachelor's degree in computer science",
+      'related technical field and 4\\+ years technical engineering',
+      'technical engineering experience with coding',
+      'c, c\\+\\+, c#, java, javascript, or python'
+    ]
+  },
+  {
+    id: 'ms-minimum-qualifications-ack',
+    question:
+      'As part of the online application process you were asked whether you possess certain minimum required qualifications for the role to which you are applying.',
+    answer: 'Yes',
+    matchPatterns: [
+      'minimum required qualifications for the role',
+      'answered these questions accurately',
+      'do not currently meet the required qualifications'
+    ]
+  },
+  {
+    id: 'ms-data-privacy-notice',
+    question: 'By checking this you agree to the Microsoft Data Privacy Notice (DPN).',
+    answer: 'Yes',
+    matchPatterns: ['data privacy notice', 'microsoft data privacy', '\\bdpn\\b']
+  },
+  {
+    id: 'ms-candidate-code-of-conduct',
+    question:
+      'By checking this, you affirm that you have familiarized yourself with the Microsoft recruiting process and agree to the candidate code of conduct.',
+    answer: 'Yes',
+    matchPatterns: [
+      'candidate code of conduct',
+      'microsoft recruiting process',
+      'familiarized yourself with the microsoft recruiting'
+    ]
+  },
+  {
+    id: 'gender-identity',
+    question: 'How would you describe your gender identity?',
+    answer: 'Man',
+    matchPatterns: ['gender identity', 'describe your gender']
+  },
+  {
+    id: 'transgender-identity',
+    question: 'Do you identify as transgender?',
+    answer: 'No',
+    matchPatterns: ['identify as transgender', 'transgender']
+  },
+  {
+    id: 'racial-ethnic-background',
+    question: 'How would you describe your racial/ethnic background?',
+    answer: 'South Asian',
+    matchPatterns: [
+      'racial/ethnic background',
+      'racial ethnic background',
+      'describe your racial',
+      'ethnic background'
+    ]
+  },
+  {
+    id: 'sexual-orientation',
+    question: 'How would you describe your sexual orientation?',
+    answer: 'Heterosexual',
+    matchPatterns: ['sexual orientation', 'describe your sexual']
+  },
+  {
+    id: 'legal-age-to-work',
+    question: 'Are you of legal age to work in the country in which this position is based?',
+    answer: 'Yes',
+    matchPatterns: ['legal age to work', 'of legal age to work']
+  },
+  {
+    id: 'at-least-18-years-old',
+    question: 'Are you at least 18 years old?',
+    answer: 'Yes',
+    matchPatterns: ['at least 18 years old', 'at least 18', '18 years old']
+  },
+  {
+    id: 'background-check-willing',
+    question: 'Are you willing to undergo a background check as part of this hiring process?',
+    answer: 'Yes',
+    matchPatterns: ['background check', 'undergo a background check']
+  },
+  {
+    id: 'government-employment',
+    question:
+      'Are you currently or have you ever been a member of the military, a civilian employee, or an official of any government?',
+    answer: 'No',
+    matchPatterns: [
+      'member of the military',
+      'official of any government',
+      'civilian employee.*government',
+      'national, state, local, or foreign'
+    ]
   }
 ];
 
@@ -89,18 +207,86 @@ export function matchScreeningAnswer(
 
   for (const entry of answers) {
     if (labelMatchesScreening(cleanedLabel, entry)) {
+      if (entry.id === 'us-work-authorization' && profile.workAuthorization?.trim()) {
+        return profile.workAuthorization.trim();
+      }
+      if (entry.id === 'visa-sponsorship-needed' && profile.sponsorship?.trim()) {
+        return profile.sponsorship.trim();
+      }
+      if (entry.id === 'gender-identity' && profile.gender?.trim()) {
+        return profile.gender.trim();
+      }
+      if (entry.id === 'transgender-identity' && profile.transgender?.trim()) {
+        return profile.transgender.trim();
+      }
+      if (entry.id === 'racial-ethnic-background' && profile.raceEthnicity?.trim()) {
+        return profile.raceEthnicity.trim();
+      }
+      if (entry.id === 'sexual-orientation' && profile.sexualOrientation?.trim()) {
+        return profile.sexualOrientation.trim();
+      }
       return entry.answer;
     }
   }
 
-  if (/authorized to work/.test(cleanedLabel) && profile.workAuthorization?.trim()) {
+  if (/authorized to work|legally authorized|work authorization/.test(cleanedLabel) && profile.workAuthorization?.trim()) {
     return profile.workAuthorization.trim();
   }
-  if (/sponsor you for a visa|visa sponsorship|require.*sponsorship/.test(cleanedLabel)) {
+  if (
+    /require a visa sponsorship|sponsor you for a visa|visa sponsorship|require.*sponsorship|immigration-related employment benefit|commence.*sponsor.*immigration|employment-based visa status/.test(
+      cleanedLabel
+    )
+  ) {
     return profile.sponsorship?.trim() || undefined;
   }
 
   return undefined;
+}
+
+function slugifyQuestion(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '')
+    .slice(0, 48);
+}
+
+/** Remember a new ATS question on the profile when autofill could not fill it. */
+export function appendScreeningAnswerForLabel(
+  profile: UserProfile,
+  questionText: string,
+  answer: string,
+  canonicalKey?: 'workAuthorization' | 'sponsorship'
+): UserProfile {
+  const question = questionText.replace(/\*+$/, '').trim();
+  if (!question || !answer.trim()) return profile;
+
+  const existing = profile.screeningAnswers?.length
+    ? profile.screeningAnswers
+    : DEFAULT_SCREENING_ANSWERS.map((entry) => ({ ...entry }));
+
+  const normalized = normalizeQuestionText(question);
+  const alreadyKnown = existing.some((entry) => {
+    const entryNorm = normalizeQuestionText(entry.question);
+    return entryNorm === normalized || stringSimilarity(entryNorm, normalized) >= 0.82;
+  });
+  if (alreadyKnown) return profile;
+
+  const pattern = normalized.replace(/\s+/g, ' ').slice(0, 80);
+  const nextAnswers = [
+    ...existing,
+    {
+      id: `learned-${slugifyQuestion(question) || 'field'}`,
+      question,
+      answer: answer.trim(),
+      matchPatterns: [pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')]
+    }
+  ];
+
+  const next = syncProfileFromScreeningAnswers({ ...profile, screeningAnswers: nextAnswers });
+  if (canonicalKey === 'workAuthorization') next.workAuthorization = answer.trim();
+  if (canonicalKey === 'sponsorship') next.sponsorship = answer.trim();
+  return next;
 }
 
 export function mergeScreeningAnswers(
@@ -117,19 +303,29 @@ export function mergeScreeningAnswers(
   return [...byId.values()];
 }
 
+export function mergeDefaultScreeningAnswers(existing?: ScreeningAnswer[]): ScreeningAnswer[] {
+  return mergeScreeningAnswers(DEFAULT_SCREENING_ANSWERS, existing);
+}
+
 export function syncProfileFromScreeningAnswers(profile: UserProfile): UserProfile {
-  const answers = profile.screeningAnswers?.length
-    ? profile.screeningAnswers
-    : DEFAULT_SCREENING_ANSWERS;
+  let answers = mergeDefaultScreeningAnswers(profile.screeningAnswers).map((entry) => ({ ...entry }));
 
-  const byId = new Map(answers.map((entry) => [entry.id, entry.answer]));
-  const next = { ...profile };
-
-  if (byId.get('us-work-authorization')) {
-    next.workAuthorization = byId.get('us-work-authorization')!;
+  for (const [screeningId, profileField] of Object.entries(SCREENING_PROFILE_FIELD_LINKS)) {
+    const profileValue = profile[profileField]?.trim();
+    if (!profileValue) continue;
+    answers = answers.map((entry) =>
+      entry.id === screeningId ? { ...entry, answer: profileValue } : entry
+    );
   }
-  if (byId.get('visa-sponsorship-needed')) {
-    next.sponsorship = byId.get('visa-sponsorship-needed')!;
+
+  const next: UserProfile = { ...profile, screeningAnswers: answers };
+  const byId = new Map(answers.map((entry) => [entry.id, entry.answer]));
+
+  for (const [screeningId, profileField] of Object.entries(SCREENING_PROFILE_FIELD_LINKS)) {
+    const answer = byId.get(screeningId);
+    if (answer?.trim()) {
+      next[profileField] = answer.trim();
+    }
   }
 
   return next;

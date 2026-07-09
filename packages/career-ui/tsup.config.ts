@@ -6,5 +6,8 @@ export default defineConfig({
   dts: true,
   sourcemap: true,
   clean: true,
-  external: ["react", "react-dom"],
+  banner: {
+    js: "'use client';",
+  },
+  external: ["react", "react-dom", "@arsenal/ui", "framer-motion"],
 });

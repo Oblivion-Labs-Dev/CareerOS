@@ -34,7 +34,7 @@ export function getClientApiBaseUrl(): string {
   return process.env.NEXT_PUBLIC_API_URL || DEFAULT_API_BASE;
 }
 
-export async function postJson<T>(path: string, body: unknown, method: "POST" | "PATCH" | "DELETE" = "POST"): Promise<T> {
+export async function postJson<T>(path: string, body: unknown, method: "POST" | "PATCH" | "PUT" | "DELETE" = "POST"): Promise<T> {
   const res = await fetch(`${getClientApiBaseUrl()}${path}`, {
     method,
     headers: method === "DELETE" ? undefined : { "Content-Type": "application/json" },

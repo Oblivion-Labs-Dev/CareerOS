@@ -1,3 +1,5 @@
+import json
+from pathlib import Path
 from typing import Any, Generator
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -21,6 +23,8 @@ from app.db.store import (
     upsert_entity,
 )
 from app.services.extension_packager import build_extension_zip, extension_info
+from app.services.gmail_imap import GmailImapClient
+from app.services.gmail_sender import SendEmailPayload, build_gmail_sender
 from app.services.log_store import append_client_log, clear_client_logs, read_client_logs
 from app.services.resume_parser import parse_resume_into_profile
 
@@ -36,6 +40,26 @@ def require_legacy_sync_auth(request: Request) -> None:
     provided = request.headers.get("x-career-os-api-key", "")
     if provided != settings.career_os_api_key:
         raise HTTPException(status_code=401, detail="Invalid API key")
+
+
+def require_protected_action_auth(request: Request) -> None:
+    """Guard sensitive write actions when not in local dev mode."""
+    if settings.career_os_dev_mode:
+        return
+    if not settings.career_os_api_key:
+        raise HTTPException(status_code=503, detail="Action disabled until CAREER_OS_API_KEY is set")
+    provided = request.headers.get("x-career-os-api-key", "")
+    if provided != settings.career_os_api_key:
+        raise HTTPException(status_code=401, detail="Invalid API key")
+
+
+def require_gmail_configured() -> tuple[str, str]:
+    if not settings.gmail_user or not settings.gmail_app_password:
+        raise HTTPException(
+            status_code=503,
+            detail="Gmail is not configured. Set GMAIL_USER and GMAIL_APP_PASSWORD in apps/api/.env",
+        )
+    return settings.gmail_user, settings.gmail_app_password
 
 
 def db_session() -> Generator[Session, None, None]:
@@ -103,6 +127,15 @@ class ReferralPayload(BaseModel):
 
 class ReferralPatchPayload(BaseModel):
     patch: dict[str, Any]
+
+
+class ReferralAskMessagePayload(BaseModel):
+    message: str
+
+
+DEFAULT_REFERRAL_ASK_MESSAGE = """I hope you're doing well! I came across a job that aligns closely with my background and was wondering if you'd be open to referring me. I have 7+ years of experience at Microsoft and Amazon building distributed systems, AI infrastructure, and cloud-native platforms, and I've recently been focused on agentic AI and developer tooling.
+
+I believe my experience is a strong match for the role. If you're comfortable referring me, I'd really appreciate it. I've attached the job link and my resume for context. Thanks for taking the time to consider my request!"""
 
 
 @router.get("/health")
@@ -276,6 +309,25 @@ def list_referrals(db: Session = Depends(db_session)) -> dict[str, Any]:
     return {"referrals": list_entities(db, "referral")}
 
 
+@router.get("/referrals/ask-message")
+def get_referral_ask_message(db: Session = Depends(db_session)) -> dict[str, Any]:
+    stored = get_kv(db, "referral_ask_message")
+    message = stored if isinstance(stored, str) and stored.strip() else DEFAULT_REFERRAL_ASK_MESSAGE
+    return {"message": message}
+
+
+@router.put("/referrals/ask-message")
+def save_referral_ask_message(
+    payload: ReferralAskMessagePayload,
+    db: Session = Depends(db_session),
+) -> dict[str, Any]:
+    message = payload.message.strip()
+    if not message:
+        raise HTTPException(status_code=400, detail="Message cannot be empty")
+    set_kv(db, "referral_ask_message", message)
+    return {"success": True, "message": message}
+
+
 @router.post("/referrals")
 def create_referral(payload: ReferralPayload, db: Session = Depends(db_session)) -> dict[str, Any]:
     saved = upsert_entity(
@@ -313,6 +365,140 @@ def delete_referral(referral_id: str, db: Session = Depends(db_session)) -> dict
         raise HTTPException(status_code=404, detail="Referral contact not found")
     db.delete(row)
     return {"success": True}
+
+
+# Gmail / recruiter email (migrated from Arsenal scripts/email)
+@router.get("/email/verify")
+def verify_gmail_connection() -> dict[str, Any]:
+    user, app_password = require_gmail_configured()
+    sender = build_gmail_sender(user, app_password)
+    return {"success": sender.verify_connection(), "user": user}
+
+
+@router.post("/email/send")
+def send_email(payload: SendEmailPayload, request: Request) -> dict[str, Any]:
+    require_protected_action_auth(request)
+    user, app_password = require_gmail_configured()
+    sender = build_gmail_sender(user, app_password)
+    try:
+        result = sender.send(payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    return {"success": True, **result}
+
+
+@router.get("/email/recruiter-threads")
+def list_recruiter_threads(limit: int = Query(default=10, ge=1, le=150)) -> dict[str, Any]:
+    user, app_password = require_gmail_configured()
+    client = GmailImapClient(user, app_password)
+    threads = client.fetch_threads(limit=limit)
+    return {"success": True, "threads": threads, "count": len(threads)}
+
+
+@router.get("/email/recruiter-conversations")
+def get_cached_recruiter_conversations() -> dict[str, Any]:
+    path = Path(__file__).resolve().parents[2] / "data" / "recruiter_conversations.json"
+    if not path.exists():
+        return {"success": True, "conversations": [], "count": 0, "source": "cache-missing"}
+    conversations = json.loads(path.read_text(encoding="utf-8"))
+    return {"success": True, "conversations": conversations, "count": len(conversations), "source": str(path)}
+
+
+def _load_bounced_email_set() -> tuple[set[str], int]:
+    path = Path(__file__).resolve().parents[2] / "data" / "bounced_recruiter_emails.json"
+    if not path.exists():
+        return set(), 0
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    invalid = {str(item.get("email", "")).lower() for item in payload.get("invalidEmails", []) if item.get("email")}
+    return invalid, int(payload.get("bounceMessages", 0) or 0)
+
+
+def _compute_delivery_stats(results: list[dict[str, Any]], bounced: set[str]) -> dict[str, int]:
+    sent = [result for result in results if result.get("status") == "sent"]
+    failed = [result for result in results if result.get("status") == "failed"]
+    bounced_sent = [result for result in sent if str(result.get("email", "")).lower() in bounced]
+    invalid_in_list = {
+        str(result.get("email", "")).lower()
+        for result in results
+        if str(result.get("email", "")).lower() in bounced
+    }
+    return {
+        "delivered": len(sent) - len(bounced_sent),
+        "bounced": len(bounced_sent),
+        "undelivered": len(bounced_sent) + len(failed),
+        "invalid": len(invalid_in_list),
+        "sendFailed": len(failed),
+        "pending": len([result for result in results if result.get("status") in {"pending", "retrying", "paused"}]),
+    }
+
+
+def _enrich_outreach_result(result: dict[str, Any], bounced: set[str]) -> dict[str, Any]:
+    enriched = dict(result)
+    email = str(enriched.get("email", "")).lower()
+    status = enriched.get("status")
+    if status == "sent" and email in bounced:
+        enriched["deliveryStatus"] = "bounced"
+    elif status == "sent":
+        enriched["deliveryStatus"] = "delivered"
+    elif status == "failed":
+        enriched["deliveryStatus"] = "failed"
+    else:
+        enriched["deliveryStatus"] = "pending"
+    return enriched
+
+
+def _prepare_outreach_campaign(
+    campaign: dict[str, Any],
+    bounced: set[str],
+    bounce_messages: int,
+    recent_limit: int,
+) -> dict[str, Any]:
+    prepared = dict(campaign)
+    results = list(prepared.get("results") or [])
+    prepared["deliveryStats"] = {
+        **_compute_delivery_stats(results, bounced),
+        "bounceMessages": bounce_messages,
+    }
+    recent = sorted(
+        results,
+        key=lambda result: str(result.get("sentAt") or ""),
+        reverse=True,
+    )[:recent_limit]
+    prepared["results"] = [_enrich_outreach_result(result, bounced) for result in recent]
+    prepared["recentLimit"] = recent_limit
+    prepared["resultsTotal"] = len(results)
+    return prepared
+
+
+@router.get("/email/outreach-campaigns")
+def get_recruiter_outreach_campaigns(
+    limit: int = Query(default=20, ge=1, le=100),
+    recent_limit: int = Query(default=10, ge=1, le=100),
+) -> dict[str, Any]:
+    path = Path(__file__).resolve().parents[2] / "data" / "recruiter_outreach_campaigns.json"
+    if not path.exists():
+        return {"success": True, "campaigns": [], "count": 0, "source": "cache-missing"}
+    raw_campaigns = json.loads(path.read_text(encoding="utf-8"))
+    bounced, bounce_messages = _load_bounced_email_set()
+    full_campaigns = raw_campaigns[:limit]
+    campaigns = [
+        _prepare_outreach_campaign(campaign, bounced, bounce_messages, recent_limit)
+        for campaign in full_campaigns
+    ]
+    all_full_results = [result for campaign in full_campaigns for result in (campaign.get("results") or [])]
+    aggregate_stats = {
+        **_compute_delivery_stats(all_full_results, bounced),
+        "bounceMessages": bounce_messages,
+    }
+    return {
+        "success": True,
+        "campaigns": campaigns,
+        "count": len(campaigns),
+        "aggregateDeliveryStats": aggregate_stats,
+        "source": str(path),
+    }
 
 
 # Legacy extension compatibility

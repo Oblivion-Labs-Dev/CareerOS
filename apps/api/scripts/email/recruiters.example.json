@@ -1,0 +1,246 @@
+[
+  {
+    "company": "Salesforce",
+    "recruiters": [
+      { "name": "Steve Silva", "email": "steve.silva@salesforce.com" },
+      { "name": "Quincy Louis-DeShaun", "email": "qlouisdeshaun@slack-corp.com" },
+      { "name": "Karen Krieger", "email": "kkrieger@salesforce.com" },
+      { "name": "Victoria Perez", "email": "victoriaperez@salesforce.com" },
+      { "name": "Quincy Louis-DeShaun", "email": "qlouisdeshaun@salesforce.com" },
+      { "name": "Marcos Palacios", "email": "mpalacios@salesforce.com" }
+    ]
+  },
+  {
+    "company": "Whatnot",
+    "recruiters": [
+      { "name": "Jackie Ryan", "email": "jackie.ryan@whatnot.com" },
+      { "name": "Winnie Shu", "email": "winnie.shu@whatnot.com" },
+      { "name": "Lois Chen", "email": "lois.chen@whatnot.com" }
+    ]
+  },
+  {
+    "company": "Rippling",
+    "recruiters": [
+      { "name": "Jason Swint", "email": "jswint@rippling.com" },
+      { "name": "T Chakravarti", "email": "tchakravarti@rippling.com" },
+      { "name": "Sienna Knight", "email": "sienna.knight@rippling.com" }
+    ]
+  },
+  {
+    "company": "Uber",
+    "recruiters": [
+      { "name": "Julianna Lim", "email": "julianna.lim@uber.com" }
+    ]
+  },
+  {
+    "company": "Netflix",
+    "recruiters": [
+      { "name": "Amy Martin", "email": "amym@netflix.com" }
+    ]
+  },
+  {
+    "company": "Cash App",
+    "recruiters": [
+      { "name": "Kevin Wong", "email": "kevinwong@squareup.com" }
+    ]
+  },
+  {
+    "company": "Bloomberg",
+    "recruiters": [
+      { "name": "Michael Feinstein", "email": "mfeinstein7@bloomberg.net" }
+    ]
+  },
+  {
+    "company": "Brex",
+    "recruiters": [
+      { "name": "Christabel Asuncion", "email": "christabel@brex.com" }
+    ]
+  },
+  {
+    "company": "Roblox",
+    "recruiters": [
+      { "name": "Diana Lee", "email": "dianalee@roblox.com" }
+    ]
+  },
+  {
+    "company": "Coastal Recruiting",
+    "recruiters": [
+      { "name": "David Friedman", "email": "david@coastalrecruiting.co" }
+    ]
+  },
+  {
+    "company": "Doordash",
+    "recruiters": [
+      { "name": "Ronnie Lau", "email": "ronnie.lau@doordash.com" }
+    ]
+  },
+  {
+    "company": "Airbnb",
+    "recruiters": [
+      { "name": "Dania Reed", "email": "dania.reed@airbnb.com" }
+    ]
+  },
+  {
+    "company": "Liftoff",
+    "recruiters": [
+      { "name": "Gabriel Ang", "email": "gang@liftoff.io" },
+      { "name": "Jennifer Ho", "email": "jho@liftoff.io" }
+    ]
+  },
+  {
+    "company": "Chronosphere",
+    "recruiters": [
+      { "name": "Norel Halliday", "email": "norel@chronosphere.io" }
+    ]
+  },
+  {
+    "company": "Hopper",
+    "recruiters": [
+      { "name": "Ruth Ann Reason", "email": "rreason@hopper.com" }
+    ]
+  },
+  {
+    "company": "Remitly",
+    "recruiters": [
+      { "name": "Meghan Weisfield", "email": "meghanw@remitly.com" },
+      { "name": "Eleyna Montante", "email": "eleynam@remitly.com" },
+      { "name": "Joanna P", "email": "joannap@remitly.com" }
+    ]
+  },
+  {
+    "company": "Meta",
+    "recruiters": [
+      { "name": "Meenagaboya Arjun Kumar", "email": "arjumeenagaboya@meta.com" },
+      { "name": "Calvin Mason", "email": "calvinmason@meta.com" },
+      { "name": "Trevor Kitzes", "email": "trevkitz@meta.com" }
+    ]
+  },
+  {
+    "company": "Forward Networks",
+    "recruiters": [
+      { "name": "Trinie Thai", "email": "triniethai@forwardnetworks.com" }
+    ]
+  },
+  {
+    "company": "Sofi",
+    "recruiters": [
+      { "name": "Colton George", "email": "cgeorge@sofi.org" },
+      { "name": "Angela", "email": "annguyen@sofi.org" }
+    ]
+  },
+  {
+    "company": "Microsoft",
+    "recruiters": [
+      { "name": "Sadijah Wallace", "email": "sawallace@microsoft.com" },
+      { "name": "Leyna Vo", "email": "leynavo@microsoft.com" },
+      { "name": "James Taber", "email": "jamestaber@microsoft.com" },
+      { "name": "Mariam Malik", "email": "mariammalik@microsoft.com" },
+      { "name": "Gyanendra Pandey", "email": "Gyanendra.Pandey@microsoft.com" }
+    ]
+  },
+  {
+    "company": "Attentive",
+    "recruiters": [
+      { "name": "Haley Bisch", "email": "hbisch@attentivemobile.com" },
+      { "name": "Joyce Lao", "email": "jlao@attentivemobile.com" }
+    ]
+  },
+  {
+    "company": "Circle",
+    "recruiters": [
+      { "name": "Jordan Richardson", "email": "jordan.richardson@circle.com" }
+    ]
+  },
+  {
+    "company": "Upstart",
+    "recruiters": [
+      { "name": "Grace Etter", "email": "grace.etter@upstart.com" },
+      { "name": "Stephen Oholendt", "email": "stephen.oholendt@upstart.com" },
+      { "name": "Amanda Foiles", "email": "amanda.foiles@upstart.com" }
+    ]
+  },
+  {
+    "company": "Insight Global",
+    "recruiters": [
+      { "name": "Jessica Schwemley", "email": "Jessica.Schwemley@insightglobal.com" }
+    ]
+  },
+  {
+    "company": "Databricks",
+    "recruiters": [
+      { "name": "Kelly Guslani", "email": "kelly.guslani@databricks.com" }
+    ]
+  },
+  {
+    "company": "Stripe",
+    "recruiters": [
+      { "name": "Nick Deller", "email": "ndeller@stripe.com" },
+      { "name": "Anjali Shajan", "email": "anjalishajan@stripe.com" }
+    ]
+  },
+  {
+    "company": "Oracle",
+    "recruiters": [
+      { "name": "Shruthi Sindhe", "email": "shruthi.sindhe@oracle.com" },
+      { "name": "Ashley McLean", "email": "ashley.mclean@oracle.com" },
+      { "name": "Manikandan Padmanabhan", "email": "manikandan.padmanabhan@oracle.com" },
+      { "name": "Kaia Hunter", "email": "kaia.hunter@oracle.com" }
+    ]
+  },
+  {
+    "company": "Citizen",
+    "recruiters": [
+      { "name": "Madison Garshman", "email": "madison.garshman-c@citizen.com" }
+    ]
+  },
+  {
+    "company": "Sentry",
+    "recruiters": [
+      { "name": "Jose Martinez", "email": "jose.martinez@sentry.io" },
+      { "name": "Jocelyne Benito", "email": "jocelyne.benito@sentry.io" }
+    ]
+  },
+  {
+    "company": "Docusign",
+    "recruiters": [
+      { "name": "Bakr Brown", "email": "bakr.brown@docusign.com" },
+      { "name": "Shirly Mangal", "email": "shirly.mangal@docusign.com" }
+    ]
+  },
+  {
+    "company": "Coinbase",
+    "recruiters": [
+      { "name": "Molly OBrien", "email": "molly.obrien@coinbase.com" }
+    ]
+  },
+  {
+    "company": "FIS",
+    "recruiters": [
+      { "name": "Tanzeela Merchant", "email": "Tanzeela.Merchant@fisglobal.com" }
+    ]
+  },
+  {
+    "company": "Valve",
+    "recruiters": [
+      { "name": "Adil Sardar", "email": "adils@valvesoftware.com" }
+    ]
+  },
+  {
+    "company": "Lyft",
+    "recruiters": [
+      { "name": "Anastasia Horbach", "email": "ahorbach@lyft.com" }
+    ]
+  },
+  {
+    "company": "Google",
+    "recruiters": [
+      { "name": "Smitha Dhage", "email": "dhages@google.com" }
+    ]
+  },
+  {
+    "company": "Card Flight",
+    "recruiters": [
+      { "name": "Brooklyn Bentz", "email": "brooklyn.bentz@cardflight.com" }
+    ]
+  }
+]

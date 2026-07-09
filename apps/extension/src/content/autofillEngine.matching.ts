@@ -17,13 +17,20 @@ export const SYNONYMS: Record<string, string[]> = {
   'i am not a protected veteran': [
     'not a protected veteran',
     'non veteran',
-    'non-veteran'
+    'non-veteran',
+    'i am not a protected veteran.'
   ],
   "no, i don't have a disability": [
     "i don't have a disability",
     'no disability',
-    'do not have a disability'
+    'do not have a disability',
+    'no, i do not have a disability and have not had one in the past',
+    'no, i do not have a disability and have not had one in the past.'
   ],
+  male: ['man'],
+  female: ['woman'],
+  'not hispanic or latino': ['no', 'not hispanic/latino', 'not hispanic', 'non hispanic'],
+  'asian (not hispanic or latino)': ['south asian', 'asian'],
   'no - i do not consent to receiving text messages': [
     'no - i do not consent',
     'do not consent to receiving text messages',
@@ -104,15 +111,45 @@ export function matchesRadioOption(optionLabel: string, value: string): boolean 
 }
 
 export function matchesCustomOption(optionText: string, value: string): boolean {
+  return scoreSelectOptionMatch(optionText, value) >= 75;
+}
+
+/** Score how well a dropdown option matches a profile value (0 = no match). */
+export function scoreSelectOptionMatch(optionText: string, profileValue: string): number {
   const text = normalizeMatchText(optionText);
-  const valLower = normalizeMatchText(value);
-  if (!text || !valLower) return false;
-  if (text === valLower) return true;
-  if (matchesStateOption(text, valLower)) return true;
-  if (pronounSetsMatch(text, valLower)) return true;
-  if (isSynonymMatch(text, valLower)) return true;
-  if (isPreferNotToAnswer(valLower) && /just use (my )?name/i.test(text)) return true;
-  if (matchesLocationOption(text, value)) return true;
-  if (valLower.length >= 4 && text.includes(valLower)) return true;
-  return false;
+  const val = normalizeMatchText(profileValue);
+  if (!text || !val) return 0;
+  if (text === val) return 100;
+
+  if (matchesStateOption(text, val)) return 95;
+  if (pronounSetsMatch(text, val)) return 95;
+  if (isSynonymMatch(text, val)) {
+    if (text.includes(val) && val.length >= 10) return 92;
+    if (val.includes(text) && text.length >= 10) return 90;
+    return 85;
+  }
+  if (isPreferNotToAnswer(val) && /just use (my )?name/i.test(text)) return 85;
+  if (matchesLocationOption(text, profileValue)) return 80;
+
+  if (val.length >= 8 && text.includes(val)) return 55;
+  if (text.length >= 8 && val.includes(text)) return 50;
+  if (val.length >= 4 && text.startsWith(val)) return 45;
+
+  return 0;
+}
+
+export function pickBestMatchingOptionText(options: string[], profileValue: string): string | undefined {
+  let best: { text: string; score: number } | undefined;
+
+  for (const option of options) {
+    const trimmed = option.replace(/\s+/g, ' ').trim();
+    if (!trimmed) continue;
+    const score = scoreSelectOptionMatch(trimmed, profileValue);
+    if (score <= 0) continue;
+    if (!best || score > best.score || (score === best.score && trimmed.length > best.text.length)) {
+      best = { text: trimmed, score };
+    }
+  }
+
+  return best?.text;
 }

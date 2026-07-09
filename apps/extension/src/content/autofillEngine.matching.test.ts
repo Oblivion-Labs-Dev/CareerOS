@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { matchesCustomOption, isSynonymMatch, matchesRadioOption } from './autofillEngine.matching';
+import { matchesCustomOption, isSynonymMatch, matchesRadioOption, scoreSelectOptionMatch, pickBestMatchingOptionText } from './autofillEngine.matching';
 import { APPLICATION_FIELD_DEFAULTS } from '../shared/applicationDefaults';
 
 describe('dropdown option matching', () => {
@@ -26,6 +26,31 @@ describe('dropdown option matching', () => {
   it('matches Rippling veteran and disability default answers', () => {
     expect(matchesCustomOption('I am not a protected veteran', APPLICATION_FIELD_DEFAULTS.veteran)).toBe(true);
     expect(matchesCustomOption("No, I don't have a disability", APPLICATION_FIELD_DEFAULTS.disability)).toBe(true);
+    expect(
+      matchesCustomOption(
+        'No, I do not have a disability and have not had one in the past.',
+        APPLICATION_FIELD_DEFAULTS.disability
+      )
+    ).toBe(true);
+  });
+
+  it('picks the best dropdown option instead of partial text matches', () => {
+    const options = ['Male', 'Female', 'Decline to Self Identify'];
+    expect(pickBestMatchingOptionText(options, 'Man')).toBe('Male');
+    expect(pickBestMatchingOptionText(['Not Hispanic or Latino', 'Hispanic or Latino'], 'No')).toBe(
+      'Not Hispanic or Latino'
+    );
+    expect(
+      pickBestMatchingOptionText(
+        ['Asian (Not Hispanic or Latino)', 'White (Not Hispanic or Latino)'],
+        'South Asian'
+      )
+    ).toBe('Asian (Not Hispanic or Latino)');
+  });
+
+  it('scores weak substring matches below selection threshold', () => {
+    expect(scoreSelectOptionMatch('Male', 'Man')).toBeGreaterThanOrEqual(75);
+    expect(scoreSelectOptionMatch('Management', 'Man')).toBeLessThan(75);
   });
 
   it('matches pronoun sets regardless of order or separators', () => {

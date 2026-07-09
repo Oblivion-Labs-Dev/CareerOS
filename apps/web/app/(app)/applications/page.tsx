@@ -1,5 +1,12 @@
 import Link from "next/link";
-import { fetchHealth, fetchJson, getApiBaseUrl } from "@/lib/api";
+import nextDynamic from "next/dynamic";
+import { BackendRequiredBanner } from "@/components/backend-required-banner";
+import { fetchJson } from "@/lib/api";
+
+const ApplicationTrackerRefresh = nextDynamic(
+  () => import("@/components/application-tracker-refresh").then((mod) => mod.ApplicationTrackerRefresh),
+  { loading: () => <p className="muted">Loading live tracker…</p> },
+);
 
 interface TrackerApplication {
   id?: string;
@@ -8,8 +15,14 @@ interface TrackerApplication {
   companyName?: string;
   company?: string;
   status?: string;
+  location?: string;
+  platform?: string;
+  source?: string;
+  url?: string;
+  notes?: string;
   createdAt?: string;
   updatedAt?: string;
+  submittedAt?: string;
   nextFollowUpAt?: string;
 }
 
@@ -58,14 +71,33 @@ function formatDate(value?: string) {
   if (!value) return "No date";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "No date";
-  return new Intl.DateTimeFormat("en", { month: "short", day: "numeric" }).format(date);
+  return new Intl.DateTimeFormat("en", { month: "short", day: "numeric", year: "numeric" }).format(date);
 }
 
+function appSortDate(app: TrackerApplication) {
+  return String(app.submittedAt || app.updatedAt || app.createdAt || "");
+}
+
+function appCompany(app: TrackerApplication) {
+  return app.companyName || app.company || "Unknown company";
+}
+
+function appRole(app: TrackerApplication) {
+  return app.roleTitle || app.title || "Unknown role";
+}
+
+function appUrl(app: TrackerApplication) {
+  const url = app.url || app.notes;
+  if (!url || !/^https?:\/\//i.test(url)) return undefined;
+  return url;
+}
+
+export const dynamic = "force-dynamic";
+
 export default async function ApplicationsPage() {
-  const [health, snapshot] = await Promise.all([
-    fetchHealth().catch(() => ({ status: "offline" })),
-    fetchJson<TrackerSnapshot>("/tracker/summary").catch((): TrackerSnapshot => ({})),
-  ]);
+  const snapshot = await fetchJson<TrackerSnapshot>("/tracker/summary", { revalidate: false }).catch(
+    (): TrackerSnapshot => ({}),
+  );
 
   const applications = snapshot.applications || [];
   const jobsCount = snapshot.jobsCount ?? 0;
@@ -73,14 +105,17 @@ export default async function ApplicationsPage() {
   const learnedAnswersCount = snapshot.learnedAnswersCount ?? 0;
   const sessionsCount = snapshot.sessionsCount ?? 0;
   const counts = countStatus(applications);
+  const submittedApplications = [...applications]
+    .filter((app) => app.status === "submitted")
+    .sort((a, b) => appSortDate(b).localeCompare(appSortDate(a)));
   const recentApplications = [...applications]
-    .sort((a, b) => String(b.updatedAt || b.createdAt || "").localeCompare(String(a.updatedAt || a.createdAt || "")))
+    .sort((a, b) => appSortDate(b).localeCompare(appSortDate(a)))
     .slice(0, 8);
-  const online = health.status === "ok";
-
   return (
     <div className="page-content apply-dashboard">
-      <section className="apply-dashboard-hero">
+      <BackendRequiredBanner />
+
+      <section className="apply-dashboard-hero apply-dashboard-hero--single">
         <div>
           <span className="toc-eyebrow">Application Tracker</span>
           <h1>One place for the application pipeline.</h1>
@@ -88,13 +123,6 @@ export default async function ApplicationsPage() {
             Track saved jobs, ApplyPilot submissions, autofill memory, follow-ups, and outcomes from the Python
             backend without splitting the same work across separate dashboard pages.
           </p>
-        </div>
-        <div className="api-status-card">
-          <span className={`api-status-dot ${online ? "api-status-dot--online" : ""}`} />
-          <div>
-            <strong>{online ? "Backend online" : "Backend offline"}</strong>
-            <span>{getApiBaseUrl()}</span>
-          </div>
         </div>
       </section>
 
@@ -120,6 +148,46 @@ export default async function ApplicationsPage() {
           <p>{sessionsCount} ApplyPilot sessions</p>
         </div>
       </section>
+
+      <ApplicationTrackerRefresh />
+
+      {submittedApplications.length ? (
+        <section className="dashboard-panel">
+          <div className="dashboard-panel-header">
+            <div>
+              <span className="toc-card-kicker">Submitted</span>
+              <h2>Application widgets</h2>
+              <p className="muted dashboard-panel-copy">
+                Each Submit click from ApplyPilot creates a separate card with company, role, platform, and date.
+              </p>
+            </div>
+          </div>
+          <div className="application-widget-grid">
+            {submittedApplications.map((app, index) => {
+              const href = appUrl(app);
+              return (
+                <article className="application-widget-card" key={app.id || `${appCompany(app)}-${index}`}>
+                  <div className="application-widget-card-top">
+                    {app.platform ? <span className="application-widget-platform">{app.platform}</span> : null}
+                    <time dateTime={app.submittedAt || app.updatedAt}>{formatDate(app.submittedAt || app.updatedAt || app.createdAt)}</time>
+                  </div>
+                  <h3>{appCompany(app)}</h3>
+                  <p className="application-widget-role">{appRole(app)}</p>
+                  {app.location ? <p className="application-widget-location">{app.location}</p> : null}
+                  <div className="application-widget-footer">
+                    <span className="phase-pill">submitted</span>
+                    {href ? (
+                      <a href={href} target="_blank" rel="noreferrer" className="application-widget-link">
+                        View posting
+                      </a>
+                    ) : null}
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        </section>
+      ) : null}
 
       <section className="dashboard-layout">
         <article className="dashboard-panel dashboard-panel--wide">
@@ -188,20 +256,24 @@ export default async function ApplicationsPage() {
         {recentApplications.length ? (
           <div className="dashboard-list">
             {recentApplications.map((app, index) => (
-              <div className="dashboard-list-row" key={app.id || `${app.companyName}-${index}`}>
+              <div className="dashboard-list-row" key={app.id || `${appCompany(app)}-${index}`}>
                 <div>
-                  <h3>{app.roleTitle || app.title || "Unknown role"}</h3>
-                  <span>{app.companyName || app.company || "Unknown company"}</span>
+                  <h3>{appRole(app)}</h3>
+                  <span>{appCompany(app)}</span>
                 </div>
                 <div className="dashboard-row-meta">
                   <span className="phase-pill">{app.status || "saved"}</span>
-                  <small>{formatDate(app.updatedAt || app.createdAt)}</small>
+                  <small>{formatDate(app.submittedAt || app.updatedAt || app.createdAt)}</small>
+                  {app.platform ? <small>{app.platform}</small> : null}
                 </div>
               </div>
             ))}
           </div>
         ) : (
-          <p className="muted dashboard-empty">Save an application from ApplyPilot to start the tracker.</p>
+          <p className="muted dashboard-empty">
+            Save or submit an application from ApplyPilot to start the tracker. After autofill, submit on the job site,
+            then click <strong>Submit</strong> on the floating widget so company and date appear here.
+          </p>
         )}
       </section>
     </div>

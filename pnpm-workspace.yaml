@@ -4,6 +4,8 @@ packages:
   - "../Arsenal/packages/shared"
   - "../Arsenal/packages/logging"
   - "../Arsenal/packages/telemetry"
+  - "../Arsenal/packages/ui"
+  - "../Arsenal/packages/motion"
 allowBuilds:
   esbuild: true
   sharp: true

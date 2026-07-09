@@ -1,16 +1,19 @@
-import type { FeaturePriority, FeatureStatus } from "@career-os/core";
+"use client";
 
-const statusClass: Record<FeatureStatus, string> = {
-  planned: "cos-badge--planned",
-  "in-progress": "cos-badge--progress",
-  done: "cos-badge--done",
+import type { FeaturePriority, FeatureStatus } from "@career-os/core";
+import { Badge, GlassCard } from "@arsenal/ui";
+
+const statusVariant: Record<FeatureStatus, "planned" | "progress" | "done"> = {
+  planned: "planned",
+  "in-progress": "progress",
+  done: "done",
 };
 
-const priorityClass: Record<FeaturePriority, string> = {
-  P0: "cos-badge--p0",
-  P1: "cos-badge--p1",
-  P2: "cos-badge--p2",
-  P3: "cos-badge--p3",
+const priorityVariant: Record<FeaturePriority, "p0" | "p1" | "p2" | "p3"> = {
+  P0: "p0",
+  P1: "p1",
+  P2: "p2",
+  P3: "p3",
 };
 
 export interface StatusBadgeProps {
@@ -18,7 +21,7 @@ export interface StatusBadgeProps {
 }
 
 export function StatusBadge({ status }: StatusBadgeProps) {
-  return <span className={`cos-badge ${statusClass[status]}`}>{status.replace("-", " ")}</span>;
+  return <Badge variant={statusVariant[status]}>{status.replace("-", " ")}</Badge>;
 }
 
 export interface PriorityBadgeProps {
@@ -26,7 +29,7 @@ export interface PriorityBadgeProps {
 }
 
 export function PriorityBadge({ priority }: PriorityBadgeProps) {
-  return <span className={`cos-badge ${priorityClass[priority]}`}>{priority}</span>;
+  return <Badge variant={priorityVariant[priority]}>{priority}</Badge>;
 }
 
 export interface FeatureCardProps {
@@ -49,52 +52,24 @@ export function FeatureCard({
   technicalNotes,
 }: FeatureCardProps) {
   return (
-    <article className="cos-feature-card">
-      <div style={{ display: "flex", justifyContent: "space-between", gap: "0.5rem", flexWrap: "wrap" }}>
-        <h3>{title}</h3>
-        <div className="cos-badge-row">
+    <GlassCard className="flex flex-col gap-3">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <h3 className="text-base font-semibold">{title}</h3>
+        <div className="flex flex-wrap gap-1.5">
           <PriorityBadge priority={priority} />
           <StatusBadge status={status} />
         </div>
       </div>
-      <p>{description}</p>
-      <div className="cos-feature-meta">{module}</div>
-      {dependencies.length > 0 && <div className="cos-feature-deps">Depends on: {dependencies.join(", ")}</div>}
-      <p className="cos-feature-notes">{technicalNotes}</p>
-    </article>
+      <p className="text-sm text-arsenal-secondary">{description}</p>
+      <div className="text-xs text-arsenal-muted">{module}</div>
+      {dependencies.length > 0 && (
+        <div className="text-xs text-arsenal-muted">Depends on: {dependencies.join(", ")}</div>
+      )}
+      <p className="text-xs text-arsenal-muted">{technicalNotes}</p>
+    </GlassCard>
   );
 }
 
-export interface PageHeaderProps {
-  title: string;
-  subtitle?: string;
-  actions?: React.ReactNode;
-}
-
-export function PageHeader({ title, subtitle, actions }: PageHeaderProps) {
-  return (
-    <header className="cos-page-header">
-      <div>
-        <h1>{title}</h1>
-        {subtitle && <p>{subtitle}</p>}
-      </div>
-      {actions}
-    </header>
-  );
-}
-
-export interface StatCardProps {
-  label: string;
-  value: string | number;
-  hint?: string;
-}
-
-export function StatCard({ label, value, hint }: StatCardProps) {
-  return (
-    <div className="cos-stat-card">
-      <div className="cos-stat-label">{label}</div>
-      <div className="cos-stat-value">{value}</div>
-      {hint && <div className="cos-stat-hint">{hint}</div>}
-    </div>
-  );
-}
+export { PageHeader, StatCard } from "@arsenal/ui";
+export type { PageHeaderProps } from "@arsenal/ui";
+export type { StatCardProps } from "@arsenal/ui";

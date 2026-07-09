@@ -216,7 +216,7 @@ export const ROADMAP_FEATURES: RoadmapFeature[] = [
     module: "Recruiter CRM",
     phase: 3,
     dependencies: ["application-tracker"],
-    technicalNotes: "Email scripts from Arsenal scripts/email to migrate later.",
+    technicalNotes: "Gmail send + IMAP recruiter sync live in apps/api (docs/email.md).",
   },
   {
     id: "interview-prep",

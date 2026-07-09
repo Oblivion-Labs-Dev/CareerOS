@@ -1,4 +1,5 @@
 import { WorkflowPage } from "@/components/scaffold-page";
+import { BackendRequiredBanner } from "@/components/backend-required-banner";
 import { fetchJson } from "@/lib/api";
 import type { UserProfile } from "@career-os/core";
 
@@ -62,7 +63,11 @@ export default async function ProfilePage() {
   const rawJson = JSON.stringify(profile, null, 2);
 
   return (
-    <WorkflowPage
+    <>
+      <div className="page-content">
+        <BackendRequiredBanner />
+      </div>
+      <WorkflowPage
       title="Profile"
       eyebrow="Foundation"
       subtitle="The saved ApplyPilot profile JSON used to answer forms, screeners, and repeated application questions."
@@ -174,5 +179,6 @@ export default async function ProfilePage() {
         </article>
       </section>
     </WorkflowPage>
+    </>
   );
 }

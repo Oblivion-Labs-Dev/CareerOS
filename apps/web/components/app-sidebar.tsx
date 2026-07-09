@@ -2,42 +2,22 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { BackendIcon } from "@/components/backend-icon";
+import { BackendNavTooltip } from "@/components/backend-nav-tooltip";
 import { ThemeToggle } from "@/components/ui/theme-toggle";
-
-const NAV_GROUPS = [
-  {
-    label: "Overview",
-    items: [{ href: "/roadmap", label: "Roadmap", icon: "R" }],
-  },
-  {
-    label: "Foundation",
-    items: [
-      { href: "/profile", label: "Profile", icon: "P" },
-      { href: "/referrals", label: "Referrals", icon: "R" },
-      { href: "/resumes", label: "Documents", icon: "D" },
-      { href: "/settings", label: "Settings", icon: "S" },
-    ],
-  },
-  {
-    label: "Apply",
-    items: [
-      { href: "/apply-pilot", label: "ApplyPilot", icon: "AP" },
-      { href: "/applications", label: "Application Tracker", icon: "AT" },
-      { href: "/jobs", label: "Jobs", icon: "J" },
-    ],
-  },
-  {
-    label: "Grow",
-    items: [
-      { href: "/networking", label: "Contacts", icon: "C" },
-      { href: "/interviews", label: "Interviews", icon: "I" },
-      { href: "/analytics", label: "Analytics", icon: "AN" },
-    ],
-  },
-];
+import { useBackendStatus } from "@/hooks/use-backend-status";
+import { NAV_GROUPS } from "@/lib/nav-config";
 
 export function AppSidebar() {
   const pathname = usePathname();
+  const backendOnline = useBackendStatus();
+
+  const legendText =
+    backendOnline === true
+      ? "Backend connected"
+      : backendOnline === false
+        ? "Backend offline — start API server"
+        : "Checking backend…";
 
   return (
     <aside className="sidebar">
@@ -53,23 +33,36 @@ export function AppSidebar() {
         {NAV_GROUPS.map((group) => (
           <div className="nav-group" key={group.label}>
             <div className="nav-group-label">{group.label}</div>
-            {group.items.map((item) => (
-              <Link
-                key={item.href}
-                href={item.href}
-                className={`nav-link${pathname === item.href ? " active" : ""}`}
-                prefetch
-              >
-                <span className="nav-icon" aria-hidden>
-                  {item.icon}
-                </span>
-                {item.label}
-              </Link>
-            ))}
+            {group.items.map((item) => {
+              const isActive =
+                pathname === item.href || (item.href !== "/" && pathname.startsWith(`${item.href}/`));
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  className={`nav-link${isActive ? " active" : ""}`}
+                  prefetch
+                  title={item.label}
+                >
+                  <span className="nav-icon" aria-hidden>
+                    {item.icon}
+                  </span>
+                  <span className="nav-link-label">{item.label}</span>
+                  {item.requiresBackend ? <BackendNavTooltip online={backendOnline} /> : null}
+                </Link>
+              );
+            })}
           </div>
         ))}
       </nav>
       <div className="sidebar-footer">
+        <p
+          className={`sidebar-backend-legend${backendOnline ? " sidebar-backend-legend--online" : ""}`}
+          title={legendText}
+        >
+          <BackendIcon className="sidebar-backend-legend-icon" title="" />
+          {legendText}
+        </p>
         <Link href="/" className="btn-ghost" style={{ width: "100%", justifyContent: "center" }}>
           Back to home
         </Link>

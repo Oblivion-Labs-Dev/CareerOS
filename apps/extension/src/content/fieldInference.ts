@@ -1,11 +1,42 @@
-import { ScannedField, getLabelText } from './domScanner';
+import { ScannedField, getLabelText, getFieldGroupQuestion } from './domScanner';
 import { UserProfile } from '../shared/types';
 import { APPLICATION_FIELD_DEFAULTS } from '../shared/applicationDefaults';
+import {
+  resolveDisabilitySelectValue,
+  resolveEthnicGroupSelectValue,
+  resolveGenderSelectValue,
+  resolveRaceSelectValue,
+  resolveVeteranSelectValue
+} from '../shared/eeoFillValues';
 import { stringSimilarity } from '../learning/fuzzyMatcher';
 import { resolvePronounFillValue } from './autofillEngine.matching';
 import { preferredStateFillValue, parseLocationParts } from '../shared/usStates';
 import { resolveMostRecentEmployer } from '../shared/workExperience';
 import { matchScreeningAnswer } from '../shared/screeningAnswers';
+
+const OPTION_LABEL_RE = /^(yes|no|true|false)$/i;
+const MAX_GROUP_QUESTION_LENGTH = 600;
+
+/** Yes/no or long-form ATS screening prompts — not address/state fields. */
+export function isScreeningQuestionLabel(text: string): boolean {
+  const normalized = text.replace(/\*+$/, '').replace(/\s+/g, ' ').trim();
+  if (!normalized) return false;
+  if (/^(are you|do you|have you|will you|did you|can you|please indicate)\b/i.test(normalized)) {
+    return true;
+  }
+  if (
+    normalized.length > 80 &&
+    /(are you|do you|have you|will you|member of|belong to|authorized|sponsorship|veteran|disability|government|military)/i.test(
+      normalized
+    )
+  ) {
+    return true;
+  }
+  if (/\?/.test(normalized) && /(are you|do you|have you|will you|willing to|require)/i.test(normalized)) {
+    return true;
+  }
+  return false;
+}
 
 export const RIPPLING_DATA_INPUT_MAP: Record<string, (profile: UserProfile) => string | undefined> = {
   first_name: (p) => p.firstName,
@@ -41,7 +72,7 @@ export function getRipplingDataInput(element: HTMLElement): string {
 
 export function resolveFieldLabel(field: ScannedField, doc?: Document): string {
   const direct = (field.labelText || '').trim();
-  if (direct && !/^(search|textbox|select\.\.\.|select)$/i.test(direct)) {
+  if (direct && !OPTION_LABEL_RE.test(direct) && !/^(search|textbox|select\.\.\.|select)$/i.test(direct)) {
     return direct.replace(/\*+$/, '').trim();
   }
 
@@ -50,9 +81,18 @@ export function resolveFieldLabel(field: ScannedField, doc?: Document): string {
     field.element?.ownerDocument ??
     (typeof globalThis.document !== 'undefined' ? globalThis.document : undefined);
 
+  if (rootDoc && (field.type === 'radio' || field.type === 'checkbox')) {
+    const groupQuestion = getFieldGroupQuestion(field.element, rootDoc);
+    if (groupQuestion) return groupQuestion;
+  }
+
   if (rootDoc) {
     const fromElement = getLabelText(field.element, rootDoc);
-    if (fromElement && !/^(search|textbox|select\.\.\.|select)$/i.test(fromElement)) {
+    if (
+      fromElement &&
+      !OPTION_LABEL_RE.test(fromElement) &&
+      !/^(search|textbox|select\.\.\.|select)$/i.test(fromElement)
+    ) {
       return fromElement.replace(/\*+$/, '').trim();
     }
   }
@@ -63,8 +103,9 @@ export function resolveFieldLabel(field: ScannedField, doc?: Document): string {
       if (child === field.element || child.contains(field.element)) continue;
       const text = child.textContent?.replace(/\s+/g, ' ').trim() || '';
       if (
-        text.length > 2 &&
-        text.length < 100 &&
+        text.length > 12 &&
+        text.length < MAX_GROUP_QUESTION_LENGTH &&
+        !OPTION_LABEL_RE.test(text) &&
         !/^(search|textbox|select\.\.\.|select)$/i.test(text)
       ) {
         return text.replace(/\*+$/, '').trim();
@@ -117,25 +158,54 @@ function valueFromRipplingAttribute(field: ScannedField, profile: UserProfile): 
   return '';
 }
 
-function parseLocationPartsFromProfile(location: string): { city: string; state: string } {
+function parseLocationPartsFromProfile(location: string): { city: string; state: string; zip: string } {
   return parseLocationParts(location);
+}
+
+/** Phone dial-code dropdowns (e.g. Qualtrics "Country" field above Phone). */
+export function isPhoneCountryLabel(label: string): boolean {
+  const normalized = label.replace(/\*+$/, '').replace(/\s+/g, ' ').trim().toLowerCase();
+  if (/country code|dial code|phone country|calling code/.test(normalized)) return true;
+  return normalized === 'country';
+}
+
+export function resolvePhoneCountryFillValue(profile: UserProfile): string {
+  return profile.phoneCountryCode?.trim() || APPLICATION_FIELD_DEFAULTS.phoneCountryCode;
 }
 
 function valueFromLabelHeuristics(label: string, profile: UserProfile): string {
   const l = label.toLowerCase();
-  const { city, state } = parseLocationPartsFromProfile(profile.location || '');
+  const { city, state, zip } = parseLocationPartsFromProfile(profile.location || '');
+
+  if (isScreeningQuestionLabel(label)) {
+    return matchScreeningAnswer(label, profile) || '';
+  }
+
   if (/first\s*name|given\s*name/.test(l)) return profile.firstName;
   if (/last\s*name|family\s*name|surname/.test(l)) return profile.lastName;
+  if (/legal\s*name|full\s*name/.test(l)) {
+    return profile.fullName || `${profile.firstName || ''} ${profile.lastName || ''}`.trim();
+  }
+  if (/preferred\s*name|name\s*you\s*go\s*by/.test(l)) {
+    return profile.preferredName || profile.fullName;
+  }
   if (/email/.test(l)) return profile.email;
   if (/phone|mobile|telephone/.test(l)) return profile.phone;
   if (/address\s*line\s*2|apt|suite|unit\b/.test(l)) return '';
+  if (/^address$/i.test(l.trim()) || (/^address\b/i.test(l) && !/line\s*2/.test(l))) {
+    return profile.customFields?.addressLine1 || profile.customFields?.street || '';
+  }
   if (/address\s*line\s*1|street|mailing\s*address/.test(l)) {
     return profile.customFields?.addressLine1 || profile.customFields?.street || '';
   }
-  if (/\bcity\b/.test(l)) return city || profile.location;
-  if (/\bstate\b|province/.test(l)) return preferredStateFillValue(state);
-  if (/zip|postal/.test(l)) return profile.customFields?.zip || profile.customFields?.postalCode || '';
-  if (/location|residence|work location|where.*live/.test(l)) return profile.location;
+  if (/\bcity\b/.test(l)) return profile.customFields?.city || city || profile.location;
+  if ((/\bstate\b|province/.test(l)) && !isScreeningQuestionLabel(label)) {
+    return preferredStateFillValue(profile.customFields?.state || state);
+  }
+  if (/zip|postal/.test(l)) return profile.customFields?.zip || profile.customFields?.postalCode || zip;
+  if (isPhoneCountryLabel(label)) return resolvePhoneCountryFillValue(profile);
+  if (/country|region of residence/.test(l)) return profile.customFields?.country || 'United States';
+  if (/location|residence|work location|where.*live|currently located|where.*located/.test(l)) return profile.location;
   if (/linkedin/.test(l)) return profile.linkedin;
   if (/website|portfolio/.test(l)) return profile.portfolio;
   if (/github/.test(l)) return profile.github;
@@ -144,16 +214,29 @@ function valueFromLabelHeuristics(label: string, profile: UserProfile): string {
   }
   if (/current\s*company|employer/.test(l)) return resolveMostRecentEmployer(profile);
   if (/pronoun/.test(l)) return resolvePronounFillValue(profile.pronouns);
-  if (/hispanic|latino/.test(l)) return profile.hispanic || APPLICATION_FIELD_DEFAULTS.hispanic;
-  if (/\bgender\b/.test(l)) return profile.gender || APPLICATION_FIELD_DEFAULTS.gender;
-  if (/veteran/.test(l)) return profile.veteran || APPLICATION_FIELD_DEFAULTS.veteran;
-  if (/disability/.test(l)) return profile.disability || APPLICATION_FIELD_DEFAULTS.disability;
-  if (/race|ethnicity/.test(l)) return profile.raceEthnicity || APPLICATION_FIELD_DEFAULTS.raceEthnicity;
+  if (/hispanic|latino|ethnic group/.test(l) && !/race/.test(l)) {
+    return resolveEthnicGroupSelectValue(profile.hispanic);
+  }
+  if (/\bgender\b/.test(l) && !/identity|transgender|sexual/.test(l)) {
+    return resolveGenderSelectValue(profile.gender);
+  }
+  if (/transgender/.test(l)) return profile.transgender || APPLICATION_FIELD_DEFAULTS.transgender;
+  if (/sexual orientation/.test(l)) {
+    return profile.sexualOrientation || APPLICATION_FIELD_DEFAULTS.sexualOrientation;
+  }
+  if (/protected veteran|veteran status|categories of protected veterans/.test(l)) {
+    return resolveVeteranSelectValue(profile.veteran);
+  }
+  if (/disability|form cc-305|cc-305/.test(l)) {
+    return resolveDisabilitySelectValue(profile.disability);
+  }
+  if (/veteran/.test(l)) return resolveVeteranSelectValue(profile.veteran);
+  if (/race|ethnicity/.test(l)) return resolveRaceSelectValue(profile.raceEthnicity, profile.hispanic);
   if (/text\s*message|sms|consent/.test(l)) return profile.smsConsent || APPLICATION_FIELD_DEFAULTS.smsConsent;
   if (/years.*experience|experience\s*level/.test(l)) return profile.yearsExperience;
   if (/salary|compensation/.test(l)) return profile.salaryExpectations;
-  if (/authorized|right\s*to\s*work/.test(l)) return profile.workAuthorization;
-  if (/sponsor|visa/.test(l)) return profile.sponsorship;
+  if (/authorized|right\s*to\s*work|legally authorized|work authorization/.test(l)) return profile.workAuthorization;
+  if (/sponsor|visa|immigration-related employment benefit|require.*sponsorship/.test(l)) return profile.sponsorship;
   return '';
 }
 
@@ -166,7 +249,7 @@ export function inferRemainingValue(
   const label = resolveFieldLabel(field);
 
   const fromScreening = matchScreeningAnswer(label, profile, company);
-  if (fromScreening && (field.type === 'select' || field.type === 'radio')) {
+  if (fromScreening && (field.type === 'select' || field.type === 'radio' || field.type === 'checkbox')) {
     return {
       value: fromScreening,
       reason: 'Profile screening answer',

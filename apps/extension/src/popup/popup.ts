@@ -13,6 +13,7 @@ import { syncFromServer, syncToServer } from '../db/sync';
 import { SCAN_MESSAGES, AUTOFILL_MESSAGES, cycleMessages } from '../shared/loadingMessages';
 import { logToServer, logAutofillResult } from '../shared/serverLog';
 import { createOperationId, endTrace, failTrace, startTrace } from '../shared/actionTrace';
+import { markApplicationSubmitted } from '../shared/trackApplicationSubmit';
 
 function setStatusDot(state: 'idle' | 'scanning' | 'ready' | 'busy') {
   const dot = document.getElementById('status-dot');
@@ -98,6 +99,14 @@ function setFieldCount(count: number) {
   } else {
     badge.style.display = 'none';
   }
+}
+
+function escapePopupHtml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
 }
 let currentScannedFields: any[] = [];
 let detectedCompany = '';
@@ -282,6 +291,43 @@ async function initPopup() {
 
   // Autofill Approved
   const btnAutofill = document.getElementById('btn-autofill');
+  const btnMarkSubmitted = document.getElementById('btn-mark-submitted');
+
+  btnMarkSubmitted?.addEventListener('click', async () => {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (!tab?.url) return;
+
+    btnMarkSubmitted.setAttribute('disabled', 'true');
+    setStatusDot('busy');
+    setActionTitle('Saving to tracker…');
+
+    const result = await markApplicationSubmitted({
+      url: tab.url,
+      company: detectedCompany !== 'Unknown Company' ? detectedCompany : undefined,
+      role: detectedRole !== 'Unknown Role' ? detectedRole : undefined,
+      trigger: 'applypilot_popup'
+    });
+
+    btnMarkSubmitted.removeAttribute('disabled');
+
+    if (result.success) {
+      const dateLabel = result.submittedAt
+        ? new Date(result.submittedAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+        : 'today';
+      setScanStatus(
+        `Tracked: ${result.company || detectedCompany} — ${result.role || detectedRole} · ${dateLabel}${result.platform ? ` · ${result.platform}` : ''}`
+      );
+      setActionTitle('Application saved');
+      setStatusDot('ready');
+      await loadTracker();
+      return;
+    }
+
+    setScanStatus(result.error || 'Could not save application to tracker.');
+    setActionTitle('Tracker save failed');
+    setStatusDot('idle');
+  });
+
   btnAutofill?.addEventListener('click', async () => {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     if (!tab || !tab.id) return;
@@ -495,21 +541,55 @@ async function initPopup() {
           // Render Success Animation
           if (progressContainer) {
             const initialHtml = progressContainer.innerHTML;
+            const skippedFields = response.skippedFields || [];
+            const skippedHtml =
+              skippedFields.length > 0
+                ? `<div class="skipped-fields-panel" style="margin-top: 10px; text-align: left;">
+                    <div style="font-size: 0.68rem; color: var(--error-color); margin-bottom: 6px;">
+                      ${skippedFields.length} field${skippedFields.length === 1 ? '' : 's'} need a manual look:
+                    </div>
+                    <div style="display: flex; flex-direction: column; gap: 6px;">
+                      ${skippedFields
+                        .map(
+                          (field: { label: string; reason: string; fieldId?: string }) =>
+                            `<button type="button" class="skipped-field-link" data-field-id="${field.fieldId || ''}" data-field-label="${escapePopupHtml(field.label)}" style="text-align:left; background: rgba(251,113,133,0.08); border: 1px solid rgba(251,113,133,0.25); color: var(--text-primary); border-radius: 8px; padding: 8px 10px; font-size: 0.72rem; cursor: pointer;">
+                              ${escapePopupHtml(field.label)}
+                              <span style="display:block; margin-top:2px; color: var(--text-muted); font-size: 0.66rem;">${escapePopupHtml(field.reason)}</span>
+                            </button>`
+                        )
+                        .join('')}
+                    </div>
+                  </div>`
+                : response.errors && response.errors.length > 0
+                  ? `<div style="font-size: 0.68rem; color: var(--error-color);">${response.errors.length} fields need a manual look.</div>`
+                  : '';
             progressContainer.innerHTML = `
               <div class="checkmark-container">
                 <div class="checkmark-circle">✓</div>
                 <div style="font-weight: 600; color: var(--accent-color); font-size: 0.95rem;">Done</div>
                 <div style="font-size: 0.72rem; color: var(--text-muted);">${response.filledCount} fields filled.</div>
-                ${response.errors && response.errors.length > 0 ? `<div style="font-size: 0.68rem; color: var(--error-color);">${response.errors.length} fields need a manual look.</div>` : ''}
+                ${skippedHtml}
               </div>
             `;
+            progressContainer.querySelectorAll('.skipped-field-link').forEach((button) => {
+              button.addEventListener('click', () => {
+                if (!tab.id) return;
+                const fieldId = button.getAttribute('data-field-id') || '';
+                const fieldLabel = button.getAttribute('data-field-label') || '';
+                chrome.tabs.sendMessage(tab.id, { action: 'scroll-to-field', fieldId, label: fieldLabel });
+              });
+            });
             setActionTitle('Fill complete');
             setStatusDot('ready');
-            setScanStatus(`Filled ${response.filledCount} fields. Review anything we missed.`);
+            setScanStatus(
+              skippedFields.length
+                ? `Filled ${response.filledCount} fields. Tap a skipped field to jump to it.`
+                : `Filled ${response.filledCount} fields. Review anything we missed.`
+            );
             setTimeout(() => {
               progressContainer.style.display = 'none';
               progressContainer.innerHTML = initialHtml;
-            }, 3200);
+            }, skippedFields.length ? 12000 : 3200);
           } else {
             alert(`Filled ${response.filledCount} fields.`);
           }

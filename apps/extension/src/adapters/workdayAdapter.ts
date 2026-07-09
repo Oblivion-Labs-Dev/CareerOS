@@ -1,5 +1,6 @@
 import { JobDetails } from '../shared/types';
 import { PlatformAdapter } from './genericAdapter';
+import { parseCompanyFromJobUrl } from '../shared/jobUrlMatching';
 
 export class WorkdayAdapter implements PlatformAdapter {
   detect(doc: Document): boolean {
@@ -15,7 +16,7 @@ export class WorkdayAdapter implements PlatformAdapter {
     const roleEl = doc.querySelector('[data-automation-id="jobPostingHeader"], h2, h1');
     const locationEl = doc.querySelector('[data-automation-id="location"]');
 
-    let company = 'Workday Client';
+    let company = parseCompanyFromJobUrl(doc.location.href) || 'Workday Client';
     try {
       const hostname = doc.location.hostname;
       const pathMatch = doc.location.pathname.match(/\/recruiting\/([^/]+)/i);

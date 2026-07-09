@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { MagneticButton } from "@/components/ui/magnetic-button";
+import { primaryLinkClassName } from "@arsenal/ui";
 import { ThemeToggle } from "@/components/ui/theme-toggle";
 
 export function LandingNav() {
@@ -15,7 +15,9 @@ export function LandingNav() {
         <Link href="/apply-pilot">ApplyPilot</Link>
         <Link href="/roadmap">Roadmap</Link>
         <ThemeToggle />
-        <MagneticButton href="/applications">Open Tracker</MagneticButton>
+        <Link href="/applications" className={primaryLinkClassName}>
+          Open Tracker
+        </Link>
       </nav>
     </header>
   );

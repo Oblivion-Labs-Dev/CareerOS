@@ -1,4 +1,4 @@
-import { scanPage, ScannedField, getLabelText } from './domScanner';
+import { scanPage, ScannedField, getLabelText, getFieldGroupQuestion } from './domScanner';
 import { classifyFields, ClassifiedField } from './fieldClassifier';
 import { autofillFieldPriority, resolveFreshField } from './fieldResolver';
 import {
@@ -13,9 +13,23 @@ import {
 } from './autofillEngine';
 import { UserProfile } from '../shared/types';
 import { enrichProfile } from '../profile/profileStore';
-import { inferRemainingValue, RIPPLING_DATA_INPUT_MAP, RIPPLING_DATA_INPUT_TO_CANONICAL } from './fieldInference';
+import {
+  inferRemainingValue,
+  RIPPLING_DATA_INPUT_MAP,
+  RIPPLING_DATA_INPUT_TO_CANONICAL,
+  isPhoneCountryLabel,
+  resolvePhoneCountryFillValue
+} from './fieldInference';
 import { resolvePronounFillValue } from './autofillEngine.matching';
 import { APPLICATION_FIELD_DEFAULTS } from '../shared/applicationDefaults';
+import {
+  resolveDisabilitySelectValue,
+  resolveEeoComboboxValue,
+  resolveEthnicGroupSelectValue,
+  resolveGenderSelectValue,
+  resolveRaceSelectValue,
+  resolveVeteranSelectValue
+} from '../shared/eeoFillValues';
 import { logToServer } from '../shared/serverLog';
 import { traceStep } from '../shared/actionTrace';
 import {
@@ -25,6 +39,12 @@ import {
   logFieldDiagnostics
 } from './autofillDiagnostics';
 import { fillWorkExperienceSections } from './workExperienceAutofill';
+import { stampFieldMarker } from './fieldMarker';
+import { matchScreeningAnswer } from '../shared/screeningAnswers';
+import { persistSkippedFieldValues } from './skippedFieldProfile';
+import { hasFieldDisplayValue } from './fieldValue';
+import { shouldAutofillField, isOptionalAddressField } from './fieldRequired';
+import { addressValueForKey, captureAddressFromPage } from '../profile/addressProfile';
 
 const RESUME_MARKER = '[Resume Default]';
 const COVER_MARKER = '[Cover Letter Default]';
@@ -43,6 +63,8 @@ function resolveSelectElement(element: HTMLElement): HTMLElement {
 const EEO_CANONICAL_KEYS = new Set([
   'pronouns',
   'gender',
+  'transgender',
+  'sexualOrientation',
   'raceEthnicity',
   'hispanic',
   'veteran',
@@ -131,16 +153,61 @@ const COMBOBOX_LABEL_RESOLVERS: {
   value: (profile: UserProfile) => string;
 }[] = [
   { test: (l) => /pronoun/i.test(l), value: (p) => resolvePronounFillValue(p.pronouns) },
-  { test: (l) => /\bgender\b/i.test(l), value: (p) => p.gender || APPLICATION_FIELD_DEFAULTS.gender },
+  {
+    test: (l) => /indicate gender|^gender\s*\*?$/i.test(l.trim()) && !/identity|transgender|sexual/.test(l),
+    value: (p) => resolveGenderSelectValue(p.gender)
+  },
+  { test: (l) => /\bgender\b/i.test(l) && !/identity|transgender|sexual/.test(l), value: (p) => resolveGenderSelectValue(p.gender) },
+  {
+    test: (l) => /transgender/i.test(l),
+    value: (p) => p.transgender || APPLICATION_FIELD_DEFAULTS.transgender
+  },
+  {
+    test: (l) => /indicate ethnic|ethnic group|hispanic.*latino/i.test(l) && !/race/.test(l),
+    value: (p) => resolveEthnicGroupSelectValue(p.hispanic)
+  },
+  {
+    test: (l) => /indicate your race|^race\s*\*?$/i.test(l.trim()) || (/race|ethnicity/i.test(l) && !/ethnic group|hispanic/.test(l)),
+    value: (p) => resolveRaceSelectValue(p.raceEthnicity, p.hispanic)
+  },
   {
     test: (l) => /race|ethnicity/i.test(l),
-    value: (p) => p.raceEthnicity || APPLICATION_FIELD_DEFAULTS.raceEthnicity
+    value: (p) => resolveRaceSelectValue(p.raceEthnicity, p.hispanic)
   },
-  { test: (l) => /hispanic|latino/i.test(l), value: (p) => p.hispanic || APPLICATION_FIELD_DEFAULTS.hispanic },
-  { test: (l) => /veteran/i.test(l), value: (p) => p.veteran || APPLICATION_FIELD_DEFAULTS.veteran },
+  { test: (l) => /hispanic|latino/i.test(l), value: (p) => resolveEthnicGroupSelectValue(p.hispanic) },
   {
-    test: (l) => /disability/i.test(l),
-    value: (p) => p.disability || APPLICATION_FIELD_DEFAULTS.disability
+    test: (l) => /protected veteran|veteran status|categories of protected veterans/i.test(l),
+    value: (p) => resolveVeteranSelectValue(p.veteran)
+  },
+  { test: (l) => /veteran/i.test(l), value: (p) => resolveVeteranSelectValue(p.veteran) },
+  {
+    test: (l) => /disability|form cc-305|cc-305/i.test(l),
+    value: (p) => resolveDisabilitySelectValue(p.disability)
+  },
+  {
+    test: (l) => isPhoneCountryLabel(l),
+    value: (p) => resolvePhoneCountryFillValue(p)
+  },
+  {
+    test: (l) => /region of residence|country\/region|mailing country|address.*country/.test(l),
+    value: (p) => addressValueForKey('country', p)
+  },
+  {
+    test: (l) => /\bstate\b|province/i.test(l),
+    value: (p) => addressValueForKey('state', p)
+  },
+  {
+    test: (l) => /\bcity\b/i.test(l),
+    value: (p) => addressValueForKey('city', p)
+  },
+  {
+    test: (l) => /legally authorized|authorized to work|right to work|work authorization/i.test(l),
+    value: (p) => p.workAuthorization || 'Yes'
+  },
+  {
+    test: (l) =>
+      /sponsor|visa|immigration-related employment benefit|require.*sponsorship/i.test(l),
+    value: (p) => p.sponsorship || 'No'
   }
 ];
 
@@ -178,10 +245,9 @@ async function fillLabeledComboboxes(profile: UserProfile, doc: Document): Promi
     const label = getLabelText(root, doc);
     if (!label) continue;
 
+    const eeoValue = resolveEeoComboboxValue(label, enriched)?.trim();
     const resolver = COMBOBOX_LABEL_RESOLVERS.find((entry) => entry.test(label));
-    if (!resolver) continue;
-
-    const value = resolver.value(enriched)?.trim();
+    const value = (eeoValue || resolver?.value(enriched))?.trim();
     if (!value) continue;
 
     const didFill = await fillSelect(resolveSelectElement(root), value);
@@ -190,6 +256,132 @@ async function fillLabeledComboboxes(profile: UserProfile, doc: Document): Promi
       filled++;
     }
     await new Promise((r) => setTimeout(r, 300));
+  }
+
+  return filled;
+}
+
+async function fillLabeledRadioGroups(
+  profile: UserProfile,
+  doc: Document,
+  company?: string
+): Promise<number> {
+  const enriched = enrichProfile(profile);
+  let filled = 0;
+  const processedNames = new Set<string>();
+
+  for (const radio of Array.from(doc.querySelectorAll('input[type="radio"]')) as HTMLInputElement[]) {
+    const name = radio.name;
+    if (!name || processedNames.has(name)) continue;
+    processedNames.add(name);
+
+    const group = Array.from(
+      doc.querySelectorAll<HTMLInputElement>(`input[type="radio"][name="${CSS.escape(name)}"]`)
+    );
+    if (group.some((option) => option.checked)) continue;
+
+    const question = getFieldGroupQuestion(radio, doc);
+    if (!question) continue;
+
+    const answer = matchScreeningAnswer(question, enriched, company);
+    if (!answer) continue;
+
+    fillRadio(radio, answer, doc);
+    if (group.some((option) => option.checked)) {
+      filled++;
+    }
+  }
+
+  return filled;
+}
+
+function resolveAcknowledgmentAnswer(question: string, profile: UserProfile, company?: string): string | undefined {
+  const fromScreening = matchScreeningAnswer(question, profile, company);
+  if (fromScreening) return fromScreening;
+
+  const normalized = question.replace(/\s+/g, ' ').trim().toLowerCase();
+  if (
+    /minimum required qualifications|answered these questions accurately|acknowledg.*minimum/.test(normalized)
+  ) {
+    return 'Yes';
+  }
+  if (/data privacy notice|microsoft data privacy|\bdpn\b/.test(normalized)) {
+    return 'Yes';
+  }
+  if (/candidate code of conduct|microsoft recruiting process|familiarized yourself with the microsoft recruiting/.test(normalized)) {
+    return 'Yes';
+  }
+
+  return undefined;
+}
+
+async function fillAcknowledgmentCheckboxes(
+  profile: UserProfile,
+  doc: Document,
+  company?: string
+): Promise<number> {
+  const enriched = enrichProfile(profile);
+  let filled = 0;
+
+  for (const checkbox of Array.from(doc.querySelectorAll('input[type="checkbox"]')) as HTMLInputElement[]) {
+    if (checkbox.checked) continue;
+
+    const question = getFieldGroupQuestion(checkbox, doc);
+    if (!question) continue;
+
+    const answer = resolveAcknowledgmentAnswer(question, enriched, company);
+    if (!answer || !/^yes$/i.test(answer)) continue;
+
+    if (fillCheckbox(checkbox, answer)) {
+      filled++;
+    }
+  }
+
+  return filled;
+}
+
+function normalizeDemographicOption(text: string): string {
+  return text.replace(/\s+/g, ' ').trim().toLowerCase();
+}
+
+function demographicOptionMatches(optionLabel: string, profileValue: string): boolean {
+  const option = normalizeDemographicOption(optionLabel);
+  const value = normalizeDemographicOption(profileValue);
+  if (!option || !value) return false;
+  if (option === value) return true;
+  if ((value === 'male' || value === 'man') && (option === 'male' || option === 'man')) return true;
+  if ((value === 'female' || value === 'woman') && (option === 'female' || option === 'woman')) return true;
+  return option.includes(value) || value.includes(option);
+}
+
+/** Microsoft-style EEO checkbox groups (gender identity, race/ethnicity). */
+async function fillDemographicCheckboxes(profile: UserProfile, doc: Document): Promise<number> {
+  const enriched = enrichProfile(profile);
+  let filled = 0;
+
+  for (const checkbox of Array.from(doc.querySelectorAll('input[type="checkbox"]')) as HTMLInputElement[]) {
+    if (checkbox.checked) continue;
+
+    const groupQuestion = getFieldGroupQuestion(checkbox, doc);
+    if (!groupQuestion) continue;
+
+    const normalizedQuestion = groupQuestion.replace(/\s+/g, ' ').trim().toLowerCase();
+    const optionLabel = getLabelText(checkbox, doc) || checkbox.value || '';
+    if (!optionLabel) continue;
+
+    let targetValue = '';
+    if (/gender identity|describe your gender/.test(normalizedQuestion)) {
+      targetValue = enriched.gender || '';
+    } else if (/racial|ethnic background|describe your racial/.test(normalizedQuestion)) {
+      targetValue = enriched.raceEthnicity || '';
+    } else if (/sexual orientation|describe your sexual/.test(normalizedQuestion)) {
+      targetValue = enriched.sexualOrientation || '';
+    }
+
+    if (!targetValue || !demographicOptionMatches(optionLabel, targetValue)) continue;
+    if (fillCheckbox(checkbox, 'Yes')) {
+      filled++;
+    }
   }
 
   return filled;
@@ -256,8 +448,7 @@ export async function applyFieldFill(
   }
 
   if (field.type === 'checkbox' && field.element instanceof HTMLInputElement) {
-    fillCheckbox(field.element, trimmed);
-    return true;
+    return fillCheckbox(field.element, trimmed);
   }
 
   if (
@@ -331,6 +522,7 @@ async function fillRemainingEmptyFields(
 
   for (const field of freshFields) {
     if (!isUnfilled(field)) continue;
+    if (!shouldAutofillField(field, doc)) continue;
 
     const label = getLabelText(field.element, doc);
     if (field.type === 'select' && COMBOBOX_LABEL_RESOLVERS.some((entry) => entry.test(label))) {
@@ -357,6 +549,13 @@ async function fillRemainingEmptyFields(
   return extraFilled;
 }
 
+export interface AutofillSkippedField {
+  label: string;
+  reason: string;
+  fieldId: string;
+  canonicalKey?: string;
+}
+
 export interface AutofillGaps {
   missingInProfile: string[];
   stillEmptyOnPage: string[];
@@ -366,9 +565,87 @@ export interface AutofillGaps {
 
 export interface AutofillResult {
   filledCount: number;
-  errors: { label: string; error: string }[];
+  errors: { label: string; error: string; fieldId?: string }[];
+  skippedFields: AutofillSkippedField[];
   gaps: AutofillGaps;
   diagnostics: FieldDiagnostic[];
+}
+
+function normalizeLabelKey(label: string): string {
+  return label.replace(/\*+$/, '').replace(/\s+/g, ' ').trim().toLowerCase();
+}
+
+function findFieldByLabel(fields: ScannedField[], label: string): ScannedField | undefined {
+  const key = normalizeLabelKey(label);
+  if (!key) return undefined;
+
+  return fields.find((field) => {
+    const candidates = [field.labelText, field.name, field.placeholder, field.htmlId].filter(Boolean);
+    return candidates.some((candidate) => {
+      const candidateKey = normalizeLabelKey(candidate);
+      return candidateKey === key || candidateKey.includes(key) || key.includes(candidateKey);
+    });
+  });
+}
+
+function inferCanonicalKeyFromLabel(label: string): string | undefined {
+  const normalized = normalizeLabelKey(label);
+  if (/currently located|where.*located|where.*live|work location/.test(normalized)) {
+    return 'location';
+  }
+  if (/legally authorized|authorized to work|work authorization|right to work/.test(normalized)) {
+    return 'workAuthorization';
+  }
+  if (/sponsor|visa|immigration-related employment benefit/.test(normalized)) {
+    return 'sponsorship';
+  }
+  if (/arbitration|agreement|acknowledge|consent/.test(normalized)) {
+    return 'agreement';
+  }
+  return undefined;
+}
+
+function buildSkippedFields(
+  diagnostics: FieldDiagnostic[],
+  fields: ScannedField[],
+  doc: Document
+): AutofillSkippedField[] {
+  const skipped: AutofillSkippedField[] = [];
+  const seen = new Set<string>();
+
+  for (const diagnostic of diagnostics) {
+    if (
+      diagnostic.category !== 'still_empty' &&
+      diagnostic.category !== 'fill_failed' &&
+      diagnostic.category !== 'missing_profile_value'
+    ) {
+      continue;
+    }
+
+    const label = diagnostic.label || 'Unnamed field';
+    const labelKey = normalizeLabelKey(label);
+    if (seen.has(labelKey)) continue;
+    seen.add(labelKey);
+
+    const field = findFieldByLabel(fields, label);
+    if (field && hasFieldDisplayValue(field, doc)) continue;
+
+    const fieldId = field?.id || '';
+    if (field) {
+      stampFieldMarker(field.element, fieldId);
+    }
+
+    const canonicalKey = diagnostic.canonicalKey || inferCanonicalKeyFromLabel(label);
+
+    skipped.push({
+      label,
+      reason: diagnostic.reason,
+      fieldId,
+      canonicalKey
+    });
+  }
+
+  return skipped;
 }
 
 export function summarizeAutofillGaps(profile: UserProfile, doc: Document = document): AutofillGaps {
@@ -425,7 +702,8 @@ export async function executeClassifiedAutofill(
   profile: UserProfile,
   overrides?: Record<string, string>,
   doc: Document = document,
-  operationId?: string
+  operationId?: string,
+  company?: string
 ): Promise<AutofillResult> {
   const enriched = enrichProfile(profile);
   let filledCount = 0;
@@ -438,6 +716,7 @@ export async function executeClassifiedAutofill(
     .map((item) => {
       const cached = cachedFields.find((f) => f.id === item.id);
       if (!cached) return null;
+      if (!shouldAutofillField(cached, doc)) return null;
 
       const value = resolveFillValue(item, overrides);
       if (!value) return null;
@@ -485,6 +764,11 @@ export async function executeClassifiedAutofill(
   filledCount += await fillRipplingDataInputFields(enriched, doc);
   traceStep(operationId, 'autofill', 'labeled_comboboxes_start', 'autofill:runner');
   filledCount += await fillLabeledComboboxes(enriched, doc);
+  traceStep(operationId, 'autofill', 'labeled_radio_groups_start', 'autofill:runner');
+  filledCount += await fillLabeledRadioGroups(enriched, doc, company);
+  traceStep(operationId, 'autofill', 'acknowledgment_checkboxes_start', 'autofill:runner');
+  filledCount += await fillAcknowledgmentCheckboxes(enriched, doc, company);
+  filledCount += await fillDemographicCheckboxes(enriched, doc);
   if (fillCustomRadios(enriched.smsConsent || APPLICATION_FIELD_DEFAULTS.smsConsent, doc)) {
     filledCount++;
     traceStep(operationId, 'autofill', 'sms_consent_filled', 'autofill:runner');
@@ -638,14 +922,33 @@ export async function executeClassifiedAutofill(
   freshFields = scanPage(doc);
   diagnostics.push(...collectStillEmptyDiagnostics(freshFields, doc, filledLabels));
 
+  const skippedFields = buildSkippedFields(diagnostics, freshFields, doc);
+  for (const skipped of skippedFields) {
+    if (errors.some((entry) => normalizeLabelKey(entry.label) === normalizeLabelKey(skipped.label))) {
+      continue;
+    }
+    if (skipped.reason === 'Still empty after autofill') continue;
+    if (isOptionalAddressField(skipped.label)) continue;
+    if (/personnel number|\bpern\b/i.test(skipped.label)) continue;
+    errors.push({
+      label: skipped.label,
+      error: skipped.reason,
+      fieldId: skipped.fieldId
+    });
+  }
+
+  await persistSkippedFieldValues(enriched, skippedFields, doc);
+  await captureAddressFromPage(doc, enriched);
+
   void logFieldDiagnostics(diagnostics, pageUrl);
 
   traceStep(operationId, 'autofill', 'runner_complete', 'autofill:runner', {
     filledCount,
-    errorCount: errors.length
+    errorCount: errors.length,
+    skippedCount: skippedFields.length
   });
 
-  return { filledCount, errors, gaps: summarizeAutofillGaps(enriched, doc), diagnostics };
+  return { filledCount, errors, skippedFields, gaps: summarizeAutofillGaps(enriched, doc), diagnostics };
 }
 
 export async function runFullPageAutofill(
@@ -664,5 +967,5 @@ export async function runFullPageAutofill(
   traceStep(operationId, 'autofill', 'classify_end', 'autofill:runner', {
     classifiedCount: classified.length
   });
-  return executeClassifiedAutofill(classified, fields, enriched, overrides, doc, operationId);
+  return executeClassifiedAutofill(classified, fields, enriched, overrides, doc, operationId, company);
 }

@@ -1,5 +1,6 @@
 import { JobDetails } from '../shared/types';
 import { PlatformAdapter } from './genericAdapter';
+import { parseCompanyFromJobUrl } from '../shared/jobUrlMatching';
 
 export class GreenhouseAdapter implements PlatformAdapter {
   detect(doc: Document): boolean {
@@ -17,12 +18,12 @@ export class GreenhouseAdapter implements PlatformAdapter {
     const companyEl = doc.querySelector('.company-name, #header-company-logo img');
     const locationEl = doc.querySelector('.location');
 
-    let company = 'Unknown Company';
+    let company = parseCompanyFromJobUrl(doc.location.href) || 'Unknown Company';
     if (companyEl) {
       if (companyEl.tagName === 'IMG') {
-        company = companyEl.getAttribute('alt') || 'Unknown Company';
+        company = companyEl.getAttribute('alt') || company;
       } else {
-        company = companyEl.textContent?.trim() || 'Unknown Company';
+        company = companyEl.textContent?.trim() || company;
       }
     }
 

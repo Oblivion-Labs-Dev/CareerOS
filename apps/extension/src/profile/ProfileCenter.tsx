@@ -3,6 +3,15 @@ import { getProfile, saveProfile, enrichProfile } from './profileStore';
 import { getDocuments, saveDocuments } from '../documents/documentStore';
 import { UserProfile, FileAttachment, WorkExperienceEntry } from '../shared/types';
 import { DEFAULT_SCREENING_ANSWERS, syncProfileFromScreeningAnswers } from '../shared/screeningAnswers';
+import {
+  getScreeningAnswerOptions,
+  getScreeningCategory,
+  getWorkdayEeoPreview,
+  PROFILE_ADDRESS_FIELD_KEYS,
+  PROFILE_TO_SCREENING_ID,
+  SCREENING_CATEGORY_LABELS,
+  ScreeningCategory
+} from '../shared/screeningAnswerProfile';
 import { APPLICATION_FIELD_DEFAULTS, PROFILE_FORM_OPTIONS } from '../shared/applicationDefaults';
 import { parseLocationParts, preferredStateFillValue } from '../shared/usStates';
 import { resolveMostRecentEmployer } from '../shared/workExperience';
@@ -48,8 +57,10 @@ export function ProfileCenter() {
     firstName: '',
     lastName: '',
     fullName: '',
+    preferredName: '',
     email: '',
     phone: '',
+    phoneCountryCode: '+1',
     location: '',
     linkedin: '',
     github: '',
@@ -63,6 +74,8 @@ export function ProfileCenter() {
     currentCompany: '',
     pronouns: '',
     gender: '',
+    transgender: '',
+    sexualOrientation: '',
     raceEthnicity: '',
     hispanic: '',
     veteran: APPLICATION_FIELD_DEFAULTS.veteran,
@@ -137,10 +150,16 @@ export function ProfileCenter() {
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { id, value } = e.target;
-    setProfile(prev => ({
-      ...prev,
-      [id]: value
-    }));
+    setProfile((prev) => {
+      const next = { ...prev, [id]: value };
+      const screeningId = PROFILE_TO_SCREENING_ID[id as keyof UserProfile];
+      if (screeningId) {
+        next.screeningAnswers = (prev.screeningAnswers || []).map((entry) =>
+          entry.id === screeningId ? { ...entry, answer: value } : entry
+        );
+      }
+      return syncProfileFromScreeningAnswers(next);
+    });
   };
 
   const handleFileUpload = async (
@@ -183,23 +202,49 @@ export function ProfileCenter() {
     });
   };
 
-  const updateScreeningAnswer = (index: number, answer: string) => {
+  const updateScreeningAnswer = (id: string, answer: string) => {
     setProfile((prev) => {
-      const list = [...(prev.screeningAnswers || DEFAULT_SCREENING_ANSWERS.map((entry) => ({ ...entry })))];
-      list[index] = { ...list[index], answer };
+      const list = (prev.screeningAnswers || DEFAULT_SCREENING_ANSWERS.map((entry) => ({ ...entry }))).map(
+        (entry) => (entry.id === id ? { ...entry, answer } : entry)
+      );
       return syncProfileFromScreeningAnswers({ ...prev, screeningAnswers: list });
     });
   };
 
   const updateCustomField = (key: string, value: string) => {
-    setProfile((prev) => ({
-      ...prev,
-      customFields: { ...(prev.customFields || {}), [key]: value }
-    }));
+    setProfile((prev) => {
+      const customFields = { ...(prev.customFields || {}), [key]: value };
+      if (key === 'addressLine1') {
+        customFields.street = value;
+      }
+      return { ...prev, customFields };
+    });
   };
 
   const { city: locationCity, state: locationState } = parseLocationParts(profile.location || '');
   const derivedEmployer = resolveMostRecentEmployer(profile);
+  const workdayEeoPreview = getWorkdayEeoPreview(profile);
+  const screeningEntries = profile.screeningAnswers || DEFAULT_SCREENING_ANSWERS;
+  const screeningCategoryOrder: ScreeningCategory[] = [
+    'authorization',
+    'eligibility',
+    'employer',
+    'compliance',
+    'demographics'
+  ];
+  const screeningByCategory = screeningEntries.reduce<
+    Record<ScreeningCategory, typeof screeningEntries>
+  >(
+    (acc, entry) => {
+      const category = getScreeningCategory(entry);
+      acc[category] = [...(acc[category] || []), entry];
+      return acc;
+    },
+    {} as Record<ScreeningCategory, typeof screeningEntries>
+  );
+  const discoveredCustomFields = Object.keys(profile.customFields || {}).filter(
+    (key) => !PROFILE_ADDRESS_FIELD_KEYS.has(key)
+  );
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -207,7 +252,9 @@ export function ProfileCenter() {
     setStatusType('');
     
     try {
-      await saveProfile(profile);
+      const toSave = enrichProfile(syncProfileFromScreeningAnswers(profile));
+      await saveProfile(toSave);
+      setProfile(toSave);
       const synced = await syncToServer();
       setServerOnline(synced);
 
@@ -247,7 +294,7 @@ export function ProfileCenter() {
             <li><strong>Links</strong> — LinkedIn, GitHub, portfolio</li>
             <li><strong>Work status</strong> — authorization, sponsorship, title, employer, salary</li>
             <li><strong>Work experience</strong> — Workday employment history sections</li>
-            <li><strong>Screening</strong> — Yes/No visa, relocation, and eligibility questions</li>
+            <li><strong>Screening</strong> — visa, eligibility, Microsoft acknowledgments, demographics</li>
             <li><strong>Self-ID</strong> — pronouns, gender, race, veteran, disability, SMS consent</li>
             <li><strong>Documents</strong> — resume and cover letter uploads</li>
             <li><strong>Discovered</strong> — extra fields learned from past application scans</li>
@@ -276,11 +323,28 @@ export function ProfileCenter() {
             <input type="text" id="fullName" value={profile.fullName} onChange={handleInputChange} placeholder="Jane Doe" />
           </div>
 
+          <div className="form-group">
+            <label htmlFor="preferredName">Preferred Name</label>
+            <FieldHint>Name you go by on applications that ask separately from legal name.</FieldHint>
+            <input type="text" id="preferredName" value={profile.preferredName || ''} onChange={handleInputChange} placeholder="Jane Doe" />
+          </div>
+
           <div className="profile-grid-2">
             <div className="form-group">
               <label htmlFor="email">Email address</label>
               <FieldHint>Primary contact email on application forms.</FieldHint>
               <input type="email" id="email" value={profile.email} onChange={handleInputChange} placeholder="jane.doe@example.com" />
+            </div>
+            <div className="form-group">
+              <label htmlFor="phoneCountryCode">Phone country code</label>
+              <FieldHint>Dial-code dropdown beside phone fields (e.g. +1 for US).</FieldHint>
+              <input
+                type="text"
+                id="phoneCountryCode"
+                value={profile.phoneCountryCode || '+1'}
+                onChange={handleInputChange}
+                placeholder="+1"
+              />
             </div>
             <div className="form-group">
               <label htmlFor="phone">Phone Number</label>
@@ -310,18 +374,51 @@ export function ProfileCenter() {
         <div className="review-card profile-section">
           <h3 className="profile-section-title"><span>🏠</span> Address</h3>
           <p className="profile-file-hint">
-            Optional street and postal fields for applications that split address into separate inputs.
+            Saved from applications and used for required address fields only. Optional lines like Address Line 2 are skipped.
           </p>
 
           <div className="form-group">
             <label htmlFor="addressLine1">Street address</label>
-            <FieldHint>Address line 1, street, and mailing address fields.</FieldHint>
+            <FieldHint>Address, street, and mailing address fields.</FieldHint>
             <input
               type="text"
               id="addressLine1"
               value={profile.customFields?.addressLine1 || profile.customFields?.street || ''}
               onChange={(e) => updateCustomField('addressLine1', e.target.value)}
-              placeholder="123 Main St"
+              placeholder="13310 SE 306th St"
+            />
+          </div>
+
+          <div className="form-group">
+            <label htmlFor="city">City</label>
+            <input
+              type="text"
+              id="city"
+              value={profile.customFields?.city || locationCity}
+              onChange={(e) => updateCustomField('city', e.target.value)}
+              placeholder="Auburn"
+            />
+          </div>
+
+          <div className="form-group">
+            <label htmlFor="state">State / province</label>
+            <input
+              type="text"
+              id="state"
+              value={profile.customFields?.state || preferredStateFillValue(locationState)}
+              onChange={(e) => updateCustomField('state', e.target.value)}
+              placeholder="Washington"
+            />
+          </div>
+
+          <div className="form-group">
+            <label htmlFor="country">Country / region</label>
+            <input
+              type="text"
+              id="country"
+              value={profile.customFields?.country || 'United States'}
+              onChange={(e) => updateCustomField('country', e.target.value)}
+              placeholder="United States"
             />
           </div>
 
@@ -339,7 +436,7 @@ export function ProfileCenter() {
                   customFields: { ...(prev.customFields || {}), zip: postal, postalCode: postal }
                 }));
               }}
-              placeholder="98101"
+              placeholder="98092"
             />
           </div>
         </div>
@@ -520,30 +617,51 @@ export function ProfileCenter() {
         </div>
 
         <div className="review-card profile-section">
-          <h3 className="profile-section-title"><span>✅</span> Screening questions (Yes / No)</h3>
+          <h3 className="profile-section-title"><span>✅</span> Screening questions</h3>
           <p className="profile-file-hint">
-            Saved answers for visa, relocation, and eligibility dropdowns on applications like Snap Workday.
+            Saved answers for visa, eligibility, employer-specific, and demographic questions on Workday,
+            Qualtrics, and Microsoft applications. Demographic entries stay in sync with Self-ID below.
           </p>
 
-          {(profile.screeningAnswers || DEFAULT_SCREENING_ANSWERS).map((entry, index) => (
-            <div key={entry.id} className="screening-answer-card">
-              <label className="screening-question">{entry.question}</label>
-              <select
-                className="screening-answer-select"
-                value={entry.answer}
-                onChange={(e) => updateScreeningAnswer(index, e.target.value)}
-              >
-                <option value="Yes">Yes</option>
-                <option value="No">No</option>
-              </select>
-            </div>
-          ))}
+          {screeningCategoryOrder.map((category) => {
+            const entries = screeningByCategory[category];
+            if (!entries?.length) return null;
+
+            return (
+              <div key={category} className="screening-category-block">
+                <h4 className="screening-category-title">{SCREENING_CATEGORY_LABELS[category]}</h4>
+                {entries.map((entry) => (
+                  <div key={entry.id} className="screening-answer-card">
+                    <label className="screening-question" htmlFor={`screening-${entry.id}`}>
+                      {entry.question}
+                    </label>
+                    <ProfileSelect
+                      id={`screening-${entry.id}`}
+                      value={entry.answer}
+                      options={getScreeningAnswerOptions(entry, profile)}
+                      onChange={(e) => updateScreeningAnswer(entry.id, e.target.value)}
+                    />
+                  </div>
+                ))}
+              </div>
+            );
+          })}
         </div>
 
         <div className="review-card profile-section">
           <h3 className="profile-section-title"><span>🪪</span> Voluntary self-identification</h3>
           <p className="profile-file-hint">
             Pronouns, EEO, veteran status, disability, and SMS consent dropdowns on job applications.
+          </p>
+
+          <p className="profile-derived-values">
+            Workday autofill selects:{' '}
+            {workdayEeoPreview.map(({ label, value }, index) => (
+              <React.Fragment key={label}>
+                {index > 0 && ' · '}
+                <strong>{label}</strong> → {value}
+              </React.Fragment>
+            ))}
           </p>
 
           <div className="profile-grid-2">
@@ -568,6 +686,16 @@ export function ProfileCenter() {
                 onChange={handleInputChange}
               />
             </div>
+            <div className="form-group">
+              <label htmlFor="transgender">Transgender identity</label>
+              <FieldHint>Transgender self-identification questions.</FieldHint>
+              <ProfileSelect
+                id="transgender"
+                value={profile.transgender || ''}
+                options={PROFILE_FORM_OPTIONS.transgender}
+                onChange={handleInputChange}
+              />
+            </div>
           </div>
 
           <div className="profile-grid-2">
@@ -588,6 +716,16 @@ export function ProfileCenter() {
                 id="hispanic"
                 value={profile.hispanic || ''}
                 options={PROFILE_FORM_OPTIONS.hispanic}
+                onChange={handleInputChange}
+              />
+            </div>
+            <div className="form-group">
+              <label htmlFor="sexualOrientation">Sexual orientation</label>
+              <FieldHint>Sexual orientation self-identification questions.</FieldHint>
+              <ProfileSelect
+                id="sexualOrientation"
+                value={profile.sexualOrientation || ''}
+                options={PROFILE_FORM_OPTIONS.sexualOrientation}
                 onChange={handleInputChange}
               />
             </div>
@@ -665,14 +803,14 @@ export function ProfileCenter() {
           </div>
         </div>
 
-        {profile.customFields && Object.keys(profile.customFields).length > 0 && (
+        {discoveredCustomFields.length > 0 && (
           <div className="review-card profile-section">
             <h3 className="profile-section-title"><span>🧩</span> Custom & Discovered Fields</h3>
             <p className="profile-file-hint">
               These fields were automatically discovered from your job application scans. Provide answers here to automatically fill them in next time.
             </p>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-              {Object.keys(profile.customFields).map((label) => (
+              {discoveredCustomFields.map((label) => (
                 <div className="form-group" key={label}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
                     <label htmlFor={`custom-${label}`} style={{ margin: 0, fontWeight: 500 }}>{label}</label>

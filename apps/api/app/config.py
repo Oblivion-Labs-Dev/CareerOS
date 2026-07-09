@@ -14,6 +14,8 @@ class Settings(BaseSettings):
     career_os_chrome_web_store_url: str = ""
     career_os_edge_addons_url: str = ""
     career_os_firefox_addons_url: str = ""
+    gmail_user: str = ""
+    gmail_app_password: str = ""
 
 
 settings = Settings()

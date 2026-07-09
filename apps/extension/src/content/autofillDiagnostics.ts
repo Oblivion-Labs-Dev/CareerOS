@@ -3,6 +3,8 @@ import { ClassifiedField } from './fieldClassifier';
 import { AutofillLogConfig, getAutofillLogConfig } from '../shared/autofillLogConfig';
 import { logToServer } from '../shared/serverLog';
 import { isFillableFieldType } from './fieldInference';
+import { hasFieldDisplayValue, readFieldDisplayValue } from './fieldValue';
+import { isOptionalAddressField } from './fieldRequired';
 
 export type FieldDiagnosticCategory =
   | 'unrecognized'
@@ -37,6 +39,8 @@ export function isFieldUnfilled(field: ScannedField, doc: Document): boolean {
   const el = field.element;
   if (!isVisibleFillable(field, doc)) return false;
 
+  if (hasFieldDisplayValue(field, doc)) return false;
+
   if (field.type === 'select') {
     const text = (el.textContent || '').trim();
     const inputVal = el instanceof HTMLInputElement ? el.value?.trim() : '';
@@ -52,12 +56,16 @@ export function isFieldUnfilled(field: ScannedField, doc: Document): boolean {
     return !Array.from(group).some((r) => r.checked);
   }
 
+  if (field.type === 'checkbox' && el instanceof HTMLInputElement) {
+    return !el.checked;
+  }
+
   if (
     (field.type === 'text' || field.type === 'textarea') &&
     (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement)
   ) {
     if (['hidden', 'file', 'submit', 'button'].includes(el.type)) return false;
-    return !el.value?.trim();
+    return !readFieldDisplayValue(field, doc);
   }
 
   return false;
@@ -88,6 +96,7 @@ export function collectClassificationDiagnostics(
     }
 
     if (item.canonicalKey && !hasValue && item.canonicalKey !== 'resume' && item.canonicalKey !== 'coverLetter') {
+      if (hasFieldDisplayValue(field, doc)) continue;
       diagnostics.push({
         category: 'missing_profile_value',
         label,
@@ -114,6 +123,8 @@ export function collectStillEmptyDiagnostics(
 
     const label = field.labelText || field.name || field.placeholder || field.htmlId || 'Unnamed field';
     if (filledLabels.has(label.toLowerCase())) continue;
+    if (isOptionalAddressField(label)) continue;
+    if (/personnel number|\bpern\b/i.test(label)) continue;
 
     diagnostics.push({
       category: 'still_empty',

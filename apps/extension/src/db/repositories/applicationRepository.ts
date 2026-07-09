@@ -1,6 +1,7 @@
 import { runInStore } from '../db';
 import { generateId } from '../../shared/id';
 import { getCurrentDateTimeISO } from '../../shared/dateUtils';
+import { isBetterCompanyName, isBetterRoleTitle, jobPostingKey, urlsReferToSameJob } from '../../shared/jobUrlMatching';
 
 export interface Application {
   id: string;
@@ -9,6 +10,8 @@ export interface Application {
   companyName: string; // denormalized for fast reads
   roleTitle: string; // denormalized for fast reads
   location?: string;
+  platform?: string;
+  source?: string;
   status: "saved" | "parsed" | "autofilled" | "ready_to_submit" | "submitted" | "interviewing" | "offer" | "rejected" | "withdrawn";
   priority: "low" | "medium" | "high";
   fitScore?: number;
@@ -38,14 +41,43 @@ export async function countSubmittedApplications(): Promise<number> {
 }
 
 export async function findApplicationByUrl(url: string): Promise<Application | undefined> {
-  const normalized = url.split('?')[0];
   const apps = await getApplications();
-  return apps.find(
-    (app) =>
-      app.notes === url ||
-      app.notes?.startsWith(normalized) ||
-      (app.notes && url.startsWith(app.notes.split('?')[0]))
-  );
+  return apps.find((app) => urlsReferToSameJob(app.notes || '', url));
+}
+
+export async function findApplicationForSubmit(options: {
+  url: string;
+  company?: string;
+  role?: string;
+}): Promise<Application | undefined> {
+  const { url, company, role } = options;
+  const apps = await getApplications();
+
+  const byUrl = apps.find((app) => urlsReferToSameJob(app.notes || '', url));
+  if (byUrl) return byUrl;
+
+  const postingKey = jobPostingKey(url);
+  if (postingKey) {
+    const byPosting = apps.find((app) => jobPostingKey(app.notes || '') === postingKey);
+    if (byPosting) return byPosting;
+  }
+
+  const openStatuses = new Set(['saved', 'parsed', 'autofilled', 'ready_to_submit']);
+  if (company && role && company !== 'Unknown Company' && role !== 'Unknown Role') {
+    const byCompanyRole = apps.find(
+      (app) =>
+        openStatuses.has(app.status) &&
+        app.companyName.toLowerCase() === company.toLowerCase() &&
+        app.roleTitle.toLowerCase() === role.toLowerCase()
+    );
+    if (byCompanyRole) return byCompanyRole;
+  }
+
+  if (role && role !== 'Unknown Role') {
+    return apps.find((app) => openStatuses.has(app.status) && app.roleTitle.toLowerCase() === role.toLowerCase());
+  }
+
+  return undefined;
 }
 
 export async function saveApplication(
@@ -59,6 +91,15 @@ export async function saveApplication(
     : list.find(a => a.jobId === appData.jobId);
 
   if (existing) {
+    existing.companyName = isBetterCompanyName(appData.companyName, existing.companyName)
+      ? appData.companyName
+      : existing.companyName;
+    existing.roleTitle = isBetterRoleTitle(appData.roleTitle, existing.roleTitle)
+      ? appData.roleTitle
+      : existing.roleTitle;
+    existing.location = appData.location || existing.location;
+    existing.platform = appData.platform || existing.platform;
+    existing.source = appData.source || existing.source;
     existing.status = appData.status;
     existing.priority = appData.priority;
     existing.fitScore = appData.fitScore !== undefined ? appData.fitScore : existing.fitScore;
@@ -76,6 +117,8 @@ export async function saveApplication(
       companyName: appData.companyName,
       roleTitle: appData.roleTitle,
       location: appData.location,
+      platform: appData.platform,
+      source: appData.source,
       status: appData.status,
       priority: appData.priority,
       fitScore: appData.fitScore,

@@ -1,9 +1,11 @@
 import json
+import re
 import uuid
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterator
+from urllib.parse import urlparse
 
 from sqlalchemy import JSON, Column, String, create_engine
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
@@ -261,8 +263,9 @@ def entity_count(db: Session, entity_type: str) -> int:
 
 def tracker_summary(db: Session) -> dict[str, Any]:
     """Lightweight tracker payload for the web dashboard (no resume binary)."""
+    applications = [enrich_application_record(app) for app in list_entities(db, "application")]
     return {
-        "applications": list_entities(db, "application"),
+        "applications": applications,
         "jobsCount": entity_count(db, "job"),
         "mappingsCount": entity_count(db, "field_mapping"),
         "learnedAnswersCount": entity_count(db, "learned_answer"),
@@ -312,22 +315,79 @@ def import_legacy_db(db: Session, payload: dict[str, Any]) -> None:
         upsert_entity(db, "referral", referral)
 
 
+def parse_company_from_job_url(url: str) -> str | None:
+    if not url:
+        return None
+    try:
+        path = urlparse(url).path
+        greenhouse = re.search(r"/([^/]+)/jobs/\d+", path, re.I)
+        if greenhouse and greenhouse.group(1).lower() not in {"embed", "job_app"}:
+            slug = re.sub(r"[-_]+", " ", greenhouse.group(1)).strip()
+            return " ".join(part.capitalize() for part in slug.split())
+        workday = re.search(r"/recruiting/([^/]+)", path, re.I)
+        if workday:
+            slug = re.sub(r"[-_]+", " ", workday.group(1)).strip()
+            return " ".join(part.capitalize() for part in slug.split())
+        ashby = re.search(r"^/([^/]+)(?:/|$)", path, re.I)
+        if ashby and ashby.group(1).lower() not in {"api", "embed", "jobs", "postings"}:
+            if "ashbyhq.com" in urlparse(url).netloc.lower():
+                slug = re.sub(r"[-_]+", " ", ashby.group(1)).strip()
+                return " ".join(part.capitalize() for part in slug.split())
+    except Exception:
+        return None
+    return None
+
+
+def enrich_application_record(raw: dict[str, Any]) -> dict[str, Any]:
+    enriched = dict(raw)
+    company = str(enriched.get("companyName") or enriched.get("company") or "").strip()
+    if company.lower() in {"", "unknown", "unknown company", "workday client", "ashby client"}:
+        parsed = parse_company_from_job_url(str(enriched.get("url") or enriched.get("notes") or ""))
+        if parsed:
+            enriched["companyName"] = parsed
+    role = str(enriched.get("roleTitle") or enriched.get("role") or "").strip()
+    if role.lower() in {"", "unknown", "unknown role"}:
+        url = str(enriched.get("url") or enriched.get("notes") or "")
+        workday_role = re.search(r"/job/[^/]+/([^/?#]+)", url, re.I)
+        if workday_role:
+            slug = re.sub(r"[-_]+", " ", workday_role.group(1)).strip()
+            enriched["roleTitle"] = " ".join(part.capitalize() for part in slug.split())
+    return enriched
+
+
 def normalize_application(raw: dict[str, Any]) -> dict[str, Any]:
     status = raw.get("status", "saved")
     if status == "interview":
         status = "interviewing"
+    url = raw.get("url") or raw.get("notes", "")
+    company = raw.get("companyName") or raw.get("company") or "Unknown"
+    if str(company).lower() in {"unknown", "unknown company", "workday client", "ashby client"}:
+        parsed_company = parse_company_from_job_url(str(url))
+        if parsed_company:
+            company = parsed_company
+    role = raw.get("roleTitle") or raw.get("role") or "Unknown role"
+    if str(role).lower() in {"unknown", "unknown role"}:
+        workday_role = re.search(r"/job/[^/]+/([^/?#]+)", str(url), re.I)
+        if workday_role:
+            slug = re.sub(r"[-_]+", " ", workday_role.group(1)).strip()
+            role = " ".join(part.capitalize() for part in slug.split())
     return {
         "id": raw.get("id") or new_id("app_"),
         "jobId": raw.get("jobId"),
         "companyId": raw.get("companyId"),
-        "companyName": raw.get("companyName") or raw.get("company") or "Unknown",
-        "roleTitle": raw.get("roleTitle") or raw.get("role") or "Unknown role",
+        "companyName": company,
+        "roleTitle": role,
+        "location": raw.get("location", ""),
+        "platform": raw.get("platform", ""),
+        "source": raw.get("source", ""),
         "status": status,
         "priority": raw.get("priority", "medium"),
         "url": raw.get("url") or raw.get("notes", ""),
         "resumeUsedId": raw.get("resumeUsedId") or raw.get("resumeUsed"),
         "coverLetterUsedId": raw.get("coverLetterUsedId") or raw.get("coverLetterUsed"),
         "notes": raw.get("notes", ""),
+        "submittedAt": raw.get("submittedAt") or raw.get("appliedAt"),
+        "createdAt": raw.get("createdAt") or raw.get("updatedAt") or now_iso(),
         "updatedAt": raw.get("updatedAt") or raw.get("date") or now_iso(),
     }
 

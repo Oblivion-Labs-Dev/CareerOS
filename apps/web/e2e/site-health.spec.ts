@@ -45,14 +45,26 @@ test.describe("CareerOS web health", () => {
     await expect(page.getByText(/saved answers|No answers saved yet/i)).toBeVisible();
   });
 
-  test("apply-pilot page cards are styled", async ({ page }) => {
+  test("apply outreach page shows recruiter campaign dashboard", async ({ page }) => {
+    await page.goto("/apply/outreach");
+    await expectStylesLoaded(page);
+
+    await expect(page.getByRole("heading", { name: "Recruiter email campaigns", level: 1 })).toBeVisible();
+    await expect(
+      page.getByRole("region", { name: "Recruiter outreach metrics" }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Refresh" }),
+    ).toBeVisible();
+  });
+
+  test("apply-pilot page includes email sender outreach section", async ({ page }) => {
     await page.goto("/apply-pilot");
     await expectStylesLoaded(page);
 
-    const card = page.locator(".toc-card").first();
-    await expect(card).toBeVisible();
-
-    const borderRadius = await card.evaluate((el) => getComputedStyle(el).borderRadius);
-    expect(borderRadius).not.toBe("0px");
+    await expect(page.getByRole("heading", { name: "Gmail sender", level: 2 })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Send email", level: 2 })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Send email" })).toBeVisible();
+    await expect(page.getByRole("link", { name: "Email Outreach" })).toBeVisible();
   });
 });

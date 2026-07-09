@@ -1,6 +1,7 @@
 import { JobDetails, UserProfile } from '../shared/types';
 import { logAutofillResult, logToServer } from '../shared/serverLog';
 import { endTrace, traceStep } from '../shared/actionTrace';
+import { enrichJobDetails } from '../shared/jobContextResolver';
 
 export interface ScannedFieldMessage {
   id: string;
@@ -46,7 +47,30 @@ function sendToFrame<T>(tabId: number, frameId: number, message: Record<string, 
   });
 }
 
+const FRAME_PROBE_TIMEOUT_MS = 1500;
 const FRAME_AUTOFILL_TIMEOUT_MS = 45_000;
+
+async function getReachableFrameIds(tabId: number, candidateFrameIds: number[]): Promise<number[]> {
+  const reachable: number[] = [];
+
+  await Promise.all(
+    candidateFrameIds.map(async (frameId) => {
+      if (frameId === 0) {
+        reachable.push(0);
+        return;
+      }
+      const response = await sendToFrameWithTimeout<{ ok?: boolean }>(
+        tabId,
+        frameId,
+        { action: 'ping' },
+        FRAME_PROBE_TIMEOUT_MS
+      );
+      if (response?.ok) reachable.push(frameId);
+    })
+  );
+
+  return reachable.length ? [...new Set(reachable)].sort((a, b) => a - b) : [0];
+}
 
 function sendToFrameWithTimeout<T>(
   tabId: number,
@@ -140,6 +164,9 @@ export async function scanAllFrames(
     return { success: false, error: 'No form fields detected in any frame.' };
   }
 
+  const tab = await chrome.tabs.get(tabId).catch(() => null);
+  const mergedDetails = enrichJobDetails(mergeJobDetails(frameResults), tab?.url, tab?.title);
+
   const fields = frameResults.flatMap((result) =>
     result.fields.map((field) => ({ ...field, frameId: result.frameId }))
   );
@@ -153,7 +180,7 @@ export async function scanAllFrames(
 
   return {
     success: true,
-    jobDetails: mergeJobDetails(frameResults),
+    jobDetails: mergedDetails,
     fields
   };
 }
@@ -164,19 +191,27 @@ export async function autofillCompleteAllFrames(
   overrides?: Record<string, string>,
   targetFrameIds?: number[],
   operationId?: string
-): Promise<{ success: boolean; filledCount: number; errors: { label: string; error: string }[] }> {
+): Promise<{
+  success: boolean;
+  filledCount: number;
+  errors: { label: string; error: string; fieldId?: string }[];
+  skippedFields: { label: string; reason: string; fieldId: string; canonicalKey?: string }[];
+}> {
   const allFrameIds = await getFrameIds(tabId);
-  const frameIds =
+  const requested =
     targetFrameIds?.length ?
       targetFrameIds.filter((id) => allFrameIds.includes(id))
     : allFrameIds;
+  const frameIds = await getReachableFrameIds(tabId, requested);
 
   let filledCount = 0;
-  const errors: { label: string; error: string }[] = [];
+  const errors: { label: string; error: string; fieldId?: string }[] = [];
+  const skippedFields: { label: string; reason: string; fieldId: string; canonicalKey?: string }[] = [];
 
   traceStep(operationId, 'autofill', 'frames_targeted', 'background:autofill', {
     tabId,
     frameIds,
+    requestedFrames: requested,
     frameCount: frameIds.length,
     overrideCount: Object.keys(overrides || {}).length
   });
@@ -191,7 +226,8 @@ export async function autofillCompleteAllFrames(
       const response = await sendToFrameWithTimeout<{
         success: boolean;
         filledCount?: number;
-        errors?: { label: string; error: string }[];
+        errors?: { label: string; error: string; fieldId?: string }[];
+        skippedFields?: { label: string; reason: string; fieldId: string; canonicalKey?: string }[];
         error?: string;
       }>(tabId, frameId, {
         action: 'autofill-complete',
@@ -232,6 +268,9 @@ export async function autofillCompleteAllFrames(
         if (response.errors?.length) {
           errors.push(...response.errors);
         }
+        if (response.skippedFields?.length) {
+          skippedFields.push(...response.skippedFields);
+        }
         return response.filledCount ?? 0;
       }
 
@@ -249,16 +288,23 @@ export async function autofillCompleteAllFrames(
     success: true,
     filledCount,
     errorCount: errors.length,
+    skippedCount: skippedFields.length,
     frameCount: frameIds.length
   });
 
   logAutofillResult('background:autofill-complete', {
     filledCount,
     errors,
-    detail: { tabId, frameCount: frameIds.length, targetedFrames: frameIds, operationId }
+    detail: {
+      tabId,
+      frameCount: frameIds.length,
+      targetedFrames: frameIds,
+      operationId,
+      skippedCount: skippedFields.length
+    }
   });
 
-  return { success: true, filledCount, errors };
+  return { success: true, filledCount, errors, skippedFields };
 }
 
 export async function autofillAllFrames(

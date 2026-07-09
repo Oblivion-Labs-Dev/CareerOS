@@ -49,8 +49,14 @@
                 <p class="action-sub" id="scan-status">We scan fields automatically when you open this popup.</p>
               </div>
             </div>
-            <button type="button" class="btn btn-primary" id="btn-autofill" disabled>Fill form</button>
+            <div class="action-buttons">
+              <button type="button" class="btn btn-primary" id="btn-autofill" disabled>Fill form</button>
+              <button type="button" class="btn btn-success btn-sm" id="btn-mark-submitted" title="After you submit on the employer site, click to track company, role, and date">
+                Submit
+              </button>
+            </div>
           </div>
+          <p class="action-hint muted">Fill the form first, submit on the job site, then tap <strong>Submit</strong> so each application shows on the dashboard with company and date.</p>
           <button type="button" class="btn btn-secondary btn-sm btn-scan-link" id="btn-scan">Rescan page</button>
 
           <div id="autofill-progress-container" class="autofill-loader" style="display: none;" aria-live="polite">

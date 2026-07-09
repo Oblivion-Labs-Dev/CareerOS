@@ -5,9 +5,11 @@ import { resolvePronounFillValue } from './autofillEngine.matching';
 import { enrichProfile } from '../profile/profileStore';
 import { matchQuestion } from '../learning/learningEngine';
 import { stringSimilarity } from '../learning/fuzzyMatcher';
-import { inferRemainingValue, resolveFieldLabel, hasRipplingContactDataInput, RIPPLING_DATA_INPUT_TO_CANONICAL, getRipplingDataInput } from './fieldInference';
-import { parseLocationParts, preferredStateFillValue } from '../shared/usStates';
+import { inferRemainingValue, resolveFieldLabel, hasRipplingContactDataInput, RIPPLING_DATA_INPUT_TO_CANONICAL, getRipplingDataInput, isPhoneCountryLabel, resolvePhoneCountryFillValue, isScreeningQuestionLabel } from './fieldInference';
 import { resolveMostRecentEmployer } from '../shared/workExperience';
+import { addressValueForKey } from '../profile/addressProfile';
+import { matchScreeningAnswer } from '../shared/screeningAnswers';
+import { isOptionalAddressField } from './fieldRequired';
 
 export interface ClassifiedField {
   id: string;
@@ -22,7 +24,8 @@ export interface ClassifiedField {
 const CANONICAL_PATTERNS: Record<string, RegExp[]> = {
   firstName: [/first\s*name/i, /^fname/i, /given\s*name/i],
   lastName: [/last\s*name/i, /^lname/i, /family\s*name/i, /surname/i],
-  fullName: [/full\s*name/i, /^name/i, /applicant\s*name/i],
+  fullName: [/full\s*name/i, /^name/i, /applicant\s*name/i, /legal\s*name/i],
+  preferredName: [/preferred\s*name/i, /name\s*you\s*go\s*by/i, /what.*call\s*you/i],
   email: [/email/i, /e-mail/i],
   phone: [/phone/i, /telephone/i, /mobile/i, /tel\b/i],
   location: [
@@ -45,7 +48,7 @@ const CANONICAL_PATTERNS: Record<string, RegExp[]> = {
   address: [/address/i, /street/i],
   city: [/city/i],
   state: [/state/i, /province/i],
-  zip: [/zip/i, /postal/i],
+  zip: [/zip/i, /postal\s*code/i, /postal/i, /postcode/i],
   country: [/country/i],
   linkedin: [/linkedin/i],
   github: [/github/i],
@@ -84,13 +87,14 @@ function profileValueForField(
   matchedKey: string,
   profile: UserProfile
 ): string {
-  if (matchedKey === 'state' || matchedKey === 'city' || matchedKey === 'zip') {
-    const { city, state } = parseLocationParts(profile.location || '');
-    if (matchedKey === 'state') return preferredStateFillValue(state);
-    if (matchedKey === 'city') return city;
-    if (matchedKey === 'zip') {
-      return profile.customFields?.zip || profile.customFields?.postalCode || '';
+  if (matchedKey === 'state' || matchedKey === 'city' || matchedKey === 'zip' || matchedKey === 'address') {
+    return addressValueForKey(matchedKey, profile);
+  }
+  if (matchedKey === 'country') {
+    if (isPhoneCountryLabel(field.labelText)) {
+      return resolvePhoneCountryFillValue(profile);
     }
+    return addressValueForKey('country', profile);
   }
 
   if (
@@ -187,7 +191,15 @@ export async function classifyFields(
 
       for (const pattern of patterns) {
         for (const clue of clues) {
-          if (clue.text && pattern.test(clue.text)) {
+          if (!clue.text) continue;
+          if (key === 'address' && isOptionalAddressField(clue.text)) continue;
+          if (
+            ['state', 'city', 'zip', 'country', 'location'].includes(key) &&
+            isScreeningQuestionLabel(clue.text)
+          ) {
+            continue;
+          }
+          if (pattern.test(clue.text)) {
             if (clue.weight > maxWeight) {
               maxWeight = clue.weight;
               matchedKey = key;
@@ -245,10 +257,24 @@ export async function classifyFields(
       }
     }
 
+    if (!proposedValue) {
+      const questionText = resolveFieldLabel(field) || field.labelText || field.name;
+      if (isScreeningQuestionLabel(questionText)) {
+        const screeningAnswer = matchScreeningAnswer(questionText, enrichedProfile, company);
+        if (screeningAnswer) {
+          proposedValue = screeningAnswer;
+          confidence = 'high';
+          matchedKey = matchedKey || 'screeningAnswer';
+          matchReason = 'Matched profile screening answer';
+        }
+      }
+    }
+
     // 2. Query learned answers when we still do not have a value to fill
     if (!proposedValue) {
+      const questionText = resolveFieldLabel(field) || field.labelText || field.name;
       const match = await matchQuestion(
-        field.labelText || field.name,
+        questionText,
         field.type,
         field.options,
         company,

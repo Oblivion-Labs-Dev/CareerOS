@@ -1,7 +1,9 @@
-import { MagneticButton } from "@/components/ui/magnetic-button";
+"use client";
+
+import Link from "next/link";
+import { GlassCard, ScrollReveal, cn, primaryLinkClassName, secondaryLinkClassName } from "@arsenal/ui";
 import { LandingFirefoxInstall } from "@/components/landing-firefox-install";
 import { LandingNav } from "@/components/landing-nav";
-import { ScrollReveal } from "@/components/ui/scroll-reveal";
 
 const MODULES = [
   {
@@ -66,10 +68,12 @@ export function LandingPage() {
         </p>
 
         <div className="landing-cta landing-fade-in landing-fade-in--4">
-          <MagneticButton href="/applications">Open Application Tracker</MagneticButton>
-          <MagneticButton href="/apply-pilot" variant="secondary">
+          <Link href="/applications" className={primaryLinkClassName}>
+            Open Application Tracker
+          </Link>
+          <Link href="/apply-pilot" className={secondaryLinkClassName}>
             Get ApplyPilot
-          </MagneticButton>
+          </Link>
         </div>
 
         <LandingFirefoxInstall />
@@ -99,7 +103,7 @@ export function LandingPage() {
       <section className="landing-modules">
         {MODULES.map((mod, i) => (
           <ScrollReveal key={mod.title} delay={i * 0.08}>
-            <article className="glass-card glass-card--glow landing-module-card">
+            <GlassCard glow className="landing-module-card h-full">
               <span className="landing-module-tag">{mod.tag}</span>
               <div
                 className="landing-feature-icon"
@@ -107,9 +111,9 @@ export function LandingPage() {
               >
                 {mod.icon}
               </div>
-              <h3>{mod.title}</h3>
-              <p>{mod.description}</p>
-            </article>
+              <h3 className="font-semibold">{mod.title}</h3>
+              <p className="mt-2 text-sm text-arsenal-secondary">{mod.description}</p>
+            </GlassCard>
           </ScrollReveal>
         ))}
       </section>
@@ -143,10 +147,12 @@ export function LandingPage() {
             <h2>Ready to ship your next application?</h2>
             <p>Install ApplyPilot, wire your profile, and let CareerOS handle the rest.</p>
             <div className="landing-cta" style={{ marginBottom: 0 }}>
-              <MagneticButton href="/apply-pilot">Get ApplyPilot</MagneticButton>
-              <MagneticButton href="/roadmap" variant="secondary">
+              <Link href="/apply-pilot" className={primaryLinkClassName}>
+                Get ApplyPilot
+              </Link>
+              <Link href="/roadmap" className={cn(secondaryLinkClassName)}>
                 View Roadmap
-              </MagneticButton>
+              </Link>
             </div>
           </div>
         </ScrollReveal>

@@ -4,8 +4,10 @@ import { mergeWorkExperienceLists, resolveMostRecentEmployer } from '../shared/w
 import {
   mergeScreeningAnswers,
   syncProfileFromScreeningAnswers,
-  DEFAULT_SCREENING_ANSWERS
+  DEFAULT_SCREENING_ANSWERS,
+  mergeDefaultScreeningAnswers
 } from '../shared/screeningAnswers';
+import { parseLocationParts } from '../shared/usStates';
 
 import { getServerDbUrl } from '../shared/apiConfig';
 const PROFILE_STORAGE_KEY = 'jobfill_profile';
@@ -15,8 +17,10 @@ const PROFILE_STRING_KEYS: (keyof UserProfile)[] = [
   'firstName',
   'lastName',
   'fullName',
+  'preferredName',
   'email',
   'phone',
+  'phoneCountryCode',
   'location',
   'linkedin',
   'github',
@@ -30,6 +34,8 @@ const PROFILE_STRING_KEYS: (keyof UserProfile)[] = [
   'salaryExpectations',
   'pronouns',
   'gender',
+  'transgender',
+  'sexualOrientation',
   'raceEthnicity',
   'hispanic',
   'veteran',
@@ -69,9 +75,8 @@ export function mergeProfiles(
     primary?.workExperience || []
   );
 
-  merged.screeningAnswers = mergeScreeningAnswers(
-    secondary?.screeningAnswers,
-    primary?.screeningAnswers
+  merged.screeningAnswers = mergeDefaultScreeningAnswers(
+    mergeScreeningAnswers(secondary?.screeningAnswers, primary?.screeningAnswers)
   );
 
   return enrichProfile(syncProfileFromScreeningAnswers(merged));
@@ -145,10 +150,7 @@ function stripLegacyEeoCustomFields(profile: UserProfile): void {
 export function enrichProfile(profile: UserProfile): UserProfile {
   const enriched: UserProfile = {
     ...profile,
-    customFields: profile.customFields ? { ...profile.customFields } : undefined,
-    screeningAnswers: profile.screeningAnswers?.length
-      ? profile.screeningAnswers.map((entry) => ({ ...entry }))
-      : DEFAULT_SCREENING_ANSWERS.map((entry) => ({ ...entry }))
+    customFields: profile.customFields ? { ...profile.customFields } : undefined
   };
 
   stripLegacyEeoCustomFields(enriched);
@@ -163,12 +165,23 @@ export function enrichProfile(profile: UserProfile): UserProfile {
     enriched.fullName = `${enriched.firstName} ${enriched.lastName || ''}`.trim();
   }
 
+  if (!enriched.preferredName?.trim() && enriched.fullName?.trim()) {
+    enriched.preferredName = enriched.fullName;
+  }
+
   if (!enriched.veteran?.trim()) enriched.veteran = APPLICATION_FIELD_DEFAULTS.veteran;
   if (!enriched.disability?.trim()) enriched.disability = APPLICATION_FIELD_DEFAULTS.disability;
   if (!enriched.smsConsent?.trim()) enriched.smsConsent = APPLICATION_FIELD_DEFAULTS.smsConsent;
   if (!enriched.gender?.trim()) enriched.gender = APPLICATION_FIELD_DEFAULTS.gender;
+  if (!enriched.transgender?.trim()) enriched.transgender = APPLICATION_FIELD_DEFAULTS.transgender;
+  if (!enriched.sexualOrientation?.trim()) {
+    enriched.sexualOrientation = APPLICATION_FIELD_DEFAULTS.sexualOrientation;
+  }
   if (!enriched.raceEthnicity?.trim()) enriched.raceEthnicity = APPLICATION_FIELD_DEFAULTS.raceEthnicity;
   if (!enriched.hispanic?.trim()) enriched.hispanic = APPLICATION_FIELD_DEFAULTS.hispanic;
+  if (!enriched.phoneCountryCode?.trim()) {
+    enriched.phoneCountryCode = APPLICATION_FIELD_DEFAULTS.phoneCountryCode;
+  }
   if (!enriched.currentCompany?.trim() && enriched.currentTitle?.trim()) {
     enriched.currentCompany = enriched.currentTitle;
   }
@@ -189,7 +202,34 @@ export function enrichProfile(profile: UserProfile): UserProfile {
     }
   }
 
-  return enriched;
+  const { zip, city, state } = parseLocationParts(enriched.location || '');
+  if (zip && !enriched.customFields?.zip?.trim() && !enriched.customFields?.postalCode?.trim()) {
+    enriched.customFields = {
+      ...(enriched.customFields || {}),
+      zip,
+      postalCode: zip
+    };
+  }
+  if (city && !enriched.customFields?.city?.trim()) {
+    enriched.customFields = {
+      ...(enriched.customFields || {}),
+      city
+    };
+  }
+  if (state && !enriched.customFields?.state?.trim()) {
+    enriched.customFields = {
+      ...(enriched.customFields || {}),
+      state
+    };
+  }
+  if (!enriched.customFields?.country?.trim()) {
+    enriched.customFields = {
+      ...(enriched.customFields || {}),
+      country: 'United States'
+    };
+  }
+
+  return syncProfileFromScreeningAnswers(enriched);
 }
 
 export function createEmptyProfile(): UserProfile {
@@ -197,8 +237,10 @@ export function createEmptyProfile(): UserProfile {
     firstName: '',
     lastName: '',
     fullName: '',
+    preferredName: '',
     email: '',
     phone: '',
+    phoneCountryCode: '',
     location: '',
     linkedin: '',
     github: '',
@@ -214,6 +256,8 @@ export function createEmptyProfile(): UserProfile {
     smsConsent: APPLICATION_FIELD_DEFAULTS.smsConsent,
     pronouns: '',
     gender: '',
+    transgender: '',
+    sexualOrientation: '',
     raceEthnicity: '',
     hispanic: '',
     workExperience: [],

@@ -1,22 +1,12 @@
-import { detectAdapter } from '../adapters';
 import {
   buttonTextMatchesSubmit,
   getSubmitTrackerConfig,
   SubmitTrackerConfig
 } from '../shared/submitTrackerConfig';
+import { extractJobContext, isJobApplicationUrl, isSubmissionConfirmationUrl, isWorkdaySubmissionSuccess } from '../shared/jobPageDetection';
 import { logToServer } from '../shared/serverLog';
 
 const DEDUPE_STORAGE_KEY = 'jobfill-submit-dedupe';
-
-function isJobApplicationUrl(href: string): boolean {
-  return (
-    (/myworkdaysite\.com|myworkdayjobs\.com|boards\.greenhouse\.io|jobs\.lever\.co|jobs\.ashbyhq\.com|smartrecruiters\.com|taleo\.net|icims\.com/i.test(
-      href
-    ) &&
-      /\/(apply|job|postings|careers)/i.test(href)) ||
-    /autofillWithResume/i.test(href)
-  );
-}
 
 function getButtonLabel(element: HTMLElement): string {
   const parts = [
@@ -108,35 +98,23 @@ function showSubmitToast(company: string, role: string): void {
 }
 
 async function recordSubmit(
-  trigger: 'button_click' | 'form_submit',
+  trigger: 'button_click' | 'form_submit' | 'confirmation_page',
   buttonText: string,
   config: SubmitTrackerConfig
 ): Promise<void> {
   const url = location.href;
-  if (config.requireJobPageUrl && !isJobApplicationUrl(url)) return;
+  if (config.requireJobPageUrl && !isJobApplicationUrl(url) && trigger !== 'confirmation_page') return;
   if (await wasRecentlyRecorded(url, config)) return;
 
-  let company = '';
-  let role = '';
-  let locationText = '';
-  let platform = '';
-  try {
-    const details = detectAdapter(document).extractJobDetails(document);
-    company = details.company;
-    role = details.role;
-    locationText = details.location;
-    platform = details.platform;
-  } catch {
-    // fall through with page title
-  }
+  const { company, role, location: locationText, platform } = extractJobContext(document);
 
   chrome.runtime.sendMessage(
     {
       action: 'record-job-submit',
       payload: {
         url,
-        company: company || 'Unknown Company',
-        role: role || document.title || 'Unknown Role',
+        company,
+        role,
         location: locationText,
         platform,
         trigger,
@@ -176,10 +154,21 @@ async function handleSubmitInteraction(
 }
 
 let initialized = false;
+let lastHref = location.href;
+
+async function watchForConfirmationPage(): Promise<void> {
+  const config = await getSubmitTrackerConfig();
+  if (!config.enabled) return;
+  if (location.href === lastHref && !isWorkdaySubmissionSuccess(document)) return;
+  lastHref = location.href;
+  if (!isSubmissionConfirmationUrl(location.href) && !isWorkdaySubmissionSuccess(document)) return;
+  await recordSubmit('confirmation_page', 'confirmation page', config);
+}
 
 export function initSubmitTracker(): void {
   if (initialized) return;
   initialized = true;
+  lastHref = location.href;
 
   document.addEventListener(
     'click',
@@ -214,4 +203,17 @@ export function initSubmitTracker(): void {
     },
     true
   );
+
+  window.addEventListener('popstate', () => void watchForConfirmationPage());
+  window.addEventListener('hashchange', () => void watchForConfirmationPage());
+
+  const observer = new MutationObserver(() => {
+    void watchForConfirmationPage();
+  });
+  observer.observe(document.documentElement, { childList: true, subtree: true });
+
+  void watchForConfirmationPage();
+  window.setInterval(() => {
+    void watchForConfirmationPage();
+  }, 2500);
 }

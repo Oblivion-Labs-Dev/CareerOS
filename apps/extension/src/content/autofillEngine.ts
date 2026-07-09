@@ -1,6 +1,6 @@
 import { ScannedField, getLabelText } from './domScanner';
 import { FileAttachment } from '../shared/types';
-import { isSynonymMatch, matchesCustomOption, matchesRadioOption } from './autofillEngine.matching';
+import { isSynonymMatch, matchesCustomOption, matchesRadioOption, pickBestMatchingOptionText, scoreSelectOptionMatch } from './autofillEngine.matching';
 import {
   isPlaceholderSelectOption,
   matchesStateOption,
@@ -53,14 +53,8 @@ function pickBestListboxOption(
     let score = 0;
     if (matchesLocationOption(text, locationValue)) {
       score = scoreLocationOption(text, locationValue);
-    } else if (matchesCustomOption(text, value)) {
-      score = 15;
     } else {
-      const valLower = value.toLowerCase().trim();
-      const textLower = text.toLowerCase();
-      if (valLower && (textLower === valLower || textLower.includes(valLower))) {
-        score = 8;
-      }
+      score = scoreSelectOptionMatch(text, value);
     }
 
     if (score > 0 && (!best || score > best.score)) {
@@ -196,48 +190,63 @@ async function fillSearchCombobox(element: HTMLInputElement, value: string, loca
   const locContext = locationContext || (/,/.test(value) ? value : undefined);
   const typeValue = locContext ? resolveLocationCity(locContext) : value;
 
-  console.log(`[JobFill] Filling search combobox #${element.id} with "${typeValue}"`);
+  console.log(`[JobFill] Filling search combobox #${element.id} with profile value "${value}"`);
   closeOpenListboxes();
   element.focus();
   element.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-  dispatchReactInput(element, typeValue);
-  element.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: typeValue }));
 
-  const attemptSelect = (delayMs: number) =>
-    new Promise<boolean>((resolve) => {
-      setTimeout(() => {
-        const listboxId = element.getAttribute('aria-controls') || element.getAttribute('aria-owns');
-        const searchRoot = listboxId ? document.getElementById(listboxId) : document;
-        const candidates = Array.from(searchRoot?.querySelectorAll('[role="option"], li') ?? []) as HTMLElement[];
+  const collectCandidates = (): HTMLElement[] => {
+    const listboxId = element.getAttribute('aria-controls') || element.getAttribute('aria-owns');
+    const searchRoot = listboxId ? document.getElementById(listboxId) : document;
+    return Array.from(searchRoot?.querySelectorAll('[role="option"], li') ?? []) as HTMLElement[];
+  };
 
-        const matchedOption = pickBestListboxOption(candidates, typeValue, locContext);
-        if (matchedOption) {
-          clickListboxOption(matchedOption, element);
-          resolve(true);
-          return;
-        }
-        resolve(false);
-      }, delayMs);
+  const trySelectFromList = (): boolean => {
+    const candidates = collectCandidates();
+    const matchedOption = pickBestListboxOption(candidates, value, locContext);
+    if (!matchedOption) return false;
+    clickListboxOption(matchedOption, element);
+    return true;
+  };
+
+  if (trySelectFromList()) return true;
+
+  const searchPrefix = typeValue.split(/\s+/).slice(0, 2).join(' ');
+  if (searchPrefix) {
+    dispatchReactInput(element, searchPrefix);
+    element.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: searchPrefix }));
+  }
+
+  for (const delayMs of [400, 800, 1200]) {
+    const selected = await new Promise<boolean>((resolve) => {
+      setTimeout(() => resolve(trySelectFromList()), delayMs);
     });
+    if (selected) return true;
+  }
 
-  if (await attemptSelect(500)) return true;
-  if (await attemptSelect(1000)) return true;
-  return comboboxShowsValue(element, locContext || typeValue);
+  return comboboxShowsSelectedOption(element, value, locContext);
+}
+
+function comboboxShowsSelectedOption(element: HTMLElement, value: string, locationContext?: string): boolean {
+  const root = (element.closest('[role="combobox"]') as HTMLElement | null) || element;
+  const selectedChip = root.querySelector('[class*="multiValue"], [class*="tag"], [data-selected]');
+  const parts = [
+    selectedChip?.textContent?.replace(/\s+/g, ' ').trim() || '',
+    root.querySelector('p, span[class*="value"], [class*="singleValue"]')?.textContent?.replace(/\s+/g, ' ').trim() || ''
+  ].filter(Boolean);
+
+  if (!parts.length) return false;
+
+  const locationValue = locationContext || value;
+  return parts.some(
+    (part) =>
+      scoreSelectOptionMatch(part, value) >= 75 ||
+      (/,/.test(locationValue) && matchesLocationOption(part, locationValue))
+  );
 }
 
 function comboboxShowsValue(element: HTMLElement, value: string): boolean {
-  const root = (element.closest('[role="combobox"]') as HTMLElement | null) || element;
-  const parts = [
-    root.textContent?.replace(/\s+/g, ' ').trim() || '',
-    element instanceof HTMLInputElement ? element.value?.trim() || '' : ''
-  ];
-  const child = root.querySelector('p, span');
-  if (child?.textContent?.trim()) parts.push(child.textContent.trim());
-  return parts.some(
-    (part) =>
-      part &&
-      (matchesCustomOption(part, value) || (/,/.test(value) && matchesLocationOption(part, value)))
-  );
+  return comboboxShowsSelectedOption(element, value);
 }
 
 function resolveSearchComboboxInput(element: HTMLElement): HTMLInputElement | null {
@@ -260,40 +269,32 @@ function closeOpenListboxes(): void {
 export async function fillSelect(element: HTMLElement, value: string): Promise<boolean> {
   console.log(`[JobFill] fillSelect called. Element: ${element.tagName}, ID: ${element.id}, Value: ${value}`);
   if (element instanceof HTMLSelectElement) {
-    let bestIndex = -1;
+    const optionTexts: string[] = [];
+    const optionIndexes: number[] = [];
 
     for (let i = 0; i < element.options.length; i++) {
       const opt = element.options[i];
-      const optVal = opt.value;
-      const optText = opt.text;
-
-      if (isPlaceholderSelectOption(optText, optVal)) continue;
-
-      if (
-        isSynonymMatch(optVal, value) ||
-        isSynonymMatch(optText, value) ||
-        matchesStateOption(optText, value) ||
-        matchesStateOption(optVal, value)
-      ) {
-        bestIndex = i;
-        break;
-      }
+      if (isPlaceholderSelectOption(opt.text, opt.value)) continue;
+      optionTexts.push(opt.text.trim());
+      optionIndexes.push(i);
     }
 
-    if (bestIndex !== -1) {
-      console.log(`[JobFill] Setting native select index to ${bestIndex}`);
-      element.selectedIndex = bestIndex;
-      element.dispatchEvent(new Event('change', { bubbles: true }));
-      element.dispatchEvent(new Event('input', { bubbles: true }));
-      return true;
-    }
-    return false;
+    const bestText = pickBestMatchingOptionText(optionTexts, value);
+    if (!bestText) return false;
+
+    const bestIndex = optionIndexes[optionTexts.indexOf(bestText)];
+    if (bestIndex === undefined || bestIndex < 0) return false;
+
+    console.log(`[JobFill] Setting native select to option "${bestText}" (index ${bestIndex})`);
+    element.selectedIndex = bestIndex;
+    element.dispatchEvent(new Event('change', { bubbles: true }));
+    element.dispatchEvent(new Event('input', { bubbles: true }));
+    return true;
   } else {
     const searchInput = resolveSearchComboboxInput(element);
     if (searchInput) {
       const locationContext = /,/.test(value) ? value : undefined;
-      const searchFilled = await fillSearchCombobox(searchInput, value, locationContext);
-      if (searchFilled || comboboxShowsValue(element, locationContext || value)) return true;
+      return fillSearchCombobox(searchInput, value, locationContext);
     }
 
     // Custom DIV/button combobox filling
@@ -351,12 +352,17 @@ export async function fillSelect(element: HTMLElement, value: string): Promise<b
         const searchRoot = listboxId ? (document.getElementById(listboxId) || document) : document;
         const candidates = Array.from(searchRoot.querySelectorAll('[role="option"], li')) as HTMLElement[];
         console.log(`[JobFill Debug] Found ${candidates.length} custom option candidates in scope`);
-        
-        const matchedOption = candidates.find((el) => {
-          if (el === element || el.contains(element)) return false;
-          const text = el.textContent?.trim() || '';
-          return text && matchesCustomOption(text, value);
-        });
+
+        const optionTexts = candidates
+          .filter((el) => el !== element && !el.contains(element))
+          .map((el) => el.textContent?.replace(/\s+/g, ' ').trim() || '')
+          .filter(Boolean);
+        const bestText = pickBestMatchingOptionText(optionTexts, value);
+        const matchedOption = bestText
+          ? candidates.find(
+              (el) => el.textContent?.replace(/\s+/g, ' ').trim() === bestText && el !== element && !el.contains(element)
+            )
+          : undefined;
 
         if (matchedOption) {
           console.log(`[JobFill] Found custom select option match: "${matchedOption.textContent?.trim()}" - simulating click.`);
@@ -441,12 +447,17 @@ export function fillRadio(element: HTMLInputElement, value: string, doc: Documen
 /**
  * Toggles a checkbox based on yes/no or matching text
  */
-export function fillCheckbox(element: HTMLInputElement, value: string) {
+export function fillCheckbox(element: HTMLInputElement, value: string): boolean {
   const valLower = value.toLowerCase().trim();
   const shouldCheck = ['yes', 'true', '1', 'check', 'checked', 'agree'].includes(valLower);
 
+  if (element.checked === shouldCheck) return true;
+
   element.checked = shouldCheck;
+  element.dispatchEvent(new Event('click', { bubbles: true }));
   element.dispatchEvent(new Event('change', { bubbles: true }));
+  element.dispatchEvent(new Event('input', { bubbles: true }));
+  return element.checked === shouldCheck;
 }
 
 /**

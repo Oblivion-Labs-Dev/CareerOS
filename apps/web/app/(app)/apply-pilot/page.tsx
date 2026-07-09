@@ -1,11 +1,19 @@
 import dynamic from "next/dynamic";
+import Link from "next/link";
 import { PRODUCT_FEATURES } from "@career-os/core";
+import { BackendRequiredBanner } from "@/components/backend-required-banner";
 import { getExtensionDistPath } from "@/lib/extension-dist-path";
-
 const ApplyPilotInstaller = dynamic(
   () => import("@/components/apply-pilot-installer").then((mod) => mod.ApplyPilotInstaller),
   {
     loading: () => <p className="muted">Loading installer…</p>,
+  },
+);
+
+const EmailSenderPanel = dynamic(
+  () => import("@/components/email-sender-panel").then((mod) => mod.EmailSenderPanel),
+  {
+    loading: () => <p className="muted">Loading email sender…</p>,
   },
 );
 
@@ -22,16 +30,21 @@ const CAPABILITIES = [
     title: "Tracking",
     description: "Save jobs and applications into the CareerOS backend so the tracker stays current.",
   },
+  {
+    title: "Outreach",
+    description: "Send recruiter follow-ups through Gmail and review recent hiring-related threads.",
+  },
 ];
 
-export default function ApplyPilotPage() {
+export default async function ApplyPilotPage() {
   const { distPath, distReady } = getExtensionDistPath();
   const applyPilot = PRODUCT_FEATURES.find((feature) => feature.id === "applypilot");
 
   return (
     <div className="page-content toc-page">
-      <section className="toc-hero">
-        <span className="toc-eyebrow">ApplyPilot</span>
+      <BackendRequiredBanner />
+
+      <section className="toc-hero">        <span className="toc-eyebrow">ApplyPilot</span>
         <h1>The browser assistant for application forms.</h1>
         <p>
           Install ApplyPilot, connect it to the Python backend, and use it to fill applications while CareerOS
@@ -62,6 +75,19 @@ export default function ApplyPilotPage() {
           </div>
         </section>
       )}
+
+      <section className="focus-panel email-sender-section" aria-label="Gmail outreach">
+        <div className="focus-panel-copy">
+          <span className="toc-eyebrow">Outreach</span>
+          <h2>Gmail sender</h2>
+          <p>
+            Send application follow-ups and recruiter outreach from CareerOS. Connect Gmail on the API, compose
+            here, and pull recent hiring threads when you need context. View batch send results on{" "}
+            <Link href="/apply/outreach">Email Outreach</Link>.
+          </p>
+        </div>
+        <EmailSenderPanel />
+      </section>
     </div>
   );
 }

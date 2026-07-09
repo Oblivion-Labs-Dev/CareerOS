@@ -1,9 +1,14 @@
 import { WorkflowPage } from "@/components/scaffold-page";
 import { ReferralsManager } from "@/components/referrals-manager";
+import { BackendRequiredBanner } from "@/components/backend-required-banner";
 
-export default function ReferralsPage() {
+export default async function ReferralsPage() {
   return (
-    <WorkflowPage
+    <>
+      <div className="page-content">
+        <BackendRequiredBanner />
+      </div>
+      <WorkflowPage
       title="Referrals"
       eyebrow="Relationships"
       subtitle="People who can refer you at target companies — track emails, LinkedIn, relationship context, and referral status."
@@ -31,5 +36,6 @@ export default function ReferralsPage() {
     >
       <ReferralsManager />
     </WorkflowPage>
+    </>
   );
 }

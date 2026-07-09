@@ -1,5 +1,5 @@
 import '../shared/process-shim';
-import { detectAdapter } from '../adapters';
+import { resolveJobContext } from '../shared/jobContextResolver';
 import { scanPage, ScannedField } from './domScanner';
 import { classifyFields } from './fieldClassifier';
 import { runFullPageAutofill } from './autofillRunner';
@@ -8,21 +8,52 @@ import { UserProfile } from '../shared/types';
 import { enrichProfile, hasContactProfileData } from '../profile/profileStore';
 import { formatAutofillGapMessage } from './autofillRunner';
 import { mountFloatingWidget } from './floatingWidget';
+import { markApplicationSubmitted } from '../shared/trackApplicationSubmit';
+import { scrollToMarkedField } from './fieldMarker';
 import { initSubmitTracker } from './submitTracker';
 import { AUTOFILL_MESSAGES, cycleMessages } from '../shared/loadingMessages';
 import { logToServer, logAutofillResult } from '../shared/serverLog';
+import { extractJobContext, isJobApplicationUrl, isSubmissionConfirmationUrl } from '../shared/jobPageDetection';
+import { getPageSubmitRecord, markPageSubmitted } from '../shared/pageSubmitState';
 import { createOperationId, endTrace, failTrace, startTrace, traceStep } from '../shared/actionTrace';
+import { watchSkippedFieldsForProfileSave } from './skippedFieldProfile';
+
+function truncateCompany(value: string, max = 16): string {
+  const trimmed = value.trim();
+  if (trimmed.length <= max) return trimmed;
+  return `${trimmed.slice(0, max - 1)}…`;
+}
+
+function trackAutofillApplication(filledCount: number): void {
+  if (!isJobApplicationUrl(document.location.href) || filledCount <= 0) return;
+  const { company, role, location, platform } = extractJobContext(document);
+  chrome.runtime.sendMessage({
+    action: 'record-job-autofill',
+    payload: {
+      url: document.location.href,
+      company,
+      role,
+      location,
+      platform,
+      filledCount
+    }
+  });
+}
 
 let activeScannedFields: ScannedField[] = [];
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  if (message.action === 'ping') {
+    sendResponse({ ok: true });
+    return false;
+  }
+
   if (message.action === 'scan') {
     (async () => {
       const operationId = message.operationId as string | undefined;
       try {
         traceStep(operationId, 'scan', 'adapter_detect', 'content:scan');
-        const adapter = detectAdapter(document);
-        const jobDetails = adapter.extractJobDetails(document);
+        const jobDetails = resolveJobContext(document);
 
         traceStep(operationId, 'scan', 'dom_scan_start', 'content:scan');
         const fields = scanPage(document);
@@ -118,7 +149,8 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         }
 
         try {
-          company = detectAdapter(document).extractJobDetails(document).company || '';
+          const context = resolveJobContext(document);
+          company = context.company || '';
         } catch {}
 
         activeScannedFields = scanPage(document);
@@ -126,7 +158,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
           overrideCount: Object.keys(overrides).length,
           company
         });
-        const { filledCount, errors } = await runFullPageAutofill(
+        const { filledCount, errors, skippedFields } = await runFullPageAutofill(
           profile,
           overrides,
           company,
@@ -136,7 +168,8 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         );
         traceStep(operationId, 'autofill', 'run_full_page_end', 'content:autofill', {
           filledCount,
-          errorCount: errors.length
+          errorCount: errors.length,
+          skippedCount: skippedFields.length
         });
 
         clearHighlights(document);
@@ -145,9 +178,9 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
           errors,
           url: document.location.href,
           company,
-          detail: { operationId }
+          detail: { operationId, skippedCount: skippedFields.length }
         });
-        sendResponse({ success: true, filledCount, errors });
+        sendResponse({ success: true, filledCount, errors, skippedFields });
       } catch (err: any) {
         console.error('[JobFill] Autofill error:', err);
         failTrace(operationId, 'autofill', 'content:autofill', err.message || 'Autofill failed', {
@@ -164,6 +197,23 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         sendResponse({ success: false, error: err.message, filledCount: 0, errors: [] });
       }
     })();
+    return true;
+  }
+
+  if (message.action === 'scroll-to-field') {
+    const fieldId = message.fieldId as string | undefined;
+    const label = message.label as string | undefined;
+    let scrolled = fieldId ? scrollToMarkedField(document, fieldId) : false;
+    if (!scrolled && label) {
+      const fields = scanPage(document);
+      const match = fields.find(
+        (field) => field.labelText.replace(/\*+$/, '').trim().toLowerCase() === label.replace(/\*+$/, '').trim().toLowerCase()
+      );
+      if (match) {
+        scrolled = scrollToMarkedField(document, match.id);
+      }
+    }
+    sendResponse({ success: scrolled });
     return true;
   }
 
@@ -213,6 +263,7 @@ function shouldMountFloatingWidget(doc: Document): boolean {
   }
 
   if (isJobApplicationUrl(href)) return true;
+  if (isSubmissionConfirmationUrl(href)) return true;
   return fillable >= 3;
 }
 
@@ -234,6 +285,65 @@ function injectFloatingCopilotButton() {
   });
 
   const widget = mountFloatingWidget();
+
+  void getPageSubmitRecord(document.location.href).then((record) => {
+    if (!record) return;
+    widget.showSubmitTracked({
+      company: record.company,
+      role: record.role,
+      submittedAt: record.submittedAt,
+      platform: record.platform
+    });
+    widget.lockSubmitButton();
+  });
+
+  widget.onSubmit(async () => {
+    widget.setSubmitDisabled(true);
+    const ctx = extractJobContext(document);
+    const result = await markApplicationSubmitted({
+      company: ctx.company,
+      role: ctx.role,
+      location: ctx.location,
+      platform: ctx.platform,
+      trigger: 'applypilot_widget'
+    });
+
+    if (result.success) {
+      const tracked = {
+        company: result.company || ctx.company,
+        role: result.role || ctx.role,
+        submittedAt: result.submittedAt || new Date().toISOString(),
+        platform: result.platform || ctx.platform
+      };
+      widget.showSubmitTracked(tracked);
+      widget.lockSubmitButton();
+      await markPageSubmitted(document.location.href, tracked);
+      widget.setState('success', `${truncateCompany(tracked.company)} tracked`);
+      logToServer({
+        level: 'info',
+        source: 'content:widget',
+        message: `Submit tracked: ${tracked.company} — ${tracked.role}`,
+        detail: {
+          platform: tracked.platform,
+          submittedAt: tracked.submittedAt,
+          applicationId: result.applicationId
+        },
+        url: document.location.href
+      });
+      setTimeout(() => widget.setState('idle', 'Fill application'), 3200);
+      return;
+    }
+
+    widget.setState('warning', 'Tracker save failed');
+    widget.setSubmitDisabled(false);
+    logToServer({
+      level: 'error',
+      source: 'content:widget',
+      message: result.error || 'Could not track application submit',
+      url: document.location.href
+    });
+    setTimeout(() => widget.setState('idle', 'Fill application'), 3200);
+  });
 
   widget.onClick(async () => {
     widget.setDisabled(true);
@@ -289,9 +399,44 @@ function injectFloatingCopilotButton() {
 
       traceStep(operationId, 'autofill', 'profile_loaded', 'content:widget');
       chrome.runtime.sendMessage(
-        { action: 'autofill-active-tab', profile, operationId },
-        (autofillResponse) => {
+        { action: 'scan-all-frames', profile, operationId },
+        (scanResponse) => {
+          if (chrome.runtime.lastError || !scanResponse?.success || !scanResponse.fields?.length) {
+            failTrace(
+              operationId,
+              'autofill',
+              'content:widget',
+              scanResponse?.error || chrome.runtime.lastError?.message || 'No form fields found'
+            );
+            widget.setState('warning', 'No fields found');
+            logToServer({
+              level: 'warn',
+              source: 'content:widget',
+              message: 'Scan found no fillable fields',
+              detail: { url: document.location.href, error: scanResponse?.error },
+              url: document.location.href
+            });
+            setTimeout(() => {
+              widget.setState('idle', 'Fill application');
+              widget.setDisabled(false);
+            }, 4200);
+            return;
+          }
+
+          const frameIds = [
+            ...new Set(
+              scanResponse.fields
+                .map((field: { frameId?: number }) => field.frameId)
+                .filter((frameId: number | undefined): frameId is number => typeof frameId === 'number')
+            )
+          ];
+
+          chrome.runtime.sendMessage(
+            { action: 'autofill-active-tab', profile, frameIds, operationId },
+            (autofillResponse) => {
           stopMessages();
+          let keepSkippedPanelMs = 2800;
+          let stopSkippedProfileWatch: (() => void) | undefined;
 
           if (chrome.runtime.lastError || !autofillResponse?.success) {
             failTrace(
@@ -320,22 +465,67 @@ function injectFloatingCopilotButton() {
               resumeMissing: !profile.resume,
               resumeNotAttached: false
             });
+            const skippedFields =
+              autofillResponse.skippedFields ||
+              autofillResponse.errors?.map((entry: { label: string; error: string; fieldId?: string }) => ({
+                label: entry.label,
+                reason: entry.error,
+                fieldId: entry.fieldId || ''
+              })) ||
+              [];
+            const keepSkippedPanelMsLocal = skippedFields.length ? 12000 : 2800;
+            keepSkippedPanelMs = keepSkippedPanelMsLocal;
 
-            if (autofillResponse.errors?.length) {
-              widget.setState('warning', `${autofillResponse.errors.length} field(s) skipped`);
+            if (skippedFields.length) {
+              const preview = skippedFields[0]?.label || '';
+              const suffix = preview.length > 24 ? `${preview.slice(0, 24)}…` : preview;
+              widget.setState('warning', `${skippedFields.length} skipped · ${suffix}`);
+              widget.showSkippedFields(skippedFields);
+              stopSkippedProfileWatch = watchSkippedFieldsForProfileSave(
+                skippedFields,
+                () =>
+                  new Promise<UserProfile>((resolve, reject) => {
+                    chrome.runtime.sendMessage({ action: 'get-profile-for-autofill' }, (res) => {
+                      if (chrome.runtime.lastError || !res?.success || !res.profile) {
+                        reject(new Error(chrome.runtime.lastError?.message || 'Profile unavailable'));
+                        return;
+                      }
+                      resolve(enrichProfile(res.profile as UserProfile));
+                    });
+                  }),
+                document
+              );
             } else if (gapMessage) {
               widget.setState('warning', gapMessage.slice(0, 28));
+              widget.hideSkippedFields();
             } else if (autofillResponse.filledCount === 0) {
               widget.setState('warning', 'No fields filled');
+              widget.hideSkippedFields();
+              logToServer({
+                level: 'warn',
+                source: 'content:widget',
+                message: 'Autofill completed with zero fills',
+                detail: {
+                  scannedFields: scanResponse.fields.length,
+                  frameIds,
+                  errorCount: autofillResponse.errors?.length || 0
+                },
+                url: document.location.href
+              });
             } else {
               widget.setState('success', `Filled ${autofillResponse.filledCount} fields`);
+              widget.hideSkippedFields();
+              trackAutofillApplication(autofillResponse.filledCount || 0);
             }
           }
 
           setTimeout(() => {
+            stopSkippedProfileWatch?.();
             widget.setState('idle', 'Fill application');
             widget.setDisabled(false);
-          }, 2800);
+          }, keepSkippedPanelMs);
+            }
+          );
         }
       );
     });

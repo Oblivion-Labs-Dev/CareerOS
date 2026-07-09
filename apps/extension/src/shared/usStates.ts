@@ -112,27 +112,33 @@ export function preferredStateFillValue(value: string): string {
   return trimmed;
 }
 
-export function parseLocationParts(location: string): { city: string; state: string } {
+export function parseLocationParts(location: string): { city: string; state: string; zip: string } {
   const trimmed = location?.trim() || '';
-  if (!trimmed) return { city: '', state: '' };
+  if (!trimmed) return { city: '', state: '', zip: '' };
 
-  const commaParts = trimmed.split(',').map((p) => p.trim()).filter(Boolean);
+  const zipMatch = trimmed.match(/\b(\d{5}(?:-\d{4})?)\b/);
+  const zip = zipMatch?.[1] || '';
+  const withoutZip = zip ? trimmed.replace(zipMatch![0], '').replace(/,\s*$/, '').trim() : trimmed;
+
+  const commaParts = withoutZip.split(',').map((p) => p.trim()).filter(Boolean);
   if (commaParts.length >= 2) {
     return {
       city: commaParts[0],
-      state: commaParts[commaParts.length - 1]
+      state: commaParts[commaParts.length - 1],
+      zip
     };
   }
 
-  const tokens = trimmed.split(/\s+/);
+  const tokens = withoutZip.split(/\s+/);
   if (tokens.length >= 2 && /^[A-Za-z]{2}$/.test(tokens[tokens.length - 1])) {
     return {
       city: tokens.slice(0, -1).join(' '),
-      state: tokens[tokens.length - 1]
+      state: tokens[tokens.length - 1],
+      zip
     };
   }
 
-  return { city: trimmed, state: '' };
+  return { city: withoutZip, state: '', zip };
 }
 
 /** City name for searchable location comboboxes (type "Seattle", pick full option). */

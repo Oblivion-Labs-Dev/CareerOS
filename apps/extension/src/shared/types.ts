@@ -28,8 +28,10 @@ export interface UserProfile {
   firstName: string;
   lastName: string;
   fullName: string;
+  preferredName?: string;
   email: string;
   phone: string;
+  phoneCountryCode?: string;
   location: string;
   linkedin: string;
   github: string;
@@ -43,6 +45,8 @@ export interface UserProfile {
   currentCompany?: string;
   pronouns?: string;
   gender?: string;
+  transgender?: string;
+  sexualOrientation?: string;
   raceEthnicity?: string;
   hispanic?: string;
   veteran?: string;
