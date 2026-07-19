@@ -1,0 +1,304 @@
+[
+  {
+    "id": "microsoft-adaptive-protection",
+    "company": "Microsoft",
+    "title": "Adaptive Protection",
+    "currentBullet": "Built Adaptive Protection for Microsoft Purview Insider Risk Management, introducing tenant-configurable detection and risk evaluation for 237K AI agents across 13K organizations.",
+    "problem": "Enterprise AI agents lacked configurable risk evaluation for agentic and non-agentic AI.",
+    "businessContext": "Organizations needed centralized AI risk governance.",
+    "technicalContext": "Microsoft Purview, Insider Risk Management, and AI governance.",
+    "tools": ["C#", ".NET", "Azure", "Microsoft Purview", "Event Hub", "Cosmos DB", "Kusto", "Bicep"],
+    "ownership": "Built Adaptive Protection.",
+    "scale": ["237K AI agents", "13K organizations"],
+    "impact": "Enabled tenant-configurable AI risk evaluation.",
+    "evidence": ["Current resume"],
+    "metrics": [
+      { "name": "AI agents", "value": "237K", "source": "Current resume", "verification": "needs-evidence" },
+      { "name": "Organizations", "value": "13K", "source": "Current resume", "verification": "needs-evidence" }
+    ],
+    "missing": ["Architecture", "Detection pipeline", "Policy engine", "Storage design", "Event flow", "Failure handling"]
+  },
+  {
+    "id": "microsoft-historical-enrichment",
+    "company": "Microsoft",
+    "title": "Historical Enrichment",
+    "currentBullet": "Historical audit reconstruction gave newly onboarded AI agents immediate risk context across 90 days of history and 40+ forests.",
+    "problem": "New AI agents lacked historical risk context.",
+    "technicalContext": "Historical audit reconstruction.",
+    "scale": ["90 days", "40+ forests"],
+    "impact": "Immediate risk evaluation for newly onboarded AI agents.",
+    "evidence": ["Current resume"],
+    "metrics": [
+      { "name": "Historical window", "value": "90 days", "source": "Current resume", "verification": "needs-evidence" },
+      { "name": "Forest coverage", "value": "40+ forests", "source": "Current resume", "verification": "needs-evidence" }
+    ],
+    "missing": ["Replay architecture", "Ordering", "Deduplication", "Consistency", "Parallelization"]
+  },
+  {
+    "id": "microsoft-sovereign-cloud-rollout",
+    "company": "Microsoft",
+    "title": "Sovereign Cloud Rollout",
+    "currentBullet": "Delivered feature parity across Commercial, GCC, GCCH, and DoD environments while satisfying regional compliance requirements.",
+    "scale": ["Commercial", "GCC", "GCCH", "DoD"],
+    "impact": "Feature parity while satisfying regional compliance.",
+    "evidence": ["Current resume"],
+    "missing": ["Deployment strategy", "Feature flags", "Data residency", "CI/CD", "Rollout phases"]
+  },
+  {
+    "id": "microsoft-ai-agent-ingestion",
+    "company": "Microsoft",
+    "title": "AI Agent Ingestion",
+    "currentBullet": "Built isolated AI-agent ingestion across 28 Azure regions for 135K+ security signals per day, preventing AI workloads from affecting human-user processing.",
+    "technicalContext": "Azure and Event Hub ingestion.",
+    "tools": ["Azure", "Event Hub"],
+    "scale": ["28 Azure regions", "135K+ security signals/day"],
+    "impact": "Prevented AI workloads from affecting human-user processing.",
+    "evidence": ["Current resume"],
+    "metrics": [
+      { "name": "Regional coverage", "value": "28 Azure regions", "source": "Current resume", "verification": "needs-evidence" },
+      { "name": "Security signal volume", "value": "135K+ per day", "source": "Current resume", "verification": "needs-evidence" }
+    ],
+    "missing": ["Partitioning", "Event model", "Throughput strategy", "Retry strategy"]
+  },
+  {
+    "id": "microsoft-risk-correlation",
+    "company": "Microsoft",
+    "title": "Risk Correlation",
+    "currentBullet": "Correlated Graph, Entra, Defender, Sentinel, and Purview signals to improve AI observability and enterprise risk detection.",
+    "tools": ["Microsoft Graph", "Microsoft Entra", "Microsoft Defender", "Microsoft Sentinel", "Microsoft Purview"],
+    "impact": "Improved AI observability and enterprise risk detection.",
+    "evidence": ["Current resume"],
+    "missing": ["Correlation algorithm", "Rules versus graph", "Scoring model"]
+  },
+  {
+    "id": "amazon-bootstrap-platform",
+    "company": "Amazon",
+    "title": "Bootstrap Platform",
+    "currentBullet": "Created a reusable microservice foundation with declarative infrastructure, saving an estimated 40–50 engineering weeks.",
+    "tools": ["Java", "AWS", "DSL"],
+    "architectureDecision": "Reusable microservice foundation with declarative infrastructure.",
+    "impact": "Saved an estimated 40–50 engineering weeks.",
+    "evidence": ["Current resume"],
+    "metrics": [{ "name": "Engineering time saved", "value": "Estimated 40–50 weeks", "source": "Current resume", "verification": "needs-evidence" }],
+    "missing": ["Adoption metrics", "Adopting teams", "Repositories"]
+  },
+  {
+    "id": "amazon-replay-platform",
+    "company": "Amazon",
+    "title": "Replay Platform",
+    "currentBullet": "Replaced cron-based replay with observable, fault-tolerant AWS Step Functions orchestration handling 200K+ replays per day across North America, Europe, and the Far East.",
+    "tools": ["AWS Step Functions"],
+    "scale": ["200K+ replays/day", "North America", "Europe", "Far East"],
+    "impact": "Replaced cron with observable fault-tolerant orchestration.",
+    "evidence": ["Current resume"],
+    "metrics": [{ "name": "Daily replay volume", "value": "200K+ per day", "source": "Current resume", "verification": "needs-evidence" }],
+    "missing": ["Why Step Functions", "Retry model", "Idempotency", "Workflow design"]
+  },
+  {
+    "id": "amazon-runtime-log-api",
+    "company": "Amazon",
+    "title": "Runtime Log API",
+    "currentBullet": "Enabled runtime log-level changes without redeployments, reducing incident resolution time by more than one hour.",
+    "architectureDecision": "Runtime log-level changes instead of redeployments.",
+    "impact": "Reduced incident resolution by over one hour.",
+    "evidence": ["Current resume"],
+    "metrics": [{ "name": "Incident resolution improvement", "value": "Over 1 hour", "source": "Current resume", "verification": "needs-evidence" }],
+    "missing": ["RBAC", "Authentication", "Auditing"]
+  },
+  {
+    "id": "amazon-ai-delivery-platform",
+    "company": "Amazon",
+    "title": "AI Delivery Platform",
+    "currentBullet": "Used SageMaker with warehouse, transportation, inventory, and operational signals to support a 7% increase in global sales.",
+    "tools": ["Amazon SageMaker"],
+    "technicalContext": "Warehouse, transportation, inventory, and operational signals.",
+    "impact": "7% increase in global sales.",
+    "evidence": ["Current resume"],
+    "metrics": [{ "name": "Global sales", "value": "+7%", "source": "Current resume", "verification": "needs-evidence" }],
+    "missing": ["Model ownership", "Architecture", "Inference pipeline"]
+  },
+  {
+    "id": "amazon-localization-engine",
+    "company": "Amazon",
+    "title": "Localization Engine",
+    "currentBullet": "Automated compliance-grounded multilingual content generation with Amazon Bedrock and RAG across 37 templates and 28 locales.",
+    "tools": ["Amazon Bedrock", "RAG"],
+    "scale": ["37 templates", "28 locales"],
+    "impact": "Automated compliance-grounded multilingual content generation.",
+    "evidence": ["Current resume"],
+    "metrics": [
+      { "name": "Templates", "value": "37", "source": "Current resume", "verification": "needs-evidence" },
+      { "name": "Locales", "value": "28", "source": "Current resume", "verification": "needs-evidence" }
+    ],
+    "missing": ["Prompt architecture", "Validation", "Evaluation"]
+  },
+  {
+    "id": "amazon-xgboost",
+    "company": "Amazon",
+    "title": "XGBoost Recovery Model",
+    "currentBullet": "Applied XGBoost to enable earlier recovery, customer notification, and alternate-seller recommendations.",
+    "tools": ["XGBoost"],
+    "impact": "Earlier recovery, customer notification, and alternate seller recommendations.",
+    "evidence": ["Current resume"],
+    "missing": ["Feature engineering", "Inference architecture"]
+  },
+  {
+    "id": "amazon-quantile-regression",
+    "company": "Amazon",
+    "title": "Quantile Regression",
+    "currentBullet": "Built a SageMaker quantile-regression capability associated with $28M in annualized business impact.",
+    "tools": ["Amazon SageMaker", "Quantile regression"],
+    "impact": "$28M annualized business impact.",
+    "evidence": ["Current resume"],
+    "metrics": [{ "name": "Annualized business impact", "value": "$28M", "source": "Current resume", "verification": "needs-evidence" }],
+    "missing": ["Training pipeline", "Deployment architecture"]
+  },
+  {
+    "id": "amazon-rest-grpc-layer",
+    "company": "Amazon",
+    "title": "REST/gRPC Layer",
+    "currentBullet": "Hosted REST and gRPC in one service layer supporting 16 microservices and 100K+ TPS.",
+    "tools": ["REST", "gRPC"],
+    "architectureDecision": "Hosted REST and gRPC in one service.",
+    "scale": ["16 microservices", "100K+ TPS"],
+    "evidence": ["Current resume"],
+    "metrics": [
+      { "name": "Service coverage", "value": "16 microservices", "source": "Current resume", "verification": "needs-evidence" },
+      { "name": "Throughput", "value": "100K+ TPS", "source": "Current resume", "verification": "needs-evidence" }
+    ],
+    "missing": ["Why dual protocol"]
+  },
+  {
+    "id": "amazon-prime-day",
+    "company": "Amazon",
+    "title": "Prime Day",
+    "currentBullet": "Supported Prime Day scale of 6M+ requests per day across 60+ services.",
+    "scale": ["6M+ requests/day", "60+ services"],
+    "evidence": ["Current resume"],
+    "metrics": [
+      { "name": "Daily request volume", "value": "6M+", "source": "Current resume", "verification": "needs-evidence" },
+      { "name": "Service scope", "value": "60+ services", "source": "Current resume", "verification": "needs-evidence" }
+    ],
+    "missing": ["Outcome metrics", "Incidents avoided"]
+  },
+  {
+    "id": "amazon-just-in-stock",
+    "company": "Amazon",
+    "title": "Just-In-Stock",
+    "currentBullet": "Improved early delivery by 16% through Just-In-Stock capabilities.",
+    "impact": "16% increase in early delivery.",
+    "evidence": ["Current resume"],
+    "metrics": [{ "name": "Early delivery", "value": "+16%", "source": "Current resume", "verification": "needs-evidence" }],
+    "missing": ["Traffic", "Architecture"]
+  },
+  {
+    "id": "amazon-operational-platform",
+    "company": "Amazon",
+    "title": "Operational Platform",
+    "currentBullet": "Built an operational platform that removed hours of manual engineering work.",
+    "impact": "Removed hours of manual engineering work.",
+    "evidence": ["Current resume"],
+    "missing": ["Users", "Adoption"]
+  },
+  {
+    "id": "amazon-docker-optimization",
+    "company": "Amazon",
+    "title": "Docker Optimization",
+    "currentBullet": "Reduced Docker image size by 83%, build time by 50%, and storage consumption by more than 60GB.",
+    "tools": ["Docker"],
+    "impact": "83% image reduction, 50% build reduction, and 60GB+ storage saved.",
+    "evidence": ["Current resume"],
+    "metrics": [
+      { "name": "Image size", "value": "−83%", "source": "Current resume", "verification": "needs-evidence" },
+      { "name": "Build time", "value": "−50%", "source": "Current resume", "verification": "needs-evidence" },
+      { "name": "Storage saved", "value": "60GB+", "source": "Current resume", "verification": "needs-evidence" }
+    ],
+    "missing": ["Optimization approach", "Baseline validation"]
+  },
+  {
+    "id": "amazon-restock-alerts",
+    "company": "Amazon",
+    "title": "Restock Alerts",
+    "currentBullet": "Restock Alerts increased cancelled-ASIN sales by 13%.",
+    "impact": "13% increase in cancelled ASIN sales.",
+    "evidence": ["Current resume"],
+    "metrics": [{ "name": "Cancelled-ASIN sales", "value": "+13%", "source": "Current resume", "verification": "needs-evidence" }],
+    "missing": ["Architecture", "Attribution method", "Scale"]
+  },
+  {
+    "id": "amazon-cloudwatch-savings",
+    "company": "Amazon",
+    "title": "CloudWatch Cost Reduction",
+    "currentBullet": "Reduced CloudWatch cost by more than $250K per month.",
+    "tools": ["Amazon CloudWatch"],
+    "impact": "$250K+/month savings.",
+    "evidence": ["Current resume"],
+    "metrics": [{ "name": "Monthly savings", "value": "$250K+", "source": "Current resume", "verification": "needs-evidence" }],
+    "missing": ["Implementation details"]
+  },
+  {
+    "id": "amazon-simulation-platform",
+    "company": "Amazon",
+    "title": "Simulation Platform",
+    "currentBullet": "Built a simulation platform that saved 2–3 engineering hours per request.",
+    "impact": "Saved 2–3 engineering hours per request.",
+    "evidence": ["Current resume"],
+    "metrics": [{ "name": "Engineering time saved", "value": "2–3 hours/request", "source": "Current resume", "verification": "needs-evidence" }],
+    "missing": ["Architecture", "Users"]
+  },
+  {
+    "id": "amazon-operational-reviews",
+    "company": "Amazon",
+    "title": "Operational Reviews",
+    "currentBullet": "Established operational reviews associated with a 60% reduction in Sev2 incidents.",
+    "impact": "60% reduction in Sev2 incidents.",
+    "evidence": ["Current resume"],
+    "metrics": [{ "name": "Sev2 incidents", "value": "−60%", "source": "Current resume", "verification": "needs-evidence" }],
+    "missing": ["Framework", "Review process"]
+  },
+  {
+    "id": "amazon-tier-1-readiness",
+    "company": "Amazon",
+    "title": "Tier-1 Readiness",
+    "currentBullet": "Applied CI/CD, canary deployments, Multi-AZ architecture, and fault injection to Tier-1 readiness.",
+    "tools": ["CI/CD", "Canary deployments", "Multi-AZ", "Fault injection"],
+    "technicalContext": "Tier-1 production readiness.",
+    "evidence": ["Current resume"],
+    "missing": ["Automation framework", "Reliability outcomes", "Ownership"]
+  },
+  {
+    "id": "project-leetdesign",
+    "company": "Personal project",
+    "title": "LeetDesign",
+    "currentBullet": "Built a distributed-systems simulator for scalability, fault tolerance, and architecture tradeoffs.",
+    "technicalContext": "Distributed systems simulation.",
+    "impact": "Simulator for exploring scalability, fault tolerance, and architecture tradeoffs.",
+    "missing": ["Architecture", "Users", "Evidence links", "Interview story"]
+  },
+  {
+    "id": "project-financeos",
+    "company": "Personal project",
+    "title": "FinanceOS",
+    "currentBullet": "Built FinanceOS around deterministic processing with LLM-assisted reasoning.",
+    "tools": ["LLM"],
+    "architectureDecision": "Deterministic processing plus LLM-assisted reasoning.",
+    "missing": ["Problem context", "Architecture", "Evaluation", "Evidence links", "Interview story"]
+  },
+  {
+    "id": "project-arsenal",
+    "company": "Personal project",
+    "title": "Arsenal",
+    "currentBullet": "Built a developer platform for project scaffolding, repository intelligence, and token-efficient AI workflows.",
+    "impact": "Developer platform for project scaffolding, repository intelligence, and token-efficient AI workflows.",
+    "missing": ["Architecture", "Adoption", "Metrics", "Evidence links", "Interview story"]
+  },
+  {
+    "id": "project-invisibleloops",
+    "company": "Personal project",
+    "title": "InvisibleLoops",
+    "currentBullet": "Built a knowledge-graph platform for cognitive patterns and decision-making.",
+    "tools": ["Knowledge graph"],
+    "impact": "Knowledge graph platform for cognitive patterns and decision-making.",
+    "missing": ["Problem context", "Architecture", "Users", "Evidence links", "Interview story"]
+  }
+]

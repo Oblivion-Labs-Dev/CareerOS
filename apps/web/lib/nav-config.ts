@@ -12,34 +12,44 @@ export interface NavGroup {
 
 export const NAV_GROUPS: NavGroup[] = [
   {
-    label: "Overview",
-    items: [{ href: "/roadmap", label: "Roadmap", icon: "R" }],
+    label: "Today",
+    items: [{ href: "/dashboard", label: "Command Center", icon: "today", requiresBackend: true }],
   },
   {
-    label: "Foundation",
+    label: "Build",
     items: [
-      { href: "/profile", label: "Profile", icon: "P", requiresBackend: true },
-      { href: "/referrals", label: "Referrals", icon: "R", requiresBackend: true },
-      { href: "/resumes", label: "Documents", icon: "D" },
-      { href: "/settings", label: "Settings", icon: "S" },
+      { href: "/profile", label: "Profile", icon: "profile", requiresBackend: true },
+      { href: "/resumes", label: "Documents", icon: "documents", requiresBackend: true },
+      { href: "/resume-corpus", label: "Resume Intelligence", icon: "evidence", requiresBackend: true },
     ],
   },
   {
-    label: "Apply",
+    label: "Search & apply",
     items: [
-      { href: "/apply-pilot", label: "ApplyPilot", icon: "AP", requiresBackend: true },
-      { href: "/apply/outreach", label: "Email Outreach", icon: "EO", requiresBackend: true },
-      { href: "/applications", label: "Application Tracker", icon: "AT", requiresBackend: true },
-      { href: "/jobs", label: "Jobs", icon: "J", requiresBackend: true },
-      { href: "/apply/job-search-guide", label: "Job Search Guide", icon: "JG" },
+      { href: "/jobs", label: "Opportunities", icon: "jobs", requiresBackend: true },
+      { href: "/applications", label: "Applications", icon: "applications", requiresBackend: true },
     ],
   },
   {
-    label: "Grow",
+    label: "Connect & prepare",
     items: [
-      { href: "/networking", label: "Contacts", icon: "C" },
-      { href: "/interviews", label: "Interviews", icon: "I" },
-      { href: "/analytics", label: "Analytics", icon: "AN" },
+      { href: "/networking", label: "Relationships", icon: "relationships", requiresBackend: true },
+      { href: "/interviews", label: "Interviews", icon: "interviews", requiresBackend: true },
+      { href: "/analytics", label: "Progress & Insights", icon: "insights", requiresBackend: true },
+    ],
+  },
+  {
+    label: "Tools",
+    items: [
+      { href: "/apply-pilot", label: "ApplyPilot", icon: "applypilot", requiresBackend: true },
+      { href: "/apply/job-search-guide", label: "Resources", icon: "resources" },
+    ],
+  },
+  {
+    label: "System",
+    items: [
+      { href: "/settings", label: "Settings", icon: "settings" },
+      { href: "/roadmap", label: "Roadmap", icon: "roadmap" },
     ],
   },
 ];

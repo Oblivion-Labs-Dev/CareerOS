@@ -61,11 +61,13 @@ def recalculate_summary(campaign: dict[str, Any]) -> None:
     sent = sum(1 for result in results if result.get("status") == "sent")
     failed = sum(1 for result in results if result.get("status") == "failed")
     pending = sum(1 for result in results if result.get("status") in {"pending", "retrying"})
+    skipped = sum(1 for result in results if result.get("status") == "skipped")
     campaign["summary"] = {
         "total": len(results),
         "sent": sent,
         "failed": failed,
         "pending": pending,
+        "skipped": skipped,
     }
 
 
@@ -102,6 +104,25 @@ def already_sent_emails(campaigns: list[dict[str, Any]]) -> set[str]:
             if result.get("status") == "sent" and result.get("email"):
                 sent.add(str(result["email"]).lower())
     return sent
+
+
+def unique_entries_by_email(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Keep the first occurrence of each email address (case-insensitive)."""
+    selected: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for entry in entries:
+        email = str(entry.get("email", "")).strip().lower()
+        if not email or email in seen:
+            continue
+        seen.add(email)
+        selected.append(entry)
+    return selected
+
+
+def mark_skipped(result: dict[str, Any], reason: str) -> None:
+    result["status"] = "skipped"
+    result["error"] = reason
+    result["sentAt"] = None
 
 
 def find_resumable_campaign(campaigns: list[dict[str, Any]], campaign_id: str | None) -> dict[str, Any] | None:
@@ -165,7 +186,7 @@ def recipients_for_new_campaign(
     one_per_company: bool,
     skip_already_sent: bool,
 ) -> list[dict[str, Any]]:
-    pool = entries
+    pool = unique_entries_by_email(entries)
     if skip_already_sent:
         sent_emails = already_sent_emails(campaigns)
         pool = [entry for entry in pool if entry["email"].lower() not in sent_emails]
@@ -181,20 +202,31 @@ def pending_recipients_from_campaign(
     entries_by_email: dict[str, dict[str, Any]],
     *,
     retry_failed: bool,
+    already_sent: set[str] | None = None,
 ) -> list[tuple[dict[str, Any], dict[str, Any]]]:
+    """Return pending work items, keeping only unique emails not already sent."""
     pending: list[tuple[dict[str, Any], dict[str, Any]]] = []
+    seen_emails: set[str] = set(already_sent or set())
     for result in campaign.get("results", []):
         status = result.get("status")
-        if status == "sent":
+        if status in {"sent", "skipped", "dry_run"}:
             continue
         if status == "failed" and not retry_failed:
             continue
-        recipient = entries_by_email.get(str(result.get("email", "")).lower())
+        email = str(result.get("email", "")).strip().lower()
+        if not email:
+            mark_skipped(result, "Missing email address.")
+            continue
+        if email in seen_emails:
+            mark_skipped(result, "Skipped duplicate email — already sent or queued once.")
+            continue
+        recipient = entries_by_email.get(email)
         if not recipient:
             result["status"] = "failed"
             result["error"] = "Recipient not found in personalized email list."
             continue
         if status in {"pending", "failed", "retrying"}:
+            seen_emails.add(email)
             pending.append((result, recipient))
     return pending
 
@@ -304,7 +336,13 @@ def main() -> int:
     parser.add_argument(
         "--skip-already-sent",
         action="store_true",
-        help="Skip recruiters already marked sent in previous campaigns",
+        default=True,
+        help="Skip recruiters already marked sent in previous campaigns (default: true)",
+    )
+    parser.add_argument(
+        "--allow-already-sent",
+        action="store_true",
+        help="Allow re-sending to emails already marked sent in previous campaigns",
     )
     parser.add_argument(
         "--continue",
@@ -326,6 +364,7 @@ def main() -> int:
     args = parser.parse_args()
 
     one_per_company = not args.allow_same_company and args.one_per_company
+    skip_already_sent = args.skip_already_sent and not args.allow_already_sent
 
     if not args.emails.exists():
         print(f"Missing personalized emails file: {args.emails}")
@@ -338,6 +377,7 @@ def main() -> int:
     entries = json.loads(args.emails.read_text(encoding="utf-8"))
     entries_by_email = index_entries_by_email(entries)
     campaigns = load_campaigns(args.results)
+    sent_emails = already_sent_emails(campaigns) if skip_already_sent else set()
 
     campaign: dict[str, Any] | None = None
     work_items: list[tuple[dict[str, Any], dict[str, Any]]] = []
@@ -351,6 +391,7 @@ def main() -> int:
             campaign,
             entries_by_email,
             retry_failed=args.retry_failed or True,
+            already_sent=sent_emails,
         )
         if not work_items:
             finalize_campaign(campaign)
@@ -358,14 +399,18 @@ def main() -> int:
             print(f"Campaign {campaign['id']} has no pending recruiters.")
             return 0
         campaign["status"] = "in_progress"
-        print(f"Resuming campaign {campaign['id']} ({len(work_items)} remaining).")
+        persist_campaign(args.results, campaign)
+        print(
+            f"Resuming campaign {campaign['id']} "
+            f"({len(work_items)} unique remaining; {len(sent_emails)} already-sent emails excluded)."
+        )
     else:
         recipients = recipients_for_new_campaign(
             entries,
             campaigns,
             limit=args.limit,
             one_per_company=one_per_company,
-            skip_already_sent=args.skip_already_sent,
+            skip_already_sent=skip_already_sent,
         )
         if not recipients:
             print("No recipients selected.")
@@ -380,7 +425,7 @@ def main() -> int:
         )
         work_items = [(result, recipient) for result, recipient in zip(campaign["results"], recipients, strict=True)]
         persist_campaign(args.results, campaign)
-        print(f"Created campaign {campaign['id']} with {len(work_items)} recruiters.")
+        print(f"Created campaign {campaign['id']} with {len(work_items)} unique recruiters.")
 
     sender = None
     attachments = None
@@ -409,11 +454,19 @@ def main() -> int:
 
     total = len(work_items)
     paused = False
+    session_sent: set[str] = set(sent_emails)
 
     for index, (result, recipient) in enumerate(work_items, start=1):
+        email = str(recipient["email"]).strip().lower()
         print(
             f"\n[{index}/{total}] {recipient['recruiterName']} <{recipient['email']}> ({recipient['company']})"
         )
+
+        if email in session_sent:
+            mark_skipped(result, "Skipped duplicate email — already sent.")
+            persist_campaign(args.results, campaign)
+            print("  Skipped duplicate (already sent).")
+            continue
 
         if args.dry_run:
             result["status"] = "dry_run"
@@ -442,6 +495,7 @@ def main() -> int:
             result["messageId"] = send_result.get("messageId") or None
             result["sentAt"] = utc_now()
             result["attempts"] = result.get("attempts", 0) + 1
+            session_sent.add(email)
             print(f"  Sent. messageId={result['messageId']}")
         except Exception as exc:  # noqa: BLE001
             result["status"] = "failed"

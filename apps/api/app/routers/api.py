@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.db.store import (
     EntityStore,
+    delete_entity,
     get_kv,
     import_legacy_db,
     legacy_db_snapshot,
@@ -22,6 +23,7 @@ from app.db.store import (
     tracker_summary,
     upsert_entity,
 )
+from app.services.llm import analyze_accomplishment, generate_resume_bullets_for_job
 from app.services.extension_packager import build_extension_zip, extension_info
 from app.services.gmail_imap import GmailImapClient
 from app.services.gmail_sender import SendEmailPayload, build_gmail_sender
@@ -406,59 +408,104 @@ def get_cached_recruiter_conversations() -> dict[str, Any]:
     return {"success": True, "conversations": conversations, "count": len(conversations), "source": str(path)}
 
 
-def _load_bounced_email_set() -> tuple[set[str], int]:
+def _load_bounced_email_details() -> tuple[dict[str, dict[str, Any]], int, dict[str, int]]:
     path = Path(__file__).resolve().parents[2] / "data" / "bounced_recruiter_emails.json"
     if not path.exists():
-        return set(), 0
+        return {}, 0, {}
     payload = json.loads(path.read_text(encoding="utf-8"))
-    invalid = {str(item.get("email", "")).lower() for item in payload.get("invalidEmails", []) if item.get("email")}
-    return invalid, int(payload.get("bounceMessages", 0) or 0)
+    details: dict[str, dict[str, Any]] = {}
+    for item in payload.get("invalidEmails", []):
+        email = str(item.get("email", "")).lower()
+        if not email:
+            continue
+        details[email] = {
+            "bounceCategory": item.get("bounceCategory") or "other",
+            "bounceCategoryLabel": item.get("bounceCategoryLabel") or "Other bounce",
+            "bounceReason": item.get("bounceReason") or "Delivery failed",
+        }
+    category_counts = {
+        str(key): int(value)
+        for key, value in (payload.get("categoryCounts") or {}).items()
+        if key
+    }
+    return details, int(payload.get("bounceMessages", 0) or 0), category_counts
 
 
-def _compute_delivery_stats(results: list[dict[str, Any]], bounced: set[str]) -> dict[str, int]:
+def _load_bounced_email_set() -> tuple[set[str], int]:
+    details, bounce_messages, _ = _load_bounced_email_details()
+    return set(details), bounce_messages
+
+
+def _compute_delivery_stats(
+    results: list[dict[str, Any]],
+    bounce_details: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
     sent = [result for result in results if result.get("status") == "sent"]
     failed = [result for result in results if result.get("status") == "failed"]
-    bounced_sent = [result for result in sent if str(result.get("email", "")).lower() in bounced]
-    invalid_in_list = {
-        str(result.get("email", "")).lower()
-        for result in results
-        if str(result.get("email", "")).lower() in bounced
-    }
+    bounced_sent = [result for result in sent if str(result.get("email", "")).lower() in bounce_details]
+    category_counts: dict[str, int] = {}
+    for result in bounced_sent:
+        email = str(result.get("email", "")).lower()
+        category = bounce_details.get(email, {}).get("bounceCategory") or "other"
+        category_counts[category] = category_counts.get(category, 0) + 1
     return {
         "delivered": len(sent) - len(bounced_sent),
         "bounced": len(bounced_sent),
         "undelivered": len(bounced_sent) + len(failed),
-        "invalid": len(invalid_in_list),
+        "invalid": category_counts.get("invalid_address", 0),
+        "notDelivered": category_counts.get("not_delivered", 0),
+        "mailboxFull": category_counts.get("mailbox_full", 0),
+        "mailboxUnavailable": category_counts.get("mailbox_unavailable", 0),
+        "messageBlocked": category_counts.get("message_blocked", 0),
+        "temporaryFailure": category_counts.get("temporary_failure", 0),
+        "otherBounce": category_counts.get("other", 0),
+        "bounceCategories": category_counts,
         "sendFailed": len(failed),
         "pending": len([result for result in results if result.get("status") in {"pending", "retrying", "paused"}]),
     }
 
 
-def _enrich_outreach_result(result: dict[str, Any], bounced: set[str]) -> dict[str, Any]:
+def _enrich_outreach_result(
+    result: dict[str, Any],
+    bounce_details: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
     enriched = dict(result)
     email = str(enriched.get("email", "")).lower()
     status = enriched.get("status")
-    if status == "sent" and email in bounced:
-        enriched["deliveryStatus"] = "bounced"
+    detail = bounce_details.get(email)
+    if status == "sent" and detail:
+        category = detail.get("bounceCategory") or "other"
+        enriched["deliveryStatus"] = category if category != "other" else "bounced"
+        enriched["bounceCategory"] = category
+        enriched["bounceCategoryLabel"] = detail.get("bounceCategoryLabel") or "Bounced"
+        enriched["bounceReason"] = detail.get("bounceReason") or "Delivery failed"
+        enriched["error"] = detail.get("bounceReason") or enriched.get("error")
     elif status == "sent":
         enriched["deliveryStatus"] = "delivered"
+        enriched["bounceCategory"] = "delivered"
+        enriched["bounceCategoryLabel"] = "Delivered"
     elif status == "failed":
         enriched["deliveryStatus"] = "failed"
+        enriched["bounceCategory"] = "send_failed"
+        enriched["bounceCategoryLabel"] = "Send failed"
+        # keep original SMTP error under error
     else:
         enriched["deliveryStatus"] = "pending"
+        enriched["bounceCategory"] = "pending"
+        enriched["bounceCategoryLabel"] = "Pending"
     return enriched
 
 
 def _prepare_outreach_campaign(
     campaign: dict[str, Any],
-    bounced: set[str],
+    bounce_details: dict[str, dict[str, Any]],
     bounce_messages: int,
     recent_limit: int,
 ) -> dict[str, Any]:
     prepared = dict(campaign)
     results = list(prepared.get("results") or [])
     prepared["deliveryStats"] = {
-        **_compute_delivery_stats(results, bounced),
+        **_compute_delivery_stats(results, bounce_details),
         "bounceMessages": bounce_messages,
     }
     recent = sorted(
@@ -466,7 +513,7 @@ def _prepare_outreach_campaign(
         key=lambda result: str(result.get("sentAt") or ""),
         reverse=True,
     )[:recent_limit]
-    prepared["results"] = [_enrich_outreach_result(result, bounced) for result in recent]
+    prepared["results"] = [_enrich_outreach_result(result, bounce_details) for result in recent]
     prepared["recentLimit"] = recent_limit
     prepared["resultsTotal"] = len(results)
     return prepared
@@ -481,15 +528,15 @@ def get_recruiter_outreach_campaigns(
     if not path.exists():
         return {"success": True, "campaigns": [], "count": 0, "source": "cache-missing"}
     raw_campaigns = json.loads(path.read_text(encoding="utf-8"))
-    bounced, bounce_messages = _load_bounced_email_set()
+    bounce_details, bounce_messages, _ = _load_bounced_email_details()
     full_campaigns = raw_campaigns[:limit]
     campaigns = [
-        _prepare_outreach_campaign(campaign, bounced, bounce_messages, recent_limit)
+        _prepare_outreach_campaign(campaign, bounce_details, bounce_messages, recent_limit)
         for campaign in full_campaigns
     ]
     all_full_results = [result for campaign in full_campaigns for result in (campaign.get("results") or [])]
     aggregate_stats = {
-        **_compute_delivery_stats(all_full_results, bounced),
+        **_compute_delivery_stats(all_full_results, bounce_details),
         "bounceMessages": bounce_messages,
     }
     return {
@@ -572,3 +619,123 @@ def download_extension(browser: str = Query(default="chrome")) -> Response:
         media_type="application/zip",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+class AccomplishmentPayload(BaseModel):
+    accomplishment: dict[str, Any]
+
+
+class AiGeneratePayload(BaseModel):
+    description: str
+    currentData: dict[str, Any] | None = None
+
+
+class ResumeGeneratePayload(BaseModel):
+    accomplishmentIds: list[str]
+    targetCompany: str
+    targetRole: str
+    jobDescription: str
+    experienceLevel: str = "Senior"
+    tone: str = "professional"
+    maxPages: int = 1
+    targetAtsScore: int = 85
+
+
+@router.get("/accomplishments")
+def list_accomplishments_route(db: Session = Depends(db_session)) -> dict[str, Any]:
+    return {"accomplishments": list_entities(db, "accomplishment")}
+
+
+@router.post("/accomplishments")
+def save_accomplishment_route(payload: AccomplishmentPayload, db: Session = Depends(db_session)) -> dict[str, Any]:
+    saved = upsert_entity(db, "accomplishment", payload.accomplishment)
+    return {"success": True, "accomplishment": saved}
+
+
+@router.delete("/accomplishments/{accomplishment_id}")
+def delete_accomplishment_route(accomplishment_id: str, db: Session = Depends(db_session)) -> dict[str, Any]:
+    deleted = delete_entity(db, "accomplishment", accomplishment_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Accomplishment not found")
+    return {"success": True}
+
+
+@router.post("/accomplishments/ai-generate")
+async def ai_generate_accomplishment_route(payload: AiGeneratePayload) -> dict[str, Any]:
+    result = await analyze_accomplishment(payload.description, payload.currentData)
+    return {"success": True, "accomplishment": result}
+
+
+@router.post("/resume/generate")
+async def generate_resume_route(payload: ResumeGeneratePayload, db: Session = Depends(db_session)) -> dict[str, Any]:
+    requested_ids = list(dict.fromkeys(payload.accomplishmentIds))
+    if not requested_ids:
+        raise HTTPException(status_code=422, detail="Select at least one accomplishment before generating a resume")
+
+    all_accs = list_entities(db, "accomplishment")
+    selected_accs = [a for a in all_accs if a.get("id") in requested_ids]
+    selected_ids = {str(accomplishment.get("id")) for accomplishment in selected_accs}
+    missing_ids = [accomplishment_id for accomplishment_id in requested_ids if accomplishment_id not in selected_ids]
+    if missing_ids:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "message": "One or more selected accomplishments no longer exist",
+                "missingAccomplishmentIds": missing_ids,
+            },
+        )
+
+    result = await generate_resume_bullets_for_job(
+        accomplishments=selected_accs,
+        target_company=payload.targetCompany,
+        target_role=payload.targetRole,
+        job_description=payload.jobDescription,
+        experience_level=payload.experienceLevel,
+        tone=payload.tone,
+        max_pages=payload.maxPages,
+        target_ats=payload.targetAtsScore
+    )
+    if result is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Resume generation is temporarily unavailable. No synthetic fallback content was returned.",
+        )
+    return {"success": True, "result": result}
+
+
+class AnswerQuestionPayload(BaseModel):
+    questionId: str
+    answer: str
+
+
+@router.post("/accomplishments/{accomplishment_id}/answer-question")
+async def answer_question_route(
+    accomplishment_id: str,
+    payload: AnswerQuestionPayload,
+    db: Session = Depends(db_session)
+) -> dict[str, Any]:
+    from app.db.store import get_entity
+    acc = get_entity(db, "accomplishment", accomplishment_id)
+    if not acc:
+        raise HTTPException(status_code=404, detail="Accomplishment not found")
+
+    questions = acc.get("missingQuestions", [])
+    question_text = ""
+    for q in questions:
+        if q.get("id") == payload.questionId:
+            q["answer"] = payload.answer
+            question_text = q.get("question", "")
+            break
+
+    description_addon = f"\n\nQuestion: {question_text}\nAnswer: {payload.answer}"
+
+    raw_desc = (
+        acc.get("problemContext", {}).get("what", "") + "\n" +
+        acc.get("roleDetails", {}).get("responsibility", "")
+    )
+    new_desc = raw_desc + description_addon
+
+    result = await analyze_accomplishment(new_desc, acc)
+    saved = upsert_entity(db, "accomplishment", result)
+    return {"success": True, "accomplishment": saved}
+

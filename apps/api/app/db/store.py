@@ -11,6 +11,10 @@ from sqlalchemy import JSON, Column, String, create_engine
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
 from app.config import settings
+from app.db.resume_corpus_seed import (
+    load_resume_corpus_seed,
+    resume_corpus_seed_to_accomplishment,
+)
 
 
 class Base(DeclarativeBase):
@@ -35,6 +39,7 @@ DATA_DIR.mkdir(parents=True, exist_ok=True)
 DB_PATH = DATA_DIR / "career_os.db"
 PROFILE_SEED_PATH = DATA_DIR / "applypilot-profile.json"
 EXTENSION_DB_PATH = Path(__file__).resolve().parents[3] / "extension" / "db.json"
+RESUME_CORPUS_SEED_PATH = Path(__file__).resolve().parents[4] / "data" / "resume-corpus-initial.json"
 
 engine = create_engine(
     settings.career_os_database_url
@@ -53,6 +58,7 @@ def init_db() -> None:
         else:
             seed_profile_if_needed(db)
         seed_extension_db_if_needed(db)
+        seed_resume_corpus_if_needed(db)
         if not get_kv(db, "settings"):
             settings_payload = (load_extension_db() or {}).get("settings")
             set_kv(db, "settings", settings_payload or default_settings())
@@ -201,6 +207,33 @@ def upsert_entity(db: Session, entity_type: str, payload: dict[str, Any]) -> dic
             payload["createdAt"] = now_iso()
         db.add(EntityStore(id=entity_id, entity_type=entity_type, payload=payload))
     return payload
+
+
+def seed_resume_corpus_if_needed(
+    db: Session,
+    seed_records: list[dict[str, Any]] | None = None,
+) -> int:
+    """Insert only seed accomplishment IDs that are absent; never overwrite user records."""
+    records = (
+        load_resume_corpus_seed(RESUME_CORPUS_SEED_PATH)
+        if seed_records is None
+        else seed_records
+    )
+    existing_ids = {
+        entity_id
+        for (entity_id,) in db.query(EntityStore.id)
+        .filter(EntityStore.entity_type == "accomplishment")
+        .all()
+    }
+    imported = 0
+    for seed in records:
+        seed_id = str(seed.get("id", "")).strip()
+        if not seed_id or seed_id in existing_ids:
+            continue
+        upsert_entity(db, "accomplishment", resume_corpus_seed_to_accomplishment(seed))
+        existing_ids.add(seed_id)
+        imported += 1
+    return imported
 
 
 def patch_entity(db: Session, entity_type: str, entity_id: str, patch: dict[str, Any]) -> dict[str, Any] | None:
@@ -403,3 +436,15 @@ def normalize_job(raw: dict[str, Any]) -> dict[str, Any]:
         "platform": raw.get("platform", ""),
         "savedAt": raw.get("savedAt") or now_iso(),
     }
+
+
+def delete_entity(db: Session, entity_type: str, entity_id: str) -> bool:
+    row = (
+        db.query(EntityStore)
+        .filter(EntityStore.entity_type == entity_type, EntityStore.id == entity_id)
+        .one_or_none()
+    )
+    if row:
+        db.delete(row)
+        return True
+    return False

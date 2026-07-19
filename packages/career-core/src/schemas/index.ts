@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+export * from "./resume-corpus.js";
+
 export const fileAttachmentSchema = z.object({
   name: z.string(),
   type: z.string(),

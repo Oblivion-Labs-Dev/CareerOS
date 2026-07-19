@@ -11,7 +11,22 @@ interface OutreachResult {
   email: string;
   subject: string;
   status: "sent" | "failed" | "dry_run" | "pending" | "paused" | "retrying" | string;
-  deliveryStatus?: "delivered" | "bounced" | "failed" | "pending" | string;
+  deliveryStatus?:
+    | "delivered"
+    | "bounced"
+    | "failed"
+    | "pending"
+    | "invalid_address"
+    | "not_delivered"
+    | "mailbox_full"
+    | "mailbox_unavailable"
+    | "message_blocked"
+    | "temporary_failure"
+    | "other"
+    | string;
+  bounceCategory?: string;
+  bounceCategoryLabel?: string;
+  bounceReason?: string | null;
   messageId?: string | null;
   sentAt?: string | null;
   error?: string | null;
@@ -22,6 +37,13 @@ interface DeliveryStats {
   bounced: number;
   undelivered: number;
   invalid: number;
+  notDelivered?: number;
+  mailboxFull?: number;
+  mailboxUnavailable?: number;
+  messageBlocked?: number;
+  temporaryFailure?: number;
+  otherBounce?: number;
+  bounceCategories?: Record<string, number>;
   sendFailed?: number;
   pending?: number;
   bounceMessages?: number;
@@ -86,7 +108,14 @@ function formatDuration(startedAt?: string, completedAt?: string | null) {
 }
 
 function deliveryLabel(result: OutreachResult) {
+  if (result.bounceCategoryLabel) return result.bounceCategoryLabel;
   if (result.deliveryStatus === "delivered") return "Delivered";
+  if (result.deliveryStatus === "invalid_address") return "Invalid address";
+  if (result.deliveryStatus === "not_delivered") return "Mail not delivered";
+  if (result.deliveryStatus === "mailbox_full") return "Mailbox full";
+  if (result.deliveryStatus === "mailbox_unavailable") return "Mailbox unavailable";
+  if (result.deliveryStatus === "message_blocked") return "Message blocked";
+  if (result.deliveryStatus === "temporary_failure") return "Temporary failure";
   if (result.deliveryStatus === "bounced") return "Bounced";
   if (result.deliveryStatus === "failed") return "Send failed";
   if (result.deliveryStatus === "pending") return "Pending";
@@ -94,9 +123,15 @@ function deliveryLabel(result: OutreachResult) {
 }
 
 function deliveryPillClass(result: OutreachResult) {
-  if (result.deliveryStatus === "delivered") return "outreach-status-pill--sent";
-  if (result.deliveryStatus === "bounced") return "outreach-status-pill--bounced";
-  if (result.deliveryStatus === "failed") return "outreach-status-pill--failed";
+  const key = result.bounceCategory || result.deliveryStatus || result.status;
+  if (key === "delivered") return "outreach-status-pill--sent";
+  if (key === "invalid_address") return "outreach-status-pill--invalid";
+  if (key === "not_delivered") return "outreach-status-pill--not-delivered";
+  if (key === "mailbox_full" || key === "mailbox_unavailable") return "outreach-status-pill--mailbox";
+  if (key === "message_blocked" || key === "spam_or_reputation") return "outreach-status-pill--blocked";
+  if (key === "temporary_failure") return "outreach-status-pill--temporary";
+  if (key === "bounced" || key === "other") return "outreach-status-pill--bounced";
+  if (key === "failed" || key === "send_failed") return "outreach-status-pill--failed";
   return `outreach-status-pill--${result.status}`;
 }
 
@@ -182,13 +217,20 @@ const METRIC_TOOLTIPS = {
   delivered:
     "Gmail sent these and we have not received a bounce-back yet. They likely reached the recruiter's inbox.",
   nonDelivered:
-    "All emails that did not successfully reach the recruiter — bounced, failed to send, or not sent yet.",
+    "All emails that did not successfully reach the recruiter — broken down by the actual bounce error, send failures, and pending.",
   bounced:
-    "Gmail accepted the send, but the recipient's mail server later rejected it. You should see a 'Delivery failed' notice in your Gmail.",
+    "Total Gmail bounce notices mapped to this campaign (any bounce category).",
+  invalid:
+    "Recipient address does not exist / user unknown (Gmail: Address not found).",
+  notDelivered:
+    "Mail was not delivered for a general undeliverable reason (no more specific category matched).",
+  mailboxFull: "Recipient mailbox is full or over quota.",
+  mailboxUnavailable: "Mailbox is disabled, closed, or otherwise unavailable.",
+  messageBlocked: "Remote server blocked the message (policy / security).",
+  temporaryFailure: "Temporary / deferred delivery failure — may succeed on retry.",
+  otherBounce: "Bounce notice that did not match a known category.",
   sendFailed:
     "Gmail rejected the send before it left your account — for example, daily sending limit errors.",
-  invalid:
-    "Email addresses confirmed bad from bounce messages — wrong, outdated, or no longer active at that company.",
   pending: "Not sent yet. These are still queued in the campaign batch.",
   accepted:
     "Gmail accepted these outgoing messages from our script. This does not guarantee they reached the recruiter; some may still bounce later.",
@@ -242,12 +284,48 @@ export function RecruiterOutreachDashboard() {
 
   const nonDeliveredBreakdown = useMemo<MetricBreakdownItem[]>(() => {
     if (!stats) return [];
-    return [
+    const items: MetricBreakdownItem[] = [
       {
-        label: "Bounced",
-        value: stats.bounced ?? 0,
-        tooltip: METRIC_TOOLTIPS.bounced,
+        label: "Invalid address",
+        value: stats.invalid ?? 0,
+        tooltip: METRIC_TOOLTIPS.invalid,
+        tone: "danger",
+      },
+      {
+        label: "Mail not delivered",
+        value: stats.notDelivered ?? 0,
+        tooltip: METRIC_TOOLTIPS.notDelivered,
         tone: "warn",
+      },
+      {
+        label: "Mailbox full",
+        value: stats.mailboxFull ?? 0,
+        tooltip: METRIC_TOOLTIPS.mailboxFull,
+        tone: "warn",
+      },
+      {
+        label: "Mailbox unavailable",
+        value: stats.mailboxUnavailable ?? 0,
+        tooltip: METRIC_TOOLTIPS.mailboxUnavailable,
+        tone: "warn",
+      },
+      {
+        label: "Message blocked",
+        value: stats.messageBlocked ?? 0,
+        tooltip: METRIC_TOOLTIPS.messageBlocked,
+        tone: "danger",
+      },
+      {
+        label: "Temporary failure",
+        value: stats.temporaryFailure ?? 0,
+        tooltip: METRIC_TOOLTIPS.temporaryFailure,
+        tone: "muted",
+      },
+      {
+        label: "Other bounce",
+        value: stats.otherBounce ?? 0,
+        tooltip: METRIC_TOOLTIPS.otherBounce,
+        tone: "muted",
       },
       {
         label: "Send failed",
@@ -256,18 +334,13 @@ export function RecruiterOutreachDashboard() {
         tone: "danger",
       },
       {
-        label: "Invalid addresses",
-        value: stats.invalid ?? 0,
-        tooltip: METRIC_TOOLTIPS.invalid,
-        tone: "muted",
-      },
-      {
         label: "Pending",
         value: stats.pending ?? 0,
         tooltip: METRIC_TOOLTIPS.pending,
         tone: "muted",
       },
     ];
+    return items.filter((item) => item.value > 0 || ["Invalid address", "Send failed", "Pending"].includes(item.label));
   }, [stats]);
 
   const recentResults = useMemo(() => {
@@ -375,10 +448,16 @@ export function RecruiterOutreachDashboard() {
                   {recentResults.map((result) => (
                     <tr key={result.id}>
                       <td>
-                        <span className={`outreach-status-pill ${deliveryPillClass(result)}`}>
-                          {deliveryLabel(result)}
-                        </span>
-                        {result.error ? <span className="outreach-result-error">{result.error}</span> : null}
+                        <div className="outreach-delivery-cell">
+                          <span className={`outreach-status-pill ${deliveryPillClass(result)}`}>
+                            {deliveryLabel(result)}
+                          </span>
+                          {result.bounceReason || result.error ? (
+                            <span className="outreach-result-error" title={result.bounceReason || result.error || undefined}>
+                              {result.bounceReason || result.error}
+                            </span>
+                          ) : null}
+                        </div>
                       </td>
                       <td className="outreach-company-cell">{result.company}</td>
                       <td className="outreach-name-cell">{result.recruiterName}</td>

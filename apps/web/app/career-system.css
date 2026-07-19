@@ -1,0 +1,205 @@
+/* CareerOS 2026 product shell and shared workflow foundation. Imported after legacy route styles. */
+:root,
+[data-theme="dark"] {
+  --cos-canvas: #080b12;
+  --cos-panel: #10151f;
+  --cos-panel-raised: #151b27;
+  --cos-panel-soft: #0d121b;
+  --cos-line: rgba(203, 213, 225, 0.12);
+  --cos-line-strong: rgba(203, 213, 225, 0.2);
+  --cos-ink: #f6f8fb;
+  --cos-ink-2: #c3ccda;
+  --cos-ink-3: #8793a5;
+  --cos-brand: #58dec4;
+  --cos-brand-strong: #25bda2;
+  --cos-brand-soft: rgba(88, 222, 196, 0.12);
+  --cos-violet: #a99af2;
+  --cos-blue: #74b8ff;
+  --cos-warning: #f5c76b;
+  --cos-danger: #ff8899;
+  --cos-success: #64d9a9;
+  --cos-shadow: 0 18px 52px rgba(0, 0, 0, 0.28);
+}
+
+[data-theme="light"] {
+  --cos-canvas: #f4f6f9;
+  --cos-panel: #ffffff;
+  --cos-panel-raised: #ffffff;
+  --cos-panel-soft: #f8fafc;
+  --cos-line: rgba(15, 23, 42, 0.1);
+  --cos-line-strong: rgba(15, 23, 42, 0.17);
+  --cos-ink: #172033;
+  --cos-ink-2: #42506a;
+  --cos-ink-3: #6d7b90;
+  --cos-brand: #0c947e;
+  --cos-brand-strong: #087561;
+  --cos-brand-soft: rgba(12, 148, 126, 0.1);
+  --cos-violet: #6e5bd3;
+  --cos-blue: #176dc1;
+  --cos-warning: #a66308;
+  --cos-danger: #c73852;
+  --cos-success: #087d55;
+  --cos-shadow: 0 18px 52px rgba(24, 35, 55, 0.11);
+}
+
+.sr-only {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  padding: 0 !important;
+  margin: -1px !important;
+  overflow: hidden !important;
+  clip: rect(0, 0, 0, 0) !important;
+  white-space: nowrap !important;
+  border: 0 !important;
+}
+
+.skip-link {
+  position: fixed;
+  z-index: 10000;
+  top: 0.75rem;
+  left: 0.75rem;
+  transform: translateY(-160%);
+  padding: 0.7rem 1rem;
+  border-radius: 10px;
+  background: var(--cos-brand);
+  color: #06120f;
+  font-weight: 800;
+}
+.skip-link:focus { transform: translateY(0); }
+
+.shell { grid-template-columns: 252px minmax(0, 1fr); background: var(--cos-canvas); }
+.app-stage { min-width: 0; }
+.sidebar {
+  padding: 1rem 0.8rem;
+  gap: 0.5rem;
+  background: color-mix(in srgb, var(--cos-canvas) 92%, var(--cos-panel));
+  border-right-color: var(--cos-line);
+  contain: none;
+}
+.sidebar-header { padding: 0.2rem 0.45rem 0.65rem; }
+.brand { font-size: 1rem; letter-spacing: -0.025em; }
+.brand-mark { width: 30px; height: 30px; border-radius: 9px; background: var(--cos-brand); color: #07130f; box-shadow: none; }
+.brand-mark svg { width: 17px; height: 17px; }
+.brand-sub { color: var(--cos-ink-3); font-size: 0.7rem; padding: 0 0.45rem; }
+.sidebar-nav { gap: 0.7rem; }
+.nav-group { gap: 0.12rem; }
+.nav-group-label { padding: 0.4rem 0.7rem 0.28rem; color: var(--cos-ink-3); font-size: 0.61rem; }
+.nav-link {
+  min-height: 40px;
+  gap: 0.62rem;
+  padding: 0.38rem 0.5rem;
+  border-radius: 11px;
+  color: var(--cos-ink-2);
+  font-size: 0.81rem;
+  font-weight: 650;
+  transform: none;
+}
+.nav-link:hover { transform: none; background: var(--cos-brand-soft); color: var(--cos-ink); }
+.nav-link.active { background: var(--cos-brand-soft); color: var(--cos-brand); box-shadow: inset 3px 0 0 var(--cos-brand); }
+.nav-icon { width: 31px; height: 31px; border: 0; border-radius: 9px; background: transparent; color: currentColor; }
+.nav-link:hover .nav-icon { background: color-mix(in srgb, var(--cos-brand) 10%, transparent); }
+.nav-link.active .nav-icon { border: 0; background: color-mix(in srgb, var(--cos-brand) 12%, transparent); color: var(--cos-brand); }
+.sidebar-footer { padding: 0.65rem 0.4rem 0; border-color: var(--cos-line); }
+.sidebar-backend-legend { color: var(--cos-ink-3); }
+.sidebar-home-link { justify-content: flex-start !important; width: 100%; padding-left: 0.35rem; }
+
+.app-topbar {
+  position: sticky;
+  top: 0;
+  z-index: 150;
+  min-height: 62px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.65rem clamp(1rem, 2vw, 2rem);
+  border-bottom: 1px solid var(--cos-line);
+  background: color-mix(in srgb, var(--cos-canvas) 91%, transparent);
+  backdrop-filter: blur(18px);
+}
+.app-topbar-context { display: flex; align-items: center; gap: 0.5rem; color: var(--cos-ink-3); font-size: 0.76rem; }
+.app-topbar-context a:hover { color: var(--cos-brand); }
+.app-topbar-context strong { color: var(--cos-ink-2); font-weight: 700; }
+.app-topbar-search {
+  width: min(360px, 42vw);
+  min-height: 38px;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0 0.65rem;
+  border: 1px solid var(--cos-line);
+  border-radius: 10px;
+  background: var(--cos-panel-soft);
+  color: var(--cos-ink-3);
+  font: inherit;
+  font-size: 0.76rem;
+  cursor: pointer;
+}
+.app-topbar-search:hover { border-color: var(--cos-line-strong); color: var(--cos-ink-2); }
+.app-topbar-search span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.app-topbar-search kbd { margin-left: auto; padding: 0.15rem 0.35rem; border: 1px solid var(--cos-line); border-radius: 5px; color: var(--cos-ink-3); font: inherit; font-size: 0.65rem; }
+.main { padding: clamp(1rem, 2.3vw, 2.2rem) clamp(1rem, 2.6vw, 2.6rem) 4rem; contain: none; }
+.page-content { max-width: 1320px; margin-inline: auto; }
+
+.command-layer { position: fixed; inset: 0; z-index: 9000; display: grid; place-items: start center; padding: min(14vh, 8rem) 1rem 1rem; background: rgba(2, 5, 10, 0.68); backdrop-filter: blur(8px); }
+.command-dialog { width: min(640px, 100%); max-height: min(640px, 76vh); display: flex; flex-direction: column; overflow: hidden; border: 1px solid var(--cos-line-strong); border-radius: 18px; background: var(--cos-panel-raised); box-shadow: var(--cos-shadow); }
+.command-input-row { min-height: 62px; display: flex; align-items: center; gap: 0.75rem; padding: 0 1rem; border-bottom: 1px solid var(--cos-line); color: var(--cos-ink-3); }
+.command-input-row input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; color: var(--cos-ink); font: inherit; font-size: 0.98rem; }
+.command-input-row button { display: grid; place-items: center; width: 34px; height: 34px; border: 0; border-radius: 8px; background: transparent; color: var(--cos-ink-3); cursor: pointer; }
+.command-input-row button:hover { background: var(--cos-brand-soft); color: var(--cos-brand); }
+.command-results { overflow-y: auto; padding: 0.45rem; }
+.command-results > button { width: 100%; min-height: 54px; display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: 0.6rem 0.75rem; border: 0; border-radius: 11px; background: transparent; color: var(--cos-ink-2); text-align: left; font: inherit; cursor: pointer; }
+.command-results > button.is-active { background: var(--cos-brand-soft); color: var(--cos-ink); }
+.command-results > button span { display: grid; gap: 0.14rem; }
+.command-results > button strong { font-size: 0.85rem; }
+.command-results > button small { color: var(--cos-ink-3); font-size: 0.7rem; }
+.command-empty { padding: 2rem; text-align: center; color: var(--cos-ink-3); }
+.command-footer { display: flex; gap: 1rem; padding: 0.65rem 1rem; border-top: 1px solid var(--cos-line); color: var(--cos-ink-3); font-size: 0.66rem; }
+
+/* Let the deep Resume Corpus own the working canvas without losing global navigation. */
+.shell:has(#corpus-main) { grid-template-columns: 76px minmax(0, 1fr); }
+.shell:has(#corpus-main) .sidebar { padding-inline: 0.6rem; }
+.shell:has(#corpus-main) .sidebar .brand { justify-content: center; }
+.shell:has(#corpus-main) .sidebar .brand > :not(.brand-mark),
+.shell:has(#corpus-main) .sidebar .brand-sub,
+.shell:has(#corpus-main) .sidebar .nav-group-label,
+.shell:has(#corpus-main) .sidebar .nav-link-label,
+.shell:has(#corpus-main) .sidebar .nav-backend-badge,
+.shell:has(#corpus-main) .sidebar .sidebar-backend-legend,
+.shell:has(#corpus-main) .sidebar .sidebar-home-link,
+.shell:has(#corpus-main) .sidebar .theme-toggle { display: none; }
+.shell:has(#corpus-main) .sidebar-header { justify-content: center; padding-inline: 0; }
+.shell:has(#corpus-main) .nav-link { justify-content: center; padding-inline: 0; }
+.shell:has(#corpus-main) .sidebar-footer { border: 0; }
+.shell:has(#corpus-main) .main { padding: 0; }
+
+@media (max-width: 900px) {
+  .app-mobile-header { background: color-mix(in srgb, var(--cos-canvas) 94%, transparent); border-color: var(--cos-line); }
+  .app-mobile-menu-button { color: var(--cos-ink-2); background: var(--cos-panel); border-color: var(--cos-line); }
+  .app-topbar { top: 64px; min-height: 50px; padding: 0.45rem 1rem; }
+  .app-topbar-context { display: none; }
+  .app-topbar-search { width: 100%; }
+  .app-topbar-search kbd { display: none; }
+  .sidebar { background: var(--cos-canvas); }
+  .shell:has(#corpus-main) .sidebar .brand > :not(.brand-mark),
+  .shell:has(#corpus-main) .sidebar .brand-sub,
+  .shell:has(#corpus-main) .sidebar .nav-group-label,
+  .shell:has(#corpus-main) .sidebar .nav-link-label,
+  .shell:has(#corpus-main) .sidebar .nav-backend-badge,
+  .shell:has(#corpus-main) .sidebar .sidebar-backend-legend,
+  .shell:has(#corpus-main) .sidebar .sidebar-home-link,
+  .shell:has(#corpus-main) .sidebar .theme-toggle { display: initial; }
+  .shell:has(#corpus-main) .sidebar .brand { justify-content: flex-start; }
+  .shell:has(#corpus-main) .sidebar-header { justify-content: space-between; padding-inline: 0.5rem; }
+  .shell:has(#corpus-main) .nav-link { justify-content: flex-start; padding-inline: 0.5rem; }
+  .main { padding: 1.15rem 1rem 3rem; }
+  .shell:has(#corpus-main) .main { padding: 0; }
+}
+
+@media (max-width: 520px) {
+  .command-layer { padding: 0; place-items: stretch; }
+  .command-dialog { width: 100%; height: 100dvh; max-height: none; border: 0; border-radius: 0; }
+  .command-footer { padding-bottom: max(0.75rem, env(safe-area-inset-bottom)); }
+}
+
