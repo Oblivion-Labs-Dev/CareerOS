@@ -12,6 +12,13 @@ describe('dropdown option matching', () => {
     expect(matchesCustomOption('Choose not to disclose', 'Prefer not to answer')).toBe(true);
   });
 
+  it('maps prefer-not-to-answer to Greenhouse gender decline option', () => {
+    expect(matchesCustomOption('Decline To Self Identify', 'Prefer not to answer')).toBe(true);
+    expect(pickBestMatchingOptionText(['Male', 'Female', 'Decline To Self Identify'], 'Prefer not to answer')).toBe(
+      'Decline To Self Identify'
+    );
+  });
+
   it('does not map prefer-not-to-answer to unrelated no answers', () => {
     expect(matchesCustomOption("No, I don't have a disability", 'Prefer not to answer')).toBe(false);
     expect(matchesCustomOption('I am not a protected veteran', 'Prefer not to answer')).toBe(false);

@@ -49,19 +49,29 @@ export function resolveDisabilitySelectValue(disability?: string): string {
 export function resolveEeoComboboxValue(label: string, profile: UserProfile): string | undefined {
   const normalized = label.replace(/\*+$/, '').replace(/\s+/g, ' ').trim();
 
-  if (/indicate gender|^gender$/i.test(normalized) && !/identity|transgender|sexual/.test(normalized)) {
+  if (
+    (/^gender(\s+status)?$/i.test(normalized) || /\bgender\b/i.test(normalized)) &&
+    !/identity|transgender|sexual/.test(normalized)
+  ) {
     return resolveGenderSelectValue(profile.gender);
   }
   if (/indicate ethnic|ethnic group|hispanic.*latino|latino.*origin/i.test(normalized) && !/race/.test(normalized)) {
     return resolveEthnicGroupSelectValue(profile.hispanic);
   }
-  if (/indicate your race|^race$/i.test(normalized) || (/race/i.test(normalized) && !/ethnic group/.test(normalized))) {
+  if (
+    /indicate your race/i.test(normalized) ||
+    /^race(\s*\/?\s*ethnicity)?(\s+status)?$/i.test(normalized) ||
+    (/\brace\b|\bethnicity\b/i.test(normalized) && !/ethnic group|hispanic/.test(normalized))
+  ) {
     return resolveRaceSelectValue(profile.raceEthnicity, profile.hispanic);
   }
-  if (/protected veteran|veteran status|categories of protected veterans/i.test(normalized)) {
+  if (
+    /^veteran(\s+status)?$/i.test(normalized) ||
+    /\bveteran\b|protected veteran|categories of protected veterans/i.test(normalized)
+  ) {
     return resolveVeteranSelectValue(profile.veteran);
   }
-  if (/disability|form cc-305|cc-305/i.test(normalized)) {
+  if (/\bdisability\b|form cc-305|cc-305/i.test(normalized)) {
     return resolveDisabilitySelectValue(profile.disability);
   }
 

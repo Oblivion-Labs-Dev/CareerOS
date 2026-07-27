@@ -3,7 +3,7 @@ from pathlib import Path
 from typing import Any, Generator
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from fastapi.responses import Response
+from fastapi.responses import HTMLResponse, Response
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -23,6 +23,20 @@ from app.db.store import (
     tracker_summary,
     upsert_entity,
 )
+from app.services.api_dashboard import render_api_dashboard
+from app.services.target_company_jobs import (
+    filter_jobs,
+    format_whatsapp,
+    get_snapshot,
+    merge_oracle_seed_entries,
+    refresh_and_store,
+    should_refresh_weekly,
+)
+from app.services.job_discover import store as job_discover
+from app.services.job_discover import relevancy_engine
+from app.services.answer_engine import generate_answer, load_custom_answers
+from app.services.error_investigation import investigation_for_error_id, investigation_for_open_errors
+from app.services.runtime_metrics import metrics_snapshot_with_logs
 from app.services.llm import analyze_accomplishment, generate_resume_bullets_for_job
 from app.services.extension_packager import build_extension_zip, extension_info
 from app.services.gmail_imap import GmailImapClient
@@ -135,9 +149,57 @@ class ReferralAskMessagePayload(BaseModel):
     message: str
 
 
+class TargetCompanyOracleSeedPayload(BaseModel):
+    jobs: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class TargetCompanyRefreshPayload(BaseModel):
+    verifyOracle: bool = True
+
+
 DEFAULT_REFERRAL_ASK_MESSAGE = """I hope you're doing well! I came across a job that aligns closely with my background and was wondering if you'd be open to referring me. I have 7+ years of experience at Microsoft and Amazon building distributed systems, AI infrastructure, and cloud-native platforms, and I've recently been focused on agentic AI and developer tooling.
 
 I believe my experience is a strong match for the role. If you're comfortable referring me, I'd really appreciate it. I've attached the job link and my resume for context. Thanks for taking the time to consider my request!"""
+
+
+@router.get("/", response_class=HTMLResponse)
+def root(db: Session = Depends(db_session)) -> HTMLResponse:
+    return HTMLResponse(render_api_dashboard(db))
+
+
+@router.get("/metrics")
+def metrics() -> dict[str, Any]:
+    client_errors = sum(
+        1 for entry in read_client_logs(limit=200) if str(entry.get("level") or "").lower() == "error"
+    )
+    return metrics_snapshot_with_logs(client_log_errors=client_errors)
+
+
+@router.get("/errors/{error_id}/investigate")
+def get_error_investigation(error_id: str) -> dict[str, Any]:
+    try:
+        payload = investigation_for_error_id(error_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return {"success": True, **payload}
+
+
+@router.post("/errors/{error_id}/investigate")
+def request_error_investigation(error_id: str) -> dict[str, Any]:
+    try:
+        payload = investigation_for_error_id(error_id, mark_requested=True)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return {"success": True, **payload}
+
+
+@router.post("/errors/investigate-open")
+def request_open_errors_investigation() -> dict[str, Any]:
+    try:
+        payload = investigation_for_open_errors()
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return {"success": True, **payload}
 
 
 @router.get("/health")
@@ -180,6 +242,197 @@ def save_job(payload: JobSavePayload, db: Session = Depends(db_session)) -> dict
 @router.get("/jobs")
 def list_jobs(db: Session = Depends(db_session)) -> dict[str, Any]:
     return {"jobs": list_entities(db, "job")}
+
+
+@router.get("/jobs/target-companies")
+def get_target_company_jobs(
+    db: Session = Depends(db_session),
+    company: str = Query(default="all"),
+    location: str = Query(default="all"),
+    activeOnly: bool = Query(default=True),
+) -> dict[str, Any]:
+    snapshot = get_snapshot(db)
+    location_filter = location if location in {"all", "remote", "washington"} else "all"
+    jobs = filter_jobs(snapshot.get("jobs") or [], company=company, location=location_filter, active_only=activeOnly)
+    return {
+        "success": True,
+        "refreshedAt": snapshot.get("refreshedAt"),
+        "needsWeeklyRefresh": should_refresh_weekly(snapshot),
+        "companies": snapshot.get("companies") or {},
+        "jobs": jobs,
+        "total": len(jobs),
+    }
+
+
+@router.post("/jobs/target-companies/refresh")
+def refresh_target_company_jobs_route(
+    payload: TargetCompanyRefreshPayload | None = None,
+    db: Session = Depends(db_session),
+) -> dict[str, Any]:
+    verify_oracle = True if payload is None else payload.verifyOracle
+    snapshot = refresh_and_store(db, verify_oracle=verify_oracle)
+    return {
+        "success": True,
+        "refreshedAt": snapshot.get("refreshedAt"),
+        "companies": snapshot.get("companies") or {},
+        "totalJobs": len(snapshot.get("jobs") or []),
+    }
+
+
+@router.get("/jobs/target-companies/whatsapp")
+def target_company_jobs_whatsapp(
+    db: Session = Depends(db_session),
+    company: str = Query(default="all"),
+    location: str = Query(default="all"),
+) -> dict[str, Any]:
+    snapshot = get_snapshot(db)
+    location_filter = location if location in {"all", "remote", "washington"} else "all"
+    jobs = filter_jobs(snapshot.get("jobs") or [], company=company, location=location_filter, active_only=True)
+    label_parts = ["Target company jobs"]
+    if company != "all":
+        label_parts.append(company)
+    if location != "all":
+        label_parts.append(location.title())
+    text = format_whatsapp(jobs, title=" · ".join(label_parts))
+    return {"success": True, "text": text, "count": len(jobs)}
+
+
+@router.post("/jobs/target-companies/oracle-seed")
+def update_oracle_seed(payload: TargetCompanyOracleSeedPayload, db: Session = Depends(db_session)) -> dict[str, Any]:
+    merge_oracle_seed_entries(payload.jobs)
+    snapshot = refresh_and_store(db, verify_oracle=True)
+    return {
+        "success": True,
+        "merged": len(payload.jobs),
+        "refreshedAt": snapshot.get("refreshedAt"),
+        "oracleTotal": snapshot.get("companies", {}).get("Oracle", {}).get("total", 0),
+    }
+
+
+class JobDiscoverScrapePayload(BaseModel):
+    hours: int = Field(default=168, ge=1, le=720)
+    roles: str = ""
+    mode: str = "ats"
+
+
+@router.get("/jobs/discover/status")
+def job_discover_status(db: Session = Depends(db_session)) -> dict[str, Any]:
+    status = job_discover.get_status()
+    snapshot = job_discover.get_snapshot(db)
+    return {
+        "success": True,
+        **status,
+        "indexedJobs": status.get("indexedJobs") or snapshot.get("totalJobs", 0),
+    }
+
+
+@router.post("/jobs/discover/scrape")
+async def start_job_discover_scrape(payload: JobDiscoverScrapePayload | None = None) -> dict[str, Any]:
+    try:
+        body = payload or JobDiscoverScrapePayload()
+        mode = body.mode if body.mode in {"ats", "bigtech", "apify", "all"} else "ats"
+        result = await job_discover.start_scrape_background(hours=body.hours, roles=body.roles, mode=mode)  # type: ignore[arg-type]
+        if not result.get("success"):
+            raise HTTPException(status_code=409, detail=result.get("error", "Scrape already running"))
+        return result
+    except HTTPException:
+        raise
+    except Exception as exc:
+        return {"success": False, "error": str(exc)}
+
+
+@router.post("/jobs/discover/rescore")
+def rescore_discovered_jobs(db: Session = Depends(db_session)) -> dict[str, Any]:
+    return job_discover.rescore_all(db)
+
+
+@router.get("/jobs/discover")
+def list_discovered_jobs(
+    db: Session = Depends(db_session),
+    q: str = Query(default=""),
+    company: str = Query(default=""),
+    location: str = Query(default=""),
+    role: str = Query(default=""),
+    freshness: str = Query(default="all"),
+    sponsorship: str = Query(default="all"),
+    sort: str = Query(default="relevancy"),
+    page: int = Query(default=1, ge=1),
+    per_page: int = Query(default=30, ge=1, le=100),
+) -> dict[str, Any]:
+    snapshot = job_discover.get_snapshot(db)
+    freshness_filter = freshness if freshness in {"24", "48", "168", "720", "all"} else "all"
+    sort_option = sort if sort in {"relevancy", "date", "company"} else "relevancy"
+    jobs, total = job_discover.filter_jobs(
+        snapshot.get("jobs") or [],
+        q=q,
+        company=company,
+        location=location,
+        role=role,
+        freshness=freshness_filter,  # type: ignore[arg-type]
+        sponsorship=sponsorship,
+        sort=sort_option,  # type: ignore[arg-type]
+        page=page,
+        per_page=per_page,
+    )
+    total_pages = (total + per_page - 1) // per_page if per_page else 0
+    return {
+        "success": True,
+        "jobs": jobs,
+        "total": total,
+        "page": page,
+        "perPage": per_page,
+        "totalPages": total_pages,
+        "scrapedAt": snapshot.get("scrapedAt"),
+        "indexedCompanies": snapshot.get("companies", 0),
+        "status": job_discover.get_status(),
+    }
+
+
+@router.get("/jobs/discover/lookup")
+def job_discover_lookup(url: str = Query(...), db: Session = Depends(db_session)) -> dict[str, Any]:
+    job = job_discover.get_job_by_url(db, url)
+    if not job:
+        return {"success": False, "error": "Job not found in CareerOS scraper index"}
+    freshness_meta = relevancy_engine.compute_freshness(job.get("updatedAt", ""))
+    return {"success": True, "job": {**job, "freshness": freshness_meta}}
+
+
+@router.get("/jobs/discover/stats")
+def job_discover_stats(db: Session = Depends(db_session)) -> dict[str, Any]:
+    return {"success": True, **job_discover.get_stats(db)}
+
+
+@router.get("/jobs/discover/{job_id}/recruiter")
+def job_discover_recruiter(job_id: str, db: Session = Depends(db_session)) -> dict[str, Any]:
+    result = job_discover.job_recruiter_urls(db, job_id)
+    if not result.get("success"):
+        raise HTTPException(status_code=404, detail=result.get("error", "Job not found"))
+    return result
+
+
+class JobDiscoverMessagePayload(BaseModel):
+    contactName: str = "[Name]"
+
+
+@router.post("/jobs/discover/{job_id}/message")
+def job_discover_message(
+    job_id: str,
+    payload: JobDiscoverMessagePayload | None = None,
+    db: Session = Depends(db_session),
+) -> dict[str, Any]:
+    body = payload or JobDiscoverMessagePayload()
+    result = job_discover.job_outreach(db, job_id, body.contactName)
+    if not result.get("success"):
+        raise HTTPException(status_code=404, detail=result.get("error", "Job not found"))
+    return result
+
+
+@router.post("/jobs/discover/{job_id}/save")
+def job_discover_save(job_id: str, db: Session = Depends(db_session)) -> dict[str, Any]:
+    result = job_discover.save_job_to_tracker(db, job_id)
+    if not result.get("success"):
+        raise HTTPException(status_code=404, detail=result.get("error", "Job not found"))
+    return result
 
 
 @router.post("/applications")
@@ -282,11 +535,22 @@ def answer_question(payload: QuestionAnswerPayload, db: Session = Depends(db_ses
         if item.get("question", "").strip().lower() == normalized:
             return {"success": True, "answer": item.get("answer"), "source": "learned"}
     profile = get_kv(db, "profile") or {}
+    context = payload.context or {}
+    company = str(context.get("companyName") or context.get("company") or "")
+    role = str(context.get("roleTitle") or context.get("role") or profile.get("targetRole") or "")
+    engine_answer = generate_answer(payload.question, company=company, role_title=role, profile=profile)
+    if engine_answer:
+        return {"success": True, "answer": engine_answer, "source": "answer_engine"}
     fallback = (
         f"Based on my experience as {profile.get('currentTitle', 'a professional')}, "
         f"I would approach this thoughtfully and align with {profile.get('targetRole', 'the role')} expectations."
     )
     return {"success": True, "answer": fallback, "source": "generated"}
+
+
+@router.get("/questions/answer-bank")
+def get_answer_bank() -> dict[str, Any]:
+    return {"success": True, "answers": load_custom_answers()}
 
 
 @router.post("/analytics/event")
@@ -372,9 +636,19 @@ def delete_referral(referral_id: str, db: Session = Depends(db_session)) -> dict
 # Gmail / recruiter email (migrated from Arsenal scripts/email)
 @router.get("/email/verify")
 def verify_gmail_connection() -> dict[str, Any]:
-    user, app_password = require_gmail_configured()
-    sender = build_gmail_sender(user, app_password)
-    return {"success": sender.verify_connection(), "user": user}
+    if not settings.gmail_user or not settings.gmail_app_password:
+        return {
+            "success": False,
+            "configured": False,
+            "user": None,
+            "message": "Gmail is not configured. Set GMAIL_USER and GMAIL_APP_PASSWORD in apps/api/.env",
+        }
+    sender = build_gmail_sender(settings.gmail_user, settings.gmail_app_password)
+    return {
+        "success": sender.verify_connection(),
+        "configured": True,
+        "user": settings.gmail_user,
+    }
 
 
 @router.post("/email/send")

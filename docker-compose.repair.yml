@@ -1,0 +1,18 @@
+services:
+  repair-orchestrator:
+    build:
+      context: ./tools/repair-orchestrator
+    ports:
+      - "8090:8090"
+    environment:
+      REPAIR_REPO_ROOT: /workspace
+      REPAIR_ENVIRONMENT: local
+      REPAIR_ENABLED: "true"
+      MIN_OCCURRENCES_FOR_TASK: "2"
+    volumes:
+      - .:/workspace
+      - repair-data:/app/data
+    working_dir: /workspace
+
+volumes:
+  repair-data:

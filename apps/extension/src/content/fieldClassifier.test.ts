@@ -111,4 +111,71 @@ describe('JobFill Classifier & DOM Scanner', () => {
     expect(resumeField).toBeDefined();
     expect(resumeField?.confidence).toBe('high');
   });
+
+  it('classifies underscore name ids and autocomplete attributes', async () => {
+    const mockElements = [
+      {
+        tagName: 'INPUT',
+        type: 'text',
+        id: 'first_name',
+        getAttribute(attr: string) {
+          if (attr === 'name') return 'job_application[first_name]';
+          if (attr === 'type') return 'text';
+          if (attr === 'autocomplete') return 'given-name';
+          return null;
+        },
+        parentElement: null
+      },
+      {
+        tagName: 'INPUT',
+        type: 'text',
+        id: 'last_name',
+        getAttribute(attr: string) {
+          if (attr === 'name') return 'job_application[last_name]';
+          if (attr === 'type') return 'text';
+          if (attr === 'autocomplete') return 'family-name';
+          return null;
+        },
+        parentElement: null
+      }
+    ];
+
+    const mockDoc = {
+      querySelectorAll(selector: string) {
+        if (selector.includes('input') && selector.includes('textarea') && selector.includes('select')) {
+          return mockElements;
+        }
+        return [];
+      },
+      querySelector() {
+        return null;
+      },
+      getElementById() {
+        return null;
+      }
+    } as unknown as Document;
+
+    const scanned = scanPage(mockDoc);
+    const profile: UserProfile = {
+      firstName: 'Akshay',
+      lastName: 'Borse',
+      fullName: 'Akshay Borse',
+      email: 'amsborse@gmail.com',
+      phone: '(425) 336-9852',
+      location: 'Seattle, WA',
+      linkedin: 'https://www.linkedin.com/in/amsborse/',
+      github: 'https://github.com/amsborse',
+      portfolio: 'https://amsborse.github.io/resume',
+      workAuthorization: 'Yes',
+      sponsorship: 'Yes',
+      yearsExperience: '7',
+      currentTitle: 'Senior Software Engineer',
+      targetRole: 'Senior Software Engineer',
+      salaryExpectations: ''
+    };
+
+    const classified = await classifyFields(scanned, profile);
+    expect(classified.find((c) => c.canonicalKey === 'firstName')?.proposedValue).toBe('Akshay');
+    expect(classified.find((c) => c.canonicalKey === 'lastName')?.proposedValue).toBe('Borse');
+  });
 });

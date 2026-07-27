@@ -14,6 +14,163 @@ import { SCAN_MESSAGES, AUTOFILL_MESSAGES, cycleMessages } from '../shared/loadi
 import { logToServer, logAutofillResult } from '../shared/serverLog';
 import { createOperationId, endTrace, failTrace, startTrace } from '../shared/actionTrace';
 import { markApplicationSubmitted } from '../shared/trackApplicationSubmit';
+import { employmentTypeColor, employmentTypeLabel } from '../shared/jobPageEnrichment';
+import { h1bStatusColor, H1bSponsorshipResult } from '../shared/h1bSponsorshipCheck';
+import { isJobApplicationUrl, isJobBoardUrl, isJobListingUrl } from '../shared/jobPageDetection';
+import { scanJobKeywords } from '../shared/jobKeywordScan';
+
+function renderJobMetaBadges(
+  enrichment?: {
+    employmentType?: string;
+    workMode?: string;
+    salary?: string;
+  },
+  h1b?: H1bSponsorshipResult
+) {
+  const container = document.getElementById('job-meta-badges');
+  if (!container) return;
+  container.innerHTML = '';
+
+  if (h1b) {
+    const pill = document.createElement('span');
+    pill.className = 'job-meta-badge is-h1b';
+    pill.textContent = h1b.label;
+    pill.style.backgroundColor = h1bStatusColor(h1b.status);
+    pill.title = h1b.signals.length ? h1b.signals.join(' · ') : h1b.reason;
+    container.appendChild(pill);
+  }
+
+  if (!enrichment) return;
+
+  const employment = enrichment.employmentType;
+  if (employment) {
+    const pill = document.createElement('span');
+    pill.className = 'job-meta-badge is-employment';
+    pill.textContent = employment;
+    pill.style.backgroundColor = employmentTypeColor(
+      employment.toLowerCase().includes('part')
+        ? 'part_time'
+        : employment.toLowerCase().includes('contract')
+          ? 'contract'
+          : employment.toLowerCase().includes('intern')
+            ? 'internship'
+            : 'full_time'
+    );
+    container.appendChild(pill);
+  }
+
+  if (enrichment.workMode) {
+    const pill = document.createElement('span');
+    pill.className = 'job-meta-badge';
+    pill.textContent = enrichment.workMode;
+    container.appendChild(pill);
+  }
+
+  if (enrichment.salary) {
+    const pill = document.createElement('span');
+    pill.className = 'job-meta-badge';
+    pill.textContent = enrichment.salary.length > 32 ? `${enrichment.salary.slice(0, 31)}…` : enrichment.salary;
+    pill.title = enrichment.salary;
+    container.appendChild(pill);
+  }
+}
+
+function adjustPageModeUI(tabUrl?: string) {
+  const autofillBtn = document.getElementById('btn-autofill');
+  const saveBtn = document.getElementById('btn-save-job');
+  if (!tabUrl) return;
+
+  const listing = isJobListingUrl(tabUrl) && !isJobApplicationUrl(tabUrl);
+  const board = isJobBoardUrl(tabUrl);
+  if (listing || board) {
+    setActionTitle('Save this job?');
+    setScanStatus(
+      board
+        ? 'Jobscan-style: use inline Save/Scan on the page, or the buttons below.'
+        : 'Save the listing, then autofill when you open the apply page.'
+    );
+    if (autofillBtn) autofillBtn.style.display = 'none';
+    if (saveBtn) saveBtn.style.display = '';
+  } else {
+    if (autofillBtn) autofillBtn.style.display = '';
+    if (saveBtn) saveBtn.style.display = '';
+  }
+}
+
+function renderJobInfoFromScan(job: any) {
+  if (!job) return;
+  detectedCompany = job.company || 'Unknown Company';
+  detectedRole = job.role || 'Unknown Role';
+  document.getElementById('job-company')!.textContent = detectedCompany;
+  document.getElementById('job-role')!.textContent = detectedRole;
+  document.getElementById('job-location')!.textContent = job.location || 'Remote';
+  document.getElementById('job-platform')!.textContent = job.platform || 'Generic';
+  document.getElementById('job-info-card')!.style.display = 'block';
+  if (job.enrichment || job.h1b) {
+    renderJobMetaBadges(
+      job.enrichment
+        ? {
+            employmentType: employmentTypeLabel(job.enrichment.employmentType) || undefined,
+            workMode:
+              job.enrichment.workMode !== 'unknown'
+                ? job.enrichment.workMode.charAt(0).toUpperCase() + job.enrichment.workMode.slice(1)
+                : undefined,
+            salary: job.enrichment.salary
+          }
+        : undefined,
+      job.h1b
+    );
+  }
+}
+
+function showScanResultBanner(score: number, matched: string[], missing: string[]) {
+  const banner = document.getElementById('scan-result-banner');
+  if (!banner) return;
+  banner.classList.add('is-visible');
+  banner.innerHTML = `<strong>${score}% match</strong> · ${matched.slice(0, 6).join(', ') || 'No overlaps'}${
+    missing.length ? ` · gaps: ${missing.slice(0, 4).join(', ')}` : ''
+  }`;
+}
+
+async function loadPipelineStats() {
+  const response = (await chrome.runtime.sendMessage({ action: 'get-tracker-stages-count' })) as {
+    success?: boolean;
+    stages?: { saved: number; applied: number; interview: number; offer: number };
+  };
+  if (!response?.success || !response.stages) return;
+  const { saved, applied, interview, offer } = response.stages;
+  const statSaved = document.getElementById('stat-saved');
+  const statTracked = document.getElementById('stat-tracked');
+  const statInterview = document.getElementById('stat-interview');
+  const statOffer = document.getElementById('stat-offer');
+  if (statSaved) statSaved.textContent = String(saved);
+  if (statTracked) statTracked.textContent = String(applied);
+  if (statInterview) statInterview.textContent = String(interview);
+  if (statOffer) statOffer.textContent = String(offer);
+}
+
+function setSaveJobButtonState(state: 'idle' | 'busy' | 'saved' | 'duplicate', label?: string) {
+  const btn = document.getElementById('btn-save-job');
+  if (!btn) return;
+  btn.classList.remove('is-saved');
+  btn.removeAttribute('disabled');
+  if (state === 'busy') {
+    btn.setAttribute('disabled', 'true');
+    btn.textContent = label || 'Saving…';
+    return;
+  }
+  if (state === 'saved') {
+    btn.classList.add('is-saved');
+    btn.textContent = label || 'Saved ✓';
+    return;
+  }
+  if (state === 'duplicate') {
+    btn.classList.add('is-saved');
+    btn.textContent = label || 'Already saved';
+    return;
+  }
+  btn.textContent = 'Save job';
+}
 
 function setStatusDot(state: 'idle' | 'scanning' | 'ready' | 'busy') {
   const dot = document.getElementById('status-dot');
@@ -92,6 +249,8 @@ function setScanStatus(text: string) {
 
 function setFieldCount(count: number) {
   const badge = document.getElementById('field-count-badge');
+  const statFields = document.getElementById('stat-fields');
+  if (statFields) statFields.textContent = count > 0 ? String(count) : '—';
   if (!badge) return;
   if (count > 0) {
     badge.style.display = '';
@@ -128,6 +287,43 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 });
 
+async function loadApplyQueue() {
+  const listEl = document.getElementById('apply-queue-list');
+  const countEl = document.getElementById('apply-queue-count');
+  if (!listEl) return;
+
+  const res = (await chrome.runtime.sendMessage({ action: 'get-apply-queue' })) as {
+    success?: boolean;
+    queue?: Array<{ id: string; company: string; role: string; status: string; url: string }>;
+  };
+
+  const queue = res?.queue || [];
+  const queued = queue.filter((item) => item.status === 'queued' || item.status === 'in_progress');
+  if (countEl) countEl.textContent = `${queued.length} queued`;
+
+  if (!queue.length) {
+    listEl.innerHTML = '<li class="muted">Add jobs from the copilot (+ Queue apply) or save listings first.</li>';
+    return;
+  }
+
+  listEl.innerHTML = queue
+    .slice(0, 8)
+    .map(
+      (item) =>
+        `<li class="apply-queue-item"><span><strong>${escapePopupHtml(item.company)}</strong> · ${escapePopupHtml(item.role)} <small>(${item.status})</small></span><button type="button" class="btn-icon" data-queue-id="${item.id}" title="Remove">×</button></li>`
+    )
+    .join('');
+
+  listEl.querySelectorAll('[data-queue-id]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const id = (btn as HTMLElement).dataset.queueId;
+      if (!id) return;
+      await chrome.runtime.sendMessage({ action: 'remove-from-apply-queue', id });
+      await loadApplyQueue();
+    });
+  });
+}
+
 async function initPopup() {
   setupTabs();
   const btnDashboard = document.getElementById('btn-open-dashboard');
@@ -139,6 +335,27 @@ async function initPopup() {
   await loadDocuments();
   await loadLearningCenter();
   await loadTracker();
+  await loadPipelineStats();
+  await loadApplyQueue();
+
+  document.getElementById('btn-start-queue')?.addEventListener('click', async () => {
+    const res = (await chrome.runtime.sendMessage({ action: 'start-apply-queue' })) as {
+      success?: boolean;
+      error?: string;
+    };
+    if (!res?.success) {
+      setScanStatus(res?.error || 'Queue is empty');
+      return;
+    }
+    setScanStatus('Opened next job — autofill when the apply page loads.');
+    window.close();
+  });
+
+  document.getElementById('btn-clear-queue')?.addEventListener('click', async () => {
+    const { clearCompletedQueue } = await import('../shared/applyQueue');
+    await clearCompletedQueue();
+    await loadApplyQueue();
+  });
 
   // Profile Redirect
   const btnPopupOpenProfile = document.getElementById('btn-popup-open-profile');
@@ -255,16 +472,7 @@ async function initPopup() {
         })();
 
         // Render Job Info Card
-        const job = response.jobDetails;
-        if (job) {
-          detectedCompany = job.company || 'Unknown Company';
-          detectedRole = job.role || 'Unknown Role';
-          document.getElementById('job-company')!.textContent = detectedCompany;
-          document.getElementById('job-role')!.textContent = detectedRole;
-          document.getElementById('job-location')!.textContent = job.location || 'Remote';
-          document.getElementById('job-platform')!.textContent = job.platform || 'Generic';
-          document.getElementById('job-info-card')!.style.display = 'block';
-        }
+        renderJobInfoFromScan(response.jobDetails);
 
         renderReviewFields(fields);
         setFieldCount(fields.length);
@@ -279,14 +487,100 @@ async function initPopup() {
           error: response?.error || 'no_fields'
         });
         setFieldCount(0);
-        setScanStatus('No form fields found on this page.');
-        setActionTitle('No form detected');
-        setStatusDot('idle');
-        if (reviewList) {
-          reviewList.innerHTML = emptyStateHtml('📭', 'No fields found', 'This page may not have an application form, or it loads in an iframe.');
+        renderJobInfoFromScan(response?.jobDetails);
+        const listing = tab.url && isJobListingUrl(tab.url) && !isJobApplicationUrl(tab.url);
+        if (listing && response?.jobDetails) {
+          setScanStatus('Job detected — save it to your tracker, then open the apply page to autofill.');
+          setActionTitle('Ready to save');
+          setStatusDot('ready');
+          if (reviewList) {
+            reviewList.innerHTML = emptyStateHtml('💼', 'Job listing detected', 'No application form here. Save this job, then click Apply on the site.');
+          }
+        } else {
+          setScanStatus('No form fields found on this page.');
+          setActionTitle('No form detected');
+          setStatusDot('idle');
+          if (reviewList) {
+            reviewList.innerHTML = emptyStateHtml('📭', 'No fields found', 'This page may not have an application form, or it loads in an iframe.');
+          }
         }
       }
     });
+  });
+
+  // Save job (Huntr-style)
+  const btnSaveJob = document.getElementById('btn-save-job');
+  btnSaveJob?.addEventListener('click', async () => {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (!tab?.url) return;
+
+    setSaveJobButtonState('busy', 'Parsing…');
+    setStatusDot('busy');
+    setActionTitle('Saving job…');
+
+    const ctx = {
+      company: detectedCompany || 'Unknown Company',
+      role: detectedRole || 'Unknown Role',
+      location: document.getElementById('job-location')?.textContent || undefined,
+      platform: document.getElementById('job-platform')?.textContent || undefined
+    };
+
+    const result = (await chrome.runtime.sendMessage({
+      action: 'record-job-save',
+      payload: {
+        url: tab.url,
+        ...ctx,
+        status: 'saved',
+        source: 'applypilot_popup'
+      }
+    })) as { success?: boolean; duplicate?: boolean; error?: string };
+
+    if (result?.success) {
+      setSaveJobButtonState(result.duplicate ? 'duplicate' : 'saved');
+      setScanStatus(`Saved: ${ctx.company} — ${ctx.role}`);
+      setActionTitle(result.duplicate ? 'Already in tracker' : 'Job saved');
+      setStatusDot('ready');
+      await loadTracker();
+      return;
+    }
+
+    setSaveJobButtonState('idle');
+    setScanStatus(result?.error || 'Could not save job.');
+    setActionTitle('Save failed');
+    setStatusDot('idle');
+  });
+
+  const btnScanMatch = document.getElementById('btn-scan-match');
+  btnScanMatch?.addEventListener('click', async () => {
+    const profile = enrichProfile((await getProfile()) || createEmptyProfile());
+    const description =
+      (document.getElementById('job-info-card')?.textContent || '') +
+      ' ' +
+      (detectedRole || '') +
+      ' ' +
+      (detectedCompany || '');
+
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (tab?.id) {
+      try {
+        const response = await chrome.tabs.sendMessage(tab.id, { action: 'scan-keywords' });
+        if (response?.score != null) {
+          showScanResultBanner(response.score, response.matched || [], response.missing || []);
+          const statMatch = document.getElementById('stat-match');
+          if (statMatch) statMatch.textContent = `${response.score}%`;
+          setScanStatus(`${response.score}% keyword match with your profile.`);
+          return;
+        }
+      } catch {
+        // fall through to local scan
+      }
+    }
+
+    const result = scanJobKeywords(description, profile);
+    showScanResultBanner(result.score, result.matched, result.missing);
+    const statMatch = document.getElementById('stat-match');
+    if (statMatch) statMatch.textContent = `${result.score}%`;
+    setScanStatus(`${result.score}% keyword match with your profile.`);
   });
 
   // Autofill Approved
@@ -508,9 +802,11 @@ async function initPopup() {
           logAutofillResult('popup:autofill', {
             filledCount: response.filledCount,
             errors: response.errors,
+            skippedFields: response.skippedFields,
+            issueSummary: response.issueReport?.summary,
             url: tab.url,
             company: detectedCompany,
-            detail: { frameIds, operationId }
+            detail: { frameIds, operationId, issueCounts: response.issueReport?.counts }
           });
           // Log field errors to IndexedDB if any occurred
           if (response.errors && response.errors.length > 0) {
@@ -542,11 +838,12 @@ async function initPopup() {
           if (progressContainer) {
             const initialHtml = progressContainer.innerHTML;
             const skippedFields = response.skippedFields || [];
+            const issueSummary = response.issueReport?.summary;
             const skippedHtml =
               skippedFields.length > 0
                 ? `<div class="skipped-fields-panel" style="margin-top: 10px; text-align: left;">
                     <div style="font-size: 0.68rem; color: var(--error-color); margin-bottom: 6px;">
-                      ${skippedFields.length} field${skippedFields.length === 1 ? '' : 's'} need a manual look:
+                      ${issueSummary || `${skippedFields.length} field${skippedFields.length === 1 ? '' : 's'} need a manual look:`}
                     </div>
                     <div style="display: flex; flex-direction: column; gap: 6px;">
                       ${skippedFields
@@ -693,6 +990,8 @@ async function initPopup() {
   });
 
   // Auto-scan current job page on load
+  const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  adjustPageModeUI(activeTab?.url);
   setTimeout(() => {
     btnScan?.click();
   }, 200);
@@ -885,7 +1184,12 @@ function renderReviewFields(fields: any[]) {
  * Loads profile settings
  */
 async function loadProfile() {
-  // Managed via Dashboard
+  const profile = enrichProfile(await getProfile());
+  const statProfile = document.getElementById('stat-profile');
+  if (statProfile) {
+    const name = profile.fullName?.trim() || profile.firstName?.trim();
+    statProfile.textContent = name ? 'Ready' : 'Setup';
+  }
 }
 
 /**
@@ -965,6 +1269,8 @@ async function loadTracker() {
   const tabBadge = document.getElementById('tracker-applied-count');
 
   if (submittedTotal) submittedTotal.textContent = String(submittedCount);
+  const heroTracked = document.getElementById('stat-tracked');
+  if (heroTracked) heroTracked.textContent = String(submittedCount);
   if (tabBadge) {
     tabBadge.textContent = String(submittedCount);
     tabBadge.hidden = submittedCount === 0;
@@ -979,17 +1285,31 @@ async function loadTracker() {
 
   list.innerHTML = records
     .map(
-      (r) => `
+      (r) => {
+        const statusLabel =
+          r.status === 'submitted'
+            ? 'Applied'
+            : r.status === 'interviewing'
+              ? 'Interview'
+              : r.status === 'offer'
+                ? 'Offer'
+                : r.status === 'rejected'
+                  ? 'Rejected'
+                  : r.status === 'saved'
+                    ? 'Saved'
+                    : r.status;
+        return `
     <tr>
       <td><strong>${r.companyName}</strong></td>
       <td>${r.roleTitle}</td>
       <td>${new Date(r.submittedAt || r.createdAt).toLocaleDateString()}</td>
-      <td><span class="badge badge-high">${r.status === 'submitted' ? 'Applied' : r.status}</span></td>
+      <td><span class="badge badge-high">${statusLabel}</span></td>
       <td>
         <button type="button" class="btn-icon delete-track-btn" data-id="${r.id}">🗑️</button>
       </td>
     </tr>
-  `
+  `;
+      }
     )
     .join('');
 

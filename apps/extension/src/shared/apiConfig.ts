@@ -1,7 +1,7 @@
 /** CareerOS API URLs — runtime config from storage, wired by backend on install/startup. */
 
 const STORAGE_KEY = "careeros_api_base";
-const DEFAULT_API_BASE = "http://localhost:8000";
+const DEFAULT_API_BASE = "http://localhost:8001";
 
 export const CAREER_OS_API_BASE = DEFAULT_API_BASE;
 

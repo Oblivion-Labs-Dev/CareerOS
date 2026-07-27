@@ -56,9 +56,16 @@ describe('eeoFillValues', () => {
     );
   });
 
+  it('resolves simple EEO status labels', () => {
+    expect(resolveEeoComboboxValue('Gender', baseProfile)).toBe('Male');
+    expect(resolveEeoComboboxValue('Race', baseProfile)).toBe('Asian (Not Hispanic or Latino)');
+    expect(resolveEeoComboboxValue('Veteran Status', baseProfile)).toBe('I am not a protected veteran');
+    expect(resolveEeoComboboxValue('Disability Status (Click here for more information)', baseProfile)).toBe(
+      "No, I don't have a disability"
+    );
+  });
+
   it('matches CC-305 disability option text', () => {
-    expect(
-      resolveDisabilitySelectValue("No, I don't have a disability")
-    ).toBe("No, I don't have a disability");
+    expect(resolveDisabilitySelectValue("No, I don't have a disability")).toBe("No, I don't have a disability");
   });
 });

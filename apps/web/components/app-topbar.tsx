@@ -7,10 +7,9 @@ import { NAV_GROUPS } from "@/lib/nav-config";
 import { CareerIcon } from "@/components/ui/career-icon";
 
 const DIRECT_ACTIONS = [
-  { label: "Open today's focus", href: "/dashboard", detail: "Command Center" },
-  { label: "Add career evidence", href: "/resume-corpus?view=accomplishments", detail: "Resume Intelligence" },
-  { label: "Review follow-ups", href: "/applications?filter=follow-up", detail: "Applications" },
-  { label: "Prepare for an interview", href: "/interviews", detail: "Preparation" },
+  { label: "Open dashboard", href: "/dashboard", detail: "Dashboard" },
+  { label: "Open job scraper", href: "/jobs/discover", detail: "Job Scraper" },
+  { label: "Edit profile", href: "/profile", detail: "Profile" },
 ];
 
 export function AppTopbar() {

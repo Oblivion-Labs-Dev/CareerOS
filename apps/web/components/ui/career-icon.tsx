@@ -1,6 +1,6 @@
 import type { SVGProps } from "react";
 
-export interface CareerIconProps extends SVGProps<SVGSVGElement> {
+export interface CareerIconProps extends Omit<SVGProps<SVGSVGElement>, "ref"> {
   name: string;
   size?: number;
 }

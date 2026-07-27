@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { getClientApiBaseUrl } from "@/lib/api";
 
 interface TrackerApplication {
@@ -48,10 +48,6 @@ export function ApplicationTrackerRefresh() {
       setLoading(false);
     }
   }, []);
-
-  useEffect(() => {
-    void refresh();
-  }, [refresh]);
 
   const applications = snapshot?.applications || [];
   const submitted = applications.filter((app) => app.status === "submitted");

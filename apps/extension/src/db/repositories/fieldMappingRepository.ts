@@ -16,6 +16,8 @@ export interface FieldMapping {
   source: "profile" | "learned_answer" | "manual" | "template" | "skipped";
   wasEdited: boolean;
   createdAt: string;
+  /** ATS host where this mapping was learned (e.g. boards.greenhouse.io). */
+  domain?: string;
 }
 
 let memoryCache: FieldMapping[] = [];

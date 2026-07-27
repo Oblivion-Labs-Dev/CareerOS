@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>CareerOS API</title>
+  <link rel="icon" href="/favicon.ico" type="image/svg+xml" />
+  <link rel="stylesheet" href="/static/api-dashboard/dashboard.css" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.6/dist/chart.umd.min.js"></script>
+</head>
+<body>
+  <div class="aurora" aria-hidden="true"></div>
+  <div class="flow-bg" aria-hidden="true"><canvas id="flow-canvas"></canvas></div>
+
+  <div class="wrap">
+    <header class="hero">
+      <div>
+        <span class="badge">Online</span>
+        <h1>CareerOS API</h1>
+        <p class="subtitle">
+          Live ops dashboard — animated charts, request flow, latency, and extension telemetry.
+        </p>
+        <div class="actions">
+          <a class="btn btn-primary" id="link-web" href="#">Open web dashboard</a>
+          <a class="btn" href="/docs">API docs</a>
+          <a class="btn" href="/metrics">Metrics JSON</a>
+          <a class="btn" href="/extension/download">Download extension</a>
+        </div>
+      </div>
+    </header>
+
+    <section class="flow-card" aria-label="Request flow">
+      <h3 style="margin:0 0 0.65rem;font-size:0.82rem;color:#94a3b8;text-transform:uppercase;letter-spacing:0.05em;">Request flow</h3>
+      <svg class="flow-graph" viewBox="0 0 720 120" role="img" aria-label="Extension to API to database flow">
+        <defs>
+          <linearGradient id="flowGradient" x1="0%" y1="0%" x2="100%" y2="0%">
+            <stop offset="0%" stop-color="#14b8a6" />
+            <stop offset="50%" stop-color="#2ee59d" />
+            <stop offset="100%" stop-color="#6ee7b7" />
+          </linearGradient>
+        </defs>
+        <path class="flow-edge" d="M 118 60 C 200 60, 220 60, 268 60" />
+        <path class="flow-edge" d="M 372 60 C 450 60, 470 60, 518 60" />
+        <path class="flow-edge" d="M 622 60 C 660 60, 670 40, 690 28" opacity="0.55" />
+        <circle class="flow-node" cx="70" cy="60" r="34" />
+        <text class="flow-node-label" x="70" y="56">Extension</text>
+        <text class="flow-node-label" x="70" y="72" fill="#94a3b8" font-size="9">ApplyPilot</text>
+        <circle class="flow-node" cx="320" cy="60" r="38" />
+        <text class="flow-node-label" x="320" y="56">CareerOS API</text>
+        <text class="flow-node-label" x="320" y="72" fill="#94a3b8" font-size="9">:8000</text>
+        <circle class="flow-node" cx="570" cy="60" r="34" />
+        <text class="flow-node-label" x="570" y="56">Profile &amp;</text>
+        <text class="flow-node-label" x="570" y="72">Tracker DB</text>
+      </svg>
+    </section>
+
+    <section class="live-panel" aria-label="Live API metrics">
+      <div class="live-head">
+        <h2>Live metrics</h2>
+        <span class="live-pill" id="live-status">Connecting…</span>
+      </div>
+      <div class="metrics-grid metrics-grid-wide">
+        <article class="metric-card"><p class="label">TPS (10s)</p><p class="value" id="m-tps-10">—</p></article>
+        <article class="metric-card"><p class="label">TPS (60s)</p><p class="value" id="m-tps-60">—</p></article>
+        <article class="metric-card"><p class="label">Avg latency</p><p class="value" id="m-lat-avg">—</p></article>
+        <article class="metric-card"><p class="label">P95 latency</p><p class="value" id="m-lat-p95">—</p></article>
+        <article class="metric-card"><p class="label">API calls</p><p class="value" id="m-requests">—</p></article>
+        <article class="metric-card error"><p class="label">Live errors</p><p class="value" id="m-errors">—</p></article>
+        <article class="metric-card fix"><p class="label">Errors fixed</p><p class="value" id="m-fixes">—</p></article>
+        <article class="metric-card warn"><p class="label">Open errors</p><p class="value" id="m-open-errors">—</p></article>
+      </div>
+
+      <div class="charts-grid">
+        <article class="chart-card tall">
+          <h3>Throughput (TPS)</h3>
+          <div class="chart-wrap"><canvas id="chart-tps"></canvas></div>
+        </article>
+        <article class="chart-card tall">
+          <h3>Latency trend</h3>
+          <div class="chart-wrap"><canvas id="chart-latency"></canvas></div>
+        </article>
+      </div>
+
+      <div class="charts-row">
+        <article class="chart-card">
+          <h3>Status codes</h3>
+          <div class="chart-wrap sm"><canvas id="chart-status"></canvas></div>
+        </article>
+        <article class="chart-card">
+          <h3>Top routes</h3>
+          <div class="chart-wrap sm"><canvas id="chart-routes"></canvas></div>
+        </article>
+      </div>
+
+      <article class="chart-card" style="margin-bottom:0.85rem;">
+        <h3>Error count over time</h3>
+        <div class="chart-wrap sm"><canvas id="chart-errors"></canvas></div>
+      </article>
+
+      <section class="error-fix-panel repair-manual-panel" id="repair-manual-panel" aria-label="Manual log repair" hidden>
+        <div class="live-head">
+          <h2>Process Logs &amp; Errors</h2>
+          <span class="live-pill" id="repair-run-state">Idle</span>
+        </div>
+        <p class="repair-manual-copy">
+          Manual developer workflow only. Scans persisted local logs and error history from disk — not just the current browser session.
+          Nothing is pushed, merged, reviewed, or deployed automatically.
+        </p>
+        <p class="repair-inventory" id="repair-log-inventory">Loading persisted log inventory…</p>
+        <div class="repair-manual-actions">
+          <button type="button" class="btn btn-investigate" id="process-logs-btn">Process Logs &amp; Errors</button>
+          <button type="button" class="btn" id="trigger-demo-error-btn">Trigger demo backend error</button>
+        </div>
+        <div class="repair-run-grid" id="repair-run-summary">
+          <article class="metric-card"><p class="label">Logs scanned</p><p class="value" id="repair-logs-scanned">—</p></article>
+          <article class="metric-card error"><p class="label">Errors found</p><p class="value" id="repair-errors-found">—</p></article>
+          <article class="metric-card"><p class="label">Duplicate groups</p><p class="value" id="repair-dup-groups">—</p></article>
+          <article class="metric-card fix"><p class="label">Agent status</p><p class="value" id="repair-agent-status">—</p></article>
+        </div>
+        <div class="repair-run-details" id="repair-run-details">
+          <div class="empty">No manual repair run yet.</div>
+        </div>
+      </section>
+
+      <section class="error-fix-panel" aria-label="Errors and fixes">
+        <div class="live-head">
+          <h2>Errors &amp; fixes</h2>
+          <span class="live-pill fix-pill" id="fix-rate-pill">Fix rate —</span>
+        </div>
+        <div class="error-fix-grid">
+          <article class="chart-card">
+            <h3>Fixes vs errors (live)</h3>
+            <div class="chart-wrap sm"><canvas id="chart-error-fix"></canvas></div>
+          </article>
+          <article class="chart-card">
+            <h3>Recent fixes</h3>
+            <ul class="fix-list" id="recent-fixes-list">
+              <li class="empty">Waiting for fix events…</li>
+            </ul>
+          </article>
+        </div>
+        <div class="history-head">
+          <h2>History timeline</h2>
+          <div class="history-actions">
+            <button type="button" class="btn btn-investigate" id="investigate-open-btn" hidden>
+              Investigate open errors
+            </button>
+            <span class="history-meta" id="error-fix-meta">—</span>
+          </div>
+        </div>
+        <div class="history-timeline" id="error-fix-history">
+          <div class="empty">No error or fix history yet.</div>
+        </div>
+      </section>
+
+      <div class="metrics-split">
+        <div>
+          <h2 style="margin:0 0 0.55rem;font-size:0.82rem;color:#94a3b8;text-transform:uppercase;">Recent requests</h2>
+          <div class="metrics-table-wrap">
+            <table>
+              <thead><tr><th>Time</th><th>Method</th><th>Route</th><th>Status</th><th>Ms</th></tr></thead>
+              <tbody id="recent-requests-body"><tr><td colspan="5">Waiting for traffic…</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="grid" id="tracker-stats" aria-label="Tracker stats"></section>
+
+    <section class="panels">
+      <article class="panel">
+        <h2>Profile &amp; tracker</h2>
+        <div class="profile-card">
+          <strong id="profile-name">—</strong>
+          <span id="profile-email">—</span>
+        </div>
+        <h2>Recent applications</h2>
+        <ul id="recent-apps"></ul>
+      </article>
+      <article class="panel">
+        <h2>Server details</h2>
+        <div class="meta-grid">
+          <div class="meta-row"><strong>API URL</strong><span id="meta-api">—</span></div>
+          <div class="meta-row"><strong>Web app</strong><span id="meta-web">—</span></div>
+          <div class="meta-row"><strong>Extension</strong><span id="meta-ext">—</span></div>
+          <div class="meta-row"><strong>Dev mode</strong><span id="meta-dev">—</span></div>
+          <div class="meta-row"><strong>Refreshed</strong><span id="meta-refreshed">—</span></div>
+        </div>
+        <h2 style="margin-top:1.2rem;">Recent extension logs</h2>
+        <ul id="recent-logs"></ul>
+      </article>
+    </section>
+
+    <footer>Charts animate every 2s · Errors &amp; fixes update live · Metrics at <code>/metrics</code></footer>
+  </div>
+
+  <div class="toast" id="investigate-toast" role="status" aria-live="polite" hidden></div>
+  <dialog class="investigate-dialog" id="investigate-dialog">
+    <form method="dialog">
+      <header>
+        <h3>Agent investigation prompt</h3>
+        <button type="submit" class="dialog-close" aria-label="Close">✕</button>
+      </header>
+      <p class="dialog-hint">Prompt copied to clipboard. Paste into Cursor Agent to investigate.</p>
+      <textarea id="investigate-prompt-text" readonly rows="14"></textarea>
+      <menu>
+        <button type="button" class="btn" id="investigate-copy-again">Copy again</button>
+        <button type="submit" class="btn btn-primary">Close</button>
+      </menu>
+    </form>
+  </dialog>
+
+  <script>window.__CAREEROS_BOOT__ = __BOOT_JSON__;</script>
+  <script src="/static/api-dashboard/dashboard.js?v=3"></script>
+</body>
+</html>

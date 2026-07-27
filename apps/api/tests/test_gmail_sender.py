@@ -41,6 +41,12 @@ def test_gmail_sender_send_success(mock_smtp_cls: MagicMock) -> None:
     smtp.send_message.assert_called_once()
 
 
-def test_email_verify_returns_503_when_unconfigured() -> None:
-    response = client.get("/email/verify")
-    assert response.status_code == 503
+def test_email_verify_returns_not_configured_when_unconfigured() -> None:
+    with patch("app.routers.api.settings") as mock_settings:
+        mock_settings.gmail_user = ""
+        mock_settings.gmail_app_password = ""
+        response = client.get("/email/verify")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["configured"] is False
+    assert body["success"] is False

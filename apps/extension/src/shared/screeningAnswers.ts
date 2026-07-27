@@ -14,7 +14,9 @@ export const DEFAULT_SCREENING_ANSWERS: ScreeningAnswer[] = [
       'authorized to work in the united states',
       'legally authorized to work',
       'legally authorized to work in the country',
-      'country/region you are applying'
+      'country/region you are applying',
+      'u\\.s\\. work authorization',
+      'are you authorized to work in the united states'
     ]
   },
   {
@@ -40,7 +42,9 @@ export const DEFAULT_SCREENING_ANSWERS: ScreeningAnswer[] = [
       'require.*sponsorship.*immigration',
       'commence.*sponsor.*immigration case',
       'employment-based visa status',
-      'qualtrics.*sponsor'
+      'qualtrics.*sponsor',
+      'require sponsorship from anduril',
+      'sponsorship from anduril'
     ]
   },
   {
@@ -174,6 +178,55 @@ export const DEFAULT_SCREENING_ANSWERS: ScreeningAnswer[] = [
       'civilian employee.*government',
       'national, state, local, or foreign'
     ]
+  },
+  {
+    id: 'security-clearance-eligibility',
+    question:
+      'Do you presently hold an active U.S. security clearance, or are you eligible to obtain and maintain a U.S. security clearance?',
+    answer: 'No',
+    matchPatterns: [
+      'clearance eligibility',
+      'eligible to obtain and maintain.*security clearance',
+      'hold an active u\\.s\\. security clearance',
+      'presently hold an active.*security clearance'
+    ]
+  },
+  {
+    id: 'past-clearance-level',
+    question: 'If you have held a U.S. security clearance in the past, what clearance level have you held?',
+    answer: 'N/A - have never held U.S. security clearance',
+    matchPatterns: ['clearance level have you held', 'held a u\\.s\\. security clearance in the past']
+  },
+  {
+    id: 'export-controls-protected-individual',
+    question: 'Are you any of the following protected individual(s) as defined in the Immigration and Naturalization Act',
+    answer: 'None of the above',
+    matchPatterns: ['export controls', 'protected individual', '1324b\\(a\\)\\(3\\)', 'export-controlled']
+  },
+  {
+    id: 'previously-applied-company',
+    question: 'Have you previously applied to a position at this company?',
+    answer: 'No',
+    matchPatterns: ['previously applied', 'history with', 'history with anduril']
+  },
+  {
+    id: 'employed-by-company',
+    question: 'Have you ever been employed by this company or any company it has acquired?',
+    answer: 'No',
+    matchPatterns: ['employed by anduril', 'employed by', 'company that anduril has acquired', 'company that.*has acquired']
+  },
+  {
+    id: 'government-conflict-of-interest',
+    question:
+      'Do you currently, or have you in the last 5 years, worked for the US government and had oversight over this company?',
+    answer: 'No',
+    matchPatterns: ['conflict of interest', 'oversight.*business', 'worked for the us government']
+  },
+  {
+    id: 'how-heard-about-company',
+    question: 'How did you hear about this company?',
+    answer: 'LinkedIn',
+    matchPatterns: ['how did you hear about']
   }
 ];
 
@@ -183,14 +236,36 @@ function labelMatchesScreening(normalizedLabel: string, entry: ScreeningAnswer):
   const normalizedQuestion = normalizeQuestionText(entry.question);
   if (!normalizedLabel || !normalizedQuestion) return false;
 
-  const similarity = stringSimilarity(normalizedLabel, normalizedQuestion);
-  if (similarity >= MATCH_THRESHOLD) return true;
-
   if (entry.matchPatterns?.some((pattern) => new RegExp(pattern, 'i').test(normalizedLabel))) {
     return true;
   }
 
+  const similarity = stringSimilarity(normalizedLabel, normalizedQuestion);
+  if (similarity >= MATCH_THRESHOLD) return true;
+
   return false;
+}
+
+function resolveScreeningEntryAnswer(entry: ScreeningAnswer, profile: UserProfile): string {
+  if (entry.id === 'us-work-authorization' && profile.workAuthorization?.trim()) {
+    return profile.workAuthorization.trim();
+  }
+  if (entry.id === 'visa-sponsorship-needed' && profile.sponsorship?.trim()) {
+    return profile.sponsorship.trim();
+  }
+  if (entry.id === 'gender-identity' && profile.gender?.trim()) {
+    return profile.gender.trim();
+  }
+  if (entry.id === 'transgender-identity' && profile.transgender?.trim()) {
+    return profile.transgender.trim();
+  }
+  if (entry.id === 'racial-ethnic-background' && profile.raceEthnicity?.trim()) {
+    return profile.raceEthnicity.trim();
+  }
+  if (entry.id === 'sexual-orientation' && profile.sexualOrientation?.trim()) {
+    return profile.sexualOrientation.trim();
+  }
+  return entry.answer;
 }
 
 export function matchScreeningAnswer(
@@ -205,27 +280,21 @@ export function matchScreeningAnswer(
     ? profile.screeningAnswers
     : DEFAULT_SCREENING_ANSWERS;
 
+  const patternMatches = answers.filter((entry) =>
+    entry.matchPatterns?.some((pattern) => new RegExp(pattern, 'i').test(cleanedLabel))
+  );
+  if (patternMatches.length) {
+    const bestPatternMatch = patternMatches.sort(
+      (a, b) =>
+        Math.max(...(b.matchPatterns || []).map((pattern) => pattern.length)) -
+        Math.max(...(a.matchPatterns || []).map((pattern) => pattern.length))
+    )[0];
+    return resolveScreeningEntryAnswer(bestPatternMatch, profile);
+  }
+
   for (const entry of answers) {
     if (labelMatchesScreening(cleanedLabel, entry)) {
-      if (entry.id === 'us-work-authorization' && profile.workAuthorization?.trim()) {
-        return profile.workAuthorization.trim();
-      }
-      if (entry.id === 'visa-sponsorship-needed' && profile.sponsorship?.trim()) {
-        return profile.sponsorship.trim();
-      }
-      if (entry.id === 'gender-identity' && profile.gender?.trim()) {
-        return profile.gender.trim();
-      }
-      if (entry.id === 'transgender-identity' && profile.transgender?.trim()) {
-        return profile.transgender.trim();
-      }
-      if (entry.id === 'racial-ethnic-background' && profile.raceEthnicity?.trim()) {
-        return profile.raceEthnicity.trim();
-      }
-      if (entry.id === 'sexual-orientation' && profile.sexualOrientation?.trim()) {
-        return profile.sexualOrientation.trim();
-      }
-      return entry.answer;
+      return resolveScreeningEntryAnswer(entry, profile);
     }
   }
 

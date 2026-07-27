@@ -93,4 +93,34 @@ describe('screeningAnswers', () => {
     expect(synced.screeningAnswers?.find((e) => e.id === 'transgender-identity')?.answer).toBe('No');
     expect(mergeDefaultScreeningAnswers([]).length).toBeGreaterThan(15);
   });
+
+  it('prefers clearance level pattern over generic clearance eligibility', () => {
+    const profile = createEmptyProfile();
+
+    expect(
+      matchScreeningAnswer(
+        'If you have held a U.S. security clearance in the past, what clearance level have you held?',
+        profile
+      )
+    ).toBe('N/A - have never held U.S. security clearance');
+
+    expect(
+      matchScreeningAnswer(
+        'Do you presently hold an active U.S. security clearance, or are you eligible to obtain and maintain a U.S. security clearance?',
+        profile
+      )
+    ).toBe('No');
+  });
+
+  it('matches Greenhouse section headers for Anduril screening questions', () => {
+    const profile = createEmptyProfile();
+
+    expect(matchScreeningAnswer('U.S. WORK AUTHORIZATION', profile)).toBe('Yes');
+    expect(matchScreeningAnswer('CLEARANCE ELIGIBILITY - security clearance required', profile)).toBe('No');
+    expect(matchScreeningAnswer('EXPORT CONTROLS - protected individual question', profile)).toBe(
+      'None of the above'
+    );
+    expect(matchScreeningAnswer('HISTORY WITH ANDURIL', profile)).toBe('No');
+    expect(matchScreeningAnswer('How did you hear about Anduril?', profile)).toBe('LinkedIn');
+  });
 });

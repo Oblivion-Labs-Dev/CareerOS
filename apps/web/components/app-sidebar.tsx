@@ -8,13 +8,14 @@ import { BackendNavTooltip } from "@/components/backend-nav-tooltip";
 import { ThemeToggle } from "@/components/ui/theme-toggle";
 import { CareerIcon } from "@/components/ui/career-icon";
 import { useBackendStatus } from "@/hooks/use-backend-status";
-import { NAV_GROUPS } from "@/lib/nav-config";
+import { COMING_SOON_NAV_ITEMS, NAV_GROUPS } from "@/lib/nav-config";
 
 export function AppSidebar() {
   const pathname = usePathname();
   const backendOnline = useBackendStatus();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [mobileViewport, setMobileViewport] = useState(false);
+  const [comingSoonOpen, setComingSoonOpen] = useState(false);
   const drawerRef = useRef<HTMLElement>(null);
   const openButtonRef = useRef<HTMLButtonElement>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
@@ -79,7 +80,7 @@ export function AppSidebar() {
   return (
     <>
       <header className="app-mobile-header">
-        <Link href="/dashboard" className="brand" aria-label="CareerOS Command Center">
+        <Link href="/dashboard" className="brand" aria-label="CareerOS Dashboard">
           <span className="brand-mark"><CareerIcon name="spark" /></span>
           CareerOS
         </Link>
@@ -115,7 +116,7 @@ export function AppSidebar() {
         inert={mobileViewport && !mobileOpen ? true : undefined}
       >
       <div className="sidebar-header">
-        <Link href="/dashboard" className="brand" aria-label="CareerOS Command Center">
+        <Link href="/dashboard" className="brand" aria-label="CareerOS Dashboard">
           <span className="brand-mark"><CareerIcon name="spark" /></span>
           CareerOS
         </Link>
@@ -135,7 +136,7 @@ export function AppSidebar() {
           </button>
         </div>
       </div>
-      <div className="brand-sub">One focused loop from evidence to outcome.</div>
+      <div className="brand-sub">Intelligence Layer + CareerOS — evidence to outcome.</div>
       <nav className="sidebar-nav" aria-label="CareerOS sections">
         {NAV_GROUPS.map((group) => (
           <div className="nav-group" key={group.label}>
@@ -162,6 +163,46 @@ export function AppSidebar() {
             })}
           </div>
         ))}
+
+        {COMING_SOON_NAV_ITEMS.length > 0 ? (
+          <div className="nav-group nav-group--coming-soon">
+            <button
+              type="button"
+              className="nav-group-toggle"
+              aria-expanded={comingSoonOpen}
+              aria-controls="sidebar-coming-soon"
+              onClick={() => setComingSoonOpen((open) => !open)}
+            >
+              <span className="nav-group-toggle-label">Coming soon</span>
+              <span className="nav-group-toggle-meta">
+                <span className="nav-group-count">{COMING_SOON_NAV_ITEMS.length}</span>
+                <CareerIcon
+                  name="arrow"
+                  size={14}
+                  className={`nav-group-chevron${comingSoonOpen ? " nav-group-chevron--open" : ""}`}
+                />
+              </span>
+            </button>
+            {comingSoonOpen ? (
+              <div id="sidebar-coming-soon" className="nav-group-items">
+                {COMING_SOON_NAV_ITEMS.map((item) => (
+                  <span
+                    key={item.href}
+                    className="nav-link nav-link--coming-soon nav-link--disabled"
+                    aria-disabled="true"
+                    title={`${item.label} — coming soon`}
+                  >
+                    <span className="nav-icon" aria-hidden>
+                      <CareerIcon name={item.icon} size={18} />
+                    </span>
+                    <span className="nav-link-label">{item.label}</span>
+                    <span className="nav-coming-soon-tag">{item.groupLabel}</span>
+                  </span>
+                ))}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
       </nav>
       <div className="sidebar-footer">
         <p

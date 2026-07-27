@@ -419,7 +419,7 @@ export function AccomplishmentWorkspace({ record, previewMode, compact = false, 
                 {metric.verification === "verified" ? "Require verification" : "Mark verified"}
               </button>
             </div>)}
-            <button type="button" className={styles.quietButton} onClick={() => updateDraft((current) => ({ ...current, metrics: [...current.metrics, { id: `metric-${Date.now()}`, name: "", value: "", confidence: "medium", verification: "unverified" }] }))}>+ Add metric</button>
+            <button type="button" className={styles.quietButton} onClick={() => updateDraft((current) => ({ ...current, metrics: [...current.metrics, { id: `metric-${Date.now()}`, name: "", value: "", confidence: "medium", verification: "unverified", evidenceIds: [] }] }))}>+ Add metric</button>
           </div>)}
           {section("business", <EditableField id="record-business" label="Business and customer impact" value={draft.businessImpact} onChange={(value) => patch("businessImpact", value)} multiline />)}
           {section("engineering", <EditableField id="record-engineering" label="Engineering and operational impact" value={draft.engineeringImpact} onChange={(value) => patch("engineeringImpact", value)} multiline />)}

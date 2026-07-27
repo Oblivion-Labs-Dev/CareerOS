@@ -2,6 +2,11 @@ import { JobDetails, UserProfile } from '../shared/types';
 import { logAutofillResult, logToServer } from '../shared/serverLog';
 import { endTrace, traceStep } from '../shared/actionTrace';
 import { enrichJobDetails } from '../shared/jobContextResolver';
+import {
+  FRAME_AUTOFILL_TIMEOUT_MS,
+  FRAME_PROBE_TIMEOUT_MS,
+  FRAME_SCAN_TIMEOUT_MS
+} from '../shared/autofillTimeouts';
 
 export interface ScannedFieldMessage {
   id: string;
@@ -47,18 +52,11 @@ function sendToFrame<T>(tabId: number, frameId: number, message: Record<string, 
   });
 }
 
-const FRAME_PROBE_TIMEOUT_MS = 1500;
-const FRAME_AUTOFILL_TIMEOUT_MS = 45_000;
-
 async function getReachableFrameIds(tabId: number, candidateFrameIds: number[]): Promise<number[]> {
   const reachable: number[] = [];
 
   await Promise.all(
     candidateFrameIds.map(async (frameId) => {
-      if (frameId === 0) {
-        reachable.push(0);
-        return;
-      }
       const response = await sendToFrameWithTimeout<{ ok?: boolean }>(
         tabId,
         frameId,
@@ -69,7 +67,7 @@ async function getReachableFrameIds(tabId: number, candidateFrameIds: number[]):
     })
   );
 
-  return reachable.length ? [...new Set(reachable)].sort((a, b) => a - b) : [0];
+  return [...new Set(reachable)].sort((a, b) => a - b);
 }
 
 function sendToFrameWithTimeout<T>(
@@ -130,12 +128,12 @@ export async function scanAllFrames(
   for (const frameId of frameIds) {
     traceStep(operationId, 'scan', 'frame_scan_start', 'background:scan', { tabId, frameId });
 
-    const response = await sendToFrame<{
+    const response = await sendToFrameWithTimeout<{
       success: boolean;
       jobDetails: JobDetails;
       fields: Omit<ScannedFieldMessage, 'frameId'>[];
       error?: string;
-    }>(tabId, frameId, { action: 'scan', profile, operationId });
+    }>(tabId, frameId, { action: 'scan', profile, operationId, skipHighlight: true }, FRAME_SCAN_TIMEOUT_MS);
 
     traceStep(operationId, 'scan', 'frame_scan_end', 'background:scan', {
       tabId,
@@ -215,6 +213,22 @@ export async function autofillCompleteAllFrames(
     frameCount: frameIds.length,
     overrideCount: Object.keys(overrides || {}).length
   });
+
+  if (!frameIds.length) {
+    const message = 'No reachable frames with ApplyPilot loaded on this tab.';
+    logToServer({
+      level: 'warn',
+      source: 'background:autofill-complete',
+      message,
+      detail: { tabId, requestedFrames: requested, operationId }
+    });
+    return {
+      success: false,
+      filledCount: 0,
+      errors: [{ label: 'frames', error: message }],
+      skippedFields: []
+    };
+  }
 
   const results = await Promise.all(
     frameIds.map(async (frameId) => {

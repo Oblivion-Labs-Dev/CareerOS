@@ -4,6 +4,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from app.services.error_fix_tracker import error_fix_tracker
+
 MAX_LOG_LINES = 500
 LOG_DIR = Path(__file__).resolve().parents[2] / "data" / "logs"
 LOG_FILE = LOG_DIR / "client.jsonl"
@@ -17,6 +19,7 @@ def append_client_log(entry: dict[str, Any]) -> dict[str, Any]:
     with LOG_FILE.open("a", encoding="utf-8") as handle:
         handle.write(json.dumps(record, ensure_ascii=False) + "\n")
     trim_log_file()
+    error_fix_tracker.record_client_log(record)
     return record
 
 

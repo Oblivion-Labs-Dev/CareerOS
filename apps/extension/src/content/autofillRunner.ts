@@ -1,4 +1,4 @@
-import { scanPage, ScannedField, getLabelText, getFieldGroupQuestion } from './domScanner';
+import { scanPage, ScannedField, getLabelText, getFieldGroupQuestion, getComboboxLabelCandidates, isGreenhouseSelectPhantom, isExtensionUiElement } from './domScanner';
 import { classifyFields, ClassifiedField } from './fieldClassifier';
 import { autofillFieldPriority, resolveFreshField } from './fieldResolver';
 import {
@@ -17,19 +17,11 @@ import {
   inferRemainingValue,
   RIPPLING_DATA_INPUT_MAP,
   RIPPLING_DATA_INPUT_TO_CANONICAL,
-  isPhoneCountryLabel,
-  resolvePhoneCountryFillValue
+  isGreenhousePhoneCountryCombobox,
+  resolvePhoneCountryFillValue,
 } from './fieldInference';
-import { resolvePronounFillValue } from './autofillEngine.matching';
+import { isPlaceholderSelectOption } from '../shared/usStates';
 import { APPLICATION_FIELD_DEFAULTS } from '../shared/applicationDefaults';
-import {
-  resolveDisabilitySelectValue,
-  resolveEeoComboboxValue,
-  resolveEthnicGroupSelectValue,
-  resolveGenderSelectValue,
-  resolveRaceSelectValue,
-  resolveVeteranSelectValue
-} from '../shared/eeoFillValues';
 import { logToServer } from '../shared/serverLog';
 import { traceStep } from '../shared/actionTrace';
 import {
@@ -39,12 +31,32 @@ import {
   logFieldDiagnostics
 } from './autofillDiagnostics';
 import { fillWorkExperienceSections } from './workExperienceAutofill';
-import { stampFieldMarker } from './fieldMarker';
 import { matchScreeningAnswer } from '../shared/screeningAnswers';
 import { persistSkippedFieldValues } from './skippedFieldProfile';
-import { hasFieldDisplayValue } from './fieldValue';
-import { shouldAutofillField, isOptionalAddressField } from './fieldRequired';
+import { shouldAutofillField } from './fieldRequired';
 import { addressValueForKey, captureAddressFromPage } from '../profile/addressProfile';
+import { runAtsAutofill } from './atsAutofillEngine';
+import { runMultiStepAtsPass } from './atsStepRunner';
+import { fillWorkExperienceRepeaters } from './workExperienceRepeater';
+import { rememberAutofillMappings } from '../learning/fieldMappingMemory';
+import { generateId } from '../shared/id';
+import {
+  detectFileInputUploadKind,
+  detectUploadKindFromHint,
+  findFileInputForKind,
+  isUploadKindAttached,
+  zoneTextIndicatesKind,
+} from './fileUploadDetection';
+import {
+  buildAutofillIssueReport,
+  logAutofillIssueReport,
+  type AutofillIssueReport,
+  type AutofillSkippedField,
+} from './autofillReport';
+import { isSelectOptionCommitted } from './selectVerification';
+import { resolveComboboxFillValue, resolveComboboxFillValueFromLabels } from './comboboxValueResolver';
+
+export type { AutofillSkippedField, AutofillIssueReport };
 
 const RESUME_MARKER = '[Resume Default]';
 const COVER_MARKER = '[Cover Letter Default]';
@@ -77,37 +89,45 @@ const SELECT_INFER_RE =
 const RESUME_PARSE_WAIT_MS = 2500;
 
 function isResumeAttached(doc: Document): boolean {
-  const fileInputs = Array.from(doc.querySelectorAll('input[type="file"]')) as HTMLInputElement[];
-  return fileInputs.some((input) => (input.files?.length ?? 0) > 0);
+  return isUploadKindAttached('resume', doc);
 }
 
-async function attachResumeIfNeeded(profile: UserProfile, doc: Document): Promise<boolean> {
-  if (!profile.resume || isResumeAttached(doc)) return false;
+async function attachFileForKind(
+  profile: UserProfile,
+  kind: 'resume' | 'coverLetter',
+  doc: Document
+): Promise<boolean> {
+  const fileData = kind === 'coverLetter' ? profile.coverLetter : profile.resume;
+  if (!fileData || isUploadKindAttached(kind, doc)) return false;
 
-  const fileInputs = Array.from(doc.querySelectorAll('input[type="file"]')) as HTMLInputElement[];
-  const resumeInput =
-    fileInputs.find((input) => {
-      const hint = `${input.id} ${input.name} ${getLabelText(input, doc)}`.toLowerCase();
-      return /résumé|resume|\bcv\b/.test(hint);
-    }) ?? fileInputs[0];
-
-  if (resumeInput) {
-    fillFileInput(resumeInput, profile.resume);
+  const matchedInput = findFileInputForKind(kind, doc);
+  if (matchedInput && !isUploadKindAttached(kind, doc)) {
+    fillFileInput(matchedInput, fileData);
     return true;
   }
 
   const dropZones = Array.from(doc.querySelectorAll('div, section, label, button, span')) as HTMLElement[];
   for (const zone of dropZones) {
     const text = zone.textContent?.replace(/\s+/g, ' ').trim() || '';
-    if (!/drop or select/i.test(text)) continue;
+    if (!zoneTextIndicatesKind(text, kind)) continue;
     const nearby = findNearbyFileInput(zone, doc);
-    if (nearby) {
-      fillFileInput(nearby, profile.resume);
-      return true;
+    if (!nearby) continue;
+    if (detectFileInputUploadKind(nearby, doc) === (kind === 'resume' ? 'coverLetter' : 'resume')) {
+      continue;
     }
+    fillFileInput(nearby, fileData);
+    return true;
   }
 
   return false;
+}
+
+async function attachResumeIfNeeded(profile: UserProfile, doc: Document): Promise<boolean> {
+  return attachFileForKind(profile, 'resume', doc);
+}
+
+async function attachCoverLetterIfNeeded(profile: UserProfile, doc: Document): Promise<boolean> {
+  return attachFileForKind(profile, 'coverLetter', doc);
 }
 
 async function fillRipplingDataInputFields(profile: UserProfile, doc: Document): Promise<number> {
@@ -148,117 +168,172 @@ async function fillRipplingDataInputFields(profile: UserProfile, doc: Document):
   return filled;
 }
 
-const COMBOBOX_LABEL_RESOLVERS: {
-  test: (label: string) => boolean;
-  value: (profile: UserProfile) => string;
-}[] = [
-  { test: (l) => /pronoun/i.test(l), value: (p) => resolvePronounFillValue(p.pronouns) },
-  {
-    test: (l) => /indicate gender|^gender\s*\*?$/i.test(l.trim()) && !/identity|transgender|sexual/.test(l),
-    value: (p) => resolveGenderSelectValue(p.gender)
-  },
-  { test: (l) => /\bgender\b/i.test(l) && !/identity|transgender|sexual/.test(l), value: (p) => resolveGenderSelectValue(p.gender) },
-  {
-    test: (l) => /transgender/i.test(l),
-    value: (p) => p.transgender || APPLICATION_FIELD_DEFAULTS.transgender
-  },
-  {
-    test: (l) => /indicate ethnic|ethnic group|hispanic.*latino/i.test(l) && !/race/.test(l),
-    value: (p) => resolveEthnicGroupSelectValue(p.hispanic)
-  },
-  {
-    test: (l) => /indicate your race|^race\s*\*?$/i.test(l.trim()) || (/race|ethnicity/i.test(l) && !/ethnic group|hispanic/.test(l)),
-    value: (p) => resolveRaceSelectValue(p.raceEthnicity, p.hispanic)
-  },
-  {
-    test: (l) => /race|ethnicity/i.test(l),
-    value: (p) => resolveRaceSelectValue(p.raceEthnicity, p.hispanic)
-  },
-  { test: (l) => /hispanic|latino/i.test(l), value: (p) => resolveEthnicGroupSelectValue(p.hispanic) },
-  {
-    test: (l) => /protected veteran|veteran status|categories of protected veterans/i.test(l),
-    value: (p) => resolveVeteranSelectValue(p.veteran)
-  },
-  { test: (l) => /veteran/i.test(l), value: (p) => resolveVeteranSelectValue(p.veteran) },
-  {
-    test: (l) => /disability|form cc-305|cc-305/i.test(l),
-    value: (p) => resolveDisabilitySelectValue(p.disability)
-  },
-  {
-    test: (l) => isPhoneCountryLabel(l),
-    value: (p) => resolvePhoneCountryFillValue(p)
-  },
-  {
-    test: (l) => /region of residence|country\/region|mailing country|address.*country/.test(l),
-    value: (p) => addressValueForKey('country', p)
-  },
-  {
-    test: (l) => /\bstate\b|province/i.test(l),
-    value: (p) => addressValueForKey('state', p)
-  },
-  {
-    test: (l) => /\bcity\b/i.test(l),
-    value: (p) => addressValueForKey('city', p)
-  },
-  {
-    test: (l) => /legally authorized|authorized to work|right to work|work authorization/i.test(l),
-    value: (p) => p.workAuthorization || 'Yes'
-  },
-  {
-    test: (l) =>
-      /sponsor|visa|immigration-related employment benefit|require.*sponsorship/i.test(l),
-    value: (p) => p.sponsorship || 'No'
-  }
-];
-
-function getComboboxDisplay(el: HTMLElement): string {
-  if (el instanceof HTMLInputElement) {
-    const val = el.value?.trim();
-    if (val && !/^(search|select\.\.\.|select|textbox)$/i.test(val)) return val;
-  }
-
-  const root = (el.closest('[role="combobox"]') as HTMLElement | null) || el;
-  const selectedChild = root.querySelector('p, span[class*="value"], [class*="singleValue"]');
-  const childText = selectedChild?.textContent?.replace(/\s+/g, ' ').trim() || '';
-  if (childText && !/^(select\.\.\.|select|search|textbox)$/i.test(childText)) return childText;
-
-  const display = root.textContent?.replace(/\s+/g, ' ').trim() || '';
-  return display;
-}
-
 function isComboboxUnfilled(el: HTMLElement): boolean {
-  const display = getComboboxDisplay(el);
-  return !display || /^(select\.\.\.|select|search|textbox)$/i.test(display);
+  return !isSelectOptionCommitted(el);
 }
 
-/** Fill Rippling/custom comboboxes by walking fresh DOM labels (survives resume re-render). */
-async function fillLabeledComboboxes(profile: UserProfile, doc: Document): Promise<number> {
+/** Fill native HTML select EEO dropdowns (Greenhouse, Lever, etc.). */
+async function fillLabeledNativeSelects(profile: UserProfile, doc: Document): Promise<number> {
   const enriched = enrichProfile(profile);
   let filled = 0;
-  const filledRoots = new Set<HTMLElement>();
 
-  for (const combobox of Array.from(doc.querySelectorAll('[role="combobox"]')) as HTMLElement[]) {
-    const root = (combobox.closest('[role="combobox"]') as HTMLElement | null) || combobox;
-    if (filledRoots.has(root)) continue;
-    if (!isComboboxUnfilled(root)) continue;
+  for (const select of Array.from(doc.querySelectorAll('select')) as HTMLSelectElement[]) {
+    if (isExtensionUiElement(select)) continue;
+    if (!isComboboxUnfilled(select)) continue;
 
-    const label = getLabelText(root, doc);
+    const label = getLabelText(select, doc);
     if (!label) continue;
 
-    const eeoValue = resolveEeoComboboxValue(label, enriched)?.trim();
-    const resolver = COMBOBOX_LABEL_RESOLVERS.find((entry) => entry.test(label));
-    const value = (eeoValue || resolver?.value(enriched))?.trim();
+    const value = resolveComboboxFillValue(label, enriched);
     if (!value) continue;
 
-    const didFill = await fillSelect(resolveSelectElement(root), value);
-    if (didFill) {
-      filledRoots.add(root);
-      filled++;
-    }
-    await new Promise((r) => setTimeout(r, 300));
+    const didFill = await fillSelect(select, value);
+    if (didFill) filled++;
+    await new Promise((r) => setTimeout(r, 150));
   }
 
   return filled;
+}
+
+/** Fill Rippling/custom comboboxes by walking fresh DOM labels (survives resume re-render). */
+const MAX_LABELED_COMBOBOXES = 35;
+
+function isCustomSelectField(field: ScannedField): boolean {
+  return field.type === 'select' && !(field.element instanceof HTMLSelectElement);
+}
+
+/** Scroll long forms so lazy-rendered Greenhouse sections (screening/EEO) mount before combobox pass. */
+async function scrollFormToLoadFields(doc: Document): Promise<void> {
+  const win = doc.defaultView;
+  if (!win) return;
+  const step = Math.max(220, Math.floor(win.innerHeight * 0.8));
+  for (let y = 0; y < doc.body.scrollHeight; y += step) {
+    win.scrollTo(0, y);
+    await new Promise((r) => setTimeout(r, 90));
+  }
+  win.scrollTo(0, doc.body.scrollHeight);
+  await new Promise((r) => setTimeout(r, 250));
+  win.scrollTo(0, 0);
+  await new Promise((r) => setTimeout(r, 120));
+}
+
+async function fillLabeledComboboxes(
+  profile: UserProfile,
+  doc: Document,
+  company?: string
+): Promise<{ filled: number; failures: FieldDiagnostic[] }> {
+  const enriched = enrichProfile(profile);
+  let filled = 0;
+  const failures: FieldDiagnostic[] = [];
+  const filledRoots = new Set<HTMLElement>();
+  let processed = 0;
+
+  await scrollFormToLoadFields(doc);
+
+  const comboboxes = Array.from(
+    doc.querySelectorAll('.select-shell input.select__input[role="combobox"]') as NodeListOf<HTMLElement>
+  ).filter((el) => !isExtensionUiElement(el));
+
+  console.log(`[JobFill] fillLabeledComboboxes: ${comboboxes.length} combobox(es) after scroll`);
+
+  for (const combobox of comboboxes) {
+    if (processed >= MAX_LABELED_COMBOBOXES) break;
+    if (isGreenhouseSelectPhantom(combobox)) continue;
+    processed++;
+    const root = (combobox.closest('.select-shell') as HTMLElement | null) || combobox;
+    if (filledRoots.has(root)) continue;
+    if (!isComboboxUnfilled(root)) continue;
+
+    root.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'instant' as ScrollBehavior });
+    await new Promise((r) => setTimeout(r, 60));
+
+    const labelCandidates = getComboboxLabelCandidates(combobox, doc);
+    const label = labelCandidates[0] || getLabelText(combobox, doc);
+    if (!label) continue;
+
+    const value =
+      resolveComboboxFillValueFromLabels(labelCandidates, enriched, company) ||
+      (isGreenhousePhoneCountryCombobox(combobox) ? resolvePhoneCountryFillValue(enriched) : undefined);
+
+    if (!value) {
+      failures.push({
+        category: 'unrecognized',
+        label,
+        fieldType: 'select',
+        reason: 'No profile mapping for combobox'
+      });
+      continue;
+    }
+
+    const didFill = await Promise.race<boolean>([
+      fillSelect(resolveSelectElement(combobox), value),
+      new Promise((resolve) => setTimeout(() => resolve(false), 6_000))
+    ]);
+    console.log(
+      `[JobFill] combobox "${label.slice(0, 72)}" -> ${didFill ? 'filled' : 'failed'} (value: ${value.slice(0, 40)})`
+    );
+    if (didFill) {
+      filledRoots.add(root);
+      filled++;
+    } else {
+      failures.push({
+        category: 'fill_failed',
+        label,
+        fieldType: 'select',
+        reason: `Fill returned false for value "${value.slice(0, 80)}"`
+      });
+    }
+    await new Promise((r) => setTimeout(r, 100));
+  }
+
+  // Second pass: scroll may mount additional Greenhouse sections after first fills.
+  await scrollFormToLoadFields(doc);
+  const secondPassComboboxes = Array.from(
+    doc.querySelectorAll('.select-shell input.select__input[role="combobox"]') as NodeListOf<HTMLElement>
+  );
+  for (const combobox of secondPassComboboxes) {
+    if (processed >= MAX_LABELED_COMBOBOXES) break;
+    const root = (combobox.closest('.select-shell') as HTMLElement | null) || combobox;
+    if (filledRoots.has(root) || !isComboboxUnfilled(root)) continue;
+    processed++;
+    root.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'instant' as ScrollBehavior });
+    await new Promise((r) => setTimeout(r, 60));
+
+    const labelCandidates = getComboboxLabelCandidates(combobox, doc);
+    const label = labelCandidates[0] || getLabelText(combobox, doc);
+    if (!label) continue;
+
+    const value =
+      resolveComboboxFillValueFromLabels(labelCandidates, enriched, company) ||
+      (isGreenhousePhoneCountryCombobox(combobox) ? resolvePhoneCountryFillValue(enriched) : undefined);
+
+    if (!value) {
+      failures.push({ category: 'unrecognized', label, fieldType: 'select', reason: 'No profile mapping for combobox' });
+      continue;
+    }
+
+    const didFill = await Promise.race<boolean>([
+      fillSelect(resolveSelectElement(combobox), value),
+      new Promise((resolve) => setTimeout(() => resolve(false), 6_000))
+    ]);
+    console.log(
+      `[JobFill] combobox "${label.slice(0, 72)}" -> ${didFill ? 'filled' : 'failed'} (value: ${value.slice(0, 40)})`
+    );
+    if (didFill) {
+      filledRoots.add(root);
+      filled++;
+    } else {
+      failures.push({
+        category: 'fill_failed',
+        label,
+        fieldType: 'select',
+        reason: `Fill returned false for value "${value.slice(0, 80)}"`
+      });
+    }
+    await new Promise((r) => setTimeout(r, 100));
+  }
+
+  return { filled, failures };
 }
 
 async function fillLabeledRadioGroups(
@@ -428,18 +503,26 @@ export async function applyFieldFill(
 
   if (field.type === 'file') {
     if (!(field.element instanceof HTMLInputElement)) return false;
-    const fileData = (field.labelText || '').toLowerCase().includes('cover')
-      ? profile.coverLetter
-      : profile.resume;
-    if (!fileData) return false;
-    fillFileInput(field.element, fileData);
-    return true;
+    const hint = `${field.labelText} ${field.placeholder} ${field.name}`;
+    const kind = detectUploadKindFromHint(hint);
+    if (kind === 'coverLetter') {
+      if (!profile.coverLetter) return false;
+      fillFileInput(field.element, profile.coverLetter);
+      return true;
+    }
+    if (kind === 'resume') {
+      if (!profile.resume) return false;
+      fillFileInput(field.element, profile.resume);
+      return true;
+    }
+    return false;
   }
 
   if (field.type === 'select') {
-    const didFill = await fillSelect(resolveSelectElement(field.element), trimmed);
+    const target = resolveSelectElement(field.element);
+    const didFill = await fillSelect(target, trimmed);
     await new Promise((r) => setTimeout(r, 150));
-    return didFill;
+    return didFill && isSelectOptionCommitted(target, trimmed);
   }
 
   if (field.type === 'radio' && field.element instanceof HTMLInputElement) {
@@ -455,7 +538,23 @@ export async function applyFieldFill(
     (field.type === 'text' || field.type === 'textarea') &&
     (field.element instanceof HTMLInputElement || field.element instanceof HTMLTextAreaElement)
   ) {
-    return fillTextOrTextArea(field.element, trimmed);
+    const el = field.element;
+    if (el instanceof HTMLInputElement) {
+      const comboboxRoot = el.closest('[role="combobox"]') as HTMLElement | null;
+      const isDropdownInput =
+        el.getAttribute('role') === 'combobox' ||
+        el.getAttribute('aria-autocomplete') === 'list' ||
+        el.getAttribute('data-input') === 'select-search-input' ||
+        el.getAttribute('aria-haspopup') === 'listbox' ||
+        Boolean(comboboxRoot);
+      if (isDropdownInput) {
+        const target = comboboxRoot || el;
+        const didFill = await fillSelect(target, trimmed);
+        await new Promise((r) => setTimeout(r, 150));
+        return didFill && isSelectOptionCommitted(target, trimmed);
+      }
+    }
+    return fillTextOrTextArea(el, trimmed);
   }
 
   return false;
@@ -488,18 +587,13 @@ async function fillRemainingEmptyFields(
       if (el instanceof HTMLSelectElement) {
         const selected = el.options[el.selectedIndex];
         const optText = selected?.text?.trim() || '';
-        if (!optText || /^(select\s*one|select\.\.\.|select|search|textbox|--|none)$/i.test(optText)) {
+        if (!optText || isPlaceholderSelectOption(optText, selected?.value)) {
           return true;
         }
         return false;
       }
 
-      const text = (el.textContent || '').trim();
-      const inputVal =
-        el instanceof HTMLInputElement ? el.value?.trim() : '';
-      if (inputVal) return false;
-      if (text && !/^(select\.\.\.|select|search|textbox)$/i.test(text)) return false;
-      return true;
+      return !isSelectOptionCommitted(el);
     }
 
     if (field.type === 'radio' && el instanceof HTMLInputElement) {
@@ -522,10 +616,11 @@ async function fillRemainingEmptyFields(
 
   for (const field of freshFields) {
     if (!isUnfilled(field)) continue;
+    if (isCustomSelectField(field)) continue;
     if (!shouldAutofillField(field, doc)) continue;
 
     const label = getLabelText(field.element, doc);
-    if (field.type === 'select' && COMBOBOX_LABEL_RESOLVERS.some((entry) => entry.test(label))) {
+    if (field.type === 'select' && resolveComboboxFillValue(label, enriched, company)) {
       if (!isComboboxUnfilled(field.element)) continue;
     }
 
@@ -549,13 +644,6 @@ async function fillRemainingEmptyFields(
   return extraFilled;
 }
 
-export interface AutofillSkippedField {
-  label: string;
-  reason: string;
-  fieldId: string;
-  canonicalKey?: string;
-}
-
 export interface AutofillGaps {
   missingInProfile: string[];
   stillEmptyOnPage: string[];
@@ -569,83 +657,14 @@ export interface AutofillResult {
   skippedFields: AutofillSkippedField[];
   gaps: AutofillGaps;
   diagnostics: FieldDiagnostic[];
+  issueReport: AutofillIssueReport;
 }
 
-function normalizeLabelKey(label: string): string {
-  return label.replace(/\*+$/, '').replace(/\s+/g, ' ').trim().toLowerCase();
-}
-
-function findFieldByLabel(fields: ScannedField[], label: string): ScannedField | undefined {
-  const key = normalizeLabelKey(label);
-  if (!key) return undefined;
-
-  return fields.find((field) => {
-    const candidates = [field.labelText, field.name, field.placeholder, field.htmlId].filter(Boolean);
-    return candidates.some((candidate) => {
-      const candidateKey = normalizeLabelKey(candidate);
-      return candidateKey === key || candidateKey.includes(key) || key.includes(candidateKey);
-    });
-  });
-}
-
-function inferCanonicalKeyFromLabel(label: string): string | undefined {
-  const normalized = normalizeLabelKey(label);
-  if (/currently located|where.*located|where.*live|work location/.test(normalized)) {
-    return 'location';
-  }
-  if (/legally authorized|authorized to work|work authorization|right to work/.test(normalized)) {
-    return 'workAuthorization';
-  }
-  if (/sponsor|visa|immigration-related employment benefit/.test(normalized)) {
-    return 'sponsorship';
-  }
-  if (/arbitration|agreement|acknowledge|consent/.test(normalized)) {
-    return 'agreement';
-  }
-  return undefined;
-}
-
-function buildSkippedFields(
-  diagnostics: FieldDiagnostic[],
-  fields: ScannedField[],
-  doc: Document
-): AutofillSkippedField[] {
-  const skipped: AutofillSkippedField[] = [];
-  const seen = new Set<string>();
-
-  for (const diagnostic of diagnostics) {
-    if (
-      diagnostic.category !== 'still_empty' &&
-      diagnostic.category !== 'fill_failed' &&
-      diagnostic.category !== 'missing_profile_value'
-    ) {
-      continue;
-    }
-
-    const label = diagnostic.label || 'Unnamed field';
-    const labelKey = normalizeLabelKey(label);
-    if (seen.has(labelKey)) continue;
-    seen.add(labelKey);
-
-    const field = findFieldByLabel(fields, label);
-    if (field && hasFieldDisplayValue(field, doc)) continue;
-
-    const fieldId = field?.id || '';
-    if (field) {
-      stampFieldMarker(field.element, fieldId);
-    }
-
-    const canonicalKey = diagnostic.canonicalKey || inferCanonicalKeyFromLabel(label);
-
-    skipped.push({
-      label,
-      reason: diagnostic.reason,
-      fieldId,
-      canonicalKey
-    });
-  }
-
-  return skipped;
+export interface AutofillGaps {
+  missingInProfile: string[];
+  stillEmptyOnPage: string[];
+  resumeMissing: boolean;
+  resumeNotAttached: boolean;
 }
 
 export function summarizeAutofillGaps(profile: UserProfile, doc: Document = document): AutofillGaps {
@@ -710,7 +729,10 @@ export async function executeClassifiedAutofill(
   const errors: { label: string; error: string }[] = [];
   const diagnostics: FieldDiagnostic[] = collectClassificationDiagnostics(classified, doc);
   const filledLabels = new Set<string>();
+  const mappingEntries: Parameters<typeof rememberAutofillMappings>[0]['entries'] = [];
+  const sessionId = operationId || generateId();
   const pageUrl = doc.location?.href;
+  const hostDomain = doc.location?.hostname;
 
   const jobs = classified
     .map((item) => {
@@ -756,14 +778,28 @@ export async function executeClassifiedAutofill(
     traceStep(operationId, 'autofill', 'resume_skipped', 'autofill:runner');
   }
 
+  traceStep(operationId, 'autofill', 'cover_attach_start', 'autofill:runner');
+  const coverAttached = await attachCoverLetterIfNeeded(enriched, doc);
+  if (coverAttached) {
+    filledCount++;
+    traceStep(operationId, 'autofill', 'cover_attached', 'autofill:runner');
+  } else {
+    traceStep(operationId, 'autofill', 'cover_skipped', 'autofill:runner');
+  }
+
   // Resume parse re-renders Rippling — re-scan so select element refs stay valid.
   traceStep(operationId, 'autofill', 'post_resume_rescan', 'autofill:runner');
   let freshFields = scanPage(doc);
 
   traceStep(operationId, 'autofill', 'rippling_data_inputs_start', 'autofill:runner');
   filledCount += await fillRipplingDataInputFields(enriched, doc);
+  traceStep(operationId, 'autofill', 'form_scroll_for_lazy_fields', 'autofill:runner');
+  await scrollFormToLoadFields(doc);
   traceStep(operationId, 'autofill', 'labeled_comboboxes_start', 'autofill:runner');
-  filledCount += await fillLabeledComboboxes(enriched, doc);
+  const comboboxResult = await fillLabeledComboboxes(enriched, doc, company);
+  filledCount += comboboxResult.filled;
+  diagnostics.push(...comboboxResult.failures);
+  filledCount += await fillLabeledNativeSelects(enriched, doc);
   traceStep(operationId, 'autofill', 'labeled_radio_groups_start', 'autofill:runner');
   filledCount += await fillLabeledRadioGroups(enriched, doc, company);
   traceStep(operationId, 'autofill', 'acknowledgment_checkboxes_start', 'autofill:runner');
@@ -794,7 +830,12 @@ export async function executeClassifiedAutofill(
       });
       continue;
     }
-    if (field.type === 'select' && canonicalKey && EEO_CANONICAL_KEYS.has(canonicalKey)) {
+    if (
+      field.type === 'select' &&
+      canonicalKey &&
+      EEO_CANONICAL_KEYS.has(canonicalKey) &&
+      !(field.element instanceof HTMLSelectElement)
+    ) {
       traceStep(operationId, 'autofill', 'field_skipped', 'autofill:runner', {
         label: fieldLabel,
         reason: 'eeo_combobox_pass',
@@ -804,7 +845,23 @@ export async function executeClassifiedAutofill(
         category: 'skipped_by_rule',
         label: field.labelText || field.name || 'Unnamed field',
         fieldType: field.type,
-        reason: 'EEO select handled by labeled combobox pass',
+        reason: 'Custom EEO combobox handled by labeled combobox pass',
+        canonicalKey
+      });
+      continue;
+    }
+
+    if (isCustomSelectField(field) || isGreenhouseSelectPhantom(field.element)) {
+      traceStep(operationId, 'autofill', 'field_skipped', 'autofill:runner', {
+        label: fieldLabel,
+        reason: 'custom_combobox_pass',
+        canonicalKey
+      });
+      diagnostics.push({
+        category: 'skipped_by_rule',
+        label: field.labelText || field.name || 'Unnamed field',
+        fieldType: field.type,
+        reason: 'Custom combobox handled by labeled combobox pass',
         canonicalKey
       });
       continue;
@@ -863,6 +920,14 @@ export async function executeClassifiedAutofill(
         highlightField(field.element, confidence);
         const label = (field.labelText || field.name || '').toLowerCase();
         if (label) filledLabels.add(label);
+        mappingEntries.push({
+          label: field.labelText || field.name || canonicalKey || 'Unnamed field',
+          fieldType: field.type,
+          canonicalKey,
+          value,
+          confidence: confidence === 'high' ? 0.92 : confidence === 'medium' ? 0.75 : 0.55,
+          source: 'profile',
+        });
         traceStep(operationId, 'autofill', 'field_fill_success', 'autofill:runner', {
           label: fieldLabel,
           fieldType: field.type,
@@ -922,33 +987,38 @@ export async function executeClassifiedAutofill(
   freshFields = scanPage(doc);
   diagnostics.push(...collectStillEmptyDiagnostics(freshFields, doc, filledLabels));
 
-  const skippedFields = buildSkippedFields(diagnostics, freshFields, doc);
-  for (const skipped of skippedFields) {
-    if (errors.some((entry) => normalizeLabelKey(entry.label) === normalizeLabelKey(skipped.label))) {
-      continue;
-    }
-    if (skipped.reason === 'Still empty after autofill') continue;
-    if (isOptionalAddressField(skipped.label)) continue;
-    if (/personnel number|\bpern\b/i.test(skipped.label)) continue;
-    errors.push({
-      label: skipped.label,
-      error: skipped.reason,
-      fieldId: skipped.fieldId
-    });
-  }
+  const issueReport = buildAutofillIssueReport(diagnostics, freshFields, doc, errors, filledCount);
+  const skippedFields = issueReport.skippedFields;
 
   await persistSkippedFieldValues(enriched, skippedFields, doc);
   await captureAddressFromPage(doc, enriched);
 
+  if (mappingEntries.length) {
+    await rememberAutofillMappings({
+      domain: hostDomain,
+      sessionId,
+      entries: mappingEntries,
+    });
+  }
+
   void logFieldDiagnostics(diagnostics, pageUrl);
+  logAutofillIssueReport('autofill:runner', issueReport, pageUrl);
 
   traceStep(operationId, 'autofill', 'runner_complete', 'autofill:runner', {
     filledCount,
     errorCount: errors.length,
-    skippedCount: skippedFields.length
+    skippedCount: skippedFields.length,
+    issueSummary: issueReport.summary
   });
 
-  return { filledCount, errors, skippedFields, gaps: summarizeAutofillGaps(enriched, doc), diagnostics };
+  return {
+    filledCount,
+    errors,
+    skippedFields,
+    gaps: summarizeAutofillGaps(enriched, doc),
+    diagnostics,
+    issueReport,
+  };
 }
 
 export async function runFullPageAutofill(
@@ -959,13 +1029,44 @@ export async function runFullPageAutofill(
   doc: Document = document,
   operationId?: string
 ): Promise<AutofillResult> {
+  traceStep(operationId, 'autofill', 'ats_prefill_start', 'autofill:runner');
+  const atsResult = await runAtsAutofill(profile, doc, operationId);
+  if (atsResult?.filledCount) {
+    traceStep(operationId, 'autofill', 'ats_prefill_done', 'autofill:runner', atsResult);
+    await new Promise((resolve) => setTimeout(resolve, 400));
+  }
+
   traceStep(operationId, 'autofill', 'scan_page', 'autofill:runner');
   const fields = scanPage(doc);
+  if (!fields.length) {
+    traceStep(operationId, 'autofill', 'no_fields', 'autofill:runner');
+    return {
+      filledCount: 0,
+      errors: [],
+      skippedFields: [],
+      gaps: summarizeAutofillGaps(enrichProfile(profile), doc),
+      diagnostics: [],
+      issueReport: buildAutofillIssueReport([], [], doc, [], 0)
+    };
+  }
   const enriched = enrichProfile(profile);
   traceStep(operationId, 'autofill', 'classify_start', 'autofill:runner', { fieldCount: fields.length });
-  const classified = await classifyFields(fields, enriched, company, domain);
+  const classified = await classifyFields(fields, enriched, company, domain || doc.location.hostname);
   traceStep(operationId, 'autofill', 'classify_end', 'autofill:runner', {
     classifiedCount: classified.length
   });
-  return executeClassifiedAutofill(classified, fields, enriched, overrides, doc, operationId, company);
+  const result = await executeClassifiedAutofill(classified, fields, enriched, overrides, doc, operationId, company);
+
+  const expFilled = await fillWorkExperienceRepeaters(enriched, doc);
+  if (expFilled > 0) {
+    result.filledCount += expFilled;
+    traceStep(operationId, 'autofill', 'work_exp_repeater', 'autofill:runner', { expFilled });
+  }
+
+  const stepsAdvanced = await runMultiStepAtsPass(doc);
+  if (stepsAdvanced > 0) {
+    traceStep(operationId, 'autofill', 'ats_steps_advanced', 'autofill:runner', { stepsAdvanced });
+  }
+
+  return result;
 }

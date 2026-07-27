@@ -1,7 +1,7 @@
 import { matchesStateOption, matchesLocationOption } from '../shared/usStates';
 
 export const SYNONYMS: Record<string, string[]> = {
-  'united states': ['us', 'usa', 'united states of america', 'u.s.a.', 'u.s.'],
+  'united states': ['us', 'usa', 'united states of america', 'u.s.a.', 'u.s.', '+1'],
   'united kingdom': ['uk', 'u.k.', 'great britain', 'gb'],
   yes: ['y', 'true', 'authorized', 'checked', 'agree', 'allow'],
   no: ['n', 'false', 'denied', 'disagree', 'non hispanic', 'not hispanic/latino', 'not hispanic'],
@@ -10,6 +10,7 @@ export const SYNONYMS: Record<string, string[]> = {
     "i don't wish to answer",
     'i do not wish to answer',
     'decline to self-identify',
+    'decline to self identify',
     'decline to answer',
     'prefer not to say',
     'do not wish to answer'
@@ -41,7 +42,7 @@ export const SYNONYMS: Record<string, string[]> = {
 };
 
 const PREFER_NOT_TO_ANSWER_RE =
-  /prefer not to (answer|say)|choose not to disclose|don'?t wish to answer|do not wish to answer|decline to (self-)?identify|decline to answer/i;
+  /prefer not to (answer|say)|choose not to disclose|don'?t wish to answer|do not wish to answer|decline to self[- ]?identify|decline to answer/i;
 
 export function normalizeMatchText(text: string): string {
   return text.toLowerCase().trim().replace(/\s+/g, ' ');
@@ -141,15 +142,37 @@ export function scoreSelectOptionMatch(optionText: string, profileValue: string)
 export function pickBestMatchingOptionText(options: string[], profileValue: string): string | undefined {
   let best: { text: string; score: number } | undefined;
 
-  for (const option of options) {
-    const trimmed = option.replace(/\s+/g, ' ').trim();
-    if (!trimmed) continue;
-    const score = scoreSelectOptionMatch(trimmed, profileValue);
-    if (score <= 0) continue;
-    if (!best || score > best.score || (score === best.score && trimmed.length > best.text.length)) {
-      best = { text: trimmed, score };
+  for (const candidateValue of expandSelectFillValues(profileValue)) {
+    for (const option of options) {
+      const trimmed = option.replace(/\s+/g, ' ').trim();
+      if (!trimmed) continue;
+      const score = scoreSelectOptionMatch(trimmed, candidateValue);
+      if (score <= 0) continue;
+      if (!best || score > best.score || (score === best.score && trimmed.length > best.text.length)) {
+        best = { text: trimmed, score };
+      }
     }
   }
 
   return best?.text;
+}
+
+/** Alternate dropdown labels for common screening answers (Greenhouse wording varies by employer). */
+export function expandSelectFillValues(value: string): string[] {
+  const trimmed = value.trim();
+  const targets = [trimmed];
+  if (/^none$/i.test(trimmed) || /^n\/a/i.test(trimmed)) {
+    targets.push(
+      'N/A - have never held U.S. security clearance',
+      'I have never held a U.S. security clearance',
+      'I have never held a security clearance',
+      'Never held a clearance',
+      'Not applicable',
+      'No clearance'
+    );
+  }
+  if (/none of the above/i.test(trimmed) || /not a protected individual/i.test(trimmed)) {
+    targets.push('None of the above', 'I am not any of the above', 'Not a protected individual');
+  }
+  return [...new Set(targets.filter(Boolean))];
 }

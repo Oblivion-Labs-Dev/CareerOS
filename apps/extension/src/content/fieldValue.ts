@@ -1,4 +1,5 @@
 import { ScannedField, getLabelText } from './domScanner';
+import { isSelectOptionCommitted, readCommittedSelectValue } from './selectVerification';
 
 const FILLED_INPUT_SELECTOR =
   'input:not([type="hidden"]):not([type="submit"]):not([type="button"]), textarea';
@@ -30,7 +31,8 @@ export function readFieldDisplayValue(field: ScannedField, doc: Document): strin
   }
 
   if (field.type === 'select') {
-    return readSelectLikeValue(el);
+    if (!isSelectOptionCommitted(el)) return '';
+    return readCommittedSelectValue(el);
   }
 
   if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) {

@@ -544,7 +544,9 @@ export function applyRecordToLegacy(record: CorpusRecord): Accomplishment | unde
       linkedin: record.linkedInVersion,
     },
     scaleMetrics: record.metrics.map((metric) => ({ metric: metric.name, value: metric.value })),
-    qualityStatusOverrides: record.qualityStatusOverrides,
+    qualityStatusOverrides: Object.fromEntries(
+      Object.entries(record.qualityStatusOverrides).filter((entry): entry is [string, CorpusQualityStatus] => entry[1] !== undefined),
+    ),
     missingInformation: record.missingInformation,
     missingItemMetadata: record.missingItemMetadata,
     phaseOne: record.phaseOne,

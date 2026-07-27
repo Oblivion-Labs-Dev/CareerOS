@@ -31,13 +31,13 @@ export function EmailSenderPanel() {
     setError("");
     try {
       const res = await fetch(`${getClientApiBaseUrl()}/email/verify`, { cache: "no-store" });
-      if (res.status === 503) {
+      if (!res.ok) throw new Error("Could not verify Gmail");
+      const data = (await res.json()) as { success: boolean; configured?: boolean; user?: string };
+      if (data.configured === false) {
         setGmailReady(false);
         setGmailUser("");
         return;
       }
-      if (!res.ok) throw new Error("Could not verify Gmail");
-      const data = (await res.json()) as { success: boolean; user?: string };
       setGmailReady(Boolean(data.success));
       setGmailUser(data.user || "");
     } catch {

@@ -1,5 +1,6 @@
 import initialResumeCorpus from "../../../../../data/resume-corpus-initial.json";
 import type { CorpusRecord } from "./corpus-model";
+import { emptyPhaseOneData } from "./phase1-model";
 
 interface InitialMetric {
   name: string;
@@ -88,6 +89,7 @@ export function initialCorpusItemToRecord(item: InitialResumeCorpusItem): Corpus
       source: metric.source,
       confidence: "medium",
       verification: metric.verification ?? "needs-evidence",
+      evidenceIds: [],
     })),
     evidence: evidence.map((name, index) => ({
       id: `${item.id}-evidence-${index}`,
@@ -109,8 +111,10 @@ export function initialCorpusItemToRecord(item: InitialResumeCorpusItem): Corpus
     linkedInVersion: "",
     portfolioVersion: "",
     missingInformation,
+    missingItemMetadata: {},
     nextImprovement: missingInformation[0] ?? "Attach evidence and prepare the interview deep dive.",
     qualityStatusOverrides: {},
+    phaseOne: emptyPhaseOneData(),
   };
 }
 

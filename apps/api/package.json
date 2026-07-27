@@ -3,8 +3,8 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000",
-    "start": "python -m uvicorn app.main:app --host 0.0.0.0 --port 8000",
+    "dev": "python -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000",
+    "start": "python -m uvicorn app.main:app --host 127.0.0.1 --port 8000",
     "typecheck": "python -m compileall app",
     "email:send": "python scripts/email/send_email.py",
     "email:threads": "python scripts/email/fetch_recruiter_threads.py",

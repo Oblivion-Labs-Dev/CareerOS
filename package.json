@@ -11,12 +11,17 @@
     "build": "pnpm -r --filter './packages/*' --filter './apps/extension' --filter './apps/web' run build",
     "dev:web": "pnpm --filter @career-os/web dev",
     "dev:api": "pnpm --filter @career-os/api dev",
+    "dev": "pnpm --filter @career-os/api --filter @career-os/web --parallel run dev",
     "dev:extension": "pnpm --filter @career-os/extension dev",
     "typecheck": "pnpm -r run typecheck",
     "test": "pnpm -r run test",
     "test:api": "cd apps/api && python -m pytest tests -q",
     "test:web": "pnpm --filter @career-os/web test:e2e",
-    "ci": "pnpm typecheck && pnpm --filter @career-os/extension test && pnpm test:api"
+    "test:repair": "cd tools/repair-orchestrator && python -m pytest tests -q",
+    "ci": "pnpm typecheck && pnpm --filter @career-os/extension test && pnpm test:api",
+    "repair:up": "docker compose -f docker-compose.repair.yml up --build",
+    "repair:down": "docker compose -f docker-compose.repair.yml down",
+    "repair:dev": "python tools/repair-orchestrator/run_dev.py"
   },
   "devDependencies": {
     "@types/node": "^20.17.0",

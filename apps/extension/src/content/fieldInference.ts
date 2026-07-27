@@ -32,7 +32,14 @@ export function isScreeningQuestionLabel(text: string): boolean {
   ) {
     return true;
   }
-  if (/\?/.test(normalized) && /(are you|do you|have you|will you|willing to|require)/i.test(normalized)) {
+  if (/\?/.test(normalized) && /(are you|do you|have you|will you|willing to|require|how did you hear)/i.test(normalized)) {
+    return true;
+  }
+  if (
+    /clearance eligibility|export controls|conflict of interest|history with|how did you hear|u\.s\. work authorization|protected individual|security clearance|previously applied|employed by anduril/i.test(
+      normalized
+    )
+  ) {
     return true;
   }
   return false;
@@ -162,15 +169,45 @@ function parseLocationPartsFromProfile(location: string): { city: string; state:
   return parseLocationParts(location);
 }
 
-/** Phone dial-code dropdowns (e.g. Qualtrics "Country" field above Phone). */
+/** Phone dial-code dropdowns (e.g. Qualtrics "Country code" fields). Bare "Country" on job forms is usually a country name list (Greenhouse, Workday). */
 export function isPhoneCountryLabel(label: string): boolean {
   const normalized = label.replace(/\*+$/, '').replace(/\s+/g, ' ').trim().toLowerCase();
-  if (/country code|dial code|phone country|calling code/.test(normalized)) return true;
-  return normalized === 'country';
+  return /country code|dial code|phone country|calling code/.test(normalized);
 }
 
 export function resolvePhoneCountryFillValue(profile: UserProfile): string {
-  return profile.phoneCountryCode?.trim() || APPLICATION_FIELD_DEFAULTS.phoneCountryCode;
+  const code = profile.phoneCountryCode?.trim() || APPLICATION_FIELD_DEFAULTS.phoneCountryCode;
+  if (/^\+1$/.test(code)) {
+    return profile.customFields?.country?.trim() || 'United States';
+  }
+  return code;
+}
+
+/** Greenhouse phone dial-code combobox sits above the tel input in the same field group. */
+export function isGreenhousePhoneCountryCombobox(element: HTMLElement): boolean {
+  const shell = element.closest('.select-shell');
+  if (!shell) return false;
+  const fieldRoot = shell.closest('[class*="field"], li, fieldset, .application-field, .job-application-field');
+  if (
+    fieldRoot?.querySelector(
+      'input[type="tel"], input[autocomplete="tel"], input[name*="phone" i], input[id*="phone" i]'
+    )
+  ) {
+    return true;
+  }
+  let sibling: Element | null = shell.parentElement;
+  for (let depth = 0; depth < 5 && sibling; depth++) {
+    sibling = sibling.nextElementSibling;
+    if (!sibling) break;
+    if (
+      sibling.querySelector(
+        'input[type="tel"], input[autocomplete="tel"], input[name*="phone" i], input[id*="phone" i]'
+      )
+    ) {
+      return true;
+    }
+  }
+  return false;
 }
 
 function valueFromLabelHeuristics(label: string, profile: UserProfile): string {
@@ -181,8 +218,8 @@ function valueFromLabelHeuristics(label: string, profile: UserProfile): string {
     return matchScreeningAnswer(label, profile) || '';
   }
 
-  if (/first\s*name|given\s*name/.test(l)) return profile.firstName;
-  if (/last\s*name|family\s*name|surname/.test(l)) return profile.lastName;
+  if (/first[\s_-]*name|given[\s_-]*name|^fname$/i.test(l)) return profile.firstName;
+  if (/last[\s_-]*name|family[\s_-]*name|surname|^lname$/i.test(l)) return profile.lastName;
   if (/legal\s*name|full\s*name/.test(l)) {
     return profile.fullName || `${profile.firstName || ''} ${profile.lastName || ''}`.trim();
   }
@@ -235,7 +272,12 @@ function valueFromLabelHeuristics(label: string, profile: UserProfile): string {
   if (/text\s*message|sms|consent/.test(l)) return profile.smsConsent || APPLICATION_FIELD_DEFAULTS.smsConsent;
   if (/years.*experience|experience\s*level/.test(l)) return profile.yearsExperience;
   if (/salary|compensation/.test(l)) return profile.salaryExpectations;
-  if (/authorized|right\s*to\s*work|legally authorized|work authorization/.test(l)) return profile.workAuthorization;
+  if (
+    /authorized|right\s*to\s*work|legally authorized|work authorization/.test(l) &&
+    !/clearance|export control|protected individual|1324b/i.test(l)
+  ) {
+    return profile.workAuthorization;
+  }
   if (/sponsor|visa|immigration-related employment benefit|require.*sponsorship/.test(l)) return profile.sponsorship;
   return '';
 }

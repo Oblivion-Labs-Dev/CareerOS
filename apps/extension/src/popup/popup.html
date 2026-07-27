@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Arsenal JobFill</title>
+  <title>ApplyPilot — CareerOS</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
@@ -19,13 +19,13 @@
           </svg>
         </div>
         <div>
-          <h1>JobFill</h1>
-          <span class="logo-sub">Job application helper</span>
+          <h1>ApplyPilot</h1>
+          <span class="logo-sub">CareerOS autofill copilot</span>
         </div>
       </div>
       <div class="header-actions">
         <button type="button" class="btn btn-ghost btn-sm" id="btn-open-dashboard">Dashboard</button>
-        <span class="version-tag">v0.1.2</span>
+        <span class="version-tag">v0.2.0</span>
       </div>
     </header>
 
@@ -40,6 +40,23 @@
     <main class="content-wrapper">
       <!-- Actions Tab -->
       <section id="tab-actions" class="tab-content active">
+        <div class="hero-card">
+          <div class="hero-copy">
+            <p class="hero-eyebrow">One-click autofill</p>
+            <h2 class="hero-title">Autofill, H1B check & job tracking</h2>
+            <p class="hero-desc">FrogHire-style visa sponsorship signals, expanded ATS autofill (iCIMS, Indeed Apply, Jobvite+), keyword scan, and pipeline tracking — synced with CareerOS.</p>
+          </div>
+          <div class="hero-stats" id="hero-stats">
+            <div class="hero-stat"><span id="stat-fields">—</span><small>Fields ready</small></div>
+            <div class="hero-stat"><span id="stat-match">—</span><small>Match</small></div>
+            <div class="hero-stat"><span id="stat-saved">0</span><small>Saved</small></div>
+            <div class="hero-stat"><span id="stat-tracked">0</span><small>Applied</small></div>
+          </div>
+          <div class="hero-pipeline" id="hero-pipeline">
+            <span class="pipeline-pill"><strong id="stat-interview">0</strong> Interview</span>
+            <span class="pipeline-pill"><strong id="stat-offer">0</strong> Offer</span>
+          </div>
+        </div>
         <div class="actions-panel">
           <div class="action-bar">
             <div class="action-status">
@@ -50,14 +67,28 @@
               </div>
             </div>
             <div class="action-buttons">
-              <button type="button" class="btn btn-primary" id="btn-autofill" disabled>Fill form</button>
+              <button type="button" class="btn btn-save-job btn-lg" id="btn-save-job" title="Save this job posting to your tracker">Save job</button>
+              <button type="button" class="btn btn-scan-job btn-lg" id="btn-scan-match" title="Scan keyword overlap with your profile">Scan match</button>
+              <button type="button" class="btn btn-primary btn-lg" id="btn-autofill" disabled>Autofill application</button>
               <button type="button" class="btn btn-success btn-sm" id="btn-mark-submitted" title="After you submit on the employer site, click to track company, role, and date">
                 Submit
               </button>
             </div>
           </div>
-          <p class="action-hint muted">Fill the form first, submit on the job site, then tap <strong>Submit</strong> so each application shows on the dashboard with company and date.</p>
+          <p class="action-hint muted">Fill the form first, submit on the job site — ApplyPilot auto-tracks when it detects confirmation. Or tap <strong>Submit</strong> manually.</p>
           <button type="button" class="btn btn-secondary btn-sm btn-scan-link" id="btn-scan">Rescan page</button>
+
+          <div class="apply-queue-panel" id="apply-queue-panel">
+            <div class="apply-queue-header">
+              <h3>Guided apply queue</h3>
+              <span class="muted" id="apply-queue-count">0 queued</span>
+            </div>
+            <ul class="apply-queue-list" id="apply-queue-list"></ul>
+            <div class="apply-queue-actions">
+              <button type="button" class="btn btn-sm btn-primary" id="btn-start-queue">Start next in queue</button>
+              <button type="button" class="btn btn-sm btn-secondary" id="btn-clear-queue">Clear done</button>
+            </div>
+          </div>
 
           <div id="autofill-progress-container" class="autofill-loader" style="display: none;" aria-live="polite">
             <div class="autofill-loader-visual" aria-hidden="true">
@@ -95,7 +126,10 @@
             <h3 class="job-role-title" id="job-role">—</h3>
             <p class="job-company-name" id="job-company">—</p>
             <p class="job-location"><span>📍</span> <span id="job-location">Remote</span></p>
+            <div class="job-meta-badges" id="job-meta-badges"></div>
           </div>
+
+          <div class="scan-result-banner" id="scan-result-banner"></div>
 
           <div class="review-section">
             <div class="review-header">

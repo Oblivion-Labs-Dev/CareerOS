@@ -1,9 +1,10 @@
-import { ScannedField, getLabelText } from './domScanner';
+import { ScannedField, getLabelText, isInstructionalScanLabel } from './domScanner';
 import { ClassifiedField } from './fieldClassifier';
 import { AutofillLogConfig, getAutofillLogConfig } from '../shared/autofillLogConfig';
 import { logToServer } from '../shared/serverLog';
 import { isFillableFieldType } from './fieldInference';
 import { hasFieldDisplayValue, readFieldDisplayValue } from './fieldValue';
+import { isSelectOptionCommitted } from './selectVerification';
 import { isOptionalAddressField } from './fieldRequired';
 
 export type FieldDiagnosticCategory =
@@ -42,11 +43,8 @@ export function isFieldUnfilled(field: ScannedField, doc: Document): boolean {
   if (hasFieldDisplayValue(field, doc)) return false;
 
   if (field.type === 'select') {
-    const text = (el.textContent || '').trim();
-    const inputVal = el instanceof HTMLInputElement ? el.value?.trim() : '';
-    if (inputVal) return false;
-    if (text && !/^(select\.\.\.|select|search|textbox)$/i.test(text)) return false;
-    return true;
+    if (!isSelectOptionCommitted(el)) return true;
+    return false;
   }
 
   if (field.type === 'radio' && el instanceof HTMLInputElement) {
@@ -122,6 +120,7 @@ export function collectStillEmptyDiagnostics(
     if (!isFieldUnfilled(field, doc)) continue;
 
     const label = field.labelText || field.name || field.placeholder || field.htmlId || 'Unnamed field';
+    if (isInstructionalScanLabel(label)) continue;
     if (filledLabels.has(label.toLowerCase())) continue;
     if (isOptionalAddressField(label)) continue;
     if (/personnel number|\bpern\b/i.test(label)) continue;

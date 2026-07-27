@@ -6,3 +6,5 @@ pydantic-settings>=2.6.0
 python-multipart>=0.0.17
 pypdf>=5.1.0
 httpx>=0.28.0
+pyyaml>=6.0.2
+python-dateutil>=2.9.0

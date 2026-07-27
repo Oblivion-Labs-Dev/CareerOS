@@ -14,7 +14,44 @@ export interface ScannedField {
 /**
  * Searches the DOM to find the label text of an element
  */
+function isGenericControlLabel(text: string): boolean {
+  const normalized = text.toLowerCase().trim();
+  return ['select...', 'select', 'choose...', 'choose', 'dropdown', 'select an option', 'textbox', 'search'].includes(
+    normalized
+  );
+}
+
+function textFromLabelledByIds(labelledBy: string, doc: Document): string {
+  for (const id of labelledBy.split(/\s+/)) {
+    const trimmedId = id.trim();
+    if (!trimmedId) continue;
+    const labelEl = doc.getElementById(trimmedId);
+    const text = labelEl?.textContent?.replace(/\s+/g, ' ').trim().replace(/\*+$/, '') || '';
+    if (text && !isGenericControlLabel(text) && !OPTION_LABEL_RE.test(text)) {
+      return text;
+    }
+  }
+  return '';
+}
+
 export function getLabelText(element: HTMLElement, doc: Document): string {
+  const selectShell =
+    typeof element.closest === 'function'
+      ? (element.closest('.select-shell') as HTMLElement | null)
+      : null;
+  if (selectShell) {
+    const reactLabel = selectShell.querySelector('.select__label, label');
+    const reactLabelText = reactLabel?.textContent?.replace(/\s+/g, ' ').trim().replace(/\*+$/, '') || '';
+    if (reactLabelText && !isGenericControlLabel(reactLabelText)) {
+      return reactLabelText;
+    }
+  }
+
+  if (element.getAttribute('role') === 'combobox' || selectShell) {
+    const groupQuestion = getFieldGroupQuestion(element, doc);
+    if (groupQuestion) return groupQuestion;
+  }
+
   // 1. Check parent wrapping label
   let parent = element.parentElement;
   while (parent) {
@@ -34,19 +71,14 @@ export function getLabelText(element: HTMLElement, doc: Document): string {
 
   // 3. Check aria-labelledby or aria-label
   const ariaLabel = element.getAttribute('aria-label');
-  if (
-    ariaLabel &&
-    !['select...', 'select', 'choose...', 'choose', 'dropdown', 'select an option', 'textbox', 'search'].includes(
-      ariaLabel.toLowerCase().trim()
-    )
-  ) {
+  if (ariaLabel && !isGenericControlLabel(ariaLabel)) {
     return ariaLabel;
   }
 
   const labelledBy = element.getAttribute('aria-labelledby');
   if (labelledBy) {
-    const labelEl = doc.getElementById(labelledBy);
-    if (labelEl) return labelEl.textContent?.replace(/\s+/g, ' ').trim() || '';
+    const fromIds = textFromLabelledByIds(labelledBy, doc);
+    if (fromIds) return fromIds;
   }
 
   // 4. Fallback: Search siblings or preceding text
@@ -96,6 +128,8 @@ function extractQuestionText(node: Element): string {
 
 /** Resolve the screening question text for a radio/checkbox group (not the Yes/No option label). */
 export function getFieldGroupQuestion(element: HTMLElement, doc: Document): string {
+  if (typeof element.closest !== 'function') return '';
+
   const fieldset = element.closest('fieldset');
   if (fieldset) {
     const legend = fieldset.querySelector('legend');
@@ -103,12 +137,11 @@ export function getFieldGroupQuestion(element: HTMLElement, doc: Document): stri
     if (legendText && !OPTION_LABEL_RE.test(legendText)) return legendText;
   }
 
-  const groupedControl = element.closest('[role="radiogroup"], [role="group"]') as HTMLElement | null;
+  const groupedControl = element.closest('[role="radiogroup"], [role="group"], .select-shell') as HTMLElement | null;
   if (groupedControl) {
     const labelledBy = groupedControl.getAttribute('aria-labelledby');
     if (labelledBy) {
-      const labelEl = doc.getElementById(labelledBy);
-      const labelText = labelEl?.textContent?.replace(/\s+/g, ' ').trim().replace(/\*+$/, '') || '';
+      const labelText = textFromLabelledByIds(labelledBy, doc);
       if (labelText && !OPTION_LABEL_RE.test(labelText)) return labelText;
     }
   }
@@ -147,6 +180,103 @@ export function getFieldGroupQuestion(element: HTMLElement, doc: Document): stri
 /** @deprecated Use getFieldGroupQuestion */
 export const getRadioGroupQuestion = getFieldGroupQuestion;
 
+function addLabelCandidate(labels: string[], text: string): void {
+  const cleaned = text.replace(/\*+$/, '').replace(/\s+/g, ' ').trim();
+  if (!cleaned || cleaned.length < 3 || isGenericControlLabel(cleaned) || OPTION_LABEL_RE.test(cleaned)) {
+    return;
+  }
+  if (!labels.includes(cleaned)) {
+    labels.push(cleaned);
+  }
+}
+
+/** Collect every label string that might identify a custom combobox (Greenhouse section header + question). */
+export function getComboboxLabelCandidates(element: HTMLElement, doc: Document): string[] {
+  const labels: string[] = [];
+  const selectShell =
+    typeof element.closest === 'function'
+      ? (element.closest('.select-shell') as HTMLElement | null)
+      : null;
+
+  const knownEeoInputLabels: Record<string, string> = {
+    gender: 'Gender',
+    hispanic_ethnicity: 'Are you Hispanic/Latino?',
+    veteran_status: 'Veteran Status',
+    disability_status: 'Disability Status',
+    race: 'Please identify your race'
+  };
+  if (element.id && knownEeoInputLabels[element.id]) {
+    addLabelCandidate(labels, knownEeoInputLabels[element.id]);
+  }
+
+  // Prefer explicit select labels (Greenhouse .select__label) before aria/heuristic text that may pick up sibling fields (e.g. "Phone" on Country).
+  if (selectShell) {
+    selectShell.querySelectorAll('.select__label, label, legend').forEach((node) => {
+      addLabelCandidate(labels, node.textContent || '');
+    });
+  }
+
+  addLabelCandidate(labels, getLabelText(element, doc));
+  addLabelCandidate(labels, getFieldGroupQuestion(element, doc));
+
+  // Previous-sibling question headers (Greenhouse screening sections) before ancestor field scans.
+  let walk: HTMLElement | null = element;
+  for (let depth = 0; depth < 6 && walk; depth++) {
+    let prev = walk.previousElementSibling;
+    while (prev) {
+      addLabelCandidate(labels, extractQuestionText(prev));
+      prev = prev.previousElementSibling;
+    }
+    walk = walk.parentElement;
+  }
+
+  if (selectShell) {
+    const fieldRoot = selectShell.closest(
+      'li, .application-field, .job-application-field, [class*="application-question"], [class*="question-field"]'
+    ) as HTMLElement | null;
+    if (fieldRoot) {
+      fieldRoot
+        .querySelectorAll(':scope > label, :scope > legend, :scope > h3, :scope > h4, :scope > p, :scope > .label')
+        .forEach((node) => {
+          if (selectShell.contains(node)) return;
+          addLabelCandidate(labels, node.textContent || '');
+        });
+    }
+  }
+
+  return labels;
+}
+
+export function isGreenhouseSelectPhantom(element: HTMLElement): boolean {
+  if (element.classList?.contains('select__placeholder')) return true;
+  const shell =
+    typeof element.closest === 'function'
+      ? (element.closest('.select-shell') as HTMLElement | null)
+      : null;
+  if (!shell) return false;
+  const input = shell.querySelector('input.select__input[role="combobox"], input[role="combobox"].select__input');
+  return Boolean(input && input !== element);
+}
+
+export function isInstructionalScanLabel(label: string): boolean {
+  const normalized = label.replace(/\s+/g, ' ').trim();
+  if (normalized.length > 260) return true;
+  if (/voluntary self-identification for government reporting purposes/i.test(normalized)) return true;
+  if (/race & ethnicity definitions|classification of protected categories|public burden statement/i.test(normalized)) {
+    return true;
+  }
+  return false;
+}
+
+export function isExtensionUiElement(element: HTMLElement): boolean {
+  if (typeof element.closest !== 'function') return false;
+  return Boolean(
+    element.closest(
+      '#jobfill-floating-wrapper, #jobfill-skipped-panel, [id^="jobfill-"], [id^="jf-"], [class*="jobfill"]'
+    )
+  );
+}
+
 /**
  * Scans the page and returns all input fields
  */
@@ -164,6 +294,8 @@ export function scanPage(doc: Document): ScannedField[] {
   ) as HTMLElement[];
 
   for (const input of inputs) {
+    if (isExtensionUiElement(input)) continue;
+
     const tagName = input.tagName.toUpperCase();
     const typeAttr = input.getAttribute('type') || '';
     const name = input.getAttribute('name') || '';
@@ -177,8 +309,17 @@ export function scanPage(doc: Document): ScannedField[] {
       continue;
     }
 
-    const directLabel = getLabelText(input, doc);
+    if (isGreenhouseSelectPhantom(input)) {
+      continue;
+    }
+
+    const labelCandidates = getComboboxLabelCandidates(input, doc);
+    const directLabel = labelCandidates[0] || getLabelText(input, doc);
     let resolvedLabel = directLabel;
+
+    if (isInstructionalScanLabel(resolvedLabel)) {
+      continue;
+    }
 
     // Group radio buttons by name
     if (tagName === 'INPUT' && typeAttr === 'radio') {
@@ -260,6 +401,9 @@ export function scanPage(doc: Document): ScannedField[] {
   // Scan custom styled select dropdown elements (divs/buttons with Select... placeholder)
   const customControls = Array.from(doc.querySelectorAll('div, button, span, p')) as HTMLElement[];
   for (const el of customControls) {
+    if (el.closest('.select-shell')) continue;
+    if (el.classList.contains('select__placeholder')) continue;
+
     const text = el.textContent?.trim();
     if (
       (text === 'Select...' || text === 'Select') &&
@@ -282,21 +426,21 @@ export function scanPage(doc: Document): ScannedField[] {
       }
 
       if (container && container.tagName !== 'BODY') {
-        if (scanned.some(s => s.element === container)) continue;
+        if (scanned.some((s) => s.element === container)) continue;
+        if (isGreenhouseSelectPhantom(container)) continue;
         const labelText = getLabelText(container, doc);
-        if (labelText) {
-          scanned.push({
-            id: Math.random().toString(36).substring(2, 9),
-            element: container,
-            type: 'select',
-            labelText,
-            placeholder: 'Select...',
-            name: labelText.toLowerCase().replace(/\s+/g, '_'),
-            htmlId: container.id || '',
-            autocomplete: '',
-            options: []
-          });
-        }
+        if (!labelText || isInstructionalScanLabel(labelText)) continue;
+        scanned.push({
+          id: Math.random().toString(36).substring(2, 9),
+          element: container,
+          type: 'select',
+          labelText,
+          placeholder: 'Select...',
+          name: labelText.toLowerCase().replace(/\s+/g, '_'),
+          htmlId: container.id || '',
+          autocomplete: '',
+          options: []
+        });
       }
     }
   }

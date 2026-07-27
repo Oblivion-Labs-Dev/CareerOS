@@ -3,7 +3,7 @@ import {
   getSubmitTrackerConfig,
   SubmitTrackerConfig
 } from '../shared/submitTrackerConfig';
-import { extractJobContext, isJobApplicationUrl, isSubmissionConfirmationUrl, isWorkdaySubmissionSuccess } from '../shared/jobPageDetection';
+import { extractJobContext, isJobApplicationUrl, isSubmissionSuccessPage } from '../shared/jobPageDetection';
 import { logToServer } from '../shared/serverLog';
 
 const DEDUPE_STORAGE_KEY = 'jobfill-submit-dedupe';
@@ -122,7 +122,26 @@ async function recordSubmit(
       }
     },
     (response) => {
-      if (chrome.runtime.lastError || !response?.success) return;
+      if (chrome.runtime.lastError) {
+        logToServer({
+          level: 'error',
+          source: 'submit-tracker',
+          message: 'Failed to record submitted application',
+          detail: { error: chrome.runtime.lastError.message, trigger, buttonText, company, role, url },
+          url
+        });
+        return;
+      }
+      if (!response?.success) {
+        logToServer({
+          level: 'error',
+          source: 'submit-tracker',
+          message: 'Server rejected submit tracking',
+          detail: { error: response?.error, trigger, buttonText, company, role, url },
+          url
+        });
+        return;
+      }
       void markRecorded(url);
       if (config.showToast) {
         showSubmitToast(response.company || company, response.role || role);
@@ -151,6 +170,8 @@ async function handleSubmitInteraction(
   if (!buttonTextMatchesSubmit(label, config) && trigger === 'button_click') return;
 
   await recordSubmit(trigger, label, config);
+  window.setTimeout(() => void watchForConfirmationPage(), 2500);
+  window.setTimeout(() => void watchForConfirmationPage(), 8000);
 }
 
 let initialized = false;
@@ -159,10 +180,30 @@ let lastHref = location.href;
 async function watchForConfirmationPage(): Promise<void> {
   const config = await getSubmitTrackerConfig();
   if (!config.enabled) return;
-  if (location.href === lastHref && !isWorkdaySubmissionSuccess(document)) return;
-  lastHref = location.href;
-  if (!isSubmissionConfirmationUrl(location.href) && !isWorkdaySubmissionSuccess(document)) return;
+  const href = location.href;
+  const success = isSubmissionSuccessPage(document);
+  if (href === lastHref && !success) return;
+  lastHref = href;
+  if (!success) return;
   await recordSubmit('confirmation_page', 'confirmation page', config);
+}
+
+function hookSpaNavigation(onNavigate: () => void): void {
+  window.addEventListener('popstate', onNavigate);
+  window.addEventListener('hashchange', onNavigate);
+
+  const wrap = (original: typeof history.pushState) =>
+    function (this: History, ...args: Parameters<typeof history.pushState>) {
+      original.apply(this, args);
+      onNavigate();
+    };
+
+  try {
+    history.pushState = wrap(history.pushState.bind(history));
+    history.replaceState = wrap(history.replaceState.bind(history));
+  } catch {
+    // Some isolated frames block history patching.
+  }
 }
 
 export function initSubmitTracker(): void {
@@ -204,8 +245,8 @@ export function initSubmitTracker(): void {
     true
   );
 
-  window.addEventListener('popstate', () => void watchForConfirmationPage());
-  window.addEventListener('hashchange', () => void watchForConfirmationPage());
+  const onNavigate = () => void watchForConfirmationPage();
+  hookSpaNavigation(onNavigate);
 
   const observer = new MutationObserver(() => {
     void watchForConfirmationPage();

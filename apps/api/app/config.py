@@ -10,12 +10,18 @@ class Settings(BaseSettings):
     career_os_cors_origins: str = "http://localhost:3000,chrome-extension://*"
     openrouter_api_key: str = ""
     openrouter_base_url: str = "https://openrouter.ai/api/v1"
+    apify_token: str = ""
     career_os_api_public_url: str = "http://localhost:8000"
     career_os_chrome_web_store_url: str = ""
     career_os_edge_addons_url: str = ""
     career_os_firefox_addons_url: str = ""
     gmail_user: str = ""
     gmail_app_password: str = ""
+
+    career_os_repair_enabled: bool = False
+    career_os_repair_orchestrator_url: str = "http://127.0.0.1:8090"
+    career_os_repair_demo_enabled: bool = False
+    career_os_repair_agent_adapter: str = "mock"
 
 
 settings = Settings()

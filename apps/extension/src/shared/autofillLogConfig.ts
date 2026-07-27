@@ -16,7 +16,7 @@ export const DEFAULT_AUTOFILL_LOG_CONFIG: AutofillLogConfig = {
   missingProfileValue: true,
   fillReturnedFalse: true,
   stillEmpty: true,
-  skippedByRule: false
+  skippedByRule: true
 };
 
 const STORAGE_KEY = 'autofillLogConfig';

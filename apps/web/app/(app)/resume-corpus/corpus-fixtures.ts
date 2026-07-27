@@ -1,5 +1,26 @@
 import type { CorpusProfile, CorpusRecord } from "./corpus-model";
 import { INITIAL_CORPUS_RECORDS } from "./corpus-seed-data";
+import { emptyPhaseOneData } from "./phase1-model";
+
+const questionLinks = {
+  evidenceIds: [] as string[],
+  metricIds: [] as string[],
+  followUpQuestions: [] as string[],
+  reviewerFeedback: [] as string[],
+  practiceHistory: [] as string[],
+};
+
+const corpusRecordDefaults = {
+  alternatives: "",
+  crossTeamInfluence: "",
+  mentorship: "",
+  missingItemMetadata: {},
+  qualityStatusOverrides: {},
+  phaseOne: emptyPhaseOneData(),
+} satisfies Pick<
+  CorpusRecord,
+  "alternatives" | "crossTeamInfluence" | "mentorship" | "missingItemMetadata" | "qualityStatusOverrides" | "phaseOne"
+>;
 
 export const PREVIEW_PROFILE: CorpusProfile = {
   fullName: "Alex Morgan",
@@ -11,6 +32,7 @@ export const PREVIEW_PROFILE: CorpusProfile = {
 
 const SHOWCASE_PREVIEW_RECORDS: CorpusRecord[] = [
   {
+    ...corpusRecordDefaults,
     id: "preview-routing",
     title: "Regional event-routing platform",
     company: "Northstar Cloud",
@@ -42,20 +64,20 @@ const SHOWCASE_PREVIEW_RECORDS: CorpusRecord[] = [
     architectureCovered: true,
     leadershipCovered: true,
     metrics: [
-      { id: "routing-availability", name: "Availability", value: "99.99%", unit: "%", source: "Reliability scorecard", confidence: "high", verification: "verified" },
-      { id: "routing-recovery", name: "Recovery time", value: "−62%", unit: "%", source: "Incident analytics", confidence: "high", verification: "verified" },
-      { id: "routing-regions", name: "Regional scope", value: "11 regions", unit: "regions", source: "Launch plan", confidence: "high", verification: "verified" },
+      { id: "routing-availability", name: "Availability", value: "99.99%", unit: "%", source: "Reliability scorecard", confidence: "high", verification: "verified", evidenceIds: [] },
+      { id: "routing-recovery", name: "Recovery time", value: "−62%", unit: "%", source: "Incident analytics", confidence: "high", verification: "verified", evidenceIds: [] },
+      { id: "routing-regions", name: "Regional scope", value: "11 regions", unit: "regions", source: "Launch plan", confidence: "high", verification: "verified", evidenceIds: [] },
     ],
     evidence: [
-      { id: "routing-rfc", name: "Kafka event fabric architecture RFC", type: "rfc", url: "#routing-rfc" },
-      { id: "routing-scorecard", name: "OpenTelemetry reliability scorecard", type: "dashboard", url: "#routing-scorecard" },
+      { id: "routing-rfc", name: "Kafka event fabric architecture RFC", type: "rfc", url: "#routing-rfc", relatedGapIds: [] },
+      { id: "routing-scorecard", name: "OpenTelemetry reliability scorecard", type: "dashboard", url: "#routing-scorecard", relatedGapIds: [] },
     ],
     concerns: [
       { id: "routing-concern", reviewer: "Staff engineer", category: "Tradeoffs", severity: "medium", concern: "Explain the cost and operability tradeoff behind active-active regional replication.", status: "answered" },
     ],
     interviewQuestions: [
-      { id: "routing-q1", question: "How did you choose partitioning and ordering guarantees across regions?", interviewType: "System design", reviewerPersona: "Principal engineer", difficulty: "expert", answerStatus: "prepared", preparedAnswer: "I separated regional write ownership from asynchronous reconciliation so ordering stayed local and failover remained bounded.", confidence: 86 },
-      { id: "routing-q2", question: "What failed during the rollout, and what did you change?", interviewType: "Technical deep dive", reviewerPersona: "Staff engineer", difficulty: "advanced", answerStatus: "practiced", preparedAnswer: "A replay storm exposed an unbounded recovery queue; we added admission control, per-tenant budgets, and staged fault injection.", confidence: 82 },
+      { id: "routing-q1", question: "How did you choose partitioning and ordering guarantees across regions?", interviewType: "System design", reviewerPersona: "Principal engineer", difficulty: "expert", answerStatus: "prepared", preparedAnswer: "I separated regional write ownership from asynchronous reconciliation so ordering stayed local and failover remained bounded.", confidence: 86, ...questionLinks },
+      { id: "routing-q2", question: "What failed during the rollout, and what did you change?", interviewType: "Technical deep dive", reviewerPersona: "Staff engineer", difficulty: "advanced", answerStatus: "practiced", preparedAnswer: "A replay storm exposed an unbounded recovery queue; we added admission control, per-tenant budgets, and staged fault injection.", confidence: 82, ...questionLinks },
     ],
     resumeVariants: [
       { id: "routing-current", name: "Platform leadership", content: "Led a multi-region event platform that unified 14 ingestion services, raised availability to 99.99%, and cut recovery time by 62% across 11 regions.", status: "published" },
@@ -68,6 +90,7 @@ const SHOWCASE_PREVIEW_RECORDS: CorpusRecord[] = [
     updatedAt: "2026-07-14T18:40:00.000Z",
   },
   {
+    ...corpusRecordDefaults,
     id: "preview-evaluation",
     title: "Model evaluation control plane",
     company: "Atlas Labs",
@@ -99,16 +122,16 @@ const SHOWCASE_PREVIEW_RECORDS: CorpusRecord[] = [
     architectureCovered: true,
     leadershipCovered: true,
     metrics: [
-      { id: "eval-throughput", name: "Experiment throughput", value: "4.1×", unit: "multiplier", source: "Capacity review", confidence: "high", verification: "verified" },
-      { id: "eval-cost", name: "Duplicate GPU spend", value: "−34%", unit: "%", source: "FinOps estimate", confidence: "medium", verification: "needs-evidence" },
+      { id: "eval-throughput", name: "Experiment throughput", value: "4.1×", unit: "multiplier", source: "Capacity review", confidence: "high", verification: "verified", evidenceIds: [] },
+      { id: "eval-cost", name: "Duplicate GPU spend", value: "−34%", unit: "%", source: "FinOps estimate", confidence: "medium", verification: "needs-evidence", evidenceIds: [] },
     ],
-    evidence: [{ id: "eval-rfc", name: "Kubernetes evaluation control-plane RFC", type: "rfc", url: "#evaluation-rfc" }],
+    evidence: [{ id: "eval-rfc", name: "Kubernetes evaluation control-plane RFC", type: "rfc", url: "#evaluation-rfc", relatedGapIds: [] }],
     concerns: [
       { id: "eval-concern", reviewer: "Principal engineer", category: "Ownership", severity: "high", concern: "Clarify which fairness and retry mechanisms you personally designed.", status: "investigating" },
     ],
     interviewQuestions: [
-      { id: "eval-q1", question: "How did the scheduler prevent high-volume teams from starving smaller workloads?", interviewType: "AI infrastructure", reviewerPersona: "AI infrastructure reviewer", difficulty: "expert", answerStatus: "unanswered", confidence: 35 },
-      { id: "eval-q2", question: "Why build a control plane instead of standardizing on an existing evaluation product?", interviewType: "System design", reviewerPersona: "Principal engineer", difficulty: "expert", answerStatus: "draft", preparedAnswer: "Existing products did not enforce our dataset and cost policy at submission time; the answer still needs a quantified comparison.", confidence: 58 },
+      { id: "eval-q1", question: "How did the scheduler prevent high-volume teams from starving smaller workloads?", interviewType: "AI infrastructure", reviewerPersona: "AI infrastructure reviewer", difficulty: "expert", answerStatus: "unanswered", confidence: 35, ...questionLinks },
+      { id: "eval-q2", question: "Why build a control plane instead of standardizing on an existing evaluation product?", interviewType: "System design", reviewerPersona: "Principal engineer", difficulty: "expert", answerStatus: "draft", preparedAnswer: "Existing products did not enforce our dataset and cost policy at submission time; the answer still needs a quantified comparison.", confidence: 58, ...questionLinks },
     ],
     resumeVariants: [{ id: "eval-current", name: "AI infrastructure", content: "Built a policy-driven evaluation control plane that increased experiment throughput 4.1× and reduced duplicate GPU spend by 34% for 70+ model teams.", status: "draft" }],
     linkedInVersion: "Built shared evaluation infrastructure that made model experimentation faster, more governable, and easier to operate.",
@@ -118,6 +141,7 @@ const SHOWCASE_PREVIEW_RECORDS: CorpusRecord[] = [
     updatedAt: "2026-07-12T16:15:00.000Z",
   },
   {
+    ...corpusRecordDefaults,
     id: "preview-delivery",
     title: "Progressive delivery safety program",
     company: "Meridian Systems",
@@ -149,18 +173,18 @@ const SHOWCASE_PREVIEW_RECORDS: CorpusRecord[] = [
     architectureCovered: true,
     leadershipCovered: true,
     metrics: [
-      { id: "delivery-cfr", name: "Change-failure rate", value: "8.4% → 3.1%", unit: "%", source: "Quarterly reliability review", confidence: "high", verification: "verified" },
-      { id: "delivery-lead", name: "Median lead time", value: "−46%", unit: "%", source: "Delivery analytics", confidence: "high", verification: "verified" },
-      { id: "delivery-services", name: "Service adoption", value: "120 services", unit: "services", source: "Platform inventory", confidence: "high", verification: "verified" },
+      { id: "delivery-cfr", name: "Change-failure rate", value: "8.4% → 3.1%", unit: "%", source: "Quarterly reliability review", confidence: "high", verification: "verified", evidenceIds: [] },
+      { id: "delivery-lead", name: "Median lead time", value: "−46%", unit: "%", source: "Delivery analytics", confidence: "high", verification: "verified", evidenceIds: [] },
+      { id: "delivery-services", name: "Service adoption", value: "120 services", unit: "services", source: "Platform inventory", confidence: "high", verification: "verified", evidenceIds: [] },
     ],
     evidence: [
-      { id: "delivery-standard", name: "Argo Rollouts progressive delivery standard", type: "document", url: "#delivery-standard" },
-      { id: "delivery-dashboard", name: "Prometheus change safety dashboard", type: "dashboard", url: "#delivery-dashboard" },
-      { id: "delivery-review", name: "Quarterly reliability review", type: "review", url: "#delivery-review" },
+      { id: "delivery-standard", name: "Argo Rollouts progressive delivery standard", type: "document", url: "#delivery-standard", relatedGapIds: [] },
+      { id: "delivery-dashboard", name: "Prometheus change safety dashboard", type: "dashboard", url: "#delivery-dashboard", relatedGapIds: [] },
+      { id: "delivery-review", name: "Quarterly reliability review", type: "review", url: "#delivery-review", relatedGapIds: [] },
     ],
     concerns: [],
     interviewQuestions: [
-      { id: "delivery-q1", question: "How did you win adoption without making the platform a release bottleneck?", interviewType: "Staff-level probing", reviewerPersona: "Staff engineer", difficulty: "advanced", answerStatus: "prepared", preparedAnswer: "We standardized the safety contract while letting teams own thresholds, then proved value with early adopters before enforcing a minimum baseline.", confidence: 84 },
+      { id: "delivery-q1", question: "How did you win adoption without making the platform a release bottleneck?", interviewType: "Staff-level probing", reviewerPersona: "Staff engineer", difficulty: "advanced", answerStatus: "prepared", preparedAnswer: "We standardized the safety contract while letting teams own thresholds, then proved value with early adopters before enforcing a minimum baseline.", confidence: 84, ...questionLinks },
     ],
     resumeVariants: [{ id: "delivery-current", name: "Platform leadership", content: "Established progressive-delivery standards across 120 services, reducing change-failure rate from 8.4% to 3.1% while shortening median lead time by 46%.", status: "published" }],
     linkedInVersion: "Led a progressive-delivery program spanning 120 services and eight product groups.",
@@ -170,6 +194,7 @@ const SHOWCASE_PREVIEW_RECORDS: CorpusRecord[] = [
     updatedAt: "2026-07-10T20:05:00.000Z",
   },
   {
+    ...corpusRecordDefaults,
     id: "preview-identity",
     title: "Customer identity migration",
     company: "Juniper Digital",
@@ -206,7 +231,7 @@ const SHOWCASE_PREVIEW_RECORDS: CorpusRecord[] = [
       { id: "identity-concern", reviewer: "Security reviewer", category: "Evidence", severity: "high", concern: "The migration and audit claims need a safe source and explicit authorization controls.", status: "unanswered" },
     ],
     interviewQuestions: [
-      { id: "identity-q1", question: "How did you prevent authorization drift during dual reads?", interviewType: "Security", reviewerPersona: "Security reviewer", difficulty: "advanced", answerStatus: "unanswered", confidence: 22 },
+      { id: "identity-q1", question: "How did you prevent authorization drift during dual reads?", interviewType: "Security", reviewerPersona: "Security reviewer", difficulty: "advanced", answerStatus: "unanswered", confidence: 22, ...questionLinks },
     ],
     resumeVariants: [{ id: "identity-current", name: "Current", content: "Designed the migration path for a unified customer identity service across three products, eliminating duplicate account workflows and improving audit consistency.", status: "draft" }],
     linkedInVersion: "",

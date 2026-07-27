@@ -1,5 +1,5 @@
-import { redirect } from "next/navigation";
+import { MinimalDashboard } from "@/components/dashboard/minimal-dashboard";
 
 export default function DashboardPage() {
-  redirect("/applications");
+  return <MinimalDashboard />;
 }

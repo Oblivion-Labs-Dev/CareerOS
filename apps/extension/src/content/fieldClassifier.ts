@@ -1,4 +1,5 @@
-import { ScannedField } from './domScanner';
+import { ScannedField, getComboboxLabelCandidates } from './domScanner';
+import { resolveComboboxFillValueFromLabels } from './comboboxValueResolver';
 import { UserProfile } from '../shared/types';
 import { APPLICATION_FIELD_DEFAULTS, ApplicationDefaultKey } from '../shared/applicationDefaults';
 import { resolvePronounFillValue } from './autofillEngine.matching';
@@ -10,6 +11,8 @@ import { resolveMostRecentEmployer } from '../shared/workExperience';
 import { addressValueForKey } from '../profile/addressProfile';
 import { matchScreeningAnswer } from '../shared/screeningAnswers';
 import { isOptionalAddressField } from './fieldRequired';
+import { lookupFieldMapping } from '../learning/fieldMappingMemory';
+import { detectUploadKindFromHint } from './fileUploadDetection';
 
 export interface ClassifiedField {
   id: string;
@@ -22,8 +25,8 @@ export interface ClassifiedField {
 }
 
 const CANONICAL_PATTERNS: Record<string, RegExp[]> = {
-  firstName: [/first\s*name/i, /^fname/i, /given\s*name/i],
-  lastName: [/last\s*name/i, /^lname/i, /family\s*name/i, /surname/i],
+  firstName: [/first[\s_-]*name/i, /^fname$/i, /given[\s_-]*name/i, /^given-name$/i],
+  lastName: [/last[\s_-]*name/i, /^lname$/i, /family[\s_-]*name/i, /surname/i, /^family-name$/i],
   fullName: [/full\s*name/i, /^name/i, /applicant\s*name/i, /legal\s*name/i],
   preferredName: [/preferred\s*name/i, /name\s*you\s*go\s*by/i, /what.*call\s*you/i],
   email: [/email/i, /e-mail/i],
@@ -55,8 +58,8 @@ const CANONICAL_PATTERNS: Record<string, RegExp[]> = {
   portfolio: [/portfolio/i, /website/i, /personal\s*site/i],
   resume: [/resume/i, /\bcv\b/i, /curriculum\s*vitae/i],
   coverLetter: [/cover\s*letter/i, /writing\s*sample/i],
-  workAuthorization: [/authorized/i, /right\s*to\s*work/i, /permit/i, /eligible\s*to\s*work/i],
-  sponsorship: [/sponsor/i, /visa\s*sponsorship/i],
+  workAuthorization: [/authorized/i, /right\s*to\s*work/i, /permit/i, /eligible\s*to\s*work/i, /legally\s*work/i, /work\s*status/i],
+  sponsorship: [/sponsor/i, /visa\s*sponsorship/i, /require\s*sponsorship/i, /need\s*sponsorship/i, /immigration/i, /\bh-?1b\b/i],
   gender: [/gender/i, /sex\b/i],
   pronouns: [/pronoun/i],
   veteran: [/veteran/i],
@@ -114,14 +117,9 @@ function profileValueForField(
   return typeof val === 'string' ? val.trim() : '';
 }
 
-const UPLOAD_RESUME_RE = /resume|\bcv\b|drop or select|\.pdf|\.docx|\.doc\b|curriculum\s*vitae|attach.*file/i;
-const UPLOAD_COVER_RE = /cover\s*letter|writing\s*sample/i;
-
 function detectUploadCanonicalKey(field: ScannedField): 'resume' | 'coverLetter' | null {
   const hint = `${field.labelText} ${field.placeholder} ${field.name}`.toLowerCase();
-  if (UPLOAD_COVER_RE.test(hint)) return 'coverLetter';
-  if (UPLOAD_RESUME_RE.test(hint)) return 'resume';
-  return null;
+  return detectUploadKindFromHint(hint);
 }
 
 /**
@@ -167,7 +165,44 @@ export async function classifyFields(
       }
     }
 
+    const autocomplete = (field.autocomplete || '').toLowerCase();
+    const autocompleteKey =
+      autocomplete === 'given-name' || autocomplete === 'fname'
+        ? 'firstName'
+        : autocomplete === 'family-name' || autocomplete === 'lname'
+          ? 'lastName'
+          : autocomplete === 'name'
+            ? 'fullName'
+            : undefined;
+    if (autocompleteKey) {
+      const proposed = profileValueForField(field, autocompleteKey, enrichedProfile);
+      if (proposed) {
+        result.push({
+          id: field.id,
+          scannedField: field,
+          canonicalKey: autocompleteKey,
+          proposedValue: proposed,
+          confidence: 'high',
+          reason: `Autocomplete="${autocomplete}"`
+        });
+        continue;
+      }
+    }
+
     const resolvedLabel = resolveFieldLabel(field);
+    const savedMapping = await lookupFieldMapping(domain, resolvedLabel || field.labelText, field.type);
+    if (savedMapping) {
+      result.push({
+        id: field.id,
+        scannedField: field,
+        canonicalKey: savedMapping.canonicalKey,
+        proposedValue: savedMapping.value,
+        confidence: savedMapping.confidence >= 0.85 ? 'high' : savedMapping.confidence >= 0.6 ? 'medium' : 'low',
+        reason: 'Saved ATS field mapping',
+      });
+      continue;
+    }
+
     const clues = [
       { text: resolvedLabel, weight: 3, label: 'Label' },
       { text: field.labelText, weight: 2.5, label: 'Direct label' },
@@ -254,6 +289,17 @@ export async function classifyFields(
             break;
           }
         }
+      }
+    }
+
+    if (!proposedValue && field.type === 'select') {
+      const labelCandidates = getComboboxLabelCandidates(field.element, document);
+      const fromCombobox = resolveComboboxFillValueFromLabels(labelCandidates, enrichedProfile, company);
+      if (fromCombobox) {
+        proposedValue = fromCombobox;
+        confidence = 'high';
+        matchedKey = matchedKey || 'screeningAnswer';
+        matchReason = 'Matched combobox label to profile screening/default answer';
       }
     }
 
