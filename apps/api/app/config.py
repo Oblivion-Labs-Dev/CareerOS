@@ -23,5 +23,11 @@ class Settings(BaseSettings):
     career_os_repair_demo_enabled: bool = False
     career_os_repair_agent_adapter: str = "mock"
 
+    # Application Assistant
+    application_assistant_enabled: bool = True
+    application_assistant_llm_base_url: str = "http://localhost:1234/v1"
+    application_assistant_llm_model: str = ""
+    application_assistant_llm_api_key: str = ""
+
 
 settings = Settings()

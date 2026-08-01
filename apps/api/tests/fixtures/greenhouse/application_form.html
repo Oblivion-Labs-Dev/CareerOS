@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Apply - Senior Software Engineer - Test Company</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      font-size: 16px;
+      line-height: 1.5;
+      color: #1a1a1a;
+      background: #f6f7f9;
+    }
+
+    #application {
+      max-width: 720px;
+      margin: 2rem auto;
+      padding: 0 1rem 3rem;
+    }
+
+    .app-title {
+      margin: 0 0 1.5rem;
+      font-size: 1.75rem;
+      font-weight: 600;
+      line-height: 1.25;
+    }
+
+    form#application_form {
+      background: #fff;
+      border: 1px solid #e2e6ea;
+      border-radius: 8px;
+      padding: 1.5rem;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+    }
+
+    .section {
+      margin-bottom: 2rem;
+      padding-bottom: 1.5rem;
+      border-bottom: 1px solid #eef1f4;
+    }
+
+    .section:last-of-type {
+      border-bottom: none;
+      margin-bottom: 0;
+      padding-bottom: 0;
+    }
+
+    .section-header {
+      margin: 0 0 1rem;
+      font-size: 1.125rem;
+      font-weight: 600;
+    }
+
+    .field {
+      display: flex;
+      flex-direction: column;
+      gap: 0.35rem;
+      margin-bottom: 1rem;
+    }
+
+    .field:last-child {
+      margin-bottom: 0;
+    }
+
+    .field label {
+      display: block;
+      font-size: 0.9375rem;
+      font-weight: 500;
+      color: #333;
+    }
+
+    .field label:has(input[type="checkbox"]) {
+      display: flex;
+      align-items: flex-start;
+      gap: 0.5rem;
+      font-weight: 400;
+      cursor: pointer;
+    }
+
+    .field label:has(input[type="checkbox"]) input {
+      width: auto;
+      margin-top: 0.2rem;
+      flex-shrink: 0;
+    }
+
+    input[type="text"],
+    input[type="email"],
+    input[type="tel"],
+    input[type="url"],
+    input[type="file"],
+    select,
+    textarea {
+      display: block;
+      width: 100%;
+      max-width: 100%;
+      padding: 0.55rem 0.65rem;
+      font: inherit;
+      color: inherit;
+      background: #fff;
+      border: 1px solid #c8ced6;
+      border-radius: 4px;
+    }
+
+    input:focus,
+    select:focus,
+    textarea:focus {
+      outline: 2px solid #3b82f6;
+      outline-offset: 1px;
+      border-color: #3b82f6;
+    }
+
+    textarea {
+      min-height: 6rem;
+      resize: vertical;
+    }
+
+    .section[data-section="submit"] {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.75rem;
+      align-items: center;
+      padding-top: 0.5rem;
+    }
+
+    button,
+    input[type="submit"] {
+      font: inherit;
+      cursor: pointer;
+      padding: 0.6rem 1.1rem;
+      border-radius: 4px;
+      border: 1px solid transparent;
+    }
+
+    #save_and_continue {
+      background: #fff;
+      border-color: #c8ced6;
+      color: #333;
+    }
+
+    #save_and_continue:hover {
+      background: #f6f7f9;
+    }
+
+    #submit_app {
+      background: #047857;
+      color: #fff;
+      font-weight: 600;
+    }
+
+    #submit_app:hover {
+      background: #065f46;
+    }
+  </style>
+</head>
+<body>
+  <div id="application">
+    <h1 class="app-title">Apply for Senior Software Engineer</h1>
+
+    <form id="application_form" action="#" method="post" novalidate>
+      <div class="section" data-section="contact">
+        <h2 class="section-header">Contact Information</h2>
+
+        <div class="field">
+          <label for="first_name">First Name *</label>
+          <input type="text" id="first_name" name="first_name" required autocomplete="given-name">
+        </div>
+
+        <div class="field">
+          <label for="last_name">Last Name *</label>
+          <input type="text" id="last_name" name="last_name" required autocomplete="family-name">
+        </div>
+
+        <div class="field">
+          <label for="email">Email *</label>
+          <input type="email" id="email" name="email" required autocomplete="email" placeholder="jane@example.com">
+        </div>
+
+        <div class="field">
+          <label for="phone">Phone</label>
+          <input type="tel" id="phone" name="phone" autocomplete="tel">
+        </div>
+
+        <div class="field">
+          <label for="resume">Resume/CV *</label>
+          <input type="file" id="resume" name="resume" accept=".pdf,.doc,.docx" required>
+        </div>
+
+        <div class="field">
+          <label for="linkedin">LinkedIn Profile</label>
+          <input type="url" id="linkedin" name="linkedin" placeholder="https://linkedin.com/in/...">
+        </div>
+
+        <div class="field">
+          <label for="github">GitHub Profile</label>
+          <input type="url" id="github" name="github" placeholder="https://github.com/...">
+        </div>
+      </div>
+
+      <div class="section" data-section="questions">
+        <h2 class="section-header">Additional Questions</h2>
+
+        <div class="field">
+          <label for="work_auth">Are you legally authorized to work in the United States? *</label>
+          <select id="work_auth" name="work_auth" required>
+            <option value="">Select...</option>
+            <option value="yes">Yes</option>
+            <option value="no">No</option>
+          </select>
+        </div>
+
+        <div class="field">
+          <label for="sponsorship">Will you now or in the future require visa sponsorship? *</label>
+          <select id="sponsorship" name="sponsorship" required>
+            <option value="">Select...</option>
+            <option value="yes">Yes</option>
+            <option value="no">No</option>
+          </select>
+        </div>
+
+        <div class="field">
+          <label for="salary">What are your salary expectations?</label>
+          <input type="text" id="salary" name="salary">
+        </div>
+
+        <div class="field">
+          <label for="why_company">Why do you want to work at Test Company?</label>
+          <textarea id="why_company" name="why_company" rows="4"></textarea>
+        </div>
+      </div>
+
+      <div class="section" data-section="demographic">
+        <h2 class="section-header">Voluntary Self-Identification</h2>
+
+        <div class="field">
+          <label for="gender">Gender</label>
+          <select id="gender" name="gender">
+            <option value="">Decline to answer</option>
+            <option value="male">Male</option>
+            <option value="female">Female</option>
+            <option value="non-binary">Non-binary</option>
+          </select>
+        </div>
+
+        <div class="field">
+          <label for="veteran">Veteran Status</label>
+          <select id="veteran" name="veteran">
+            <option value="">Decline to answer</option>
+            <option value="yes">Yes</option>
+            <option value="no">No</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="section" data-section="declaration">
+        <h2 class="section-header">Declaration</h2>
+
+        <div class="field">
+          <label for="accuracy_cert">
+            <input type="checkbox" id="accuracy_cert" name="accuracy_cert">
+            I certify that the information provided is accurate and complete *
+          </label>
+        </div>
+
+        <div class="field">
+          <label for="electronic_signature">Electronic Signature *</label>
+          <input type="text" id="electronic_signature" name="electronic_signature">
+        </div>
+      </div>
+
+      <div class="section" data-section="submit">
+        <button type="button" id="save_and_continue">Save and Continue</button>
+        <input type="submit" id="submit_app" value="Submit Application" data-qa="submit-application">
+      </div>
+    </form>
+  </div>
+
+  <script>
+    window.__submitClicked = false;
+    document.getElementById("application_form").addEventListener("submit", function (event) {
+      event.preventDefault();
+      window.__submitClicked = true;
+    });
+  </script>
+</body>
+</html>

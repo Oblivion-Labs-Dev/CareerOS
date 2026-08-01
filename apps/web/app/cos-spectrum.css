@@ -1,0 +1,500 @@
+/* CareerOS full spectrum — vivid hues applied widely across the UI */
+
+:root,
+[data-theme="dark"] {
+  --spectrum-teal: #2ee8c9;
+  --spectrum-cyan: #38bdf8;
+  --spectrum-green: #4ade80;
+  --spectrum-lime: #a3e635;
+  --spectrum-yellow: #facc15;
+  --spectrum-orange: #fb923c;
+  --spectrum-red: #f87171;
+  --spectrum-rose: #fb7185;
+  --spectrum-pink: #f472b6;
+  --spectrum-fuchsia: #e879f9;
+  --spectrum-purple: #c084fc;
+  --spectrum-violet: #a78bfa;
+  --spectrum-indigo: #818cf8;
+  --spectrum-blue: #60a5fa;
+
+  --spectrum-teal-soft: rgba(46, 232, 201, 0.14);
+  --spectrum-cyan-soft: rgba(56, 189, 248, 0.14);
+  --spectrum-green-soft: rgba(74, 222, 128, 0.14);
+  --spectrum-lime-soft: rgba(163, 230, 53, 0.14);
+  --spectrum-yellow-soft: rgba(250, 204, 21, 0.14);
+  --spectrum-orange-soft: rgba(251, 146, 60, 0.14);
+  --spectrum-red-soft: rgba(248, 113, 113, 0.14);
+  --spectrum-rose-soft: rgba(251, 113, 133, 0.14);
+  --spectrum-pink-soft: rgba(244, 114, 182, 0.14);
+  --spectrum-fuchsia-soft: rgba(232, 121, 249, 0.14);
+  --spectrum-purple-soft: rgba(192, 132, 252, 0.14);
+  --spectrum-violet-soft: rgba(167, 139, 250, 0.14);
+  --spectrum-indigo-soft: rgba(129, 140, 248, 0.14);
+  --spectrum-blue-soft: rgba(96, 165, 250, 0.14);
+
+  --spectrum-rainbow: linear-gradient(
+    90deg,
+    var(--spectrum-teal),
+    var(--spectrum-cyan),
+    var(--spectrum-green),
+    var(--spectrum-yellow),
+    var(--spectrum-orange),
+    var(--spectrum-red),
+    var(--spectrum-pink),
+    var(--spectrum-purple),
+    var(--spectrum-violet)
+  );
+}
+
+[data-theme="light"] {
+  --spectrum-teal: #0d9488;
+  --spectrum-cyan: #0284c7;
+  --spectrum-green: #16a34a;
+  --spectrum-lime: #65a30d;
+  --spectrum-yellow: #ca8a04;
+  --spectrum-orange: #ea580c;
+  --spectrum-red: #dc2626;
+  --spectrum-rose: #e11d48;
+  --spectrum-pink: #db2777;
+  --spectrum-fuchsia: #c026d3;
+  --spectrum-purple: #9333ea;
+  --spectrum-violet: #7c3aed;
+  --spectrum-indigo: #4f46e5;
+  --spectrum-blue: #2563eb;
+
+  --spectrum-teal-soft: rgba(13, 148, 136, 0.1);
+  --spectrum-cyan-soft: rgba(2, 132, 199, 0.1);
+  --spectrum-green-soft: rgba(22, 163, 74, 0.1);
+  --spectrum-lime-soft: rgba(101, 163, 13, 0.1);
+  --spectrum-yellow-soft: rgba(202, 138, 4, 0.1);
+  --spectrum-orange-soft: rgba(234, 88, 12, 0.1);
+  --spectrum-red-soft: rgba(220, 38, 38, 0.1);
+  --spectrum-rose-soft: rgba(225, 29, 72, 0.1);
+  --spectrum-pink-soft: rgba(219, 39, 119, 0.1);
+  --spectrum-fuchsia-soft: rgba(192, 38, 211, 0.1);
+  --spectrum-purple-soft: rgba(147, 51, 234, 0.1);
+  --spectrum-violet-soft: rgba(124, 58, 237, 0.1);
+  --spectrum-indigo-soft: rgba(79, 70, 229, 0.1);
+  --spectrum-blue-soft: rgba(37, 99, 235, 0.1);
+}
+
+/* ─── Canvas: living color field ─── */
+
+body {
+  background-image:
+    radial-gradient(ellipse 70% 50% at 8% -5%, var(--spectrum-teal-soft), transparent 55%),
+    radial-gradient(ellipse 55% 40% at 95% 8%, var(--spectrum-purple-soft), transparent 50%),
+    radial-gradient(ellipse 50% 35% at 50% 105%, var(--spectrum-orange-soft), transparent 45%),
+    radial-gradient(ellipse 40% 30% at 80% 60%, var(--spectrum-pink-soft), transparent 40%),
+    var(--gradient-mesh);
+}
+
+.cos-orbs {
+  opacity: 0.88;
+}
+
+.cos-orb--1 { background: var(--spectrum-teal); }
+.cos-orb--2 { background: var(--spectrum-purple); }
+.cos-orb--3 { background: var(--spectrum-orange); }
+
+/* ─── Sidebar nav groups: each section gets its hue ─── */
+
+.sidebar-nav > .nav-group:nth-child(1) .nav-group-label { color: var(--spectrum-cyan); }
+.sidebar-nav > .nav-group:nth-child(2) .nav-group-label { color: var(--spectrum-violet); }
+.sidebar-nav > .nav-group:nth-child(3) .nav-group-label { color: var(--spectrum-green); }
+.sidebar-nav > .nav-group:nth-child(4) .nav-group-label { color: var(--spectrum-orange); }
+.sidebar-nav > .nav-group:nth-child(5) .nav-group-label { color: var(--spectrum-rose); }
+.sidebar-nav > .nav-group:nth-child(6) .nav-group-label { color: var(--spectrum-yellow); }
+.sidebar-nav > .nav-group:nth-child(7) .nav-group-label { color: var(--spectrum-indigo); }
+.sidebar-nav > .nav-group:nth-child(8) .nav-group-label { color: var(--spectrum-pink); }
+
+.sidebar-nav > .nav-group:nth-child(1) .nav-link.active { box-shadow: inset 3px 0 0 var(--spectrum-cyan); background: var(--spectrum-cyan-soft); color: var(--spectrum-cyan); }
+.sidebar-nav > .nav-group:nth-child(2) .nav-link.active { box-shadow: inset 3px 0 0 var(--spectrum-violet); background: var(--spectrum-violet-soft); color: var(--spectrum-violet); }
+.sidebar-nav > .nav-group:nth-child(3) .nav-link.active { box-shadow: inset 3px 0 0 var(--spectrum-green); background: var(--spectrum-green-soft); color: var(--spectrum-green); }
+.sidebar-nav > .nav-group:nth-child(4) .nav-link.active { box-shadow: inset 3px 0 0 var(--spectrum-orange); background: var(--spectrum-orange-soft); color: var(--spectrum-orange); }
+.sidebar-nav > .nav-group:nth-child(5) .nav-link.active { box-shadow: inset 3px 0 0 var(--spectrum-rose); background: var(--spectrum-rose-soft); color: var(--spectrum-rose); }
+.sidebar-nav > .nav-group:nth-child(6) .nav-link.active { box-shadow: inset 3px 0 0 var(--spectrum-yellow); background: var(--spectrum-yellow-soft); color: var(--spectrum-yellow); }
+.sidebar-nav > .nav-group:nth-child(7) .nav-link.active { box-shadow: inset 3px 0 0 var(--spectrum-indigo); background: var(--spectrum-indigo-soft); color: var(--spectrum-indigo); }
+.sidebar-nav > .nav-group:nth-child(8) .nav-link.active { box-shadow: inset 3px 0 0 var(--spectrum-pink); background: var(--spectrum-pink-soft); color: var(--spectrum-pink); }
+
+.brand-mark {
+  background: var(--spectrum-rainbow) !important;
+  color: #061410 !important;
+}
+
+/* ─── Eyebrows cycle hue by section ─── */
+
+.toc-eyebrow,
+.toc-card-kicker {
+  background: var(--spectrum-violet-soft);
+  border: 1px solid color-mix(in srgb, var(--spectrum-violet) 35%, transparent);
+  border-radius: var(--radius-full);
+  padding: 0.2rem 0.55rem;
+  display: inline-flex;
+  color: var(--spectrum-violet);
+}
+
+.workflow-panel:nth-child(odd) .toc-card-kicker {
+  color: var(--spectrum-teal);
+  background: var(--spectrum-teal-soft);
+  border-color: color-mix(in srgb, var(--spectrum-teal) 35%, transparent);
+}
+
+.workflow-panel:nth-child(even) .toc-card-kicker {
+  color: var(--spectrum-orange);
+  background: var(--spectrum-orange-soft);
+  border-color: color-mix(in srgb, var(--spectrum-orange) 35%, transparent);
+}
+
+/* ─── Stat & metric cards ─── */
+
+.stat-card,
+.cos-stat-card,
+.dashboard-metric-card {
+  position: relative;
+  overflow: hidden;
+}
+
+.stat-card::before,
+.cos-stat-card::before,
+.dashboard-metric-card::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: var(--spectrum-rainbow);
+  opacity: 0.85;
+}
+
+.target-jobs-stats .stat-card:nth-child(1)::before,
+.dashboard-metric-grid .dashboard-metric-card:nth-child(1)::before { background: var(--spectrum-cyan); }
+.target-jobs-stats .stat-card:nth-child(2)::before,
+.dashboard-metric-grid .dashboard-metric-card:nth-child(2)::before { background: var(--spectrum-green); }
+.target-jobs-stats .stat-card:nth-child(3)::before,
+.dashboard-metric-grid .dashboard-metric-card:nth-child(3)::before { background: var(--spectrum-orange); }
+.target-jobs-stats .stat-card:nth-child(4)::before,
+.dashboard-metric-grid .dashboard-metric-card:nth-child(4)::before { background: var(--spectrum-purple); }
+
+.dashboard-metric-card:nth-child(1) strong { color: var(--spectrum-cyan); }
+.dashboard-metric-card:nth-child(2) strong { color: var(--spectrum-green); }
+.dashboard-metric-card:nth-child(3) strong { color: var(--spectrum-orange); }
+.dashboard-metric-card:nth-child(4) strong { color: var(--spectrum-purple); }
+
+/* Application Assistant stats */
+.aa-stat-card--apps { --stat-accent: var(--spectrum-cyan); }
+.aa-stat-card--apps strong { color: var(--spectrum-cyan); }
+.aa-stat-card--verified { --stat-accent: var(--spectrum-green); }
+.aa-stat-card--verified strong { color: var(--spectrum-green); }
+.aa-stat-card--missing { --stat-accent: var(--spectrum-orange); }
+.aa-stat-card--missing strong { color: var(--spectrum-orange); }
+.aa-stat-card--prep { --stat-accent: var(--spectrum-purple); }
+.aa-stat-card--prep strong { color: var(--spectrum-purple); }
+.aa-stat-card--live {
+  --stat-accent: var(--spectrum-teal);
+  border-color: color-mix(in srgb, var(--spectrum-teal) 45%, var(--border));
+  box-shadow: 0 0 28px var(--spectrum-teal-soft);
+}
+
+.aa-stat-card::before {
+  opacity: 0.9 !important;
+  height: 3px !important;
+}
+
+/* Match card tones styled in minimal-dashboard.module.css (CSS modules) */
+
+/* ─── Tags & pills: rainbow cycle ─── */
+
+.tag:nth-child(5n+1),
+.job-discover-keywords span:nth-child(5n+1),
+.chips span:nth-child(5n+1) {
+  color: var(--spectrum-cyan);
+  border-color: color-mix(in srgb, var(--spectrum-cyan) 40%, var(--border));
+  background: var(--spectrum-cyan-soft);
+}
+
+.tag:nth-child(5n+2),
+.job-discover-keywords span:nth-child(5n+2),
+.chips span:nth-child(5n+2) {
+  color: var(--spectrum-green);
+  border-color: color-mix(in srgb, var(--spectrum-green) 40%, var(--border));
+  background: var(--spectrum-green-soft);
+}
+
+.tag:nth-child(5n+3),
+.job-discover-keywords span:nth-child(5n+3),
+.chips span:nth-child(5n+3) {
+  color: var(--spectrum-orange);
+  border-color: color-mix(in srgb, var(--spectrum-orange) 40%, var(--border));
+  background: var(--spectrum-orange-soft);
+}
+
+.tag:nth-child(5n+4),
+.job-discover-keywords span:nth-child(5n+4),
+.chips span:nth-child(5n+4) {
+  color: var(--spectrum-pink);
+  border-color: color-mix(in srgb, var(--spectrum-pink) 40%, var(--border));
+  background: var(--spectrum-pink-soft);
+}
+
+.tag:nth-child(5n+5),
+.job-discover-keywords span:nth-child(5n+5),
+.chips span:nth-child(5n+5) {
+  color: var(--spectrum-violet);
+  border-color: color-mix(in srgb, var(--spectrum-violet) 40%, var(--border));
+  background: var(--spectrum-violet-soft);
+}
+
+/* ─── Phase / status pills ─── */
+
+.phase-pill,
+.statusTag {
+  font-weight: 650;
+  border: 1px solid transparent;
+}
+
+.dashboard-list-row:nth-child(6n+1) .phase-pill,
+.appRow:nth-child(6n+1) .statusTag {
+  color: var(--spectrum-green);
+  background: var(--spectrum-green-soft);
+  border-color: color-mix(in srgb, var(--spectrum-green) 35%, transparent);
+}
+
+.dashboard-list-row:nth-child(6n+2) .phase-pill,
+.appRow:nth-child(6n+2) .statusTag {
+  color: var(--spectrum-cyan);
+  background: var(--spectrum-cyan-soft);
+  border-color: color-mix(in srgb, var(--spectrum-cyan) 35%, transparent);
+}
+
+.dashboard-list-row:nth-child(6n+3) .phase-pill,
+.appRow:nth-child(6n+3) .statusTag {
+  color: var(--spectrum-orange);
+  background: var(--spectrum-orange-soft);
+  border-color: color-mix(in srgb, var(--spectrum-orange) 35%, transparent);
+}
+
+.dashboard-list-row:nth-child(6n+4) .phase-pill,
+.appRow:nth-child(6n+4) .statusTag {
+  color: var(--spectrum-purple);
+  background: var(--spectrum-purple-soft);
+  border-color: color-mix(in srgb, var(--spectrum-purple) 35%, transparent);
+}
+
+.dashboard-list-row:nth-child(6n+5) .phase-pill,
+.appRow:nth-child(6n+5) .statusTag {
+  color: var(--spectrum-rose);
+  background: var(--spectrum-rose-soft);
+  border-color: color-mix(in srgb, var(--spectrum-rose) 35%, transparent);
+}
+
+.dashboard-list-row:nth-child(6n+6) .phase-pill,
+.appRow:nth-child(6n+6) .statusTag {
+  color: var(--spectrum-yellow);
+  background: var(--spectrum-yellow-soft);
+  border-color: color-mix(in srgb, var(--spectrum-yellow) 35%, transparent);
+}
+
+/* ─── Discover scores ─── */
+
+.discover-score {
+  font-weight: 700;
+}
+
+.discover-score--green {
+  color: var(--spectrum-green);
+  background: var(--spectrum-green-soft);
+  border-color: color-mix(in srgb, var(--spectrum-green) 45%, var(--border));
+}
+
+.discover-score--yellow {
+  color: var(--spectrum-yellow);
+  background: var(--spectrum-yellow-soft);
+  border-color: color-mix(in srgb, var(--spectrum-yellow) 45%, var(--border));
+}
+
+.discover-score--orange {
+  color: var(--spectrum-orange);
+  background: var(--spectrum-orange-soft);
+  border-color: color-mix(in srgb, var(--spectrum-orange) 45%, var(--border));
+}
+
+.discover-score:not(.discover-score--green):not(.discover-score--yellow):not(.discover-score--orange) {
+  color: var(--spectrum-red);
+  background: var(--spectrum-red-soft);
+  border-color: color-mix(in srgb, var(--spectrum-red) 45%, var(--border));
+}
+
+/* ─── Application queue card statuses ─── */
+
+.aac-status--cyan { color: var(--spectrum-cyan); }
+.aac-status--violet { color: var(--spectrum-violet); }
+.aac-status--teal { color: var(--spectrum-teal); }
+.aac-status--amber { color: var(--spectrum-yellow); }
+.aac-status--rose { color: var(--spectrum-rose); }
+.aac-status--emerald { color: var(--spectrum-green); }
+
+.aac-cta {
+  background: linear-gradient(180deg, var(--spectrum-teal) 0%, var(--spectrum-cyan) 52%, var(--spectrum-indigo) 100%) !important;
+  color: #061410 !important;
+  box-shadow: 0 6px 20px var(--spectrum-cyan-soft) !important;
+}
+
+.aac-drawer-btn--primary {
+  background: linear-gradient(180deg, var(--spectrum-purple) 0%, var(--spectrum-violet) 100%) !important;
+  color: #fff !important;
+}
+
+/* ─── Tabs ─── */
+
+.aa-tab--active,
+.tabActive {
+  color: var(--spectrum-violet) !important;
+  border-color: color-mix(in srgb, var(--spectrum-violet) 45%, var(--border)) !important;
+  background: var(--spectrum-violet-soft) !important;
+}
+
+.pillActive {
+  background: var(--spectrum-rainbow) !important;
+  color: #061410 !important;
+  border: none !important;
+  font-weight: 700 !important;
+}
+
+/* ─── Workspace strip chips ─── */
+
+.career-workspace-chip:nth-child(1) { border-color: color-mix(in srgb, var(--spectrum-cyan) 40%, var(--border)); }
+.career-workspace-chip:nth-child(2) { border-color: color-mix(in srgb, var(--spectrum-green) 40%, var(--border)); }
+.career-workspace-chip:nth-child(3) { border-color: color-mix(in srgb, var(--spectrum-orange) 40%, var(--border)); }
+.career-workspace-chip--active {
+  background: var(--spectrum-violet-soft);
+  border-color: color-mix(in srgb, var(--spectrum-violet) 50%, var(--border)) !important;
+  color: var(--spectrum-violet);
+}
+
+/* ─── Workflow checklist marks ─── */
+
+.workflow-check span[aria-hidden] {
+  color: var(--spectrum-green);
+  background: var(--spectrum-green-soft);
+  border-radius: 50%;
+  width: 1.35rem;
+  height: 1.35rem;
+  display: grid;
+  place-items: center;
+  font-size: 0.72rem;
+}
+
+.workflow-check:nth-child(3n+2) span[aria-hidden] {
+  color: var(--spectrum-orange);
+  background: var(--spectrum-orange-soft);
+}
+
+.workflow-check:nth-child(3n+3) span[aria-hidden] {
+  color: var(--spectrum-purple);
+  background: var(--spectrum-purple-soft);
+}
+
+/* ─── Pipeline bars ─── */
+
+.pipeline-stage:nth-child(1) .pipeline-track span { background: var(--spectrum-cyan) !important; }
+.pipeline-stage:nth-child(2) .pipeline-track span { background: var(--spectrum-teal) !important; }
+.pipeline-stage:nth-child(3) .pipeline-track span { background: var(--spectrum-green) !important; }
+.pipeline-stage:nth-child(4) .pipeline-track span { background: var(--spectrum-yellow) !important; }
+.pipeline-stage:nth-child(5) .pipeline-track span { background: var(--spectrum-purple) !important; }
+
+/* ─── Application widgets ─── */
+
+.application-widget-card:nth-child(4n+1) {
+  border-top: 3px solid var(--spectrum-cyan);
+}
+.application-widget-card:nth-child(4n+2) {
+  border-top: 3px solid var(--spectrum-green);
+}
+.application-widget-card:nth-child(4n+3) {
+  border-top: 3px solid var(--spectrum-orange);
+}
+.application-widget-card:nth-child(4n+4) {
+  border-top: 3px solid var(--spectrum-pink);
+}
+
+/* ─── Buttons: primary stays teal but secondary gets color on hover ─── */
+
+.btn-secondary:hover {
+  border-color: var(--spectrum-violet);
+  color: var(--spectrum-violet);
+  background: var(--spectrum-violet-soft);
+}
+
+.btn-primary {
+  background: linear-gradient(135deg, var(--spectrum-teal) 0%, var(--spectrum-cyan) 40%, var(--spectrum-indigo) 100%) !important;
+}
+
+/* Landing hero uses .landing-title-accent (solid teal) — no background-clip text */
+
+.landing-eyebrow {
+  color: var(--spectrum-teal);
+  background: var(--spectrum-teal-soft);
+  border-color: color-mix(in srgb, var(--spectrum-teal) 40%, var(--border));
+}
+
+.landing-eyebrow-pulse {
+  background: var(--spectrum-pink);
+}
+
+/* ─── Intelligence checklist ─── */
+
+.intelligence-checklist li:nth-child(5n+1) input { accent-color: var(--spectrum-cyan); }
+.intelligence-checklist li:nth-child(5n+2) input { accent-color: var(--spectrum-green); }
+.intelligence-checklist li:nth-child(5n+3) input { accent-color: var(--spectrum-orange); }
+.intelligence-checklist li:nth-child(5n+4) input { accent-color: var(--spectrum-pink); }
+.intelligence-checklist li:nth-child(5n+5) input { accent-color: var(--spectrum-violet); }
+
+/* Resume scanner score styled in resume-scanner.module.css */
+
+.chips span[data-tier="ok"] {
+  color: var(--spectrum-green) !important;
+  border-color: color-mix(in srgb, var(--spectrum-green) 40%, var(--border)) !important;
+  background: var(--spectrum-green-soft) !important;
+}
+
+.chips span[data-tier="bad"] {
+  color: var(--spectrum-red) !important;
+  border-color: color-mix(in srgb, var(--spectrum-red) 40%, var(--border)) !important;
+  background: var(--spectrum-red-soft) !important;
+}
+
+.primary {
+  background: linear-gradient(135deg, var(--spectrum-purple), var(--spectrum-pink)) !important;
+  color: #fff !important;
+}
+
+.tabActive {
+  background: var(--spectrum-indigo-soft) !important;
+  border-color: var(--spectrum-indigo) !important;
+  color: var(--spectrum-indigo) !important;
+}
+
+/* ─── AA panels subtle tint ─── */
+
+.aa-panel--stats {
+  background:
+    linear-gradient(135deg, var(--spectrum-cyan-soft), transparent 55%),
+    var(--card);
+}
+
+.aa-panel--queue {
+  background:
+    linear-gradient(135deg, var(--spectrum-purple-soft), transparent 50%),
+    var(--card);
+}
+
+.aa-tab:nth-child(4n+1).aa-tab--active { color: var(--spectrum-cyan) !important; background: var(--spectrum-cyan-soft) !important; border-color: var(--spectrum-cyan) !important; }
+.aa-tab:nth-child(4n+2).aa-tab--active { color: var(--spectrum-green) !important; background: var(--spectrum-green-soft) !important; border-color: var(--spectrum-green) !important; }
+.aa-tab:nth-child(4n+3).aa-tab--active { color: var(--spectrum-orange) !important; background: var(--spectrum-orange-soft) !important; border-color: var(--spectrum-orange) !important; }
+.aa-tab:nth-child(4n+4).aa-tab--active { color: var(--spectrum-pink) !important; background: var(--spectrum-pink-soft) !important; border-color: var(--spectrum-pink) !important; }
+
+.page-loading-bar {
+  background: var(--spectrum-rainbow) !important;
+}

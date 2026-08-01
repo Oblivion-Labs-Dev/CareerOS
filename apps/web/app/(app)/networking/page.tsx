@@ -6,7 +6,7 @@ export default function NetworkingPage() {
       title="Contacts"
       eyebrow="Relationships"
       subtitle="Organize recruiters, warm paths, referrals, and lightweight outreach around the companies you actually care about."
-      primaryAction={{ href: "/applications", label: "Review pipeline" }}
+      primaryAction={{ href: "/dashboard#applications", label: "Review pipeline" }}
       secondaryAction={{ href: "/jobs", label: "Match to jobs" }}
       outcomes={[
         "Track recruiters and relationship notes in the same place.",

@@ -34,10 +34,10 @@ type ProfilePayload = {
 function mergePrefsWithProfile(profile: Partial<UserProfile> | null): CareerWorkspacePrefs {
   const stored = readWorkspacePrefs();
   return {
-    searchQuery: stored.searchQuery || defaultSearchFromProfile(profile),
-    location: stored.location || defaultLocationFromProfile(profile),
-    roleFilter: stored.roleFilter || roleFilterFromProfile(profile),
-    freshness: stored.freshness || "168",
+    searchQuery: stored.searchQuery,
+    location: stored.location,
+    roleFilter: stored.roleFilter,
+    freshness: stored.freshness || "all",
   };
 }
 

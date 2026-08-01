@@ -1,12 +1,9 @@
 import { WorkflowPage } from "@/components/scaffold-page";
-import { BackendRequiredBanner } from "@/components/backend-required-banner";
 import { SignalsPanel } from "@/components/intelligence/signals-panel";
 
 export default function SignalsPage() {
   return (
-    <>
-      <div className="page-content"><BackendRequiredBanner /></div>
-      <WorkflowPage
+    <WorkflowPage
         title="Signals"
         eyebrow="Intelligence Layer"
         subtitle="Hiring intent from LinkedIn posts — find roles before they hit job boards."
@@ -17,6 +14,5 @@ export default function SignalsPage() {
       >
         <SignalsPanel />
       </WorkflowPage>
-    </>
   );
 }

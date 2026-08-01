@@ -2,6 +2,8 @@ export interface NavItem {
   href: string;
   label: string;
   icon: string;
+  /** Sidebar emoji — shown instead of the SVG icon when set. */
+  emoji?: string;
   requiresBackend?: boolean;
   /** When false, shown under Coming soon (visible, not clickable). */
   enabled?: boolean;
@@ -17,19 +19,19 @@ export interface ComingSoonNavItem extends NavItem {
 }
 
 /** Pages active in sidebar, dashboard nav, and command palette. */
-export const VISIBLE_NAV_HREFS = ["/dashboard", "/jobs/discover", "/profile"] as const;
+export const VISIBLE_NAV_HREFS = ["/dashboard", "/jobs/discover", "/profile", "/application-assistant", "/analytics"] as const;
 
 /** Full nav catalog — routes stay available; disabled items appear under Coming soon. */
 export const ALL_NAV_GROUPS: NavGroup[] = [
   {
     label: "Today",
-    items: [{ href: "/dashboard", label: "Dashboard", icon: "today", requiresBackend: true, enabled: true }],
+    items: [{ href: "/dashboard", label: "Dashboard", icon: "today", emoji: "📊", requiresBackend: true, enabled: true }],
   },
   {
     label: "Intelligence Layer",
     items: [
-      { href: "/jobs/discover", label: "Job Scraper", icon: "jobs", requiresBackend: true, enabled: true },
-      { href: "/applications", label: "Applications", icon: "applications", requiresBackend: true, enabled: false },
+      { href: "/jobs/discover", label: "Job Scraper", icon: "jobs", emoji: "🔎", requiresBackend: true, enabled: true },
+      { href: "/application-assistant", label: "AI Assistant", icon: "applypilot", emoji: "🤖", requiresBackend: true, enabled: true },
       { href: "/intelligence/signals", label: "Signals", icon: "insights", requiresBackend: true, enabled: false },
       { href: "/intelligence/night-shift", label: "Night Shift", icon: "applypilot", requiresBackend: true, enabled: false },
       { href: "/intelligence/auto-apply", label: "Auto Apply", icon: "applypilot", requiresBackend: true, enabled: false },
@@ -39,8 +41,9 @@ export const ALL_NAV_GROUPS: NavGroup[] = [
   {
     label: "Build",
     items: [
-      { href: "/profile", label: "Profile", icon: "profile", requiresBackend: true, enabled: true },
+      { href: "/profile", label: "Profile", icon: "profile", emoji: "👤", requiresBackend: true, enabled: true },
       { href: "/resumes", label: "Documents", icon: "documents", requiresBackend: true, enabled: false },
+      { href: "/resume-scanner", label: "Resume Scanner", icon: "evidence", emoji: "📄", requiresBackend: true, enabled: false },
       { href: "/resume-corpus", label: "Resume Intelligence", icon: "evidence", requiresBackend: true, enabled: false },
       { href: "/intelligence/answers", label: "Answer Bank", icon: "documents", requiresBackend: true, enabled: false },
     ],
@@ -63,7 +66,7 @@ export const ALL_NAV_GROUPS: NavGroup[] = [
   },
   {
     label: "Insights",
-    items: [{ href: "/analytics", label: "Progress & Insights", icon: "insights", requiresBackend: true, enabled: false }],
+    items: [{ href: "/analytics", label: "Progress & Insights", icon: "insights", emoji: "📈", requiresBackend: true, enabled: true }],
   },
   {
     label: "Tools",
@@ -113,7 +116,7 @@ export const BACKEND_BANNER_OFFLINE =
   "If running locally, this page needs the backend server to function. Start it in a terminal, then refresh.";
 
 export const BACKEND_START_COMMAND = `cd CareerOS
-pnpm dev:api`;
+.\\restart-dev.bat`;
 
 export function pathRequiresBackend(pathname: string): boolean {
   return ALL_NAV_GROUPS.some((group) =>

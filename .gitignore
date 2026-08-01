@@ -24,3 +24,7 @@ test-results/
 .firefox-run/
 *.tsbuildinfo
 .pytest_cache/
+# Application Assistant — local browser profile and storage (secrets)
+apps/api/data/application_assistant/browser_profile/
+apps/api/data/application_assistant/traces/
+apps/api/data/application_assistant/screenshots/

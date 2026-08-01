@@ -1,14 +1,17 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { Suspense, useCallback, useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { CareerWorkspaceStrip } from "@/components/career-workspace-strip";
+import { ProfileDocumentsSection } from "@/components/profile/profile-documents-section";
+import { ResumeScannerDashboard } from "@/components/resume-scanner/resume-scanner-dashboard";
 import { WorkflowPage } from "@/components/scaffold-page";
-import { BackendRequiredBanner } from "@/components/backend-required-banner";
 import { useCareerWorkspace } from "@/hooks/use-career-workspace";
 import { getClientApiBaseUrl } from "@/lib/api";
 import { dashboardHref, discoverHref } from "@/lib/career-workspace";
-import { fetchCachedJson, getCachedStale } from "@/lib/client-fetch-cache";
+import { fetchCachedJson, getCachedStale, invalidateCached } from "@/lib/client-fetch-cache";
+import { PROFILE_KEY_LABELS } from "@/lib/profile-form-options";
 import type { UserProfile } from "@career-os/core";
 type ApplyPilotProfile = Partial<UserProfile>;
 
@@ -53,6 +56,16 @@ const PROFILE_FIELDS: Array<{
       { label: "Disability", key: "disability" },
     ],
   },
+  {
+    group: "Demographics (EEO)",
+    fields: [
+      { label: "Gender identity", key: "gender" },
+      { label: "Transgender", key: "transgender" },
+      { label: "Race / ethnicity", key: "raceEthnicity" },
+      { label: "Sexual orientation", key: "sexualOrientation" },
+      { label: "Pronouns", key: "pronouns" },
+    ],
+  },
 ];
 
 function valueFor(profile: ApplyPilotProfile, key: keyof ApplyPilotProfile) {
@@ -62,11 +75,56 @@ function valueFor(profile: ApplyPilotProfile, key: keyof ApplyPilotProfile) {
   return "Not set";
 }
 
+function ProfileDataGrid({ profile }: { profile: ApplyPilotProfile }) {
+  const searchParams = useSearchParams();
+  const highlightKeys = new Set(
+    (searchParams.get("highlight") || "")
+      .split(",")
+      .map((k) => k.trim())
+      .filter(Boolean),
+  );
+
+  return (
+    <section className="profile-data-grid" aria-label="Saved ApplyPilot profile">
+      {highlightKeys.size > 0 && (
+        <p className="muted aa-profile-highlight-note">
+          Highlighted fields were requested from an application:{" "}
+          {[...highlightKeys].map((k) => PROFILE_KEY_LABELS[k] || k).join(", ")}.
+        </p>
+      )}
+      {PROFILE_FIELDS.map((section) => (
+        <article className="workflow-panel profile-data-card" key={section.group}>
+          <span className="toc-card-kicker">{section.group}</span>
+          <div className="profile-field-list">
+            {section.fields.map((field) => (
+              <div
+                className={`profile-field-row${highlightKeys.has(String(field.key)) ? " profile-field-row--highlight" : ""}`}
+                key={field.key}
+              >
+                <span>{field.label}</span>
+                <strong>{valueFor(profile, field.key)}</strong>
+              </div>
+            ))}
+          </div>
+        </article>
+      ))}
+    </section>
+  );
+}
+
 export default function ProfilePage() {
   const { snapshot, prefs, targetLabel } = useCareerWorkspace();
-  const profileUrl = `${getClientApiBaseUrl()}/profile`;  const cached = getCachedStale<{ profile: ApplyPilotProfile | null }>(profileUrl);
+  const profileUrl = `${getClientApiBaseUrl()}/profile`;
+  const cached = getCachedStale<{ profile: ApplyPilotProfile | null }>(profileUrl);
   const [profile, setProfile] = useState<ApplyPilotProfile>(() => cached?.profile ?? {});
   const [loading, setLoading] = useState(() => !cached);
+
+  const reloadProfile = useCallback(() => {
+    invalidateCached(profileUrl);
+    void fetchCachedJson<{ profile: ApplyPilotProfile | null }>(profileUrl)
+      .then((data) => setProfile(data.profile ?? {}))
+      .catch(() => setProfile({}));
+  }, [profileUrl]);
 
   useEffect(() => {
     let cancelled = false;
@@ -84,29 +142,34 @@ export default function ProfilePage() {
       cancelled = true;
     };
   }, [profileUrl]);
+
+  useEffect(() => {
+    const hash = typeof window !== "undefined" ? window.location.hash.replace("#", "") : "";
+    if (!hash) return;
+    const target = document.getElementById(hash);
+    if (target) target.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [loading]);
   const screeningAnswers = profile.screeningAnswers || [];
   const workExperience = profile.workExperience || [];
   const rawJson = JSON.stringify(profile, null, 2);
 
   return (
     <>
-      <div className="page-content">
-        <BackendRequiredBanner />
-      </div>
       <WorkflowPage
         title="Profile"
         eyebrow="Foundation"
-        subtitle="Your saved profile powers job relevancy scoring, dashboard matches, and application defaults."
+        subtitle="Your profile, resume, and documents power job relevancy scoring, dashboard matches, and application defaults."
         primaryAction={{ href: discoverHref(prefs), label: "View matched jobs" }}
-        secondaryAction={{ href: dashboardHref(prefs), label: "Open dashboard" }}        outcomes={[
+        secondaryAction={{ href: "#documents", label: "Upload resume" }}
+        outcomes={[
+          "Upload your default resume and sync contact fields into your profile.",
           "Set target role, skills, and location so Job Scraper can score matches.",
-          "Keep contact and work authorization answers ready for applications.",
-          "Review screening answers that repeat across ATS forms.",
+          "Scan your resume with Qwen to extract accomplishments and check job fit.",
         ]}
         focusAreas={[
           {
-            title: "Scoring inputs",
-            description: "Target role, current title, skills, and location feed the relevancy engine.",
+            title: "Resume & documents",
+            description: "Upload a default resume for matching, autofill, and Qwen-powered scan.",
           },
           {
             title: "Job Scraper link",
@@ -143,25 +206,32 @@ export default function ProfilePage() {
           </section>
         ) : null}
 
-        {loading ? (          <p className="muted dashboard-empty" role="status">
+        {loading ? (
+          <p className="muted dashboard-empty" role="status">
             Loading profile…
           </p>
         ) : (
           <>
-            <section className="profile-data-grid" aria-label="Saved ApplyPilot profile">
-              {PROFILE_FIELDS.map((section) => (
-                <article className="workflow-panel profile-data-card" key={section.group}>
-                  <span className="toc-card-kicker">{section.group}</span>
-                  <div className="profile-field-list">
-                    {section.fields.map((field) => (
-                      <div className="profile-field-row" key={field.key}>
-                        <span>{field.label}</span>
-                        <strong>{valueFor(profile, field.key)}</strong>
-                      </div>
-                    ))}
-                  </div>
-                </article>
-              ))}
+            <Suspense fallback={<p className="muted dashboard-empty">Loading profile fields…</p>}>
+              <ProfileDataGrid profile={profile} />
+            </Suspense>
+
+            <ProfileDocumentsSection onProfileSynced={reloadProfile} />
+
+            <section className="workflow-panel dashboard-panel--wide profile-resume-scanner-section" id="resume" aria-label="Resume scanner">
+              <div className="dashboard-panel-header">
+                <div>
+                  <span className="toc-card-kicker">Resume intelligence</span>
+                  <h2>Scan, match, and improve</h2>
+                  <p className="muted" style={{ marginTop: "0.35rem" }}>
+                    Qwen extracts skills and accomplishments from your resume, analyzes job fit, and builds your knowledge graph.
+                  </p>
+                </div>
+              </div>
+              <ResumeScannerDashboard
+                embedded
+                profileName={String(profile.fullName || profile.firstName || "").trim()}
+              />
             </section>
 
             <section className="dashboard-layout dashboard-layout--full">

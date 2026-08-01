@@ -56,10 +56,10 @@ export function LandingPage() {
           AI-powered career operating system
         </span>
 
-        <h1 className="landing-title gradient-text-subtle landing-fade-in landing-fade-in--2">
+        <h1 className="landing-title landing-fade-in landing-fade-in--2">
           Your career,
           <br />
-          <span className="gradient-text">orchestrated</span>
+          <span className="landing-title-accent">orchestrated</span>
         </h1>
 
         <p className="landing-subtitle landing-fade-in landing-fade-in--3">
@@ -68,8 +68,8 @@ export function LandingPage() {
         </p>
 
         <div className="landing-cta landing-fade-in landing-fade-in--4">
-          <Link href="/applications" className={primaryLinkClassName}>
-            Open Application Tracker
+          <Link href="/dashboard" className={primaryLinkClassName}>
+            Open Application Dashboard
           </Link>
           <Link href="/apply-pilot" className={secondaryLinkClassName}>
             Get ApplyPilot
@@ -84,7 +84,7 @@ export function LandingPage() {
             <span className="landing-flow-arrow">→</span>
             <span>CareerOS API</span>
             <span className="landing-flow-arrow">→</span>
-            <span>Application Tracker</span>
+            <span>Application Dashboard</span>
           </div>
         </ScrollReveal>
 
@@ -92,7 +92,7 @@ export function LandingPage() {
           <div className="landing-stats">
             {STATS.map((stat) => (
               <div key={stat.label} className="landing-stat">
-                <div className="landing-stat-value gradient-text">{stat.value}</div>
+                <div className="landing-stat-value">{stat.value}</div>
                 <div className="landing-stat-label">{stat.label}</div>
               </div>
             ))}
@@ -121,7 +121,7 @@ export function LandingPage() {
       <section className="landing-section">
         <ScrollReveal>
           <h2 className="landing-section-title">
-            Everything you need to <span className="gradient-text">win the search</span>
+            Everything you need to <span className="landing-title-accent">win the search</span>
           </h2>
           <p className="landing-section-sub">
             A modular career stack that grows with you — from your first autofill to full application intelligence.

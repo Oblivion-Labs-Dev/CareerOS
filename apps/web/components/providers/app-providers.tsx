@@ -8,7 +8,7 @@ export function AppProviders({ children }: { children: React.ReactNode }) {
   return (
     <ThemeProvider attribute="data-theme" defaultTheme="dark" enableSystem disableTransitionOnChange>
       <BackendStatusInit />
-      <NextTopLoader color="#22d3ee" height={2} showSpinner={false} crawlSpeed={400} />
+      <NextTopLoader color="#2ee8c9" height={3} showSpinner={false} crawlSpeed={400} />
       {children}
     </ThemeProvider>
   );

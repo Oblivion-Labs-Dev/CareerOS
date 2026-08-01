@@ -78,6 +78,8 @@ HEADERS = {
     "Accept": "application/json",
 }
 
+SCRAPER_TASK_TIMEOUT_SEC = 90
+
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -586,8 +588,9 @@ async def scrape_yc_jobs(
     """
     all_jobs = []
     page = 0
+    max_pages = 5
 
-    while len(all_jobs) < max_results:
+    while len(all_jobs) < max_results and page < max_pages:
         try:
             # YC WAAS has a public JSON API
             resp = await client.get(
@@ -678,7 +681,8 @@ async def scrape_wellfound(
 
     for search_term in search_roles:
         page = 1
-        while len(all_jobs) < max_results:
+        max_pages = 5
+        while len(all_jobs) < max_results and page <= max_pages:
             try:
                 # Wellfound has a public GraphQL API
                 query = {
@@ -911,18 +915,25 @@ async def scrape_jobs(
     total_tasks = len(task_labels)
     completed = 0
     all_jobs = []
+    progress_total = [0]
 
     async def run_with_sem(coro):
         nonlocal completed
         async with sem:
-            result = await coro
+            try:
+                result = await asyncio.wait_for(coro, timeout=SCRAPER_TASK_TIMEOUT_SEC)
+            except (asyncio.TimeoutError, Exception):
+                result = []
             completed += 1
-            if progress_callback:
-                progress_callback(completed, total_tasks)
+            if progress_callback and progress_total[0]:
+                progress_callback(completed, progress_total[0])
             if on_batch and isinstance(result, list) and result:
-                batch_result = on_batch(result)
-                if asyncio.iscoroutine(batch_result):
-                    await batch_result
+                try:
+                    batch_result = on_batch(result)
+                    if asyncio.iscoroutine(batch_result):
+                        await batch_result
+                except Exception:
+                    pass
             return result
 
     # Run all scrapers concurrently with shared httpx client
@@ -930,7 +941,12 @@ async def scrape_jobs(
     ssl_ctx.check_hostname = False
     ssl_ctx.verify_mode = ssl.CERT_NONE
 
-    async with httpx.AsyncClient(headers=HEADERS, verify=ssl_ctx, follow_redirects=True) as client:
+    async with httpx.AsyncClient(
+        headers=HEADERS,
+        verify=ssl_ctx,
+        follow_redirects=True,
+        timeout=httpx.Timeout(20.0, connect=10.0),
+    ) as client:
         coros = []
 
         # Greenhouse tasks
@@ -981,7 +997,7 @@ async def scrape_jobs(
             scrape_wellfound(client, compiled, cutoff, role_keys, max_results=200)
         ))
 
-        total_tasks = len(task_labels)
+        progress_total[0] = len(coros)
 
         # Run all concurrently
         results = await asyncio.gather(*coros, return_exceptions=True)

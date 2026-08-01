@@ -331,7 +331,7 @@ export function KnowledgeGraph({ accomplishments, onSelectAccomplishment }: Know
             let strokeColor = "rgba(239, 68, 68, 0.4)";
 
             if (node.type === "concept") {
-              color = "#3b82f6"; // Concept: Blue
+              color = "#868480"; // Concept: neutral
               radius = 10;
               strokeColor = "rgba(59, 130, 246, 0.4)";
             } else if (node.type === "technology") {

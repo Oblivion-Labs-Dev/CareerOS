@@ -1,0 +1,447 @@
+/* CareerOS visual refinement — motion, depth, calm hierarchy. Loaded last. */
+
+@keyframes cos-rise {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes cos-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.page-content,
+.workflow-page,
+.aa-page,
+.minimal {
+  animation: cos-rise 0.52s var(--ease-out) both;
+}
+
+/* ─── Canvas: quiet depth, no neon mesh ─── */
+
+body {
+  background-image: var(--gradient-mesh);
+}
+
+.cos-orbs {
+  opacity: 0.88;
+}
+
+.cos-orb {
+  filter: blur(100px);
+}
+
+/* ─── Buttons: solid, tactile ─── */
+
+.btn-primary,
+.btn.btn-primary {
+  border-radius: var(--radius-md);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.2) inset, 0 6px 24px var(--accent-glow);
+}
+
+.btn-primary:hover,
+.btn.btn-primary:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.25) inset, 0 10px 32px var(--accent-glow);
+}
+
+.btn-secondary {
+  border-radius: var(--radius-md);
+  background: var(--bg-elevated);
+}
+
+.btn-secondary:hover {
+  border-color: var(--border-strong);
+  color: var(--text);
+}
+
+/* ─── Workflow pages: compact when real content follows ─── */
+
+.workflow-page--embedded {
+  gap: 0.85rem;
+}
+
+.workflow-page--embedded .workflow-grid {
+  display: none;
+}
+
+.workflow-page--embedded .workflow-hero {
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
+  gap: 0.65rem;
+  padding-bottom: 0;
+}
+
+.workflow-page--embedded .workflow-hero h1 {
+  margin: 0.35rem 0 0.45rem;
+  font-size: clamp(1.55rem, 2.8vw, 2.15rem);
+  letter-spacing: -0.025em;
+}
+
+.workflow-page--embedded .workflow-hero p {
+  font-size: 0.92rem;
+  line-height: 1.55;
+  max-width: 58ch;
+  color: var(--muted);
+}
+
+.workflow-page--embedded .workflow-actions {
+  justify-content: flex-start;
+  margin-top: 0.15rem;
+}
+
+.workflow-page--embedded .toc-eyebrow {
+  color: var(--accent);
+  font-weight: 650;
+  letter-spacing: 0.1em;
+}
+
+/* Scaffold-only pages keep the overview panels but softer */
+.workflow-page:not(.workflow-page--embedded) .workflow-panel {
+  background: var(--card);
+  box-shadow: var(--shadow-card);
+}
+
+.workflow-page:not(.workflow-page--embedded) .workflow-hero h1 {
+  font-size: clamp(1.75rem, 3.2vw, 2.5rem);
+}
+
+/* ─── Stat cards ─── */
+
+.stat-card,
+.cos-stat-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 1rem 1.1rem;
+  box-shadow: var(--shadow-card);
+  transition: transform var(--duration-normal) var(--ease-out), border-color var(--duration-normal), box-shadow var(--duration-normal);
+}
+
+.stat-card:hover,
+.cos-stat-card:hover {
+  transform: translateY(-1px);
+  border-color: var(--border-strong);
+}
+
+.stat-label,
+.cos-stat-label {
+  font-size: 0.72rem;
+  color: var(--muted);
+  margin: 0 0 0.3rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 650;
+}
+
+.stat-value,
+.cos-stat-value {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 1.55rem;
+  font-weight: 700;
+  color: var(--text);
+  letter-spacing: -0.02em;
+}
+
+.cos-stat-card::after {
+  background: var(--gradient-hero);
+  opacity: 0;
+  height: 2px;
+}
+
+.cos-stat-card:hover::after {
+  opacity: 0.85;
+}
+
+/* ─── Application Assistant ─── */
+
+.aa-page::before {
+  display: none;
+}
+
+.aa-page-hero,
+.aa-page-header.aa-page-hero {
+  padding: 0 0 0.35rem;
+  margin-bottom: 0.75rem;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  backdrop-filter: none;
+}
+
+.aa-page-hero h1,
+.aa-page-header h1 {
+  font-size: clamp(1.55rem, 2.8vw, 2rem);
+  letter-spacing: -0.025em;
+}
+
+.aa-page-hero .toc-eyebrow,
+.aa-page-header .toc-eyebrow {
+  color: var(--accent);
+}
+
+.aa-page-hero p,
+.aa-page-header p {
+  font-size: 0.9rem;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.aa-dashboard {
+  gap: 1.15rem;
+}
+
+.aa-panel {
+  background: var(--card);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-card);
+  backdrop-filter: none;
+}
+
+.aa-panel--stats {
+  background: var(--card);
+}
+
+.aa-panel-header {
+  border-bottom-color: var(--border);
+  margin-bottom: 0.95rem;
+  padding-bottom: 0.75rem;
+}
+
+.aa-panel-header h2 {
+  font-size: 1.05rem;
+  font-weight: 650;
+}
+
+.aa-panel-subtitle {
+  font-size: 0.82rem;
+}
+
+.aa-stat-card {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: none;
+  transition: transform var(--duration-fast) var(--ease-out), border-color var(--duration-fast);
+}
+
+.aa-stat-card::before {
+  background: var(--stat-accent, var(--accent)) !important;
+  opacity: 0.65;
+}
+
+.aa-stat-card--apps { --stat-accent: var(--accent); }
+.aa-stat-card--verified { --stat-accent: var(--success); }
+.aa-stat-card--missing { --stat-accent: var(--muted); }
+.aa-stat-card--prep { --stat-accent: var(--accent-tertiary); }
+
+.aa-stat-card:hover,
+.aa-stat-card--clickable:hover {
+  transform: translateY(-1px);
+  border-color: var(--border-strong);
+  box-shadow: var(--shadow-sm);
+}
+
+.aa-stat-card--live {
+  border-color: color-mix(in srgb, var(--success) 35%, var(--border));
+}
+
+.aa-safety-note {
+  border-color: color-mix(in srgb, var(--warning) 28%, var(--border));
+  background: color-mix(in srgb, var(--warning) 6%, var(--card));
+  font-size: 0.84rem;
+}
+
+.aa-queue-grid {
+  gap: 0.85rem;
+}
+
+/* ─── Eyebrows & kickers: editorial, not neon ─── */
+
+.toc-eyebrow,
+.toc-card-kicker {
+  color: var(--accent);
+  font-weight: 650;
+  letter-spacing: 0.1em;
+}
+
+code {
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+}
+
+::selection {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.page-loading-bar {
+  background: var(--accent);
+}
+
+/* ─── Cards & panels: layered depth ─── */
+
+.workflow-panel,
+.toc-card,
+.focus-panel,
+.panel,
+.matchCard {
+  contain: none;
+}
+
+/* ─── Sidebar polish ─── */
+
+.brand-mark {
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.12) inset;
+}
+
+.nav-link.active {
+  box-shadow: inset 2px 0 0 var(--cos-brand);
+}
+
+/* ─── Stagger children for premium feel ─── */
+
+.aa-stats-grid > *,
+.aa-queue-grid > *,
+.matchGrid > * {
+  animation: cos-rise 0.48s var(--ease-out) both;
+}
+
+.aa-stats-grid > *:nth-child(1),
+.aa-queue-grid > *:nth-child(1),
+.matchGrid > *:nth-child(1) { animation-delay: 0.04s; }
+.aa-stats-grid > *:nth-child(2),
+.aa-queue-grid > *:nth-child(2),
+.matchGrid > *:nth-child(2) { animation-delay: 0.08s; }
+.aa-stats-grid > *:nth-child(3),
+.aa-queue-grid > *:nth-child(3),
+.matchGrid > *:nth-child(3) { animation-delay: 0.12s; }
+.aa-stats-grid > *:nth-child(4),
+.aa-queue-grid > *:nth-child(4),
+.matchGrid > *:nth-child(4) { animation-delay: 0.16s; }
+
+.aa-tab--active {
+  color: var(--text);
+  border-color: var(--border-strong);
+  background: var(--bg-elevated);
+  box-shadow: var(--shadow-sm);
+}
+
+/* ─── Workflow hero + page header unification ─── */
+
+.cos-page-header.workflow-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.65rem;
+  align-items: start;
+  padding-bottom: 0;
+}
+
+.workflow-page:not(.workflow-page--embedded) .cos-page-header.workflow-hero {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 1rem;
+  padding-bottom: 0.25rem;
+}
+
+.cos-page-header.workflow-hero h1 {
+  margin: 0.3rem 0 0.4rem;
+}
+
+.workflow-page--embedded .cos-page-header.workflow-hero {
+  margin-bottom: 0.35rem;
+}
+
+/* ─── Sidebar: quieter brand sub ─── */
+
+.brand-sub {
+  font-size: 0.68rem;
+  line-height: 1.4;
+  opacity: 0.85;
+}
+
+.sidebar-backend-legend--online {
+  color: var(--success);
+}
+
+/* ─── Mobile drawer depth ─── */
+
+.sidebar--mobile-open {
+  box-shadow: var(--cos-elev-3);
+}
+
+.sidebar-backdrop {
+  animation: cos-fade-in 0.2s var(--ease-out) both;
+}
+
+/* ─── Career workspace strip ─── */
+
+.career-workspace-strip {
+  border-color: var(--border);
+  background: var(--bg-elevated);
+  box-shadow: var(--cos-elev-1);
+}
+
+.career-workspace-chip {
+  border-color: var(--border);
+  background: var(--card);
+  color: var(--text-secondary);
+  transition: border-color var(--cos-motion-micro), background var(--cos-motion-micro);
+}
+
+.career-workspace-chip:hover,
+.career-workspace-chip:focus-visible {
+  border-color: var(--border-strong);
+  background: var(--card-hover);
+  outline: none;
+}
+
+.career-workspace-chip--active {
+  border-color: var(--border-strong);
+  background: var(--card);
+  color: var(--text);
+  box-shadow: var(--cos-elev-1);
+}
+
+/* Job scraper — live counters while scraping */
+.job-discover-dashboard--scraping .job-discover-live-count,
+.job-discover-dashboard--scraping .job-discover-live-stat {
+  font-variant-numeric: tabular-nums;
+  color: var(--accent);
+  transition: color 0.2s ease, transform 0.2s ease;
+}
+
+.job-discover-dashboard--scraping .job-discover-live-count {
+  animation: job-discover-count-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes job-discover-count-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.82;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .page-content,
+  .workflow-page,
+  .aa-page,
+  .minimal,
+  .aa-stats-grid > *,
+  .aa-queue-grid > *,
+  .matchGrid > *,
+  .job-discover-dashboard--scraping .job-discover-live-count {
+    animation: none;
+  }
+}

@@ -4,7 +4,7 @@ const PREFS_KEY = "career-os:workspace:prefs";
 const SNAPSHOT_KEY = "career-os:workspace:snapshot";
 
 export const DEFAULT_TARGET_SEARCH = "senior software developer";
-export const DEFAULT_ROLE_FILTER = "swe";
+export const DEFAULT_ROLE_FILTER = "";
 
 export type CareerWorkspacePrefs = {
   searchQuery: string;
@@ -24,10 +24,10 @@ export type CareerWorkspaceSnapshot = {
 };
 
 const DEFAULT_PREFS: CareerWorkspacePrefs = {
-  searchQuery: DEFAULT_TARGET_SEARCH,
+  searchQuery: "",
   location: "",
-  roleFilter: DEFAULT_ROLE_FILTER,
-  freshness: "168",
+  roleFilter: "",
+  freshness: "all",
 };
 
 function readStorage<T>(key: string): T | null {

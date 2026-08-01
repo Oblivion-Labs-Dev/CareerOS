@@ -1,7 +1,7 @@
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { PRODUCT_FEATURES } from "@career-os/core";
-import { BackendRequiredBanner } from "@/components/backend-required-banner";
+import { PageTitleWithStatus } from "@/components/page-title-with-status";
 import { getExtensionDistPath } from "@/lib/extension-dist-path";
 const ApplyPilotInstaller = dynamic(
   () => import("@/components/apply-pilot-installer").then((mod) => mod.ApplyPilotInstaller),
@@ -42,10 +42,8 @@ export default async function ApplyPilotPage() {
 
   return (
     <div className="page-content toc-page">
-      <BackendRequiredBanner />
-
       <section className="toc-hero">        <span className="toc-eyebrow">ApplyPilot</span>
-        <h1>The browser assistant for application forms.</h1>
+        <PageTitleWithStatus className="toc-hero-title">The browser assistant for application forms.</PageTitleWithStatus>
         <p>
           Install ApplyPilot, connect it to the Python backend, and use it to fill applications while CareerOS
           keeps the tracker, learned answers, and job context organized.

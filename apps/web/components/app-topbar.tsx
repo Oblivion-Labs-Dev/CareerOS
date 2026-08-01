@@ -3,12 +3,14 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { BackendStatusDot } from "@/components/backend-status-dot";
 import { NAV_GROUPS } from "@/lib/nav-config";
 import { CareerIcon } from "@/components/ui/career-icon";
 
 const DIRECT_ACTIONS = [
   { label: "Open dashboard", href: "/dashboard", detail: "Dashboard" },
   { label: "Open job scraper", href: "/jobs/discover", detail: "Job Scraper" },
+  { label: "Open AI Assistant", href: "/application-assistant", detail: "AI Assistant" },
   { label: "Edit profile", href: "/profile", detail: "Profile" },
 ];
 
@@ -83,7 +85,10 @@ export function AppTopbar() {
         <div className="app-topbar-context">
           <Link href="/dashboard">CareerOS</Link>
           <span aria-hidden>/</span>
-          <strong>{current?.label ?? "Workspace"}</strong>
+          <strong className="app-topbar-page-title">
+            {current?.label ?? "Workspace"}
+            <BackendStatusDot />
+          </strong>
         </div>
         <button ref={triggerRef} type="button" className="app-topbar-search" onClick={() => setOpen(true)}>
           <CareerIcon name="search" size={16} />

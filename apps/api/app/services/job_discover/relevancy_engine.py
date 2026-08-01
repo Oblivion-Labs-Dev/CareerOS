@@ -133,6 +133,10 @@ def score_job(job: dict, profile: dict) -> dict:
     user_years = int(profile.get("years_experience", 0) or 0)
     user_city = profile.get("city", "")
     user_state = profile.get("state", "")
+    resume_text = (profile.get("resume_text") or "").lower()
+    experience_text = (profile.get("work_experience_text") or "").lower()
+    accomplishment_text = (profile.get("accomplishment_text") or "").lower()
+    expanded_text = f"{resume_text} {experience_text} {accomplishment_text}".strip()
 
     score = 0
     keywords = []
@@ -162,7 +166,10 @@ def score_job(job: dict, profile: dict) -> dict:
     score += title_score
 
     # ── 2. Skills match (0-35 pts) ─────────────────────────────────────────
-    user_skills = [s.strip().lower() for s in user_skills_raw.split(",") if s.strip()]
+    if isinstance(user_skills_raw, list):
+        user_skills = [str(skill).strip().lower() for skill in user_skills_raw if str(skill).strip()]
+    else:
+        user_skills = [s.strip().lower() for s in str(user_skills_raw or "").split(",") if s.strip()]
     matched_skills = []
 
     if user_skills:
@@ -181,6 +188,18 @@ def score_job(job: dict, profile: dict) -> dict:
         if user_skills:
             skills_ratio = len(matched_skills) / len(user_skills)
             score += round(35 * skills_ratio)
+
+    if expanded_text:
+        from app.services.application_assistant.candidate_match_context import extract_keywords
+
+        resume_terms = extract_keywords(expanded_text)
+        resume_hits = [term for term in resume_terms if term in full_text]
+        for term in resume_hits:
+            if term not in matched_skills:
+                matched_skills.append(term)
+        if resume_terms:
+            score += round(min(20, (len(resume_hits) / max(len(resume_terms), 1)) * 20))
+
     keywords.extend(matched_skills)
 
     # Also find skills from SKILL_ALIASES that appear in the job but user doesn't have

@@ -1,4 +1,9 @@
+import asyncio
+import sys
 from pathlib import Path
+
+if sys.platform == "win32":
+    asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -12,6 +17,9 @@ from app.routers.api import router
 from app.routers.intelligence import router as intelligence_router
 from app.routers.repair_demo import router as repair_demo_router
 from app.routers.repair_manual import router as repair_manual_router
+from app.routers.application_assistant import router as application_assistant_router
+from app.routers.resume_intelligence import router as resume_intelligence_router
+from app.routers.job_search import router as job_search_router
 from app.services.error_fix_tracker import reconcile_error_history_on_startup, seed_error_fix_history_if_empty
 
 app = FastAPI(
@@ -37,6 +45,9 @@ app.include_router(router)
 app.include_router(intelligence_router)
 app.include_router(repair_demo_router)
 app.include_router(repair_manual_router)
+app.include_router(application_assistant_router)
+app.include_router(resume_intelligence_router)
+app.include_router(job_search_router)
 
 
 @app.get("/favicon.ico", include_in_schema=False)

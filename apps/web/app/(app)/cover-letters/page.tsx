@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
 
 export default function CoverLettersPage() {
-  redirect("/resumes");
+  redirect("/profile#documents");
 }

@@ -1,18 +1,13 @@
 import { WorkflowPage } from "@/components/scaffold-page";
 import { ReferralsManager } from "@/components/referrals-manager";
-import { BackendRequiredBanner } from "@/components/backend-required-banner";
 
 export default async function ReferralsPage() {
   return (
-    <>
-      <div className="page-content">
-        <BackendRequiredBanner />
-      </div>
-      <WorkflowPage
+    <WorkflowPage
       title="Referrals"
       eyebrow="Relationships"
       subtitle="People who can refer you at target companies — track emails, LinkedIn, relationship context, and referral status."
-      primaryAction={{ href: "/applications", label: "Review pipeline" }}
+      primaryAction={{ href: "/dashboard#applications", label: "Review pipeline" }}
       secondaryAction={{ href: "/networking", label: "All contacts" }}
       outcomes={[
         "Keep referral contacts separate from cold outreach lists.",
@@ -36,6 +31,5 @@ export default async function ReferralsPage() {
     >
       <ReferralsManager />
     </WorkflowPage>
-    </>
   );
 }

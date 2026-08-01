@@ -330,6 +330,17 @@ async function initPopup() {
   btnDashboard?.addEventListener('click', () => {
     chrome.tabs.create({ url: chrome.runtime.getURL('dashboard.html') });
   });
+
+  const { getFloatingWidgetConfig, setFloatingWidgetConfig } = await import('../shared/floatingWidgetConfig');
+  const floatingToggle = document.getElementById('toggle-floating-widget') as HTMLInputElement | null;
+  if (floatingToggle) {
+    const widgetConfig = await getFloatingWidgetConfig();
+    floatingToggle.checked = widgetConfig.enabled;
+    floatingToggle.addEventListener('change', () => {
+      setFloatingWidgetConfig({ enabled: floatingToggle.checked });
+    });
+  }
+
   await syncFromServer();
   await loadProfile();
   await loadDocuments();

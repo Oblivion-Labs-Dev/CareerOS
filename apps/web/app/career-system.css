@@ -1,45 +1,45 @@
 /* CareerOS 2026 product shell and shared workflow foundation. Imported after legacy route styles. */
 :root,
 [data-theme="dark"] {
-  --cos-canvas: #080b12;
-  --cos-panel: #10151f;
-  --cos-panel-raised: #151b27;
-  --cos-panel-soft: #0d121b;
-  --cos-line: rgba(203, 213, 225, 0.12);
-  --cos-line-strong: rgba(203, 213, 225, 0.2);
-  --cos-ink: #f6f8fb;
-  --cos-ink-2: #c3ccda;
-  --cos-ink-3: #8793a5;
+  --cos-canvas: #0b0e12;
+  --cos-panel: #12161c;
+  --cos-panel-raised: #171d26;
+  --cos-panel-soft: #0f1319;
+  --cos-line: rgba(148, 163, 184, 0.1);
+  --cos-line-strong: rgba(148, 163, 184, 0.18);
+  --cos-ink: #f4f7fb;
+  --cos-ink-2: #c5d0de;
+  --cos-ink-3: #8b9aad;
   --cos-brand: #58dec4;
-  --cos-brand-strong: #25bda2;
+  --cos-brand-strong: #3cbfa8;
   --cos-brand-soft: rgba(88, 222, 196, 0.12);
-  --cos-violet: #a99af2;
-  --cos-blue: #74b8ff;
-  --cos-warning: #f5c76b;
-  --cos-danger: #ff8899;
-  --cos-success: #64d9a9;
-  --cos-shadow: 0 18px 52px rgba(0, 0, 0, 0.28);
+  --cos-violet: #9b8ec4;
+  --cos-blue: #6eb5d9;
+  --cos-warning: #e5b567;
+  --cos-danger: #e87872;
+  --cos-success: #4db896;
+  --cos-shadow: 0 1px 0 rgba(255, 255, 255, 0.04) inset, 0 16px 48px rgba(0, 0, 0, 0.28);
 }
 
 [data-theme="light"] {
-  --cos-canvas: #f4f6f9;
+  --cos-canvas: #f3f6f9;
   --cos-panel: #ffffff;
   --cos-panel-raised: #ffffff;
   --cos-panel-soft: #f8fafc;
   --cos-line: rgba(15, 23, 42, 0.1);
   --cos-line-strong: rgba(15, 23, 42, 0.17);
-  --cos-ink: #172033;
-  --cos-ink-2: #42506a;
-  --cos-ink-3: #6d7b90;
-  --cos-brand: #0c947e;
+  --cos-ink: #0f172a;
+  --cos-ink-2: #334155;
+  --cos-ink-3: #64748b;
+  --cos-brand: #0a947e;
   --cos-brand-strong: #087561;
-  --cos-brand-soft: rgba(12, 148, 126, 0.1);
+  --cos-brand-soft: rgba(10, 148, 126, 0.1);
   --cos-violet: #6e5bd3;
   --cos-blue: #176dc1;
-  --cos-warning: #a66308;
-  --cos-danger: #c73852;
-  --cos-success: #087d55;
-  --cos-shadow: 0 18px 52px rgba(24, 35, 55, 0.11);
+  --cos-warning: #b45309;
+  --cos-danger: #dc2626;
+  --cos-success: #0d8a6a;
+  --cos-shadow: 0 1px 0 rgba(255, 255, 255, 0.9) inset, 0 12px 36px rgba(15, 23, 42, 0.08);
 }
 
 .sr-only {

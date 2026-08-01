@@ -1,12 +1,9 @@
 import { WorkflowPage } from "@/components/scaffold-page";
-import { BackendRequiredBanner } from "@/components/backend-required-banner";
 import { NightShiftPanel } from "@/components/intelligence/night-shift-panel";
 
 export default function NightShiftPage() {
   return (
-    <>
-      <div className="page-content"><BackendRequiredBanner /></div>
-      <WorkflowPage
+    <WorkflowPage
         title="Night Shift"
         eyebrow="Intelligence Layer"
         subtitle="Queue Tier-2 roles for overnight form-fill. Tier-1 dream companies are never touched."
@@ -17,6 +14,5 @@ export default function NightShiftPage() {
       >
         <NightShiftPanel />
       </WorkflowPage>
-    </>
   );
 }

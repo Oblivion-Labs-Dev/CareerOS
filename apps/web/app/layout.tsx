@@ -3,6 +3,9 @@ import { Inter, Outfit } from "next/font/google";
 import { AppProviders } from "@/components/providers/app-providers";
 import "./globals.css";
 import "./career-system.css";
+import "./cos-design-system.css";
+import "./cos-refine.css";
+import "./cos-spectrum.css";
 
 const inter = Inter({
   subsets: ["latin"],

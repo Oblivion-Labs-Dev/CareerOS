@@ -3,6 +3,11 @@ const arsenalPreset = {
   theme: {
     extend: {
       colors: {
+        brand: {
+          DEFAULT: "#58dec4",
+          strong: "#3cbfa8",
+          soft: "rgba(88, 222, 196, 0.12)",
+        },
         arsenal: {
           background: "var(--arsenal-background)",
           surface: "var(--arsenal-surface)",

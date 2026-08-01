@@ -465,16 +465,16 @@
   }
 }
 .root {
-  --corpus-accent: #2fc8a5;
-  --corpus-accent-strong: #18a986;
+  --corpus-accent: #58dec4;
+  --corpus-accent-strong: #3cbfa8;
   --corpus-accent-soft: color-mix(in srgb, var(--corpus-accent) 13%, transparent);
-  --corpus-amber: #f4b860;
-  --corpus-blue: #73a7ff;
-  --corpus-violet: #a68cf5;
+  --corpus-amber: #e5b567;
+  --corpus-blue: #6eb5d9;
+  --corpus-violet: #9b8ec4;
   min-height: 0;
   color: var(--text);
   background:
-    radial-gradient(circle at 78% -14%, color-mix(in srgb, var(--corpus-accent) 9%, transparent), transparent 34rem),
+    radial-gradient(circle at 78% -14%, color-mix(in srgb, var(--corpus-accent) 5%, transparent), transparent 34rem),
     linear-gradient(180deg, color-mix(in srgb, var(--bg-elevated) 76%, var(--bg)), var(--bg));
 }
 
@@ -592,12 +592,12 @@
 }
 
 :global([data-theme="light"]) .root {
-  --corpus-accent: #087f69;
-  --corpus-accent-strong: #066652;
+  --corpus-accent: #0a947e;
+  --corpus-accent-strong: #087561;
   --corpus-accent-soft: color-mix(in srgb, var(--corpus-accent) 9%, transparent);
-  --corpus-amber: #a75d12;
-  --corpus-blue: #315fbd;
-  --corpus-violet: #7457bc;
+  --corpus-amber: #b45309;
+  --corpus-blue: #176dc1;
+  --corpus-violet: #6e5bd3;
 }
 
 .skipLink {

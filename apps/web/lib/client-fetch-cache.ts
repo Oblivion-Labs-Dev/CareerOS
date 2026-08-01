@@ -28,6 +28,12 @@ export function invalidateCached(key: string): void {
   cache.delete(key);
 }
 
+export function invalidateCachedByPrefix(prefix: string): void {
+  for (const key of cache.keys()) {
+    if (key.startsWith(prefix)) cache.delete(key);
+  }
+}
+
 export async function fetchCachedJson<T>(
   url: string,
   options?: { staleMs?: number; signal?: AbortSignal; timeoutMs?: number },

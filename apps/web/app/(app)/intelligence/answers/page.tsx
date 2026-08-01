@@ -1,12 +1,9 @@
 import { WorkflowPage } from "@/components/scaffold-page";
-import { BackendRequiredBanner } from "@/components/backend-required-banner";
 import { AnswerBankPanel } from "@/components/intelligence/answer-bank-panel";
 
 export default function AnswerBankPage() {
   return (
-    <>
-      <div className="page-content"><BackendRequiredBanner /></div>
-      <WorkflowPage
+    <WorkflowPage
         title="Answer Bank"
         eyebrow="Intelligence Layer"
         subtitle="Smart screening-question answers — custom YAML overrides plus company-aware generated fallbacks."
@@ -17,6 +14,5 @@ export default function AnswerBankPage() {
       >
         <AnswerBankPanel />
       </WorkflowPage>
-    </>
   );
 }

@@ -1,5 +1,4 @@
 import { WorkflowPage } from "@/components/scaffold-page";
-import { BackendRequiredBanner } from "@/components/backend-required-banner";
 import { fetchJson } from "@/lib/api";
 
 export default async function JobsPage() {
@@ -8,11 +7,7 @@ export default async function JobsPage() {
   );
 
   return (
-    <>
-      <div className="page-content">
-        <BackendRequiredBanner />
-      </div>
-      <WorkflowPage
+    <WorkflowPage
       title="Jobs"
       eyebrow="Apply"
       subtitle="Collect roles worth considering, preserve the original context, and decide what deserves a real application."
@@ -62,6 +57,5 @@ export default async function JobsPage() {
         )}
       </section>
     </WorkflowPage>
-    </>
   );
 }

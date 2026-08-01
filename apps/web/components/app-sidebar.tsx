@@ -3,16 +3,17 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import { BackendIcon } from "@/components/backend-icon";
-import { BackendNavTooltip } from "@/components/backend-nav-tooltip";
+import { BackendStatusDot } from "@/components/backend-status-dot";
 import { ThemeToggle } from "@/components/ui/theme-toggle";
 import { CareerIcon } from "@/components/ui/career-icon";
 import { useBackendStatus } from "@/hooks/use-backend-status";
+import { formatNavCount, sidebarCountForHref, useSidebarJobCounts } from "@/hooks/use-sidebar-job-counts";
 import { COMING_SOON_NAV_ITEMS, NAV_GROUPS } from "@/lib/nav-config";
 
 export function AppSidebar() {
   const pathname = usePathname();
   const backendOnline = useBackendStatus();
+  const { counts: sidebarCounts, loaded: sidebarCountsLoaded } = useSidebarJobCounts();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [mobileViewport, setMobileViewport] = useState(false);
   const [comingSoonOpen, setComingSoonOpen] = useState(false);
@@ -74,8 +75,15 @@ export function AppSidebar() {
     backendOnline === true
       ? "Backend connected"
       : backendOnline === false
-        ? "Backend offline — start API server"
+        ? "Backend offline"
         : "Checking backend…";
+
+  function navIcon(item: (typeof NAV_GROUPS)[number]["items"][number]) {
+    if (item.emoji) {
+      return <span className="nav-emoji">{item.emoji}</span>;
+    }
+    return <CareerIcon name={item.icon} size={18} />;
+  }
 
   return (
     <>
@@ -144,20 +152,32 @@ export function AppSidebar() {
             {group.items.map((item) => {
               const isActive =
                 pathname === item.href || (item.href !== "/" && pathname.startsWith(`${item.href}/`));
+              const sidebarCount = sidebarCountForHref(item.href, sidebarCounts);
+              const showSidebarCount = backendOnline !== false && sidebarCountsLoaded && sidebarCount !== null;
               return (
                 <Link
                   key={item.href}
                   href={item.href}
                   className={`nav-link${isActive ? " active" : ""}`}
                   prefetch
-                  title={item.label}
+                  title={
+                    showSidebarCount
+                      ? `${item.label} — ${sidebarCount!.toLocaleString()} to review`
+                      : item.label
+                  }
                   onClick={() => setMobileOpen(false)}
                 >
                   <span className="nav-icon" aria-hidden>
-                    <CareerIcon name={item.icon} size={18} />
+                    {navIcon(item)}
                   </span>
                   <span className="nav-link-label">{item.label}</span>
-                  {item.requiresBackend ? <BackendNavTooltip online={backendOnline} /> : null}
+                  {showSidebarCount ? (
+                    <span className="nav-link-meta">
+                      <span className="nav-link-count" aria-label={`${sidebarCount!.toLocaleString()} to review`}>
+                        {formatNavCount(sidebarCount!)}
+                      </span>
+                    </span>
+                  ) : null}
                 </Link>
               );
             })}
@@ -193,7 +213,7 @@ export function AppSidebar() {
                     title={`${item.label} — coming soon`}
                   >
                     <span className="nav-icon" aria-hidden>
-                      <CareerIcon name={item.icon} size={18} />
+                      {item.emoji ? <span className="nav-emoji">{item.emoji}</span> : <CareerIcon name={item.icon} size={18} />}
                     </span>
                     <span className="nav-link-label">{item.label}</span>
                     <span className="nav-coming-soon-tag">{item.groupLabel}</span>
@@ -205,12 +225,9 @@ export function AppSidebar() {
         ) : null}
       </nav>
       <div className="sidebar-footer">
-        <p
-          className={`sidebar-backend-legend${backendOnline ? " sidebar-backend-legend--online" : ""}`}
-          title={legendText}
-        >
-          <BackendIcon className="sidebar-backend-legend-icon" title="" />
-          {legendText}
+        <p className="sidebar-backend-legend" title={legendText}>
+          <BackendStatusDot />
+          <span className="sidebar-backend-legend-label">{legendText}</span>
         </p>
         <Link href="/" className="btn-ghost sidebar-home-link">
           View product home

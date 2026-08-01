@@ -45,13 +45,25 @@ engine = create_engine(
     settings.career_os_database_url
     if not settings.career_os_database_url.startswith("sqlite:///./")
     else f"sqlite:///{DB_PATH.as_posix()}",
-    connect_args={"check_same_thread": False} if "sqlite" in settings.career_os_database_url else {},
+    connect_args={"check_same_thread": False, "timeout": 30} if "sqlite" in settings.career_os_database_url else {},
 )
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 
 
+def _configure_sqlite() -> None:
+    if "sqlite" not in str(engine.url):
+        return
+    from sqlalchemy import text
+
+    with engine.connect() as conn:
+        conn.execute(text("PRAGMA journal_mode=WAL"))
+        conn.execute(text("PRAGMA busy_timeout=30000"))
+        conn.commit()
+
+
 def init_db() -> None:
     Base.metadata.create_all(bind=engine)
+    _configure_sqlite()
     with session_scope() as db:
         if not get_kv(db, "profile"):
             set_kv(db, "profile", load_profile_seed() or default_profile())
@@ -206,6 +218,7 @@ def upsert_entity(db: Session, entity_type: str, payload: dict[str, Any]) -> dic
         if "createdAt" not in payload:
             payload["createdAt"] = now_iso()
         db.add(EntityStore(id=entity_id, entity_type=entity_type, payload=payload))
+    db.flush()
     return payload
 
 
@@ -260,6 +273,7 @@ def default_profile() -> dict[str, Any]:
         "sponsorship": "No",
         "yearsExperience": "5",
         "currentTitle": "Software Engineer",
+        "currentCompany": "Example Corp",
         "targetRole": "Senior Engineer",
         "salaryExpectations": "$140,000",
     }

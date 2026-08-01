@@ -42,10 +42,10 @@ export function JobSearchGuide() {
           </p>
         </div>
         <div className="job-portals-hero-actions">
-          <Link href="/resumes" className="btn-secondary">
+          <Link href="/profile#documents" className="btn-secondary">
             Your resume
           </Link>
-          <Link href="/applications" className="btn-secondary">
+          <Link href="/dashboard#applications" className="btn-secondary">
             Tracker
           </Link>
           <Link href="/apply/outreach" className="btn-primary">
@@ -407,7 +407,7 @@ export function JobSearchGuide() {
             <strong>CareerOS Application Tracker</strong>
             <p>Log submissions, follow-ups, and outcomes from ApplyPilot and outreach in one place.</p>
           </div>
-          <Link href="/applications" className="btn btn-sm">
+          <Link href="/dashboard#applications" className="btn btn-sm">
             Open tracker
           </Link>
         </div>

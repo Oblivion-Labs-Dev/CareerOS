@@ -364,7 +364,7 @@ export const CAREEROS_AGENT_VISION = {
   careerOsToday: [
     { label: "ApplyPilot", href: "/apply-pilot", description: "Chrome autofill + application capture" },
     { label: "Email Outreach", href: "/apply/outreach", description: "Recruiter campaigns with delivery tracking" },
-    { label: "Application Tracker", href: "/applications", description: "Pipeline, submissions, and follow-ups" },
+    { label: "Application Tracker", href: "/dashboard#applications", description: "Pipeline, submissions, and follow-ups" },
     { label: "Referrals", href: "/referrals", description: "Warm paths at target companies" },
   ],
 };

@@ -40,6 +40,10 @@ import { buildResumeKeywordSuggestions, formatResumeSuggestionsText } from '../s
 import { recordAutofillSession } from '../shared/autofillSessionLog';
 import { initJobCardOverlays } from './jobCardOverlay';
 import type { FloatingWidget } from './floatingWidget';
+import {
+  getFloatingWidgetConfig,
+  removeFloatingWidgetFromDom
+} from '../shared/floatingWidgetConfig';
 
 function truncateCompany(value: string, max = 16): string {
   const trimmed = value.trim();
@@ -494,8 +498,13 @@ async function hydrateCopilotInsights(
   }
 }
 
-function injectFloatingCopilotButton() {
+async function injectFloatingCopilotButton() {
   purgeLegacyFloatingWidget();
+  const config = await getFloatingWidgetConfig();
+  if (!config.enabled) {
+    removeFloatingWidgetFromDom();
+    return;
+  }
   const existing = document.getElementById('jobfill-floating-wrapper');
   if (existing && existing.dataset.uiVersion === COPILOT_UI_VERSION) return;
   existing?.remove();
@@ -912,7 +921,7 @@ function scheduleFloatingWidgetMount(): void {
       siteInjectorCleanup?.();
       siteInjectorCleanup = null;
     }
-    injectFloatingCopilotButton();
+    void injectFloatingCopilotButton();
   };
 
   attempt();
@@ -932,6 +941,18 @@ if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', scheduleFloatingWidgetMount);
 } else {
   scheduleFloatingWidgetMount();
+}
+
+if (isExtensionContextValid()) {
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area !== 'local' || !changes.floatingWidgetConfig) return;
+    const enabled = changes.floatingWidgetConfig.newValue?.enabled !== false;
+    if (!enabled) {
+      removeFloatingWidgetFromDom();
+    } else {
+      void injectFloatingCopilotButton();
+    }
+  });
 }
 
 if (isExtensionContextValid()) {

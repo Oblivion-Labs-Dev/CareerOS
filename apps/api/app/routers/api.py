@@ -157,6 +157,14 @@ class TargetCompanyRefreshPayload(BaseModel):
     verifyOracle: bool = True
 
 
+class JobGapAnalysisPayload(BaseModel):
+    jobId: str = Field(min_length=1)
+
+
+class RescoreJobsPayload(BaseModel):
+    jobIds: list[str] = Field(default_factory=list)
+
+
 DEFAULT_REFERRAL_ASK_MESSAGE = """I hope you're doing well! I came across a job that aligns closely with my background and was wondering if you'd be open to referring me. I have 7+ years of experience at Microsoft and Amazon building distributed systems, AI infrastructure, and cloud-native platforms, and I've recently been focused on agentic AI and developer tooling.
 
 I believe my experience is a strong match for the role. If you're comfortable referring me, I'd really appreciate it. I've attached the job link and my resume for context. Thanks for taking the time to consider my request!"""
@@ -326,6 +334,11 @@ def job_discover_status(db: Session = Depends(db_session)) -> dict[str, Any]:
     }
 
 
+@router.post("/jobs/discover/scrape/cancel")
+def cancel_job_discover_scrape() -> dict[str, Any]:
+    return job_discover.cancel_scrape()
+
+
 @router.post("/jobs/discover/scrape")
 async def start_job_discover_scrape(payload: JobDiscoverScrapePayload | None = None) -> dict[str, Any]:
     try:
@@ -342,8 +355,77 @@ async def start_job_discover_scrape(payload: JobDiscoverScrapePayload | None = N
 
 
 @router.post("/jobs/discover/rescore")
-def rescore_discovered_jobs(db: Session = Depends(db_session)) -> dict[str, Any]:
-    return job_discover.rescore_all(db)
+async def rescore_discovered_jobs(
+    db: Session = Depends(db_session),
+    force: bool = Query(default=False),
+) -> dict[str, Any]:
+    """Tier 1: refresh heuristic match scores for all indexed jobs (background)."""
+    return await job_discover.start_tier1_rescore_background(force=force)
+
+
+@router.post("/jobs/discover/analyze")
+async def analyze_discovered_jobs(
+    payload: RescoreJobsPayload,
+    db: Session = Depends(db_session),
+    use_qwen: bool = Query(default=True),
+) -> dict[str, Any]:
+    """Tier 2/3: gap analysis for specific jobs (gap click, add to assistant)."""
+    if not payload.jobIds:
+        raise HTTPException(status_code=400, detail="No jobs selected to analyze")
+    return await job_discover.analyze_jobs_async(db, payload.jobIds, use_qwen=use_qwen)
+
+
+@router.post("/jobs/discover/gap-analysis")
+async def job_discover_gap_analysis(payload: JobGapAnalysisPayload, db: Session = Depends(db_session)) -> dict[str, Any]:
+    """Return gap analysis; computes Tier 2 on demand if missing or stale."""
+    from app.db.store import list_entities
+
+    job = job_discover.get_job_by_id(db, payload.jobId)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    profile = get_kv(db, "profile") or {}
+    documents = get_kv(db, "documents") or {}
+    accomplishments = list_entities(db, "accomplishment")
+    profile_hash = job_discover.compute_match_profile_hash(
+        profile,
+        documents=documents,
+        accomplishments=accomplishments,
+    )
+    analysis = job.get("gapAnalysis")
+    if analysis and job.get("gapProfileHash") == profile_hash:
+        return {
+            "success": True,
+            "job": {
+                "id": job.get("id"),
+                "title": job.get("title"),
+                "companyName": job.get("companyName"),
+                "location": job.get("location"),
+                "url": job.get("url"),
+            },
+            "analysis": analysis,
+        }
+
+    result = await job_discover.analyze_jobs_async(db, [payload.jobId], use_qwen=True)
+    if not result.get("success"):
+        raise HTTPException(status_code=404, detail=result.get("error") or "Analysis failed")
+    refreshed = job_discover.get_job_by_id(db, payload.jobId)
+    analysis = (refreshed or {}).get("gapAnalysis")
+    if not analysis:
+        raise HTTPException(status_code=500, detail="Analysis completed but gap data missing")
+
+    return {
+        "success": True,
+        "job": {
+            "id": refreshed.get("id"),
+            "title": refreshed.get("title"),
+            "companyName": refreshed.get("companyName"),
+            "location": refreshed.get("location"),
+            "url": refreshed.get("url"),
+        },
+        "analysis": analysis,
+        "qwenStarted": result.get("qwenStarted", False),
+    }
 
 
 @router.get("/jobs/discover")
@@ -360,10 +442,14 @@ def list_discovered_jobs(
     per_page: int = Query(default=30, ge=1, le=100),
 ) -> dict[str, Any]:
     snapshot = job_discover.get_snapshot(db)
-    freshness_filter = freshness if freshness in {"24", "48", "168", "720", "all"} else "all"
+    freshness_filter = freshness if freshness in {"12", "24", "48", "72", "168", "336", "720", "all"} else "all"
     sort_option = sort if sort in {"relevancy", "date", "company"} else "relevancy"
+    from app.services.application_assistant.scraper_import import get_synced_scraper_job_ids
+
+    synced_ids = get_synced_scraper_job_ids(db)
+    available_jobs = [job for job in (snapshot.get("jobs") or []) if job.get("id") not in synced_ids]
     jobs, total = job_discover.filter_jobs(
-        snapshot.get("jobs") or [],
+        available_jobs,
         q=q,
         company=company,
         location=location,
@@ -379,6 +465,8 @@ def list_discovered_jobs(
         "success": True,
         "jobs": jobs,
         "total": total,
+        "indexedTotal": snapshot.get("totalJobs", 0),
+        "assistantTotal": len(synced_ids),
         "page": page,
         "perPage": per_page,
         "totalPages": total_pages,
@@ -400,6 +488,19 @@ def job_discover_lookup(url: str = Query(...), db: Session = Depends(db_session)
 @router.get("/jobs/discover/stats")
 def job_discover_stats(db: Session = Depends(db_session)) -> dict[str, Any]:
     return {"success": True, **job_discover.get_stats(db)}
+
+
+@router.get("/jobs/discover/locations")
+def job_discover_locations(db: Session = Depends(db_session)) -> dict[str, Any]:
+    from app.services.application_assistant.scraper_import import get_synced_scraper_job_ids
+
+    snapshot = job_discover.get_snapshot(db)
+    synced_ids = get_synced_scraper_job_ids(db)
+    available_jobs = [job for job in (snapshot.get("jobs") or []) if job.get("id") not in synced_ids]
+    return {
+        "success": True,
+        "locations": job_discover.get_location_options(available_jobs),
+    }
 
 
 @router.get("/jobs/discover/{job_id}/recruiter")
@@ -502,25 +603,29 @@ def get_resume(db: Session = Depends(db_session)) -> dict[str, Any]:
 
 
 @router.post("/cover-letter/generate")
-def generate_cover_letter(payload: CoverLetterGeneratePayload, db: Session = Depends(db_session)) -> dict[str, Any]:
+async def generate_cover_letter(payload: CoverLetterGeneratePayload, db: Session = Depends(db_session)) -> dict[str, Any]:
+    from app.services.job_search.cover_letter_pipeline import generate_cover_letter_with_review
+
     profile = get_kv(db, "profile") or {}
     company = payload.companyName or "the company"
     role = payload.roleTitle or profile.get("targetRole") or "the role"
-    name = profile.get("fullName") or "Candidate"
-    content = (
-        f"Dear Hiring Team at {company},\n\n"
-        f"I am excited to apply for the {role} position. With {profile.get('yearsExperience', 'several')} years "
-        f"of experience as a {profile.get('currentTitle', 'professional')}, I believe my background aligns well "
-        f"with your needs.\n\n"
-        f"{payload.jobDescription[:400] + '...' if payload.jobDescription else 'I am motivated by impactful work and collaborative teams.'}\n\n"
-        f"Thank you for your consideration.\n\nSincerely,\n{name}"
+    result = await generate_cover_letter_with_review(
+        profile,
+        company=company,
+        role=role,
+        job_description=payload.jobDescription or "",
+        tone=payload.tone or "professional",
+        use_llm=True,
     )
     letter = {
         "id": new_id("cl_"),
         "jobId": payload.jobId,
-        "title": f"Cover letter — {role} at {company}",
-        "content": content,
+        "title": result["title"],
+        "content": result["content"],
         "tone": payload.tone,
+        "pipelineMode": result["pipelineMode"],
+        "reviewerNotes": result["reviewerNotes"],
+        "styleIssues": result["styleIssues"],
         "createdAt": now_iso(),
     }
     upsert_entity(db, "cover_letter", letter)
@@ -844,13 +949,15 @@ class ParseResumePayload(BaseModel):
 
 
 @router.post("/api/parse-resume")
-def legacy_parse_resume(payload: ParseResumePayload | None = None, db: Session = Depends(db_session)) -> dict[str, Any]:
+async def legacy_parse_resume(payload: ParseResumePayload | None = None, db: Session = Depends(db_session)) -> dict[str, Any]:
     profile = get_kv(db, "profile") or {}
     documents = get_kv(db, "documents") or {}
     try:
         result = parse_resume_into_profile(profile, documents, force=bool(payload and payload.force))
         set_kv(db, "profile", result["profile"])
-        return {"success": True, **result}
+        db.commit()
+        tier1 = await job_discover.start_tier1_rescore_background(force=True)
+        return {"success": True, **result, "tier1Rescore": tier1}
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 

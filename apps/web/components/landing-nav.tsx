@@ -15,8 +15,8 @@ export function LandingNav() {
         <Link href="/apply-pilot">ApplyPilot</Link>
         <Link href="/roadmap">Roadmap</Link>
         <ThemeToggle />
-        <Link href="/applications" className={primaryLinkClassName}>
-          Open Tracker
+        <Link href="/dashboard" className={primaryLinkClassName}>
+          Open Application Dashboard
         </Link>
       </nav>
     </header>

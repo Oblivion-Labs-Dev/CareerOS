@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { PageTitleWithStatus } from "@/components/page-title-with-status";
 
 interface WorkflowPageProps {
   title: string;
@@ -20,6 +21,44 @@ interface WorkflowPageProps {
   children?: React.ReactNode;
 }
 
+function WorkflowOverviewGrid({
+  title,
+  outcomes,
+  focusAreas,
+}: {
+  title: string;
+  outcomes: string[];
+  focusAreas: Array<{ title: string; description: string }>;
+}) {
+  return (
+    <section className="workflow-grid" aria-label={`${title} overview`}>
+      <article className="workflow-panel workflow-panel--main">
+        <span className="toc-card-kicker">What this clarifies</span>
+        <div className="workflow-checklist">
+          {outcomes.map((outcome) => (
+            <div className="workflow-check" key={outcome}>
+              <span aria-hidden>✓</span>
+              <p>{outcome}</p>
+            </div>
+          ))}
+        </div>
+      </article>
+
+      <article className="workflow-panel">
+        <span className="toc-card-kicker">Coming into focus</span>
+        <div className="workflow-focus-list">
+          {focusAreas.map((area) => (
+            <div className="workflow-focus" key={area.title}>
+              <h2>{area.title}</h2>
+              <p>{area.description}</p>
+            </div>
+          ))}
+        </div>
+      </article>
+    </section>
+  );
+}
+
 export function WorkflowPage({
   title,
   eyebrow,
@@ -30,12 +69,14 @@ export function WorkflowPage({
   focusAreas,
   children,
 }: WorkflowPageProps) {
+  const embedded = Boolean(children);
+
   return (
-    <div className="page-content workflow-page">
-      <section className="workflow-hero">
+    <div className={`page-content workflow-page${embedded ? " workflow-page--embedded" : ""}`}>
+      <header className="cos-page-header workflow-hero">
         <div>
           <span className="toc-eyebrow">{eyebrow}</span>
-          <h1>{title}</h1>
+          <PageTitleWithStatus>{title}</PageTitleWithStatus>
           <p>{subtitle}</p>
         </div>
         {(primaryAction || secondaryAction) && (
@@ -52,33 +93,14 @@ export function WorkflowPage({
             )}
           </div>
         )}
-      </section>
+      </header>
 
-      <section className="workflow-grid" aria-label={`${title} overview`}>
-        <article className="workflow-panel workflow-panel--main">
-          <span className="toc-card-kicker">What this clarifies</span>
-          <div className="workflow-checklist">
-            {outcomes.map((outcome) => (
-              <div className="workflow-check" key={outcome}>
-                <span aria-hidden>✓</span>
-                <p>{outcome}</p>
-              </div>
-            ))}
-          </div>
-        </article>
-
-        <article className="workflow-panel">
-          <span className="toc-card-kicker">Coming into focus</span>
-          <div className="workflow-focus-list">
-            {focusAreas.map((area) => (
-              <div className="workflow-focus" key={area.title}>
-                <h2>{area.title}</h2>
-                <p>{area.description}</p>
-              </div>
-            ))}
-          </div>
-        </article>
-      </section>
+      {!embedded ? (
+        <details className="workflow-overview">
+          <summary>About this workspace</summary>
+          <WorkflowOverviewGrid title={title} outcomes={outcomes} focusAreas={focusAreas} />
+        </details>
+      ) : null}
 
       {children}
     </div>

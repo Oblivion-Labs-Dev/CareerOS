@@ -6,7 +6,7 @@ export default function InterviewsPage() {
       title="Interviews"
       eyebrow="Grow"
       subtitle="Prepare around the role, your proof points, and the actual stage you are entering next."
-      primaryAction={{ href: "/applications", label: "Choose opportunity" }}
+      primaryAction={{ href: "/dashboard#applications", label: "Choose opportunity" }}
       secondaryAction={{ href: "/analytics", label: "Review signals" }}
       outcomes={[
         "Keep behavioral stories, role notes, and prep tasks together.",
