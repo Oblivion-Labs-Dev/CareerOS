@@ -15,11 +15,9 @@ Strategy: Navigate to career search page → intercept XHR/fetch calls →
           parse the JSON response → no HTML scraping needed.
 """
 
-import asyncio
 import json
 import re
-from datetime import datetime, timedelta, timezone
-from typing import Callable
+from collections.abc import Callable
 
 import httpx
 

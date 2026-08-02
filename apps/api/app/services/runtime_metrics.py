@@ -4,7 +4,7 @@ import threading
 import time
 from collections import deque
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from app.services.error_fix_tracker import error_fix_tracker
@@ -107,7 +107,7 @@ class RuntimeMetricsStore:
                     "path": item.path,
                     "status": item.status_code,
                     "durationMs": round(item.duration_ms, 1),
-                    "at": datetime.fromtimestamp(item.at, tz=timezone.utc).isoformat(),
+                    "at": datetime.fromtimestamp(item.at, tz=UTC).isoformat(),
                 }
                 for item in list(self.recent_requests)[:12]
             ]
@@ -133,7 +133,7 @@ class RuntimeMetricsStore:
                 "statusCodes": dict(sorted(self.status_counts.items(), key=lambda item: item[0])),
                 "topRoutes": [{"route": route, "count": count} for route, count in top_routes],
                 "recentRequests": recent,
-                "updatedAt": datetime.now(timezone.utc).isoformat(),
+                "updatedAt": datetime.now(UTC).isoformat(),
             }
 
 

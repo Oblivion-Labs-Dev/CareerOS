@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import atexit
 import os
 import subprocess
 import sys
@@ -11,17 +12,22 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
+from app.services.application_assistant.answer_classification import (
+    infer_phone_country,
+    is_phone_country_field,
+    should_skip_autofill_field,
+)
 from app.services.application_assistant.browser_replay import (
     build_browser_plan,
     build_replay_actions_from_fields,
     ensure_document_upload_actions,
-    ensure_replay_plan,
     merge_plan_actions_with_fields,
     normalize_replay_actions,
     plan_is_usable,
     resolve_review_replay_plan,
     sort_fill_actions,
 )
+from app.services.application_assistant.log_redaction import sanitize_url
 from app.services.application_assistant.mapping_pipeline import (
     apply_document_fields,
     attach_field_ids,
@@ -30,13 +36,7 @@ from app.services.application_assistant.mapping_pipeline import (
     run_mapping_pipeline,
     verify_filled_fields,
 )
-from app.services.application_assistant.log_redaction import sanitize_url
 from app.services.application_assistant.qwen_activity import log_activity_event
-from app.services.application_assistant.answer_classification import (
-    infer_phone_country,
-    is_phone_country_field,
-    should_skip_autofill_field,
-)
 
 DATA_DIR = Path(__file__).resolve().parents[3] / "data" / "application_assistant"
 SCREENSHOTS_DIR = DATA_DIR / "screenshots"
@@ -48,7 +48,7 @@ PREP_TIMEOUT_SEC = float(os.environ.get("AA_PREP_TIMEOUT", "600"))
 for d in (DATA_DIR, SCREENSHOTS_DIR, TRACES_DIR, BROWSER_PROFILE_DIR, BROWSER_SESSIONS_DIR):
     d.mkdir(parents=True, exist_ok=True)
 
-_active_sessions: dict[str, "BrowserSession"] = {}
+_active_sessions: dict[str, BrowserSession] = {}
 
 
 def profile_dir_for_app(app_id: str) -> str:
@@ -202,6 +202,27 @@ def _field_fillable(field: dict[str, Any], *, review_mode: bool) -> bool:
     return False
 
 
+async def _await_bounded(awaitable: Any, timeout: float) -> bool:
+    """Wait for a Playwright operation without waiting forever for cancellation."""
+    task = asyncio.ensure_future(awaitable)
+    done, _pending = await asyncio.wait({task}, timeout=timeout)
+    if task not in done:
+        task.cancel()
+        return False
+    try:
+        task.result()
+    except BaseException:
+        return False
+    return True
+
+
+async def _stop_playwright_instance(playwright: Any) -> None:
+    try:
+        await playwright.stop()
+    except Exception:
+        pass
+
+
 class BrowserSession:
     """Managed Playwright browser session."""
 
@@ -246,7 +267,7 @@ class BrowserSession:
         if last_error:
             raise last_error
 
-    async def __aenter__(self) -> "BrowserSession":
+    async def __aenter__(self) -> BrowserSession:
         await self.start()
         return self
 
@@ -288,9 +309,12 @@ class BrowserSession:
             stop_submission_watcher(app_id)
             _active_sessions.pop(app_id, None)
             _sync_cleanup_closed_session(app_id)
+        playwright = self._playwright
         self._session_id = ""
         self._context = None
         self._playwright = None
+        if playwright is not None:
+            asyncio.create_task(_stop_playwright_instance(playwright))
 
     async def focus(self, page: Any | None = None) -> None:
         target = page or self._active_page
@@ -334,18 +358,17 @@ class BrowserSession:
 
     async def close(self) -> None:
         app_id = self._session_id
-        if self._context:
-            try:
-                await self._context.close()
-            except Exception:
-                pass
-            self._context = None
-        if self._playwright:
-            try:
-                await self._playwright.stop()
-            except Exception:
-                pass
-            self._playwright = None
+        context = self._context
+        playwright = self._playwright
+        self._context = None
+        self._playwright = None
+        context_closed = context is None
+        if context:
+            context_closed = await _await_bounded(context.close(), timeout=10.0)
+        if not context_closed:
+            await asyncio.to_thread(_kill_chromium_using_profile, self.profile_dir)
+        if playwright:
+            await _await_bounded(playwright.stop(), timeout=5.0)
         if app_id:
             _active_sessions.pop(app_id, None)
         self._session_id = ""
@@ -448,7 +471,7 @@ async def _detect_application_work_page(
     return page, False
 
 
-def _defer_browser_focus(session: "BrowserSession", page: Any) -> None:
+def _defer_browser_focus(session: BrowserSession, page: Any) -> None:
     """Focus the review browser without blocking prep completion."""
 
     async def _focus_with_timeout() -> None:
@@ -987,27 +1010,9 @@ async def _prepare_application_impl(
     return results
 
 
-def _session_alive(session: "BrowserSession") -> bool:
-    try:
-        if sys.platform == "win32":
-            return bool(run_playwright(_check_session_alive(session), timeout=5))
-        return session.is_alive()
-    except Exception:
-        return False
-
-
-async def _check_session_alive(session: "BrowserSession") -> bool:
-    return session.is_alive()
-
-
 def get_active_session(app_id: str) -> BrowserSession | None:
-    session = _active_sessions.get(app_id)
-    if not session:
-        return None
-    if not _session_alive(session):
-        session.detach()
-        return None
-    return session
+    """Return a registered session; context close callbacks remove stale entries."""
+    return _active_sessions.get(app_id)
 
 
 def list_active_session_ids() -> list[str]:
@@ -1030,7 +1035,7 @@ def discard_session(app_id: str) -> None:
 
 async def focus_session(app_id: str) -> bool:
     session = _active_sessions.get(app_id)
-    if not session or not _session_alive(session):
+    if not session:
         return False
     if sys.platform == "win32":
         await run_playwright_async(session.focus())
@@ -1088,12 +1093,17 @@ def _sync_cleanup_closed_session(app_id: str) -> None:
 
 
 async def close_session(app_id: str) -> bool:
+    if sys.platform == "win32":
+        running_loop = asyncio.get_running_loop()
+        if running_loop is not _playwright_loop:
+            return await run_playwright_async(close_session(app_id))
+
     from app.services.application_assistant.submission_watcher import finalize_submission_watch, stop_submission_watcher
 
     session = _active_sessions.get(app_id)
     if session:
         try:
-            await finalize_submission_watch(app_id, session)
+            await _await_bounded(finalize_submission_watch(app_id, session), timeout=4.0)
         except Exception:
             pass
     stop_submission_watcher(app_id)
@@ -1101,10 +1111,7 @@ async def close_session(app_id: str) -> bool:
     if not session:
         return False
     try:
-        if sys.platform == "win32":
-            await run_playwright_async(session.close())
-        else:
-            await session.close()
+        await session.close()
     except Exception:
         session.detach()
     return True
@@ -1153,3 +1160,41 @@ async def close_all_sessions() -> int:
     if closed:
         await asyncio.sleep(0.5)
     return closed
+
+
+def shutdown_playwright_worker(timeout: float = 10) -> None:
+    """Close review sessions and stop the shared Playwright worker loop."""
+    global _playwright_loop, _playwright_thread
+
+    loop = _playwright_loop
+    thread = _playwright_thread
+    if loop is None or thread is None:
+        return
+    if threading.current_thread() is thread:
+        loop.stop()
+        return
+
+    if loop.is_running():
+        try:
+            future = asyncio.run_coroutine_threadsafe(close_all_sessions(), loop)
+            future.result(timeout=timeout)
+        except Exception:
+            pass
+        try:
+            loop.call_soon_threadsafe(loop.stop)
+        except RuntimeError:
+            pass
+    thread.join(timeout=timeout)
+    if not thread.is_alive() and not loop.is_closed():
+        try:
+            loop.close()
+        except RuntimeError:
+            pass
+    with _playwright_lock:
+        if _playwright_loop is loop:
+            _playwright_loop = None
+        if _playwright_thread is thread:
+            _playwright_thread = None
+
+
+atexit.register(shutdown_playwright_worker)

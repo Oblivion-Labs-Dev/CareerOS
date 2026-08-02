@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import urllib.error
 import urllib.request
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal
 
@@ -26,7 +26,7 @@ SOFTWARE_KEYWORDS = ("software", "developer", "engineer", "sde", "platform")
 
 
 def _utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 def _load_oracle_seed() -> list[dict[str, Any]]:
@@ -275,7 +275,7 @@ def days_since_refresh(snapshot: dict[str, Any]) -> float | None:
         return None
     try:
         parsed = datetime.fromisoformat(str(refreshed).replace("Z", "+00:00"))
-        delta = datetime.now(timezone.utc) - parsed.astimezone(timezone.utc)
+        delta = datetime.now(UTC) - parsed.astimezone(UTC)
         return delta.total_seconds() / 86400
     except ValueError:
         return None

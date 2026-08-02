@@ -3,14 +3,15 @@
 from __future__ import annotations
 
 import re
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy.orm import Session
 
 from app.db.store import get_kv, list_entities, set_kv
 from app.services.intelligence.night_shift_config import TIER_1_COMPANIES, TIER_2_COMPANIES, night_shift_eligible
-from app.services.job_discover import role_classifier, store as job_store
+from app.services.job_discover import role_classifier
+from app.services.job_discover import store as job_store
 
 SETTINGS_KEY = "intelligence_night_shift_settings"
 QUEUE_KEY = "intelligence_night_shift_queue"
@@ -24,7 +25,7 @@ DEFAULT_SETTINGS = {
 
 
 def _utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 def _company_key(name: str) -> str:

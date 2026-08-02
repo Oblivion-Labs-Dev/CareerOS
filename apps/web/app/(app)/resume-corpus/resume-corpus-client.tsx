@@ -13,17 +13,9 @@ import { ComingSoonView } from "./components/coming-soon-view";
 import {
   EvidenceView,
   InterviewView,
-  JobMatchView,
-  KnowledgeGraphView,
   MetricsView,
-  ResumeBuilderView,
-  ReviewCenterView,
   SettingsView,
-  SkillsView,
-  TemplatesView,
-  type ResumeGenerateRequest,
-  type ResumeGenerateResult,
-} from "./components/corpus-secondary-views";
+} from "./components/corpus-phase-one-views";
 import { PREVIEW_PROFILE, PREVIEW_RECORDS } from "./corpus-fixtures";
 import {
   getComingSoonFeature,
@@ -317,48 +309,6 @@ export function ResumeCorpusClient({ previewMode, initialView, initialRecordId }
     setProfileSource(response.profile ?? nextSource);
   };
 
-  const generateResume = async (request: ResumeGenerateRequest): Promise<ResumeGenerateResult> => {
-    const startedAt = window.performance.now();
-    if (previewMode) {
-      const selected = records.filter((record) => request.selectedIds.includes(record.id));
-      const result = {
-        targetRoleMatched: request.targetRole,
-        atsMatchScore: Math.round(selected.reduce((sum, record) => sum + summarizeBulletReadiness(record).completionPercent, 0) / Math.max(selected.length, 1)),
-        overallCritique: "Preview output uses only selected accomplishments. Unsupported metrics stay flagged until evidence is attached.",
-        skillsList: [...new Set(selected.flatMap((record) => record.technologies))].slice(0, 10),
-        provenance: "selected-records" as const,
-        warnings: [] as string[],
-        resumeBullets: selected.map((record) => ({
-          id: record.id,
-          company: record.company,
-          role: record.role,
-          project: record.project,
-          optimizedBullet: record.currentBullet,
-        })),
-      };
-      recordCorpusPerformance("resume-generation", window.performance.now() - startedAt, { previewMode: true, selected: selected.length });
-      return result;
-    }
-    const response = await postJson<{ result: ResumeGenerateResult }>("/resume/generate", {
-      accomplishmentIds: request.selectedIds,
-      targetCompany: request.targetCompany,
-      targetRole: request.targetRole,
-      jobDescription: request.jobDescription,
-      experienceLevel: request.experienceLevel,
-      tone: request.tone,
-      maxPages: request.maxPages,
-      targetAtsScore: request.targetAtsScore,
-    });
-    recordCorpusPerformance("resume-generation", window.performance.now() - startedAt, { previewMode: false, selected: request.selectedIds.length });
-    return {
-      ...response.result,
-      provenance: "generated-draft",
-      warnings: response.result.warnings ?? [
-        "AI-generated draft: verify every claim against the linked source accomplishment before export.",
-      ],
-    };
-  };
-
   const updateSearch = useCallback((query: string, category?: SearchCategory) => {
     const startedAt = window.performance.now();
     const nextResults = searchCorpus(searchIndex, query, category);
@@ -391,24 +341,12 @@ export function ResumeCorpusClient({ previewMode, initialView, initialRecordId }
     content = selectedRecord
       ? <AccomplishmentWorkspace key={selectedRecord.id} record={selectedRecord} previewMode={previewMode} onBack={backToExplorer} onCommit={commitRecord} onDelete={deleteRecord} />
       : <AccomplishmentExplorer records={records} onSelect={selectRecord} onCreate={() => setCreateOpen(true)} />;
-  } else if (activeView === "builder") {
-    content = <ResumeBuilderView records={records} profile={enrichedProfile} onGenerate={generateResume} onSelect={selectRecord} onCreate={() => setCreateOpen(true)} />;
-  } else if (activeView === "match") {
-    content = <JobMatchView records={records} onSelect={selectRecord} />;
   } else if (activeView === "interview") {
     content = <InterviewView records={records} onSelect={selectRecord} />;
   } else if (activeView === "metrics") {
     content = <MetricsView records={records} onSelect={selectRecord} />;
-  } else if (activeView === "skills") {
-    content = <SkillsView records={records} onSelect={selectRecord} />;
-  } else if (activeView === "graph") {
-    content = <KnowledgeGraphView records={records} onSelect={selectRecord} />;
   } else if (activeView === "evidence") {
     content = <EvidenceView records={records} onSelect={selectRecord} />;
-  } else if (activeView === "reviews") {
-    content = <ReviewCenterView records={records} onSelect={selectRecord} />;
-  } else if (activeView === "templates") {
-    content = <TemplatesView records={records} />;
   } else if (activeView === "settings") {
     content = <SettingsView profile={profile} previewMode={previewMode} onProfileChange={setProfile} onSave={saveProfile} />;
   } else {

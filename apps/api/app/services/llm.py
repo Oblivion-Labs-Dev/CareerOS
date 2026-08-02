@@ -1,7 +1,9 @@
 import json
 import uuid
 from typing import Any
+
 import httpx
+
 from app.config import settings
 
 DEFAULT_MODEL = "google/gemini-2.5-flash"
@@ -572,8 +574,8 @@ async def analyze_accomplishment(description: str, current_data: dict[str, Any] 
         ],
         "principalPrep": [
             {
-                "question": f"How is data consistency and idempotency guaranteed across Redis nodes?",
-                "expectedAnswer": f"We used hash slots to partition client route rules, and query local replicas with fallback to primary during failover.",
+                "question": "How is data consistency and idempotency guaranteed across Redis nodes?",
+                "expectedAnswer": "We used hash slots to partition client route rules, and query local replicas with fallback to primary during failover.",
                 "diagram": "graph LR\n  GW[Gateway] -->|Consistent Hash| RedisA[(Redis Replica A)]\n  GW -.->|Failover| RedisPrimary[(Redis Primary)]",
                 "tradeoffs": "Eventual consistency accepted for rule replication to maintain sub-10ms response SLAs.",
                 "alternatives": ["Etcd distributed consensus", "Consul watch sessions"],
@@ -745,7 +747,7 @@ async def analyze_accomplishment(description: str, current_data: dict[str, Any] 
         "techStack": stack,
         "status": "current",
         "problemContext": {
-            "what": f"The existing gateway service suffered from significant throughput bottlenecks, causing latency spikes under peak load.",
+            "what": "The existing gateway service suffered from significant throughput bottlenecks, causing latency spikes under peak load.",
             "why": "It directly impacted customer checkout pipelines, causing cart drops and lost sales during high-traffic events.",
             "who": "End-users checking out, and backend microservices dealing with connection pooling failures.",
             "businessContext": "Peak traffic loss cost the business up to $150k per hour during outages.",
@@ -795,7 +797,7 @@ async def analyze_accomplishment(description: str, current_data: dict[str, Any] 
                 "roleName": "Hiring Manager Review",
                 "wouldCare": True,
                 "wouldInterview": True,
-                "whatLiked": [f"Direct business impact metric: saved $120k/yr", f"Technical modernization using {stack[0]}"],
+                "whatLiked": ["Direct business impact metric: saved $120k/yr", f"Technical modernization using {stack[0]}"],
                 "whatAverage": ["Boilerplate team mentorship claims"],
                 "whatMemorable": ["50,000 Peak QPS under load"],
                 "whatIgnore": ["Basic AWS config setup"],
@@ -952,7 +954,7 @@ async def analyze_accomplishment(description: str, current_data: dict[str, Any] 
             "top10Percent": f"Led the rewrite of our edge gateway in {stack[0]}, scaling throughput to 50k QPS and reducing latency by 95%.",
             "top1Percent": f"Sponsered platform simplification initiative replacing legacy API gateways with unified {stack[0]} infrastructure, raising system availability to 99.999% at 50k QPS.",
             "atsOptimized": f"Low-latency API gateway engineer skilled in {stack[0]}, Cloud Computing, AWS, Kubernetes, Redis caching, and high-availability traffic routing.",
-            "hmFavorite": f"Re-architected edge gateway to process 50k QPS, dropping p99 response times to 8.5ms and saving $120k/yr in compute costs.",
+            "hmFavorite": "Re-architected edge gateway to process 50k QPS, dropping p99 response times to 8.5ms and saving $120k/yr in compute costs.",
             "principalFavorite": f"Designed and deployed zero-allocation proxy gateway in {stack[0]} incorporating custom ring-buffer connection pool for low-latency routing.",
             "mostTechnical": f"Wrote non-blocking HTTP socket multiplexer in {stack[0]}, eliminating memory allocations on JWT check and achieving 50k QPS.",
             "mostBusiness": "Saved $120k in annual cloud infrastructure costs while preventing checkout checkout downtime during peak holiday events.",

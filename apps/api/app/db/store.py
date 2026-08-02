@@ -1,10 +1,12 @@
 import json
+import os
 import re
 import uuid
+from collections.abc import Iterator
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any
 from urllib.parse import urlparse
 
 from sqlalchemy import JSON, Column, String, create_engine
@@ -64,15 +66,18 @@ def _configure_sqlite() -> None:
 def init_db() -> None:
     Base.metadata.create_all(bind=engine)
     _configure_sqlite()
+    skip_extension_seed = os.environ.get("CAREER_OS_SKIP_EXTENSION_SEED") == "1"
     with session_scope() as db:
         if not get_kv(db, "profile"):
-            set_kv(db, "profile", load_profile_seed() or default_profile())
-        else:
+            seed_profile = None if skip_extension_seed else load_profile_seed()
+            set_kv(db, "profile", seed_profile or default_profile())
+        elif not skip_extension_seed:
             seed_profile_if_needed(db)
-        seed_extension_db_if_needed(db)
+        if not skip_extension_seed:
+            seed_extension_db_if_needed(db)
         seed_resume_corpus_if_needed(db)
         if not get_kv(db, "settings"):
-            settings_payload = (load_extension_db() or {}).get("settings")
+            settings_payload = None if skip_extension_seed else (load_extension_db() or {}).get("settings")
             set_kv(db, "settings", settings_payload or default_settings())
 
 
@@ -169,7 +174,7 @@ def session_scope() -> Iterator[Session]:
 
 
 def now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 def new_id(prefix: str = "") -> str:
@@ -177,13 +182,20 @@ def new_id(prefix: str = "") -> str:
     return f"{prefix}{value}" if prefix else value
 
 
+def _pending_kv(db: Session, key: str) -> KVStore | None:
+    return next(
+        (row for row in db.new if isinstance(row, KVStore) and row.key == key),
+        None,
+    )
+
+
 def get_kv(db: Session, key: str) -> Any | None:
-    row = db.get(KVStore, key)
+    row = _pending_kv(db, key) or db.get(KVStore, key)
     return row.value if row else None
 
 
 def set_kv(db: Session, key: str, value: Any) -> None:
-    row = db.get(KVStore, key)
+    row = _pending_kv(db, key) or db.get(KVStore, key)
     if row:
         row.value = value
     else:

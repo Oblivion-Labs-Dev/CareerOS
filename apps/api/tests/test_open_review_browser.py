@@ -70,12 +70,13 @@ class TestOpenReviewBrowser:
             prepare_application,
             run_playwright,
         )
-        from app.services.application_assistant.persistence import create_application_draft
+        from app.services.application_assistant.persistence import application_id_for_job, create_application_draft
         from app.services.application_assistant.providers.greenhouse import GreenhouseAdapter
         from app.services.application_assistant.qwen_agent import execute_application_open_review
 
         adapter = GreenhouseAdapter()
-        app_id = "test_force_reopen"
+        job_id = "job_force_reopen"
+        app_id = application_id_for_job(job_id)
 
         async def _seed_session():
             return await prepare_application(
@@ -94,7 +95,7 @@ class TestOpenReviewBrowser:
                 db,
                 {
                     "id": app_id,
-                    "jobId": "job_force_reopen",
+                    "jobId": job_id,
                     "jobUrl": fixture_server,
                     "companyName": "Fixture Co",
                     "roleTitle": "Engineer",

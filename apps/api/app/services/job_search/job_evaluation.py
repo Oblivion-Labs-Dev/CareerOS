@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from app.services.job_discover import relevancy_engine
@@ -267,7 +267,7 @@ def evaluate_job_fit(job: dict[str, Any], profile: dict[str, Any]) -> dict[str, 
         "gaps": gaps,
         "keywordsMatched": relevancy.get("keywords_matched") or [],
         "legitimacy": legitimacy,
-        "evaluatedAt": datetime.now(timezone.utc).isoformat(),
+        "evaluatedAt": datetime.now(UTC).isoformat(),
     }
 
 
@@ -277,7 +277,7 @@ def rank_jobs(jobs: list[dict[str, Any]], profile: dict[str, Any], *, exclude_ap
     ranked: list[dict[str, Any]] = []
 
     for job in jobs:
-        key = str(job.get("id") or job.get("url") or "")
+        str(job.get("id") or job.get("url") or "")
         company = str(job.get("companyName") or job.get("company") or "").strip().lower()
         title = str(job.get("title") or job.get("roleTitle") or "").strip().lower()
         dedupe_key = f"{company}|{title}"

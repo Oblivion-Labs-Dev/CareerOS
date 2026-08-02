@@ -2,8 +2,8 @@
 
 from app.services.application_assistant.domain import (
     AnswerClassification,
-    ApplicationStatus,
     ApplicationDraft,
+    ApplicationStatus,
     DiscoveryRunStatus,
     ProviderType,
 )

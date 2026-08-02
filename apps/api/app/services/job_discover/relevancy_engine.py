@@ -8,6 +8,7 @@ Scores each job against the user's profile to produce:
 """
 
 import re
+from datetime import UTC
 from urllib.parse import quote_plus
 
 # ── Relevancy Scoring ───────────────────────────────────────────────────────
@@ -105,7 +106,7 @@ def _detect_seniority(title: str) -> tuple[int, int]:
 def _find_role_family(user_title: str) -> list[re.Pattern]:
     """Find the best-matching role family for the user's title."""
     t = user_title.lower()
-    for family_name, patterns in ROLE_FAMILIES.items():
+    for _family_name, patterns in ROLE_FAMILIES.items():
         for p in patterns:
             if re.search(p, t, re.IGNORECASE):
                 return [re.compile(pat, re.IGNORECASE) for pat in patterns]
@@ -370,7 +371,7 @@ def generate_outreach_message(
 
     company = job.get("company", "").strip()
     role_title = job.get("title", "").strip()
-    department = job.get("department", "")
+    job.get("department", "")
 
     # Company-specific hook
     company_key = company.lower().replace(" ", "")
@@ -425,7 +426,7 @@ def compute_freshness(posted_at: str) -> dict:
     if not posted_at:
         return {"hours_ago": 999, "label": "Unknown", "badge_color": "gray"}
 
-    from datetime import datetime, timezone
+    from datetime import datetime
 
     dt = None
 
@@ -447,9 +448,9 @@ def compute_freshness(posted_at: str) -> dict:
         return {"hours_ago": 999, "label": "Unknown", "badge_color": "gray"}
 
     if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=timezone.utc)
+        dt = dt.replace(tzinfo=UTC)
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     hours = (now - dt).total_seconds() / 3600
 
     if hours < 0:

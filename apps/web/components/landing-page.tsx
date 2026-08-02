@@ -50,6 +50,7 @@ export function LandingPage() {
     <div className="landing">
       <LandingNav />
 
+      <main>
       <section className="landing-hero">
         <span className="landing-eyebrow landing-fade-in landing-fade-in--1">
           <span className="landing-eyebrow-pulse" />
@@ -157,6 +158,7 @@ export function LandingPage() {
           </div>
         </ScrollReveal>
       </section>
+      </main>
 
       <footer className="landing-footer">CareerOS · Built on Arsenal · ApplyPilot MVP in progress</footer>
     </div>

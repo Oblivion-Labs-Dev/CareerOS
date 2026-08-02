@@ -7,14 +7,11 @@ from typing import Any
 
 from app.services.application_assistant.answer_classification import (
     AnswerClassification,
-    normalize_field_key,
 )
 from app.services.application_assistant.canonical_registry import (
-    CANONICAL_KEYS,
     CANONICAL_TO_PROFILE,
     CUSTOM_PREFIX,
     PROFILE_TO_CANONICAL,
-    SPECIAL_CANONICAL_KEYS,
     approved_custom_keys,
     canonical_to_value_ref,
     is_valid_canonical_key,

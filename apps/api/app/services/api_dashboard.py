@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import html
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -10,9 +10,9 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.db.store import get_kv, tracker_summary
+from app.services.error_fix_tracker import error_fix_tracker
 from app.services.extension_packager import extension_info
 from app.services.log_store import read_client_logs
-from app.services.error_fix_tracker import error_fix_tracker
 from app.services.repair.log_source import log_inventory
 
 _TEMPLATE_PATH = Path(__file__).resolve().parent.parent / "static" / "api-dashboard" / "index.html"
@@ -102,7 +102,7 @@ def _build_boot_payload(db: Session) -> dict[str, Any]:
         },
         "server": {
             "devMode": settings.career_os_dev_mode,
-            "refreshed": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
+            "refreshed": datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC"),
             "repairManualEnabled": settings.career_os_dev_mode,
             "repairAgentAdapter": settings.career_os_repair_agent_adapter,
         },

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import re
-import uuid
 
 SENSITIVE_KEY_PATTERN = re.compile(
     r"(password|secret|token|authorization|cookie|api[_-]?key|resume|profile|ssn|email_body)",

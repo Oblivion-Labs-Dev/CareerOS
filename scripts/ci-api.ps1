@@ -18,9 +18,9 @@ function Get-ApiPython {
 }
 
 function Invoke-ApiPython {
-    param([string[]]$Args)
+    param([string[]]$PythonArgs)
     $py = Get-ApiPython
-    if ($py -is [array]) { & $py[0] $py[1] @Args } else { & $py @Args }
+    if ($py -is [array]) { & $py[0] $py[1] @PythonArgs } else { & $py @PythonArgs }
 }
 
 Write-Host "==> CI / api" -ForegroundColor Cyan

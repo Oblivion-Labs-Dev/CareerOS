@@ -1,3 +1,16 @@
+:where(.root) :where(button) {
+  appearance: none;
+  padding: 0;
+  border: 0 solid;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+}
+
+:where(.root) :global(.bg-arsenal-accent\/10) {
+  background-color: color-mix(in srgb, var(--arsenal-accent) 10%, transparent);
+}
+
 /* Phase 1 roadmap navigation and feature previews */
 .comingSoonNavGroup {
   border-top: 1px solid var(--border);
@@ -3040,6 +3053,10 @@ button.recordRow:focus-visible {
     padding-bottom: 74px;
   }
 
+  :global(.main):has(.railOpen) {
+    z-index: 410;
+  }
+
   .appGrid,
   .appGridCollapsed {
     display: block;
@@ -3048,7 +3065,7 @@ button.recordRow:focus-visible {
   .rail {
     position: fixed;
     inset: 0 0 0 auto;
-    z-index: 90;
+    z-index: 410;
     width: min(88vw, 320px);
     height: 100dvh;
     border-left: 1px solid var(--border);

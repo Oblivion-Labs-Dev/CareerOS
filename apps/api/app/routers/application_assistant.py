@@ -8,24 +8,22 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from app.db.store import get_kv, session_scope, now_iso
+from app.db.store import get_kv, now_iso, session_scope
 from app.services.application_assistant.browser_runner import close_session
 from app.services.application_assistant.job_discovery import (
     cancel_discovery,
     filter_jobs,
     run_discovery,
 )
-from app.services.application_assistant.job_matching import match_job
 from app.services.application_assistant.llm_client import create_llm_client
 from app.services.application_assistant.persistence import (
     create_application_draft,
     create_discovery_run,
     delete_answer,
     get_active_browser_run_for_app,
-    get_answer,
     get_application_draft,
-    get_discovery_run,
     get_discovered_job,
+    get_discovery_run,
     get_job_match,
     get_settings,
     list_answer_library,
@@ -38,7 +36,6 @@ from app.services.application_assistant.persistence import (
     update_application_draft,
     update_browser_run,
     upsert_answer,
-    upsert_discovered_job,
 )
 from app.services.application_assistant.providers import list_providers
 from app.services.application_assistant.url_validation import validate_url
@@ -403,9 +400,9 @@ def list_applications(
     db: Session = Depends(db_session),
     status: str | None = Query(default=None),
 ) -> dict[str, Any]:
-    from app.services.application_assistant.qwen_agent import _get_agent_runs, reconcile_stale_prep_state
     from app.services.application_assistant.browser_replay import summarize_application_list_item
     from app.services.application_assistant.persistence import index_active_browser_runs
+    from app.services.application_assistant.qwen_agent import _get_agent_runs, reconcile_stale_prep_state
 
     drafts = list_application_drafts(db, status=status, cleanup_duplicates=False)
     agent_runs = _get_agent_runs(db)
@@ -556,6 +553,7 @@ async def get_pending_fields(
     """List fields that need user answers, with optional Qwen storage hints."""
     from app.db.store import get_kv
     from app.services.application_assistant.field_answers import (
+        _fallback_enrich_field,
         enrich_pending_with_qwen,
         filter_wizard_pending,
         load_persisted_wizard_pending,
@@ -976,7 +974,7 @@ def qwen_agent_status(app_id: str, db: Session = Depends(db_session)) -> dict[st
 
 @router.get("/qwen/status")
 async def qwen_status(db: Session = Depends(db_session)) -> dict[str, Any]:
-    from app.services.application_assistant.qwen_activity import get_metrics, update_connection_status
+    from app.services.application_assistant.qwen_activity import update_connection_status
 
     settings = get_settings(db)
     llm = settings.get("llm", {})

@@ -6,7 +6,11 @@ import json
 import os
 from typing import Any
 
-from app.services.application_assistant.answer_classification import AnswerClassification, normalize_field_key
+from app.services.application_assistant.answer_classification import (
+    AnswerClassification,
+    normalize_field_key,
+    should_skip_autofill_field,
+)
 from app.services.application_assistant.canonical_registry import (
     SPECIAL_CANONICAL_KEYS,
     approved_custom_keys,
@@ -15,22 +19,24 @@ from app.services.application_assistant.canonical_registry import (
     infer_canonical_from_field,
     is_valid_canonical_key,
     mapping_confidence_tier,
-    registry_for_prompt,
     registry_context_for_prompt,
     resolve_value_ref,
 )
+from app.services.application_assistant.css_selectors import normalize_css_selector
 from app.services.application_assistant.document_files import apply_document_fields
-from app.services.application_assistant.field_options import merge_field_options
 from app.services.application_assistant.field_evidence import build_page_evidence
-from app.services.application_assistant.llm_client import LLMClient, create_llm_client, create_mapping_client, create_vision_client
+from app.services.application_assistant.field_options import merge_field_options
+from app.services.application_assistant.llm_client import (
+    LLMClient,
+    create_mapping_client,
+    create_vision_client,
+)
 from app.services.application_assistant.mapping_validation import (
     resolve_fill_action_type,
     validate_mapping_for_fill,
     validate_mapping_on_page,
     verify_filled_value,
 )
-from app.services.application_assistant.answer_classification import should_skip_autofill_field
-from app.services.application_assistant.css_selectors import normalize_css_selector
 from app.services.application_assistant.qwen_activity import log_activity_event
 from app.services.application_assistant.semantic_field_resolution import resolve_unknown_fields_semantically
 
@@ -400,7 +406,7 @@ async def run_mapping_pipeline(
             max_field_screenshots=int(mapping_settings.get("maxScreenshotFields", 10)),
         )
         # Merge evidence metadata back onto mapped fields by index
-        for ev, field in zip(evidence.get("fields", []), mapped_fields):
+        for ev, field in zip(evidence.get("fields", []), mapped_fields, strict=False):
             field["fieldId"] = ev.get("fieldId", field.get("fieldId"))
             field["accessibilityName"] = ev.get("accessibilityName")
             field["hasCurrentValue"] = ev.get("hasCurrentValue")

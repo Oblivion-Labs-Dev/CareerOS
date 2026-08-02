@@ -20,9 +20,7 @@ from app.db.store import (
 )
 from app.services.application_assistant.demo_data import is_demo_application, is_demo_job
 from app.services.application_assistant.domain import (
-    ApplicationDraft,
     ApplicationStatus,
-    DiscoveryRun,
     DiscoveryRunStatus,
 )
 
@@ -277,6 +275,8 @@ def cleanup_duplicate_application_drafts(db: Session) -> int:
             if duplicate_id and duplicate_id != keeper_id:
                 if delete_application_draft(db, duplicate_id):
                     removed += 1
+    if removed:
+        db.flush()
     return removed
 
 

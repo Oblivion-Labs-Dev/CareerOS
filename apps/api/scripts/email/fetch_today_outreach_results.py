@@ -8,7 +8,7 @@ import imaplib
 import json
 import re
 import sys
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 from email.header import decode_header
 from email.utils import getaddresses, parsedate_to_datetime
 from pathlib import Path
@@ -16,15 +16,13 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
-from app.config import settings  # noqa: E402
-
 from fetch_bounced_emails import (  # noqa: E402
-    BOUNCE_FROM_PATTERNS,
-    BOUNCE_SUBJECT_PATTERNS,
     extract_failed_addresses,
     looks_like_bounce,
     message_body,
 )
+
+from app.config import settings  # noqa: E402
 
 DEFAULT_OUTPUT = ROOT / "data" / "today_outreach_results.json"
 OUTREACH_SUBJECT_PREFIX = "Senior Software Engineer at Microsoft | Interested in Opportunities"
@@ -52,7 +50,7 @@ def parse_message_date(raw: str | None) -> datetime | None:
     except (TypeError, ValueError, OverflowError):
         return None
     if dt.tzinfo is None:
-        return dt.replace(tzinfo=timezone.utc)
+        return dt.replace(tzinfo=UTC)
     return dt
 
 
@@ -206,7 +204,7 @@ def main() -> int:
     bounced_count = sum(1 for item in sent if item["deliveryStatus"] == "bounced")
 
     payload = {
-        "generatedAt": datetime.now(timezone.utc).isoformat(),
+        "generatedAt": datetime.now(UTC).isoformat(),
         "date": target_day.isoformat(),
         "gmailUser": settings.gmail_user,
         "summary": {

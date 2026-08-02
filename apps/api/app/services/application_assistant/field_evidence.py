@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from app.services.application_assistant.css_selectors import normalize_css_selector
+from app.services.application_assistant.field_options import merge_field_options, normalize_field_options
 from app.services.application_assistant.providers.base import FormField
 
 FIELD_SCREENSHOTS_DIR = Path(__file__).resolve().parents[3] / "data" / "application_assistant" / "field_screenshots"
@@ -45,7 +46,6 @@ def _locator_candidates(field: FormField | dict[str, Any]) -> list[dict[str, str
     return candidates
 
 
-from app.services.application_assistant.field_options import merge_field_options, normalize_field_options
 
 _EXTRACT_OPTIONS_JS = """(sel) => {
     const add = (set, value) => {

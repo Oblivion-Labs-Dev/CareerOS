@@ -3,7 +3,11 @@
 from __future__ import annotations
 
 from app.services.application_assistant.answer_classification import classify_answer, match_screening_answer
-from app.services.application_assistant.field_answers import list_pending_fields, save_field_answers, split_pending_fields
+from app.services.application_assistant.field_answers import (
+    list_pending_fields,
+    save_field_answers,
+    split_pending_fields,
+)
 from app.services.application_assistant.field_options import normalize_field_options
 
 

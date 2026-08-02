@@ -8,7 +8,6 @@ from fastapi.testclient import TestClient
 import app.services.repair.store as store_module
 from app.config import settings
 from app.main import app
-from app.services.error_fix_tracker import error_fix_tracker
 
 
 @pytest.fixture()

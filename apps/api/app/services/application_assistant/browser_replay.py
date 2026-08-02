@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from app.db.store import now_iso
@@ -463,7 +463,7 @@ def reconcile_stale_browser_run(
     age_sec = _STALE_BROWSER_RUN_IDLE_SEC + 1
     try:
         t = datetime.fromisoformat(started_at.replace("Z", "+00:00"))
-        age_sec = (datetime.now(timezone.utc) - t).total_seconds()
+        age_sec = (datetime.now(UTC) - t).total_seconds()
     except (ValueError, TypeError):
         pass
 

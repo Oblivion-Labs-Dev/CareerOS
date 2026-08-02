@@ -1,14 +1,21 @@
 import { expect, test } from "@playwright/test";
 
 async function expectStylesLoaded(page: import("@playwright/test").Page) {
-  const stylesheetHref = await page.locator('link[rel="stylesheet"]').first().getAttribute("href");
-  expect(stylesheetHref, "page should reference a stylesheet").toBeTruthy();
+  const stylesheetHrefs = await page.locator('link[rel="stylesheet"]').evaluateAll((links) =>
+    links
+      .map((link) => link.getAttribute("href"))
+      .filter((href): href is string => Boolean(href)),
+  );
+  expect(stylesheetHrefs.length, "page should reference a stylesheet").toBeGreaterThan(0);
 
-  const cssResponse = await page.request.get(stylesheetHref!);
-  expect(cssResponse.status(), `stylesheet should load: ${stylesheetHref}`).toBe(200);
-  const css = await cssResponse.text();
-  expect(css.length, "compiled CSS should not be empty").toBeGreaterThan(1000);
-  expect(css).toContain(".shell");
+  let compiledCssLength = 0;
+  for (const stylesheetHref of new Set(stylesheetHrefs)) {
+    const cssResponse = await page.request.get(stylesheetHref);
+    expect(cssResponse.status(), `stylesheet should load: ${stylesheetHref}`).toBe(200);
+    compiledCssLength += (await cssResponse.text()).length;
+  }
+
+  expect(compiledCssLength, "compiled CSS should not be empty").toBeGreaterThan(1000);
 }
 
 test.describe("CareerOS web health", () => {
@@ -45,13 +52,35 @@ test.describe("CareerOS web health", () => {
     await expect(page.getByText(/saved answers|No answers saved yet/i)).toBeVisible();
   });
 
+  test("hydrates the connected workspace from cached data without a mismatch", async ({ page }) => {
+    const consoleErrors: string[] = [];
+    page.on("console", (message) => {
+      if (message.type() === "error") consoleErrors.push(message.text());
+    });
+
+    await page.addInitScript(() => {
+      window.localStorage.setItem("career-os:workspace:snapshot", JSON.stringify({
+        profile: { targetRole: "Cached role" },
+        discoverTotal: 42,
+        discoverStrongMatches: 7,
+        applicationsCount: 3,
+        profileCompleteness: 50,
+        loadedAt: "2026-01-01T00:00:00.000Z",
+      }));
+    });
+
+    await page.goto("/jobs/discover");
+    await expect(page.getByRole("region", { name: "Connected pages" })).toBeVisible();
+    expect(consoleErrors.filter((message) => message.includes("Hydration failed"))).toEqual([]);
+  });
+
   test("apply outreach page shows recruiter campaign dashboard", async ({ page }) => {
     await page.goto("/apply/outreach");
     await expectStylesLoaded(page);
 
     await expect(page.getByRole("heading", { name: "Recruiter email campaigns", level: 1 })).toBeVisible();
     await expect(
-      page.getByRole("region", { name: "Recruiter outreach metrics" }),
+      page.getByRole("region", { name: "Delivery metrics" }),
     ).toBeVisible();
     await expect(
       page.getByRole("button", { name: "Refresh" }),

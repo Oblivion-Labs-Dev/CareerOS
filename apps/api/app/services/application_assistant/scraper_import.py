@@ -8,7 +8,6 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from app.db.store import get_kv, list_entities
-from app.services.application_assistant.job_matching import match_job
 from app.services.application_assistant.persistence import (
     create_application_draft,
     get_job_match,

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from app.services.application_assistant.candidate_match_context import (
@@ -14,7 +14,7 @@ from app.services.application_assistant.job_matching import parse_job_qualificat
 
 
 def _utc_now() -> str:
-    return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+    return datetime.now(UTC).replace(microsecond=0).isoformat()
 
 
 def _is_valid_gap_term(term: str) -> bool:

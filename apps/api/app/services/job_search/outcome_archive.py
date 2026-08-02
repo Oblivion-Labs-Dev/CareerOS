@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -105,7 +105,7 @@ def write_outcome_archive(
     return {
         "archivePath": str(folder),
         "outcomeFile": str(outcome_path),
-        "recordedAt": datetime.now(timezone.utc).isoformat(),
+        "recordedAt": datetime.now(UTC).isoformat(),
     }
 
 

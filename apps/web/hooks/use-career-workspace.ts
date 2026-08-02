@@ -5,12 +5,9 @@ import type { UserProfile } from "@career-os/core";
 import { getClientApiBaseUrl } from "@/lib/api";
 import { fetchCachedJson, getCachedStale } from "@/lib/client-fetch-cache";
 import {
-  defaultLocationFromProfile,
-  defaultSearchFromProfile,
   profileCompleteness,
   readWorkspacePrefs,
   readWorkspaceSnapshot,
-  roleFilterFromProfile,
   writeWorkspacePrefs,
   writeWorkspaceSnapshot,
   type CareerWorkspacePrefs,
@@ -31,28 +28,21 @@ type ProfilePayload = {
   profile: Partial<UserProfile> | null;
 };
 
-function mergePrefsWithProfile(profile: Partial<UserProfile> | null): CareerWorkspacePrefs {
-  const stored = readWorkspacePrefs();
-  return {
-    searchQuery: stored.searchQuery,
-    location: stored.location,
-    roleFilter: stored.roleFilter,
-    freshness: stored.freshness || "all",
-  };
-}
+const INITIAL_PREFS: CareerWorkspacePrefs = {
+  searchQuery: "",
+  location: "",
+  roleFilter: "",
+  freshness: "all",
+};
 
 export function useCareerWorkspace() {
   const api = getClientApiBaseUrl();
-  const cachedSnapshot = readWorkspaceSnapshot();
+  const [snapshot, setSnapshot] = useState<CareerWorkspaceSnapshot | null>(null);
+  const [prefs, setPrefs] = useState<CareerWorkspacePrefs>(INITIAL_PREFS);
+  const [loading, setLoading] = useState(true);
 
-  const [snapshot, setSnapshot] = useState<CareerWorkspaceSnapshot | null>(cachedSnapshot);
-  const [prefs, setPrefs] = useState<CareerWorkspacePrefs>(() =>
-    mergePrefsWithProfile(cachedSnapshot?.profile ?? null),
-  );
-  const [loading, setLoading] = useState(() => !cachedSnapshot);
-
-  const refresh = useCallback(async () => {
-    setLoading(true);
+  const loadWorkspace = useCallback(async (showLoading: boolean) => {
+    if (showLoading) setLoading(true);
     try {
       const [profileResult, statsResult, trackerResult] = await Promise.allSettled([
         fetchCachedJson<ProfilePayload>(`${api}/profile`),
@@ -84,19 +74,24 @@ export function useCareerWorkspace() {
       setSnapshot(nextSnapshot);
       writeWorkspaceSnapshot(nextSnapshot);
 
-      const nextPrefs = mergePrefsWithProfile(profile);
+      const nextPrefs = readWorkspacePrefs();
       setPrefs(nextPrefs);
-      if (!readWorkspacePrefs().searchQuery) {
-        writeWorkspacePrefs(nextPrefs);
-      }
     } finally {
       setLoading(false);
     }
   }, [api]);
 
+  const refresh = useCallback(async () => {
+    await loadWorkspace(true);
+  }, [loadWorkspace]);
+
   useEffect(() => {
-    void refresh();
-  }, [refresh]);
+    const cachedSnapshot = readWorkspaceSnapshot();
+    setSnapshot(cachedSnapshot);
+    setPrefs(readWorkspacePrefs());
+    if (cachedSnapshot) setLoading(false);
+    void loadWorkspace(!cachedSnapshot);
+  }, [loadWorkspace]);
 
   const updatePrefs = useCallback((partial: Partial<CareerWorkspacePrefs>) => {
     const next = writeWorkspacePrefs(partial);

@@ -20,19 +20,20 @@ function emit() {
 }
 
 async function checkHealth(): Promise<boolean> {
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), HEALTH_TIMEOUT_MS);
   try {
-    const controller = new AbortController();
-    const timer = window.setTimeout(() => controller.abort(), HEALTH_TIMEOUT_MS);
     const res = await fetch(`${getClientApiBaseUrl()}/health`, {
       cache: "no-store",
       signal: controller.signal,
     });
-    window.clearTimeout(timer);
     if (!res.ok) return false;
     const data = (await res.json()) as { status?: string };
     return data.status === "ok";
   } catch {
     return false;
+  } finally {
+    window.clearTimeout(timer);
   }
 }
 
@@ -47,19 +48,27 @@ async function runHealthCheck() {
   }
 }
 
+function pollHealth() {
+  if (document.visibilityState === "visible") void runHealthCheck();
+}
+
 function subscribe(listener: Listener) {
   listeners.add(listener);
   subscriberCount += 1;
   if (subscriberCount === 1) {
-    void runHealthCheck();
-    pollId = window.setInterval(() => void runHealthCheck(), POLL_MS);
+    pollHealth();
+    pollId = window.setInterval(pollHealth, POLL_MS);
+    document.addEventListener("visibilitychange", pollHealth);
   }
   return () => {
     listeners.delete(listener);
     subscriberCount -= 1;
-    if (subscriberCount === 0 && pollId !== null) {
-      window.clearInterval(pollId);
-      pollId = null;
+    if (subscriberCount === 0) {
+      document.removeEventListener("visibilitychange", pollHealth);
+      if (pollId !== null) {
+        window.clearInterval(pollId);
+        pollId = null;
+      }
     }
   };
 }

@@ -4,8 +4,8 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
 
-from app.services.runtime_metrics import metrics_store, should_skip_metrics
 from app.services.error_fix_tracker import error_fix_tracker
+from app.services.runtime_metrics import metrics_store, should_skip_metrics
 
 
 class MetricsMiddleware(BaseHTTPMiddleware):

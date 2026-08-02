@@ -1,6 +1,6 @@
 import json
 from collections import deque
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -13,7 +13,7 @@ _memory_logs: deque[dict[str, Any]] = deque(maxlen=MAX_LOG_LINES)
 
 
 def append_client_log(entry: dict[str, Any]) -> dict[str, Any]:
-    record = {"ts": datetime.now(timezone.utc).isoformat(), "level": "info", **entry}
+    record = {"ts": datetime.now(UTC).isoformat(), "level": "info", **entry}
     _memory_logs.appendleft(record)
     LOG_DIR.mkdir(parents=True, exist_ok=True)
     with LOG_FILE.open("a", encoding="utf-8") as handle:

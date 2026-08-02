@@ -8,16 +8,24 @@
     "node": ">=20"
   },
   "scripts": {
-    "build": "pnpm -r --filter './packages/*' --filter './apps/extension' --filter './apps/web' run build",
+    "build": "pnpm -r --filter @career-os/* run build",
     "dev:web": "pnpm --filter @career-os/web dev",
     "dev:api": "pnpm --filter @career-os/api dev",
     "dev": "pnpm --filter @career-os/api --filter @career-os/web --parallel run dev",
+    "lint": "eslint --no-error-on-unmatched-pattern \"apps/**/*.{js,mjs,cjs,ts,tsx}\" \"packages/**/*.{js,mjs,cjs,ts,tsx}\" \"scripts/**/*.{js,mjs,cjs}\" \"tools/**/*.{js,mjs,cjs,ts,tsx}\"",
+    "lint:strict": "pnpm lint -- --max-warnings 0",
+    "lint:python": "cd apps/api && python -m ruff check app tests scripts",
+    "lint:python:advisory": "cd apps/api && python -m ruff check app tests scripts --exit-zero",
+    "typecheck:python": "cd apps/api && python -m mypy app",
+    "typecheck:python:advisory": "cd apps/api && (python -m mypy app || echo Python typing is advisory during staged adoption)",
+    "test:a11y": "pnpm --filter @career-os/web test:e2e --grep @a11y",
+    "quality:advisory": "pnpm lint && pnpm lint:python:advisory && pnpm typecheck:python:advisory",
     "dev:restart": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/restart-dev.ps1 -Background",
     "setup": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/setup.ps1",
     "setup:quick": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/setup.ps1 -SkipModels -SkipTests",
     "dev:extension": "pnpm --filter @career-os/extension dev",
-    "typecheck": "pnpm -r run typecheck",
-    "test": "pnpm -r run test",
+    "typecheck": "pnpm -r --filter @career-os/* run typecheck",
+    "test": "pnpm -r --filter @career-os/* run test",
     "test:api": "cd apps/api && python -m pytest tests -q",
     "test:web": "pnpm --filter @career-os/web test:e2e",
     "test:repair": "cd tools/repair-orchestrator && python -m pytest tests -q",
@@ -32,7 +40,13 @@
     "repair:dev": "python tools/repair-orchestrator/run_dev.py"
   },
   "devDependencies": {
+    "@eslint/js": "^9.39.5",
     "@types/node": "^20.17.0",
-    "typescript": "^5.7.2"
+    "eslint": "^9.39.5",
+    "eslint-plugin-jsx-a11y": "^6.10.2",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "globals": "^16.5.0",
+    "typescript": "^5.7.2",
+    "typescript-eslint": "^8.65.0"
   }
 }

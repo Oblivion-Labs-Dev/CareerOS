@@ -16,9 +16,16 @@ export function usePrepQueueStatus(pollMs = 2000) {
   }, []);
 
   useEffect(() => {
-    void refresh();
-    const id = setInterval(() => void refresh(), pollMs);
-    return () => clearInterval(id);
+    const poll = () => {
+      if (document.visibilityState === "visible") void refresh();
+    };
+    poll();
+    const id = setInterval(poll, pollMs);
+    document.addEventListener("visibilitychange", poll);
+    return () => {
+      clearInterval(id);
+      document.removeEventListener("visibilitychange", poll);
+    };
   }, [refresh, pollMs]);
 
   return { status, refresh };

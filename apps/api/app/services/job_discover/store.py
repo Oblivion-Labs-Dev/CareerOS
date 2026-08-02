@@ -6,21 +6,21 @@ import asyncio
 import hashlib
 import json
 from collections import Counter
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal
 
 from sqlalchemy.orm import Session
 
 from app.db.store import get_kv, session_scope, set_kv, upsert_entity
-from app.services.job_discover import apify_service, bigtech_scrapers, relevancy_engine, scraper_service
-from app.services.job_discover.h1b_sponsorship import apply_h1b_fields
 from app.services.application_assistant.candidate_match_context import (
     accomplishment_text,
     extract_resume_text,
     normalize_profile_skills,
     work_experience_text,
 )
+from app.services.job_discover import apify_service, bigtech_scrapers, relevancy_engine, scraper_service
+from app.services.job_discover.h1b_sponsorship import apply_h1b_fields
 
 KV_KEY = "job_discover"
 DATA_DIR = Path(__file__).resolve().parents[3] / "data" / "job_discover"
@@ -79,7 +79,7 @@ def _apply_snapshot_stats(jobs: list[dict[str, Any]]) -> None:
 
 
 def _utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 def compute_match_profile_hash(
@@ -369,8 +369,8 @@ def _maybe_clear_stale_scrape() -> bool:
     try:
         dt = datetime.fromisoformat(str(last).replace("Z", "+00:00"))
         if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=timezone.utc)
-        age = (datetime.now(timezone.utc) - dt).total_seconds()
+            dt = dt.replace(tzinfo=UTC)
+        age = (datetime.now(UTC) - dt).total_seconds()
         if age >= SCRAPE_STALE_SECONDS:
             cancel_scrape(reason="Scrape timed out (no progress for 20+ minutes). Partial results were kept.")
             return True
@@ -993,7 +993,7 @@ async def run_scrape(
                         ),
                         timeout=45 * 60,
                     )
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     snapshot = _load_snapshot(db)
                     ats_jobs = []
                     _scrape_status["lastResult"] = (

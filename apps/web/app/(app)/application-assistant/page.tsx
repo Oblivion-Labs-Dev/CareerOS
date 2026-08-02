@@ -44,16 +44,18 @@ export default function ApplicationAssistantPage() {
 
       <header className="cos-page-header aa-page-header">
 
-        <span className="toc-eyebrow">Intelligence Layer</span>
+        <div className="stack gap-xs">
+          <span className="toc-eyebrow">Intelligence Layer</span>
 
-        <PageTitleWithStatus>AI Assistant</PageTitleWithStatus>
+          <PageTitleWithStatus>AI Assistant</PageTitleWithStatus>
 
-        <p className="muted">
+          <p className="muted">
 
-          Prep applications in a visible browser and track what still needs your input.
+            Prep applications in a visible browser and track what still needs your input.
 
-        </p>
+          </p>
 
+        </div>
       </header>
 
       <Suspense fallback={<ApplicationQueueLoading />}>

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+from datetime import UTC
 from typing import Any
 
 from sqlalchemy.orm import Session
@@ -121,8 +122,26 @@ def log_activity_event(
     error: str = "",
     metadata: dict[str, Any] | None = None,
     count_as_request: bool = False,
+    db: Session | None = None,
 ) -> None:
-    """Persist an activity log entry using its own DB session (safe from background threads)."""
+    """Persist activity in the caller's transaction or an isolated session."""
+    if db is not None:
+        try:
+            append_log(
+                db,
+                event_type=event_type,
+                model=model,
+                success=success,
+                latency_ms=latency_ms,
+                summary=summary,
+                error=error,
+                metadata=metadata,
+                count_as_request=count_as_request,
+            )
+        except Exception:
+            pass
+        return
+
     from app.db.store import session_scope
 
     try:
@@ -144,7 +163,7 @@ def log_activity_event(
 
 def get_active_analyze_from_logs(db: Session) -> dict[str, Any] | None:
     """Return metadata for an in-progress field-analysis run from recent logs."""
-    from datetime import datetime, timezone
+    from datetime import datetime
 
     logs = get_logs(db, limit=80)
     start_idx = next((i for i, log in enumerate(logs) if log.get("type") == "analyze_start"), None)
@@ -166,7 +185,7 @@ def get_active_analyze_from_logs(db: Session) -> dict[str, Any] | None:
     if started_at:
         try:
             t = datetime.fromisoformat(started_at.replace("Z", "+00:00"))
-            age_sec = (datetime.now(timezone.utc) - t).total_seconds()
+            age_sec = (datetime.now(UTC) - t).total_seconds()
             if age_sec > 10 * 60:
                 return None
         except (ValueError, TypeError):
@@ -183,14 +202,14 @@ def get_active_analyze_from_logs(db: Session) -> dict[str, Any] | None:
 
 def get_active_prep_from_logs(db: Session) -> dict[str, Any] | None:
     """Return metadata for an in-progress prep run inferred from recent logs."""
-    from datetime import datetime, timezone
+    from datetime import datetime
 
     from app.services.application_assistant.persistence import get_application_draft
     from app.services.application_assistant.qwen_agent import get_agent_run
     from app.services.application_assistant.worker import is_app_locked
 
     logs = get_logs(db, limit=50)
-    start_idx = next((i for i, l in enumerate(logs) if l.get("type") == "agent_prep_start"), None)
+    start_idx = next((i for i, log in enumerate(logs) if log.get("type") == "agent_prep_start"), None)
     if start_idx is None:
         return None
     start = logs[start_idx]
@@ -206,7 +225,7 @@ def get_active_prep_from_logs(db: Session) -> dict[str, Any] | None:
     if started_at:
         try:
             t = datetime.fromisoformat(started_at.replace("Z", "+00:00"))
-            age_sec = (datetime.now(timezone.utc) - t).total_seconds()
+            age_sec = (datetime.now(UTC) - t).total_seconds()
             if age_sec > 20 * 60:
                 return None
         except (ValueError, TypeError):
@@ -237,7 +256,7 @@ class ActivityTimer:
         self.start = 0.0
         self.elapsed_ms = 0
 
-    def __enter__(self) -> "ActivityTimer":
+    def __enter__(self) -> ActivityTimer:
         self.start = time.perf_counter()
         return self
 

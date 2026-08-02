@@ -6,7 +6,7 @@ import asyncio
 import re
 from typing import TYPE_CHECKING, Any
 
-from app.db.store import session_scope, now_iso
+from app.db.store import now_iso, session_scope
 from app.services.application_assistant.persistence import get_application_draft, update_application_draft
 from app.services.application_assistant.qwen_activity import log_activity_event
 
@@ -186,7 +186,7 @@ def _is_embedded_careers_confirmation(url: str, body_text: str) -> bool:
         return False
     return True
 
-_watchers: dict[str, "SubmissionWatcher"] = {}
+_watchers: dict[str, SubmissionWatcher] = {}
 
 
 def is_submission_confirmation_url(url: str) -> bool:
@@ -394,7 +394,7 @@ def start_submission_watcher(session: BrowserSession, app_id: str) -> None:
     asyncio.run_coroutine_threadsafe(watcher.attach(session), loop)
 
 
-def finalize_submission_watch_sync(app_id: str, session: "BrowserSession") -> None:
+def finalize_submission_watch_sync(app_id: str, session: BrowserSession) -> None:
     """Best-effort sync wrapper before the browser context is torn down."""
     watcher = _watchers.get(app_id)
     if not watcher or watcher.recorded:
@@ -402,6 +402,11 @@ def finalize_submission_watch_sync(app_id: str, session: "BrowserSession") -> No
     from app.services.application_assistant.browser_runner import _ensure_playwright_loop
 
     loop = _ensure_playwright_loop()
+    try:
+        if asyncio.get_running_loop() is loop:
+            return
+    except RuntimeError:
+        pass
     future = asyncio.run_coroutine_threadsafe(watcher._final_check(session), loop)
     try:
         future.result(timeout=4)
@@ -409,7 +414,7 @@ def finalize_submission_watch_sync(app_id: str, session: "BrowserSession") -> No
         pass
 
 
-async def finalize_submission_watch(app_id: str, session: "BrowserSession") -> None:
+async def finalize_submission_watch(app_id: str, session: BrowserSession) -> None:
     """Run a last submission check before tearing down the review browser."""
     watcher = _watchers.get(app_id)
     if watcher and not watcher.recorded:

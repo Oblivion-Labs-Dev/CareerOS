@@ -7,10 +7,9 @@ import argparse
 import csv
 import json
 import re
-import sys
+import xml.etree.ElementTree as ET
 from pathlib import Path
 from zipfile import ZipFile
-import xml.etree.ElementTree as ET
 
 ROOT = Path(__file__).resolve().parents[5]
 DEFAULT_CSV = Path(r"C:\Users\amsbo\Downloads\Copy of List of Recruiters.xlsx - Sheet1.csv")

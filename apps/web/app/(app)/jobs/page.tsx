@@ -1,6 +1,8 @@
 import { WorkflowPage } from "@/components/scaffold-page";
 import { fetchJson } from "@/lib/api";
 
+export const dynamic = "force-dynamic";
+
 export default async function JobsPage() {
   const data = await fetchJson<{ jobs: Array<{ title: string; companyName: string; url: string }> }>("/jobs").catch(
     () => ({ jobs: [] }),

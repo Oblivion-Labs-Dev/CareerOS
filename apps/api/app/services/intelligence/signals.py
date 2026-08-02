@@ -6,7 +6,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from app.db.store import get_kv, set_kv
+from app.db.store import get_kv
 
 KV_KEY = "intelligence_signals"
 

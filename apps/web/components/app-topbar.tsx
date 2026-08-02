@@ -45,6 +45,7 @@ export function AppTopbar() {
 
   useEffect(() => {
     const handle = (event: KeyboardEvent) => {
+      if (pathname === "/resume-corpus" || pathname.startsWith("/resume-corpus/")) return;
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
         event.preventDefault();
         setOpen((value) => !value);
@@ -52,7 +53,7 @@ export function AppTopbar() {
     };
     document.addEventListener("keydown", handle);
     return () => document.removeEventListener("keydown", handle);
-  }, []);
+  }, [pathname]);
 
   useEffect(() => {
     if (!open) return;

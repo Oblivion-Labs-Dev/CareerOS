@@ -611,7 +611,7 @@ a {
   padding: 0.45rem 0.85rem;
   border: none;
   background: transparent;
-  color: var(--muted-dim);
+  color: var(--muted);
   font-size: 0.68rem;
   font-weight: 700;
   letter-spacing: 0.08em;
@@ -5075,6 +5075,26 @@ a {
   flex-wrap: wrap;
   gap: 0.5rem;
   align-items: center;
+}
+
+@media (max-width: 640px) {
+  .target-jobs-dashboard .dashboard-panel-header {
+    flex-direction: column;
+  }
+
+  .target-jobs-dashboard .dashboard-panel-header > * {
+    width: 100%;
+  }
+
+  .target-jobs-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    width: 100%;
+  }
+
+  .target-jobs-actions .btn {
+    width: 100%;
+  }
 }
 
 .target-jobs-filters {

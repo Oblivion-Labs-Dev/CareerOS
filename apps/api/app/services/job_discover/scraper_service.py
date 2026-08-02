@@ -15,10 +15,10 @@ import asyncio
 import json
 import re
 import ssl
-from datetime import datetime, timedelta, timezone
+from collections.abc import Awaitable, Callable
+from datetime import UTC, datetime, timedelta
 from html import unescape
 from pathlib import Path
-from typing import Awaitable, Callable
 
 import httpx
 
@@ -92,7 +92,7 @@ def load_config() -> dict:
 def load_greenhouse_slugs() -> list[str]:
     """Legacy: load from company_slugs.txt for backward compatibility."""
     if SLUGS_FILE.exists():
-        return [l.strip() for l in SLUGS_FILE.read_text().splitlines() if l.strip()]
+        return [line.strip() for line in SLUGS_FILE.read_text().splitlines() if line.strip()]
     return []
 
 
@@ -138,7 +138,7 @@ def is_recent(ts: str, cutoff: datetime) -> bool:
     try:
         dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
         if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=timezone.utc)
+            dt = dt.replace(tzinfo=UTC)
         return dt >= cutoff
     except (ValueError, TypeError):
         return True  # Can't parse → include
@@ -284,7 +284,7 @@ def flatten_lever(job: dict, company: str) -> dict:
         "description": strip_html(job.get("descriptionPlain", job.get("description", ""))),
         "updated_at": "",
         "first_published": datetime.fromtimestamp(
-            job.get("createdAt", 0) / 1000, tz=timezone.utc
+            job.get("createdAt", 0) / 1000, tz=UTC
         ).isoformat() if job.get("createdAt") else "",
         "employment_type": categories.get("commitment", ""),
         "salary_range": "",
@@ -314,7 +314,7 @@ async def scrape_lever(
             # Lever uses createdAt (epoch ms)
             created = job.get("createdAt", 0)
             if created:
-                ts = datetime.fromtimestamp(created / 1000, tz=timezone.utc).isoformat()
+                ts = datetime.fromtimestamp(created / 1000, tz=UTC).isoformat()
             else:
                 ts = ""
             if not matches_title(title, compiled):
@@ -847,11 +847,10 @@ async def scrape_jobs(
     config = load_config()
     hours = max(1, min(int(hours), 720))
     compiled = compile_role_patterns(role_keys)
-    cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
+    cutoff = datetime.now(UTC) - timedelta(hours=hours)
     sem = asyncio.Semaphore(concurrency)
 
     # Build task list from all ATS platforms
-    tasks = []
     task_labels = []
 
     # Greenhouse — also fall back to company_slugs.txt for legacy support
@@ -864,7 +863,7 @@ async def scrape_jobs(
         for slug in load_greenhouse_slugs():
             if slug not in gh_companies:
                 gh_companies[slug] = slug
-    for company, slug in gh_companies.items():
+    for company, _slug in gh_companies.items():
         task_labels.append(f"greenhouse/{company}")
 
     # Lever
@@ -873,7 +872,7 @@ async def scrape_jobs(
         lever_companies = {c: lever_map[c] for c in companies if c in lever_map}
     else:
         lever_companies = dict(lever_map)
-    for company, slug in lever_companies.items():
+    for company, _slug in lever_companies.items():
         task_labels.append(f"lever/{company}")
 
     # Ashby
@@ -882,7 +881,7 @@ async def scrape_jobs(
         ashby_companies = {c: ashby_map[c] for c in companies if c in ashby_map}
     else:
         ashby_companies = dict(ashby_map)
-    for company, slug in ashby_companies.items():
+    for company, _slug in ashby_companies.items():
         task_labels.append(f"ashby/{company}")
 
     # SmartRecruiters
@@ -891,7 +890,7 @@ async def scrape_jobs(
         sr_companies = {c: sr_map[c] for c in companies if c in sr_map}
     else:
         sr_companies = dict(sr_map)
-    for company, slug in sr_companies.items():
+    for company, _slug in sr_companies.items():
         task_labels.append(f"smartrecruiters/{company}")
 
     # Workday
@@ -909,10 +908,10 @@ async def scrape_jobs(
         wa_companies = {c: wa_map[c] for c in companies if c in wa_map}
     else:
         wa_companies = dict(wa_map)
-    for company, slug in wa_companies.items():
+    for company, _slug in wa_companies.items():
         task_labels.append(f"workable/{company}")
 
-    total_tasks = len(task_labels)
+    len(task_labels)
     completed = 0
     all_jobs = []
     progress_total = [0]
@@ -922,7 +921,7 @@ async def scrape_jobs(
         async with sem:
             try:
                 result = await asyncio.wait_for(coro, timeout=SCRAPER_TASK_TIMEOUT_SEC)
-            except (asyncio.TimeoutError, Exception):
+            except (TimeoutError, Exception):
                 result = []
             completed += 1
             if progress_callback and progress_total[0]:

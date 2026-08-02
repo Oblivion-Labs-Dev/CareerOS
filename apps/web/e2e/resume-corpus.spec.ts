@@ -5,15 +5,9 @@ const PREVIEW_PATH = "/resume-corpus?preview=1";
 const CORPUS_AREAS = [
   { label: "Overview", view: null },
   { label: "Accomplishments", view: "accomplishments" },
-  { label: "Resume Builder", view: "builder" },
-  { label: "Job Match", view: "match" },
-  { label: "Interview Prep", view: "interview" },
   { label: "Metrics", view: "metrics" },
-  { label: "Skills", view: "skills" },
-  { label: "Knowledge Graph", view: "graph" },
   { label: "Evidence", view: "evidence" },
-  { label: "Review Center", view: "reviews" },
-  { label: "Templates", view: "templates" },
+  { label: "Interview", view: "interview" },
   { label: "Settings", view: "settings" },
 ] as const;
 
@@ -54,13 +48,14 @@ test.describe("Resume Corpus redesign", () => {
   test("loads the deterministic preview overview", async ({ page }) => {
     await openPreview(page);
 
-    await expect(page.getByRole("heading", { level: 1, name: /Alex Morgan/i })).toBeVisible();
+    await expect(page.getByRole("heading", { level: 1, name: "Resume Corpus" })).toBeVisible();
+    await expect(page.getByText(/Alex Morgan's source of truth/i)).toBeVisible();
     await expect(page.getByRole("navigation", { name: "Corpus areas" })).toBeVisible();
-    await expect(page.getByRole("heading", { level: 2, name: "Research queue" })).toBeVisible();
+    await expect(page.getByRole("region", { name: "Resume corpus overview" })).toBeVisible();
     await expect(page.getByText("Preview data · local edits", { exact: true })).toBeVisible();
   });
 
-  test("keeps URL state across all 12 corpus areas", async ({ page }) => {
+  test("keeps URL state across all Phase 1 corpus areas", async ({ page }) => {
     await openPreview(page);
     const areaNavigation = page.getByRole("navigation", { name: "Corpus areas" });
 
@@ -87,9 +82,14 @@ test.describe("Resume Corpus redesign", () => {
 
   test("searches across the corpus and opens the source record", async ({ page }) => {
     await openPreview(page);
-    await page.keyboard.press("Control+K");
 
+    await page.getByRole("button", { name: /Search accomplishments, metrics, evidence/i }).click();
     const dialog = page.getByRole("dialog", { name: "Search the Resume Corpus" });
+    await expect(dialog).toBeVisible();
+    await dialog.getByRole("button", { name: "Close search" }).click();
+    await expect(dialog).toBeHidden();
+
+    await page.keyboard.press("Control+K");
     await expect(dialog).toBeVisible();
     await dialog.getByPlaceholder("Search the entire career corpus...").fill("Northstar");
     await dialog.getByRole("combobox", { name: "Filter search category" }).selectOption("Accomplishments");
@@ -106,9 +106,10 @@ test.describe("Resume Corpus redesign", () => {
     await openPreview(page, "&view=accomplishments");
     await expect(page.getByRole("heading", { level: 1, name: "Engineering knowledge base" })).toBeVisible();
 
-    await selectSegment(page, "Explorer layout", "Table");
-    await expect(page.getByRole("table", { name: "Filtered accomplishment records" })).toBeVisible();
-    await page.getByRole("button", { name: "Regional event-routing platform", exact: true }).click();
+    await selectSegment(page, "Explorer layout", "List");
+    const routingRecord = page.getByRole("button", { name: /Open Regional event-routing platform at Northstar Cloud/i });
+    await expect(routingRecord).toBeVisible();
+    await routingRecord.click();
 
     const main = page.getByRole("main");
     for (const section of WORKSPACE_SECTIONS) {
@@ -123,40 +124,20 @@ test.describe("Resume Corpus redesign", () => {
     await expect(page.getByText("Saved in preview", { exact: true })).toBeVisible({ timeout: 5_000 });
 
     await page.getByRole("button", { name: "Back to explorer" }).click();
-    await page.getByRole("button", { name: "Regional event-routing platform", exact: true }).click();
+    await page.getByRole("button", { name: /Open Regional event-routing platform at Northstar Cloud/i }).click();
     await expect(page.getByRole("textbox", { name: "Problem and context" })).toHaveValue(
       "Northstar context refined in the corpus workspace.",
     );
   });
 
-  test("generates an evidence-linked preview from selected accomplishments", async ({ page }) => {
+  test("shows roadmap previews for gated generators", async ({ page }) => {
     await openPreview(page, "&view=builder");
-    await expect(page.getByRole("heading", { level: 1, name: "Guided resume generation" })).toBeVisible();
+    await expect(page.getByRole("heading", { level: 1, name: "Resume Generator" })).toBeVisible();
+    await expect(page.getByTestId("coming-soon-preview")).toContainText("planned but not yet available");
 
-    await page.getByRole("tab", { name: "10. Export" }).click();
-    await page.getByRole("button", { name: "Generate resume" }).click();
-
-    const resumePreview = page.getByRole("article", { name: "Resume preview" });
-    await expect(resumePreview).toContainText(/99\.99%|4\.1×|120 services/);
-    await expect.poll(async () => page.evaluate(
-      () => performance.getEntriesByName("careeros:resume-corpus:resume-generation").length,
-    )).toBeGreaterThan(0);
-  });
-
-  test("separates explicit, inferred, unsupported, and missing job-match evidence", async ({ page }) => {
     await openPreview(page, "&view=match");
-    await expect(page.getByRole("heading", { level: 1, name: "Analyze role fit with evidence" })).toBeVisible();
-
-    await page.getByRole("textbox", { name: "Job description" }).fill(
-      "Lead Kubernetes reliability, security, observability, and machine learning platform work with Terraform and Rust.",
-    );
-    await page.getByRole("button", { name: "Analyze match" }).click();
-
-    await expect(page.getByRole("meter", { name: "Match score" })).toBeVisible();
-    await expect(page.getByRole("heading", { name: /^Explicit evidence/ })).toBeVisible();
-    await expect(page.getByRole("heading", { name: /^Inferred support/ })).toBeVisible();
-    await expect(page.getByRole("heading", { name: /^Explicit claim, no evidence/ })).toBeVisible();
-    await expect(page.getByRole("heading", { name: /^Missing/ })).toBeVisible();
+    await expect(page.getByRole("heading", { level: 1, name: "Job Description Matching" })).toBeVisible();
+    await expect(page.getByTestId("coming-soon-preview")).toContainText("planned but not yet available");
   });
 
   test("supports study, practice, mock, and rapid interview modes with persistent notes", async ({ page }) => {
@@ -185,9 +166,17 @@ test.describe("Resume Corpus redesign", () => {
     await page.setViewportSize({ width: 390, height: 844 });
     await openPreview(page);
 
-    await expect(page.getByRole("heading", { level: 1, name: /Alex Morgan/i })).toBeVisible();
+    await expect(page.getByRole("heading", { level: 1, name: "Resume Corpus" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Open CareerOS navigation" })).toBeVisible();
     await expect(page.getByRole("navigation", { name: "Quick corpus navigation" })).toBeVisible();
+
+    await page.getByRole("button", { name: "Open all corpus areas" }).click();
+    const corpusNavigation = page.getByRole("dialog", { name: "Resume Corpus navigation" });
+    await expect(corpusNavigation).toBeVisible();
+    await corpusNavigation.getByRole("button", { name: "Close navigation" }).click();
+    await expect(corpusNavigation).toBeHidden();
+    await expect(page.getByRole("dialog", { name: "CareerOS navigation" })).toHaveCount(0);
+
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
     expect(overflow).toBeLessThanOrEqual(1);
   });

@@ -7,7 +7,6 @@ import re
 from typing import Any
 
 from app.db.store import get_kv, now_iso, set_kv
-from app.services.application_assistant.field_options import normalize_field_options, sanitize_options_for_field
 from app.services.application_assistant.answer_classification import (
     AnswerClassification,
     classify_answer,
@@ -17,6 +16,7 @@ from app.services.application_assistant.answer_classification import (
 )
 from app.services.application_assistant.document_files import is_cover_letter_field, is_resume_field
 from app.services.application_assistant.domain import SensitivityCategory
+from app.services.application_assistant.field_options import normalize_field_options, sanitize_options_for_field
 from app.services.application_assistant.llm_client import create_llm_client
 from app.services.application_assistant.persistence import (
     delete_answer,

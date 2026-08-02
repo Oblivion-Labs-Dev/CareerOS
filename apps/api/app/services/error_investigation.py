@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -58,7 +58,7 @@ def build_investigation_payload(error: TrackedEvent) -> dict[str, Any]:
     log_lines = _recent_log_lines()
     request_lines = _recent_request_lines()
     status_line = f"HTTP {error.status_code}" if error.status_code else "n/a"
-    at_iso = datetime.fromtimestamp(error.at, tz=timezone.utc).isoformat()
+    at_iso = datetime.fromtimestamp(error.at, tz=UTC).isoformat()
 
     prompt = f"""Investigate and fix this CareerOS live error.
 
@@ -118,7 +118,7 @@ def investigation_for_open_errors() -> dict[str, Any]:
 
     sections: list[str] = []
     for index, error in enumerate(open_errors, start=1):
-        item = build_investigation_payload(error)
+        build_investigation_payload(error)
         sections.append(
             f"### Error {index}: {error.signature}\n"
             f"- ID: {error.id}\n"

@@ -6,7 +6,7 @@ import time
 import uuid
 from collections import deque
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal
 
@@ -51,7 +51,7 @@ class TrackedEvent:
             "signature": self.signature,
             "message": self.message,
             "at": self.at,
-            "atIso": datetime.fromtimestamp(self.at, tz=timezone.utc).isoformat(),
+            "atIso": datetime.fromtimestamp(self.at, tz=UTC).isoformat(),
             "errorId": self.error_id,
             "statusCode": self.status_code,
             "meta": self.meta,
@@ -418,7 +418,7 @@ class ErrorFixTracker:
                         "source": item.source,
                         "message": item.message,
                         "statusCode": item.status_code,
-                        "atIso": datetime.fromtimestamp(item.at, tz=timezone.utc).isoformat(),
+                        "atIso": datetime.fromtimestamp(item.at, tz=UTC).isoformat(),
                     }
                     for item in sorted(self._open_errors.values(), key=lambda entry: entry.at, reverse=True)
                 ],
@@ -511,7 +511,7 @@ class ErrorFixTracker:
             self._ensure_loaded()
             for event in self._history:
                 if event.id == error_id and event.kind == "error":
-                    event.meta = {**event.meta, "investigationRequestedAt": datetime.now(timezone.utc).isoformat()}
+                    event.meta = {**event.meta, "investigationRequestedAt": datetime.now(UTC).isoformat()}
                     return event
             return None
 

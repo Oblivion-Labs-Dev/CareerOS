@@ -11,7 +11,6 @@ Two-tier system:
   2. Built-in patterns — Company-specific generated answers (fallback)
 """
 
-import json
 import re
 from pathlib import Path
 
@@ -243,9 +242,9 @@ def generate_answer(
 
     company_lower = company.lower().replace(" ", "").replace("-", "")
     ctx = COMPANY_CONTEXT.get(company_lower, {})
-    first_name = normalized_profile.get("first_name", "")
-    current_title = normalized_profile.get("current_title", "")
-    current_company = normalized_profile.get("current_company", "")
+    normalized_profile.get("first_name", "")
+    normalized_profile.get("current_title", "")
+    normalized_profile.get("current_company", "")
     years = normalized_profile.get("years_experience", 0)
 
     if qtype == "why_company":
@@ -294,7 +293,7 @@ def generate_answer(
 
 def _generate_why_company(company: str, role_title: str, profile: dict, ctx: dict) -> str:
     """Generate a 'Why do you want to work here?' answer."""
-    first_name = profile.get("first_name", "")
+    profile.get("first_name", "")
     current_title = profile.get("current_title", "")
     years = profile.get("years_experience", 0)
     skills = profile.get("skills", "")
@@ -336,7 +335,7 @@ def _generate_why_company(company: str, role_title: str, profile: dict, ctx: dic
 
 def _generate_about(profile: dict, role_title: str) -> str:
     """Generate a 'Tell us about yourself' answer."""
-    first_name = profile.get("first_name", "")
+    profile.get("first_name", "")
     current_title = profile.get("current_title", "")
     current_company = profile.get("current_company", "")
     years = profile.get("years_experience", 0)

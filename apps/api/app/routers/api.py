@@ -1,6 +1,7 @@
 import json
+from collections.abc import Generator
 from pathlib import Path
-from typing import Any, Generator
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, Response
@@ -23,7 +24,19 @@ from app.db.store import (
     tracker_summary,
     upsert_entity,
 )
+from app.services.answer_engine import generate_answer, load_custom_answers
 from app.services.api_dashboard import render_api_dashboard
+from app.services.error_investigation import investigation_for_error_id, investigation_for_open_errors
+from app.services.extension_packager import build_extension_zip, extension_info
+from app.services.gmail_imap import GmailImapClient
+from app.services.gmail_sender import SendEmailPayload, build_gmail_sender
+from app.services.job_discover import relevancy_engine
+from app.services.job_discover import store as job_discover
+from app.services.llm import analyze_accomplishment, generate_resume_bullets_for_job
+from app.services.log_store import append_client_log, clear_client_logs, read_client_logs
+from app.services.outreach_campaign_store import load_campaigns
+from app.services.resume_parser import parse_resume_into_profile
+from app.services.runtime_metrics import metrics_snapshot_with_logs
 from app.services.target_company_jobs import (
     filter_jobs,
     format_whatsapp,
@@ -32,17 +45,6 @@ from app.services.target_company_jobs import (
     refresh_and_store,
     should_refresh_weekly,
 )
-from app.services.job_discover import store as job_discover
-from app.services.job_discover import relevancy_engine
-from app.services.answer_engine import generate_answer, load_custom_answers
-from app.services.error_investigation import investigation_for_error_id, investigation_for_open_errors
-from app.services.runtime_metrics import metrics_snapshot_with_logs
-from app.services.llm import analyze_accomplishment, generate_resume_bullets_for_job
-from app.services.extension_packager import build_extension_zip, extension_info
-from app.services.gmail_imap import GmailImapClient
-from app.services.gmail_sender import SendEmailPayload, build_gmail_sender
-from app.services.log_store import append_client_log, clear_client_logs, read_client_logs
-from app.services.resume_parser import parse_resume_into_profile
 
 router = APIRouter()
 
@@ -906,7 +908,8 @@ def get_recruiter_outreach_campaigns(
     path = Path(__file__).resolve().parents[2] / "data" / "recruiter_outreach_campaigns.json"
     if not path.exists():
         return {"success": True, "campaigns": [], "count": 0, "source": "cache-missing"}
-    raw_campaigns = json.loads(path.read_text(encoding="utf-8"))
+    loaded = load_campaigns(path)
+    raw_campaigns = loaded.campaigns
     bounce_details, bounce_messages, _ = _load_bounced_email_details()
     full_campaigns = raw_campaigns[:limit]
     campaigns = [
@@ -924,6 +927,9 @@ def get_recruiter_outreach_campaigns(
         "count": len(campaigns),
         "aggregateDeliveryStats": aggregate_stats,
         "source": str(path),
+        "recovered": loaded.recovered,
+        "warning": loaded.warning,
+        "discardedIncompleteItems": loaded.discarded_incomplete_items,
     }
 
 

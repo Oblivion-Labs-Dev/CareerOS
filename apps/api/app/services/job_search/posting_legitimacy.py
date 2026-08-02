@@ -51,7 +51,7 @@ def check_posting_legitimacy(
             signals.append(message)
             score -= 10
 
-    for pattern, message in TRUST_PATTERNS:
+    for pattern, _message in TRUST_PATTERNS:
         if re.search(pattern, text, re.IGNORECASE):
             score += 4
 

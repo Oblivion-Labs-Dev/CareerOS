@@ -10,9 +10,9 @@ from pypdf import PdfReader
 from sqlalchemy.orm import Session
 
 from app.db.store import list_entities, new_id, upsert_entity
-from app.services.resume_parser import parse_resume_fields
 from app.services.resume_intelligence.persistence import save_scan
 from app.services.resume_intelligence.qwen_services import extract_resume_with_qwen
+from app.services.resume_parser import parse_resume_fields
 
 
 def extract_text_from_upload(*, text: str = "", base64_data: str = "", mime_type: str = "", filename: str = "") -> str:

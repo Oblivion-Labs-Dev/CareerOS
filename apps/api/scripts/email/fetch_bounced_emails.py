@@ -13,7 +13,7 @@ import imaplib
 import json
 import re
 import sys
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 from email.header import decode_header
 from email.utils import parsedate_to_datetime
 from pathlib import Path
@@ -162,7 +162,7 @@ def parse_message_date(raw: str | None) -> datetime | None:
     except (TypeError, ValueError, OverflowError):
         return None
     if dt.tzinfo is None:
-        return dt.replace(tzinfo=timezone.utc)
+        return dt.replace(tzinfo=UTC)
     return dt
 
 
@@ -374,7 +374,7 @@ def main() -> int:
         merged_messages.append(msg)
 
     payload = {
-        "generatedAt": datetime.now(timezone.utc).isoformat(),
+        "generatedAt": datetime.now(UTC).isoformat(),
         "bounceMessages": len(merged_messages),
         "invalidEmailCount": len(merged_invalid),
         "invalidEmails": sorted(merged_invalid.values(), key=lambda item: item["email"]),

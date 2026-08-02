@@ -2,6 +2,8 @@ import nextDynamic from "next/dynamic";
 import { PageTitleWithStatus } from "@/components/page-title-with-status";
 import { fetchHealth } from "@/lib/api";
 
+export const dynamic = "force-dynamic";
+
 const JobSearchAnalytics = nextDynamic(
   () => import("@/components/analytics/job-search-analytics").then((mod) => mod.JobSearchAnalytics),
   { loading: () => <p className="muted">Loading analytics…</p> },

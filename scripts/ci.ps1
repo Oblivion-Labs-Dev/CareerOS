@@ -29,12 +29,12 @@ function Get-ApiPython {
 }
 
 function Invoke-ApiPython {
-    param([string[]]$Args)
+    param([string[]]$PythonArgs)
     $py = Get-ApiPython
     if ($py -is [array]) {
-        & $py[0] $py[1] @Args
+        & $py[0] $py[1] @PythonArgs
     } else {
-        & $py @Args
+        & $py @PythonArgs
     }
 }
 
@@ -82,24 +82,48 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 Write-Step "CI / web-e2e (servers + tests)"
 Invoke-ApiPython @("-m", "pip", "install", "-q", "-r", (Join-Path $ApiDir "requirements.txt"))
 
+$serverLogDir = Join-Path ([IO.Path]::GetTempPath()) ("careeros-ci-e2e-" + [Guid]::NewGuid().ToString("N"))
+$null = New-Item -ItemType Directory -Path $serverLogDir
+$apiStdout = Join-Path $serverLogDir "api.stdout.log"
+$apiStderr = Join-Path $serverLogDir "api.stderr.log"
+$webStdout = Join-Path $serverLogDir "web.stdout.log"
+$webStderr = Join-Path $serverLogDir "web.stderr.log"
 $py = Get-ApiPython
 $apiArgs = @("-m", "uvicorn", "app.main:app", "--host", "127.0.0.1", "--port", "8000")
 if ($py -is [array]) {
     $apiProc = Start-Process -FilePath $py[0] -ArgumentList ($py[1..($py.Length - 1)] + $apiArgs) `
-        -WorkingDirectory $ApiDir -PassThru -WindowStyle Hidden
+        -WorkingDirectory $ApiDir -PassThru -WindowStyle Hidden `
+        -RedirectStandardOutput $apiStdout `
+        -RedirectStandardError $apiStderr
 } else {
     $apiProc = Start-Process -FilePath $py -ArgumentList $apiArgs `
-        -WorkingDirectory $ApiDir -PassThru -WindowStyle Hidden
+        -WorkingDirectory $ApiDir -PassThru -WindowStyle Hidden `
+        -RedirectStandardOutput $apiStdout `
+        -RedirectStandardError $apiStderr
 }
 
-$webProc = Start-Process -FilePath "pnpm" `
-    -ArgumentList @("start", "--port", "3000") `
+$nodeCommand = Get-Command "node.exe" -ErrorAction Stop
+$webProc = Start-Process -FilePath $nodeCommand.Source `
+    -ArgumentList @("node_modules/next/dist/bin/next", "start", "--port", "3000") `
     -WorkingDirectory $WebDir `
+    -RedirectStandardOutput $webStdout `
+    -RedirectStandardError $webStderr `
     -PassThru -WindowStyle Hidden
 
 try {
-    npx --yes wait-on "http://127.0.0.1:8000/health" "http://127.0.0.1:3000" -t 120000
-    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    npx --yes wait-on "http-get://127.0.0.1:8000/health" "http://127.0.0.1:3000" -t 120000
+    $waitExitCode = $LASTEXITCODE
+    if ($waitExitCode -ne 0) {
+        Write-Host "--- API stdout ---"
+        Get-Content -LiteralPath $apiStdout -ErrorAction SilentlyContinue
+        Write-Host "--- API stderr ---"
+        Get-Content -LiteralPath $apiStderr -ErrorAction SilentlyContinue
+        Write-Host "--- Web stdout ---"
+        Get-Content -LiteralPath $webStdout -ErrorAction SilentlyContinue
+        Write-Host "--- Web stderr ---"
+        Get-Content -LiteralPath $webStderr -ErrorAction SilentlyContinue
+        exit $waitExitCode
+    }
 
     $env:CI = "1"
     pnpm --filter @career-os/web exec playwright test
@@ -107,7 +131,7 @@ try {
 } finally {
     foreach ($proc in @($apiProc, $webProc)) {
         if ($proc -and -not $proc.HasExited) {
-            Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
+            & taskkill.exe /PID $proc.Id /T /F 2>$null | Out-Null
         }
     }
 }

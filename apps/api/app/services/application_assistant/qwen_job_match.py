@@ -8,6 +8,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
+from app.services.application_assistant import qwen_activity
 from app.services.application_assistant.candidate_match_context import (
     build_candidate_summary_for_llm,
     load_match_context,
@@ -16,7 +17,6 @@ from app.services.application_assistant.candidate_match_context import (
 from app.services.application_assistant.job_matching import match_job
 from app.services.application_assistant.llm_client import LLMClient, create_llm_client
 from app.services.application_assistant.persistence import get_settings
-from app.services.application_assistant import qwen_activity
 
 MATCH_SCORE_SCHEMA: dict[str, Any] = {
     "type": "object",

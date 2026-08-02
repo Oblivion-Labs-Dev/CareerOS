@@ -1,10 +1,8 @@
 """Unit tests for Application Assistant core modules."""
 
-import pytest
 
 from app.services.application_assistant.answer_classification import (
     classify_answer,
-    detect_sensitivity,
     is_manual_only_field,
     match_profile_key,
     normalize_field_key,
@@ -23,7 +21,6 @@ from app.services.application_assistant.url_validation import (
     is_prohibited_platform,
     validate_url,
 )
-
 
 # ── URL Validation ────────────────────────────────────────────────────────────
 
@@ -415,7 +412,7 @@ class TestApplicationDraftIdentity:
     def test_cleanup_removes_duplicate_job_ids(self):
         import uuid
 
-        from app.db.store import session_scope, upsert_entity, new_id, now_iso
+        from app.db.store import new_id, now_iso, session_scope, upsert_entity
         from app.services.application_assistant.persistence import (
             ENTITY_APPLICATION_DRAFT,
             cleanup_duplicate_application_drafts,

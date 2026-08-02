@@ -5,7 +5,7 @@ from __future__ import annotations
 import html
 import json
 from collections import Counter
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from app.services.job_search.methodology import BUCKET_COLORS, normalize_status_bucket
@@ -57,7 +57,7 @@ def build_analytics_summary(applications: list[dict[str, Any]]) -> dict[str, Any
         "rejectionRate": rejection_rate,
         "interviewRate": interview_rate,
         "rows": rows,
-        "generatedAt": datetime.now(timezone.utc).isoformat(),
+        "generatedAt": datetime.now(UTC).isoformat(),
     }
 
 

@@ -998,7 +998,7 @@ async def _fill_phone_country(page: Any, country_name: str, *, near_selector: st
 
     await container_el.scroll_into_view_if_needed()
 
-    for attempt in range(2):
+    for _attempt in range(2):
         await _open_phone_country_dropdown(page, container_el)
 
         if await _click_iti_country_option(page, country_name):
@@ -1552,7 +1552,7 @@ async def _replay_field_with_timeout(
     """Run one replay step with a hard timeout so one widget cannot block quick apply."""
     try:
         return await asyncio.wait_for(coro, timeout=timeout_sec), None
-    except asyncio.TimeoutError:
+    except TimeoutError:
         return None, "replay_field_timeout"
     except Exception as exc:
         return None, str(exc)

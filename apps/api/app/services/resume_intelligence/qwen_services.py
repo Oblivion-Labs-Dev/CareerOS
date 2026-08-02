@@ -5,10 +5,11 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from sqlalchemy.orm import Session
+
+from app.services.application_assistant import qwen_activity
 from app.services.application_assistant.llm_client import LLMClient, create_llm_client
 from app.services.application_assistant.persistence import get_settings
-from app.services.application_assistant import qwen_activity
-from sqlalchemy.orm import Session
 
 SCAN_SCHEMA: dict[str, Any] = {
     "type": "object",

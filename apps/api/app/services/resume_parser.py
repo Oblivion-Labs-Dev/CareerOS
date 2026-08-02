@@ -1,10 +1,9 @@
+import base64
+import io
 import re
 from typing import Any
 
 from pypdf import PdfReader
-import io
-import base64
-
 
 EMAIL_RE = re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b")
 PHONE_RE = re.compile(r"(?:\+?1[-.\s]?)?(?:\(?\d{3}\)?[-.\s]?)\d{3}[-.\s]?\d{4}\b")
@@ -14,14 +13,16 @@ YEARS_RE = re.compile(r"(\d{1,2})\+?\s*years?\s+(?:of\s+)?experience", re.I)
 def extract_text_from_attachment(attachment: dict[str, Any] | None) -> str:
     if not attachment or not attachment.get("base64"):
         return ""
-    raw = base64.b64decode(attachment["base64"])
-    mime = attachment.get("type") or attachment.get("mimeType") or ""
-    if "pdf" in mime.lower() or attachment.get("name", "").lower().endswith(".pdf"):
-        reader = PdfReader(io.BytesIO(raw))
-        return "\n".join(page.extract_text() or "" for page in reader.pages)
     try:
+        raw = base64.b64decode(attachment["base64"], validate=True)
+        mime = attachment.get("type") or attachment.get("mimeType") or ""
+        if "pdf" in mime.lower() or attachment.get("name", "").lower().endswith(".pdf"):
+            reader = PdfReader(io.BytesIO(raw))
+            return "\n".join(page.extract_text() or "" for page in reader.pages)
         return raw.decode("utf-8", errors="ignore")
     except Exception:
+        # Saved documents are optional matching context. A stale, truncated, or
+        # incorrectly labelled attachment must not abort job import or scoring.
         return ""
 
 

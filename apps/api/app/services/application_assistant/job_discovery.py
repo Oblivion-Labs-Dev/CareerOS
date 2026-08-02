@@ -9,7 +9,6 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from app.db.store import get_kv, now_iso, session_scope
-from app.services.application_assistant.job_matching import match_job
 from app.services.application_assistant.log_redaction import create_log_entry, sanitize_url
 from app.services.application_assistant.persistence import (
     append_discovery_log,

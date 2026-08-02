@@ -9,7 +9,7 @@ import random
 import sys
 import time
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -18,6 +18,15 @@ sys.path.insert(0, str(ROOT))
 
 from app.config import settings  # noqa: E402
 from app.services.gmail_sender import EmailAttachment, SendEmailPayload, build_gmail_sender  # noqa: E402
+from app.services.outreach_campaign_store import (  # noqa: E402
+    load_campaigns as load_campaign_history,
+)
+from app.services.outreach_campaign_store import (
+    repair_campaign_file,
+)
+from app.services.outreach_campaign_store import (
+    save_campaigns as save_campaign_history,
+)
 
 DEFAULT_EMAILS = Path(__file__).resolve().parent / "personalized_recruiter_emails.json"
 DEFAULT_RESUME_PDF = Path(r"D:\Docs\Interview\Resume\Akshay_Borse_Resume.pdf")
@@ -33,18 +42,18 @@ RESUMABLE_STATUSES = {"in_progress", "paused"}
 
 
 def utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 def load_campaigns(path: Path) -> list[dict[str, Any]]:
-    if not path.exists():
-        return []
-    return json.loads(path.read_text(encoding="utf-8"))
+    loaded = load_campaign_history(path)
+    if loaded.recovered:
+        repair_campaign_file(path, loaded)
+    return loaded.campaigns
 
 
 def save_campaigns(path: Path, campaigns: list[dict[str, Any]]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(campaigns, indent=2), encoding="utf-8")
+    save_campaign_history(path, campaigns)
 
 
 def upsert_campaign(campaigns: list[dict[str, Any]], campaign: dict[str, Any]) -> list[dict[str, Any]]:

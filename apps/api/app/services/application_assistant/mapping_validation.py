@@ -4,9 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from app.services.application_assistant.answer_classification import AnswerClassification
+from app.services.application_assistant.answer_classification import AnswerClassification, is_phone_country_field
 from app.services.application_assistant.canonical_registry import SENSITIVE_CANONICAL_KEYS
-from app.services.application_assistant.answer_classification import is_phone_country_field
 from app.services.application_assistant.css_selectors import normalize_css_selector
 from app.services.application_assistant.submission_guard import validate_action_allowed
 

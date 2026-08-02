@@ -45,15 +45,20 @@ export function useSidebarJobCounts(pollMs = 30_000) {
   }, []);
 
   useEffect(() => {
-    void refresh();
-    const interval = setInterval(() => void refresh(), pollMs);
+    const poll = () => {
+      if (document.visibilityState === "visible") void refresh();
+    };
+    poll();
+    const interval = setInterval(poll, pollMs);
     const onCountsChanged = () => void refresh();
     window.addEventListener("qwen-prep-started", onCountsChanged);
     window.addEventListener("careeros-job-counts-changed", onCountsChanged);
+    document.addEventListener("visibilitychange", poll);
     return () => {
       clearInterval(interval);
       window.removeEventListener("qwen-prep-started", onCountsChanged);
       window.removeEventListener("careeros-job-counts-changed", onCountsChanged);
+      document.removeEventListener("visibilitychange", poll);
     };
   }, [pollMs, refresh]);
 

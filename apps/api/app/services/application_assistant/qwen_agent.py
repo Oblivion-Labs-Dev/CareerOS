@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from datetime import UTC
 from typing import Any
 
 from sqlalchemy.exc import OperationalError
@@ -79,11 +80,11 @@ _STALE_AGENT_RUN_SEC = 120
 def _started_age_sec(started_at: str | None) -> float:
     if not started_at:
         return _STALE_AGENT_RUN_SEC + 1
-    from datetime import datetime, timezone
+    from datetime import datetime
 
     try:
         t = datetime.fromisoformat(str(started_at).replace("Z", "+00:00"))
-        return (datetime.now(timezone.utc) - t).total_seconds()
+        return (datetime.now(UTC) - t).total_seconds()
     except (ValueError, TypeError):
         return _STALE_AGENT_RUN_SEC + 1
 
@@ -166,7 +167,7 @@ def _log_agent(
 
 def _clear_stale_browser_runs(db: Session, app_id: str) -> None:
     """Mark orphaned browser runs stopped so blocked apps can be retried."""
-    from app.services.application_assistant.persistence import list_entities, ENTITY_BROWSER_RUN
+    from app.services.application_assistant.persistence import ENTITY_BROWSER_RUN, list_entities
 
     for run in list_entities(db, ENTITY_BROWSER_RUN):
         if run.get("applicationId") == app_id and run.get("status") in ("pending", "running"):
@@ -448,6 +449,10 @@ async def _run_open_review_prepare(db: Session, app_id: str, browser_run_id: str
     }
     headed = settings.get("browser", {}).get("headed", True)
 
+    # Persist the running state before the Playwright worker emits activity
+    # through its own session; SQLite permits only one writer at a time.
+    db.commit()
+
     result = await prepare_application(
         application_url=draft.get("jobUrl", ""),
         adapter=adapter,
@@ -492,6 +497,7 @@ async def _run_open_review_prepare(db: Session, app_id: str, browser_run_id: str
             "verifiedCount": app.get("verifiedCount", 0) if app else 0,
             "missingCount": app.get("missingCount", 0) if app else 0,
         },
+        db=db,
     )
 
     return {
@@ -593,6 +599,7 @@ async def execute_application_open_review(
         event_type="review_open_start",
         summary=f"Opening review form: {draft.get('companyName')} — {draft.get('roleTitle')}",
         metadata={"applicationId": app_id, "jobUrl": draft.get("jobUrl", "")},
+        db=db,
     )
 
     _clear_stale_browser_runs(db, app_id)
@@ -620,7 +627,7 @@ async def execute_application_open_review(
 
 def get_review_session_status(db: Session, app_id: str) -> dict[str, Any]:
     """Report whether open-review is idle, in progress, browser open, or failed."""
-    from datetime import datetime, timezone
+    from datetime import datetime
 
     from app.services.application_assistant.browser_replay import quick_apply_info, reconcile_stale_browser_run
     from app.services.application_assistant.browser_runner import get_active_session
@@ -689,7 +696,7 @@ def get_review_session_status(db: Session, app_id: str) -> dict[str, Any]:
             started_at = active_run.get("startedAt", "")
             try:
                 t = datetime.fromisoformat(started_at.replace("Z", "+00:00"))
-                age_sec = (datetime.now(timezone.utc) - t).total_seconds()
+                age_sec = (datetime.now(UTC) - t).total_seconds()
                 return with_quick_apply({
                     "status": "opening",
                     "browserOpen": live_session,

@@ -6,10 +6,9 @@ from __future__ import annotations
 import json
 import re
 import sys
+import xml.etree.ElementTree as ET
 from pathlib import Path
 from zipfile import ZipFile
-import xml.etree.ElementTree as ET
-
 
 ROOT = Path(__file__).resolve().parents[5]
 DEFAULT_DOCX = Path(r"C:\Users\amsbo\Downloads\company_outreach_emails_humanized.docx")

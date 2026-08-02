@@ -1,14 +1,14 @@
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
+from app.db.resume_corpus_seed import load_resume_corpus_seed
 from app.db.store import (
+    RESUME_CORPUS_SEED_PATH,
     Base,
     EntityStore,
-    RESUME_CORPUS_SEED_PATH,
     get_entity,
     seed_resume_corpus_if_needed,
 )
-from app.db.resume_corpus_seed import load_resume_corpus_seed
 
 
 def test_shared_resume_corpus_seed_has_26_unique_accomplishments() -> None:

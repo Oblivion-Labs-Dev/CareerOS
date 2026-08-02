@@ -78,8 +78,11 @@ def test_refresh_target_company_jobs_route() -> None:
 
 
 def test_whatsapp_endpoint() -> None:
-    client.post("/jobs/target-companies/refresh", json={"verifyOracle": False})
-    response = client.get("/jobs/target-companies/whatsapp?company=all&location=all")
+    with patch("app.services.target_company_jobs.fetch_docusign_jobs", return_value=[]):
+        with patch("app.services.target_company_jobs.fetch_oracle_jobs", return_value=[]):
+            refreshed = client.post("/jobs/target-companies/refresh", json={"verifyOracle": False})
+            response = client.get("/jobs/target-companies/whatsapp?company=all&location=all")
+    assert refreshed.status_code == 200
     assert response.status_code == 200
     body = response.json()
     assert "text" in body

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import re
 from typing import Any
 from urllib.parse import parse_qs, urlparse
@@ -15,7 +14,6 @@ from app.services.application_assistant.answer_classification import (
 )
 from app.services.application_assistant.css_selectors import normalize_css_selector
 from app.services.application_assistant.field_options import merge_field_options
-from app.services.application_assistant.domain import ProviderType
 from app.services.application_assistant.providers.base import (
     FormField,
     JobListing,
@@ -23,8 +21,6 @@ from app.services.application_assistant.providers.base import (
     ProviderDetection,
 )
 from app.services.application_assistant.submission_guard import (
-    classify_button,
-    get_prohibited_selectors,
     is_prohibited_action,
     validate_action_allowed,
 )
@@ -407,9 +403,9 @@ class GreenhouseAdapter(ProviderAdapter):
             ".field:not(.hidden)"
         )
 
-        for i, el in enumerate(inputs):
+        for _i, el in enumerate(inputs):
             tag = await el.evaluate("el => el.tagName.toLowerCase()")
-            field_type = await el.get_attribute("type") or tag
+            await el.get_attribute("type") or tag
             name = await el.get_attribute("name") or ""
             el_id = await el.get_attribute("id") or ""
 

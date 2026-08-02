@@ -211,6 +211,7 @@ export function ResumeScannerDashboard({ embedded = false, profileName = "" }: P
           </label>
           <input
             type="text"
+            aria-label="New person name"
             placeholder="New person name"
             value={newPersonName}
             onChange={(e) => setNewPersonName(e.target.value)}
@@ -242,11 +243,13 @@ export function ResumeScannerDashboard({ embedded = false, profileName = "" }: P
             <p className={styles.hint}>Qwen extracts contact info, skills, work history, accomplishment candidates, and ATS keyword sets.</p>
             <input
               type="file"
+              aria-label="Upload resume file"
               accept=".pdf,.txt,.doc,.docx"
               onChange={(e) => void handleFileUpload(e.target.files?.[0] || null)}
             />
             <textarea
               rows={12}
+              aria-label="Resume text"
               placeholder="Or paste resume text…"
               value={resumeText}
               onChange={(e) => setResumeText(e.target.value)}

@@ -28,7 +28,7 @@ def detect_provider(url: str, page_content: str = "") -> tuple[str, ProviderAdap
         return detection.provider, adapter, detection.supported
 
     # Try all adapters
-    for name, adp in _ADAPTERS.items():
+    for _name, adp in _ADAPTERS.items():
         detection = adp.detect(url, page_content)
         if detection.confidence > 0.5:
             return detection.provider, adp, detection.supported
