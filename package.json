@@ -21,7 +21,12 @@
     "test:api": "cd apps/api && python -m pytest tests -q",
     "test:web": "pnpm --filter @career-os/web test:e2e",
     "test:repair": "cd tools/repair-orchestrator && python -m pytest tests -q",
-    "ci": "pnpm typecheck && pnpm --filter @career-os/extension test && pnpm test:api",
+    "ci": "node scripts/ci-run.mjs",
+    "ci:typecheck": "pnpm --filter @career-os/core build && pnpm typecheck",
+    "ci:extension-unit": "pnpm --filter @career-os/extension test",
+    "ci:api": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/ci-api.ps1",
+    "ci:web-e2e": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/ci-web-e2e.ps1",
+    "prepare:hooks": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/install-git-hooks.ps1",
     "repair:up": "docker compose -f docker-compose.repair.yml up --build",
     "repair:down": "docker compose -f docker-compose.repair.yml down",
     "repair:dev": "python tools/repair-orchestrator/run_dev.py"

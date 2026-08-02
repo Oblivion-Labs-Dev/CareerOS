@@ -235,6 +235,9 @@ if [[ "$SKIP_TESTS" -eq 0 ]]; then
   ok "API smoke tests passed"
 fi
 
+step "Installing git hooks (pre-commit + pre-push run pnpm ci)"
+bash "$REPO_ROOT/scripts/install-git-hooks.sh"
+
 cat <<EOF
 
 Setup complete

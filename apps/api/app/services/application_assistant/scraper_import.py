@@ -206,7 +206,10 @@ def sync_scraper_jobs(
         else:
             updated += 1
 
-    synced_ids = get_synced_scraper_job_ids(db)
+    synced_ids = {
+        sid for sid in get_synced_scraper_job_ids(db)
+        if sid in scraper_by_id
+    }
 
     return {
         "success": True,
@@ -222,8 +225,10 @@ def sync_scraper_jobs(
 
 def scraper_sync_status(db: Session) -> dict[str, Any]:
     snap = jd_store.get_snapshot(db)
-    scraper_total = len(snap.get("jobs") or [])
-    synced_ids = get_synced_scraper_job_ids(db)
+    scraper_jobs = snap.get("jobs") or []
+    scraper_total = len(scraper_jobs)
+    scraper_ids = {str(j.get("id")) for j in scraper_jobs if j.get("id")}
+    synced_ids = {sid for sid in get_synced_scraper_job_ids(db) if sid in scraper_ids}
     return {
         "scraperTotal": scraper_total,
         "syncedTotal": len(synced_ids),

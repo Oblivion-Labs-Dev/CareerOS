@@ -74,7 +74,7 @@ export function DocumentsCenter() {
               <tbody>
                 {docs.length === 0 ? (
                   <tr>
-                    <td colspan="6" className="empty-table">No documents in registry. Add one using the panel on the right.</td>
+                    <td colSpan={6} className="empty-table">No documents in registry. Add one using the panel on the right.</td>
                   </tr>
                 ) : (
                   docs.map(doc => {

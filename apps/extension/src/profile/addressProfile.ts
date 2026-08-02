@@ -1,6 +1,6 @@
 import { UserProfile } from '../shared/types';
 import { parseLocationParts, preferredStateFillValue } from '../shared/usStates';
-import { scanPage } from '../content/domScanner';
+import { scanPage, ScannedField } from '../content/domScanner';
 import { resolveFieldLabel } from '../content/fieldInference';
 import { readFieldDisplayValue } from '../content/fieldValue';
 import { isOptionalAddressField } from '../content/fieldRequired';

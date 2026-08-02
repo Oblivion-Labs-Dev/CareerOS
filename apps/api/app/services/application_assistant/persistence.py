@@ -309,7 +309,7 @@ def get_application_draft_by_job_id(
 
 def create_application_draft(db: Session, payload: dict[str, Any]) -> dict[str, Any]:
     job_id = payload.get("jobId")
-    existing = get_application_draft_by_job_id(db, job_id) if job_id else None
+    existing = get_application_draft_by_job_id(db, job_id, exclude_demo=False) if job_id else None
     if existing:
         metadata_patch = {
             k: v

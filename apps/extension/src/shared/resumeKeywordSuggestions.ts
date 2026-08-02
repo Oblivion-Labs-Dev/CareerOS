@@ -11,9 +11,8 @@ export function buildResumeKeywordSuggestions(
   missingKeywords: string[],
   profile: UserProfile
 ): ResumeKeywordSuggestion[] {
-  const skills = (profile.skills || '')
-    .split(/[,;\n|]+/)
-    .map((s) => s.trim().toLowerCase())
+  const skills = (Array.isArray(profile.skills) ? profile.skills : String(profile.skills || '').split(/[,;\n|]+/))
+    .map((s: string) => s.trim().toLowerCase())
     .filter(Boolean);
 
   const suggestions: ResumeKeywordSuggestion[] = [];

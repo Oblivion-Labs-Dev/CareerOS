@@ -20,6 +20,7 @@ export interface Application {
   submittedAt?: string;
   nextFollowUpAt?: string;
   notes?: string;
+  jobUrl?: string;
   createdAt: string;
   updatedAt: string;
 }

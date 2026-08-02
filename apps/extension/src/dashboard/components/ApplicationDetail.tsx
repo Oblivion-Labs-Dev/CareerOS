@@ -105,7 +105,7 @@ export function ApplicationDetail({ applicationId, onBack }: ApplicationDetailPr
                 <tbody>
                   {mappings.length === 0 ? (
                     <tr>
-                      <td colspan="5" className="empty-table">No mappings stored for this application.</td>
+                      <td colSpan={5} className="empty-table">No mappings stored for this application.</td>
                     </tr>
                   ) : (
                     mappings.map(m => (
@@ -140,7 +140,7 @@ export function ApplicationDetail({ applicationId, onBack }: ApplicationDetailPr
                 <tbody>
                   {sessions.length === 0 ? (
                     <tr>
-                      <td colspan="5" className="empty-table">No sessions recorded yet.</td>
+                      <td colSpan={5} className="empty-table">No sessions recorded yet.</td>
                     </tr>
                   ) : (
                     sessions.map(s => (
@@ -213,7 +213,7 @@ export function ApplicationDetail({ applicationId, onBack }: ApplicationDetailPr
           <div className="review-card" style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
             <h3>Tracker Notes</h3>
             <div className="form-group">
-              <label for="detail-followup">Next Follow-up Date</label>
+              <label htmlFor="detail-followup">Next Follow-up Date</label>
               <input
                 type="date"
                 id="detail-followup"
@@ -223,7 +223,7 @@ export function ApplicationDetail({ applicationId, onBack }: ApplicationDetailPr
             </div>
 
             <div className="form-group">
-              <label for="detail-notes">Tracker Log / Notes</label>
+              <label htmlFor="detail-notes">Tracker Log / Notes</label>
               <textarea
                 id="detail-notes"
                 rows={5}

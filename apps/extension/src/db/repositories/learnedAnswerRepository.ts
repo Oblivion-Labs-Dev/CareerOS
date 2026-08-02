@@ -27,7 +27,7 @@ export async function saveLearnedAnswer(
   const list = await getLearnedAnswers();
   const now = getCurrentDateTimeISO();
 
-  let existing = answerData.id
+  let existing: LearnedAnswer | undefined = answerData.id
     ? list.find(a => a.id === answerData.id)
     : list.find(a => a.questionText === questionText);
 
@@ -71,6 +71,9 @@ export async function saveLearnedAnswer(
     } catch {
       memoryCache = list;
     }
+  }
+  if (!existing) {
+    throw new Error('Failed to persist learned answer');
   }
   return existing;
 }

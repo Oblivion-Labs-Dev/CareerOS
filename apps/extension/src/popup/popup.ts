@@ -984,8 +984,10 @@ async function initPopup() {
     });
     await syncToServer();
 
-    trackerForm.reset();
-    trackerForm.hidden = true;
+    if (trackerForm instanceof HTMLFormElement) {
+      trackerForm.reset();
+      trackerForm.hidden = true;
+    }
     await loadTracker();
   });
 
@@ -1195,8 +1197,13 @@ function renderReviewFields(fields: any[]) {
  * Loads profile settings
  */
 async function loadProfile() {
-  const profile = enrichProfile(await getProfile());
+  const raw = await getProfile();
   const statProfile = document.getElementById('stat-profile');
+  if (!raw) {
+    if (statProfile) statProfile.textContent = 'Setup';
+    return;
+  }
+  const profile = enrichProfile(raw);
   if (statProfile) {
     const name = profile.fullName?.trim() || profile.firstName?.trim();
     statProfile.textContent = name ? 'Ready' : 'Setup';

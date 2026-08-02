@@ -274,6 +274,9 @@ if (-not $SkipTests) {
     Write-Ok "API smoke tests passed"
 }
 
+Write-Step "Installing git hooks (pre-commit + pre-push run pnpm ci)"
+& (Join-Path $PSScriptRoot "install-git-hooks.ps1")
+
 Write-Host ""
 Write-Host "Setup complete" -ForegroundColor Green
 Write-Host ""

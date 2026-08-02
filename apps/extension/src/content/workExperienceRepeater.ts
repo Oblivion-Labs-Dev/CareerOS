@@ -40,24 +40,29 @@ function fillExperienceRow(doc: Document, entry: WorkExperienceEntry, index: num
 
   for (const input of inputs) {
     const key = `${input.name || ''} ${input.id || ''} ${input.getAttribute('aria-label') || ''}`.toLowerCase();
+    const fillText = (value: string) => {
+      if (input instanceof HTMLSelectElement) fillSelect(input, value);
+      else if (input instanceof HTMLInputElement || input instanceof HTMLTextAreaElement) {
+        fillTextOrTextArea(input, value);
+      }
+    };
     if (/company|employer|organization/.test(key) && entry.company) {
-      if (input instanceof HTMLSelectElement) fillSelect(input, entry.company);
-      else fillTextOrTextArea(input, entry.company);
+      fillText(entry.company);
       filled += 1;
     } else if (/title|position|role/.test(key) && entry.jobTitle) {
-      fillTextOrTextArea(input, entry.jobTitle);
+      fillText(entry.jobTitle);
       filled += 1;
     } else if (/location|city/.test(key) && entry.location) {
-      fillTextOrTextArea(input, entry.location);
+      fillText(entry.location);
       filled += 1;
     } else if (/start|from/.test(key) && entry.startDate) {
-      fillTextOrTextArea(input, entry.startDate);
+      fillText(entry.startDate);
       filled += 1;
     } else if (/end|to/.test(key) && entry.endDate) {
-      fillTextOrTextArea(input, entry.endDate);
+      fillText(entry.endDate);
       filled += 1;
     } else if (/description|responsibilit/.test(key) && entry.description) {
-      fillTextOrTextArea(input, entry.description);
+      fillText(entry.description);
       filled += 1;
     }
   }

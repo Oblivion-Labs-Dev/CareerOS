@@ -68,6 +68,9 @@ type Application = {
   quickApplyStepCount?: number;
   quickApplyLabel?: string;
   stoppedReason?: string;
+  lastPrepFailed?: boolean;
+  lastPrepError?: string;
+  lastPrepAnalysis?: string;
   fields?: { label?: string; normalizedKey?: string; fieldType?: string; classification?: string }[];
   wizardPendingCache?: {
     pending?: PendingQuestion[];
@@ -1551,7 +1554,7 @@ export function ApplicationAssistantDashboard() {
     }));
     dispatchQwenContext(appId, app?.companyName, app?.roleTitle);
     pushLiveFloat(hasReplayPlan ? "Quick apply — replaying saved steps…" : "Launching browser and filling saved fields…", "review_open_start");
-    let opened: Awaited<ReturnType<typeof openApplicationReview>> | null = null;
+    let opened: Awaited<ReturnType<typeof openApplicationReview>>;
     try {
       opened = await openApplicationReview(appId, { force: false });
       if ((opened.alreadyOpen || opened.browserOpen) && !hasReplayPlan) {
@@ -2136,7 +2139,7 @@ export function ApplicationAssistantDashboard() {
                 const { pendingCount, profileBlocked, gateLoading, needsAiAnalysis } = readiness;
                 const isWizardLoading = wizardLoadingAppId === app.id;
                 const isActivePrep = appIsActivelyPreparing(app.id, app, prepQueue, preparing, activePrepIds);
-                const isPreparingNow = preparing.has(app.id) || preparing.has(app.jobId);
+                const isPreparingNow = preparing.has(app.id) || (app.jobId ? preparing.has(app.jobId) : false);
                 const prepElapsedSec = isActivePrep ? getPrepElapsed(app.id) : 0;
                 const displayGroupKey = resolveQueueGroupKeyForApp(app, { readiness, isPreparing: isActivePrep || isPreparingNow });
                 const statusAccent = STATUS_ACCENT[displayGroupKey] || "slate";

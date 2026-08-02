@@ -146,10 +146,15 @@ async function runStep(
     return true;
   }
 
+  if (element.isContentEditable) {
+    fillTextOrTextArea(element as HTMLTextAreaElement, value);
+    traceStep(operationId, 'autofill', `ats_text_${step.field}`, 'autofill:ats');
+    return true;
+  }
+
   if (
     element instanceof HTMLInputElement ||
-    element instanceof HTMLTextAreaElement ||
-    element.isContentEditable
+    element instanceof HTMLTextAreaElement
   ) {
     fillTextOrTextArea(element, value);
     traceStep(operationId, 'autofill', `ats_text_${step.field}`, 'autofill:ats');

@@ -75,7 +75,7 @@ export function LearningCenter() {
           <tbody>
             {filtered.length === 0 ? (
               <tr>
-                <td colspan="7" className="empty-table">No learned mappings found.</td>
+                <td colSpan={7} className="empty-table">No learned mappings found.</td>
               </tr>
             ) : (
               filtered.map(a => (

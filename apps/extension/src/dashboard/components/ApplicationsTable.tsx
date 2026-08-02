@@ -70,7 +70,7 @@ export function ApplicationsTable({ applications, onSelectApp, onUpdateStatus, o
           <tbody>
             {filtered.length === 0 ? (
               <tr>
-                <td colspan="8" className="empty-table">No applications match your filter.</td>
+                <td colSpan={8} className="empty-table">No applications match your filter.</td>
               </tr>
             ) : (
               filtered.map(app => (

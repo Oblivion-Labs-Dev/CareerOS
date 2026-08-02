@@ -40,7 +40,8 @@ export function Portal() {
     const missing: string[] = [];
     if (profile) {
       for (const [key, label] of Object.entries(required)) {
-        if (!profile[key as keyof typeof profile]?.trim()) {
+        const value = profile[key as keyof typeof profile];
+        if (typeof value !== 'string' || !value.trim()) {
           missing.push(label);
         }
       }

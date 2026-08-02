@@ -562,7 +562,8 @@ export async function applyFieldFill(
 
 async function fillRemainingEmptyFields(
   profile: UserProfile,
-  doc: Document = document
+  doc: Document = document,
+  company = ''
 ): Promise<number> {
   const enriched = enrichProfile(profile);
   let extraFilled = 0;
@@ -750,19 +751,17 @@ export async function executeClassifiedAutofill(
         canonicalKey: item.canonicalKey
       };
     })
-    .filter(
-      (job): job is {
-        cached: ScannedField;
-        value: string;
-        confidence: 'high' | 'medium' | 'low';
-        canonicalKey?: string;
-      } => job !== null
-    )
+    .filter((job) => job !== null)
     .sort(
       (a, b) =>
-        autofillFieldPriority(a.cached.type, a.canonicalKey) -
-        autofillFieldPriority(b.cached.type, b.canonicalKey)
-    );
+        autofillFieldPriority(a!.cached.type, a!.canonicalKey) -
+        autofillFieldPriority(b!.cached.type, b!.canonicalKey)
+    ) as Array<{
+      cached: ScannedField;
+      value: string;
+      confidence: 'high' | 'medium' | 'low';
+      canonicalKey?: string;
+    }>;
 
   traceStep(operationId, 'autofill', 'jobs_prepared', 'autofill:runner', {
     jobCount: jobs.length
@@ -979,7 +978,7 @@ export async function executeClassifiedAutofill(
 
   traceStep(operationId, 'autofill', 'remaining_empty_start', 'autofill:runner');
   filledCount += await fillWorkExperienceSections(enriched, doc, operationId);
-  const extraFilled = await fillRemainingEmptyFields(enriched, doc);
+  const extraFilled = await fillRemainingEmptyFields(enriched, doc, company);
   filledCount += extraFilled;
   traceStep(operationId, 'autofill', 'remaining_empty_end', 'autofill:runner', { extraFilled });
 
@@ -1032,7 +1031,9 @@ export async function runFullPageAutofill(
   traceStep(operationId, 'autofill', 'ats_prefill_start', 'autofill:runner');
   const atsResult = await runAtsAutofill(profile, doc, operationId);
   if (atsResult?.filledCount) {
-    traceStep(operationId, 'autofill', 'ats_prefill_done', 'autofill:runner', atsResult);
+    traceStep(operationId, 'autofill', 'ats_prefill_done', 'autofill:runner', {
+      filledCount: atsResult.filledCount
+    });
     await new Promise((resolve) => setTimeout(resolve, 400));
   }
 

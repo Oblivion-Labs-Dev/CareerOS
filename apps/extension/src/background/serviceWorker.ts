@@ -300,11 +300,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           resumeUsedId: existing?.resumeUsedId,
           coverLetterUsedId: existing?.coverLetterUsedId,
           submittedAt: existing?.submittedAt,
-          notes: payload.url
+          notes: payload.url,
+          jobUrl: payload.url
         });
 
         await logActivityEvent({
-          type: 'application_autofilled',
+          type: 'autofilled',
           message: `Application tracked after autofill: ${payload.company} — ${payload.role}`,
           metadata: {
             url: payload.url,
@@ -336,7 +337,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       try {
         const { getApplications } = await import('../db/repositories/applicationRepository');
         const apps = await getApplications();
-        sendResponse({ urls: apps.map((a) => a.url).filter(Boolean) });
+        sendResponse({ urls: apps.map((a) => a.jobUrl || a.notes).filter(Boolean) });
       } catch (err: any) {
         sendResponse({ urls: [], error: err.message });
       }

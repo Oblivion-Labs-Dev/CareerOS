@@ -42,6 +42,8 @@ export interface UserProfile {
   currentTitle: string;
   targetRole: string;
   salaryExpectations: string;
+  summary?: string;
+  skills?: string[];
   currentCompany?: string;
   pronouns?: string;
   gender?: string;

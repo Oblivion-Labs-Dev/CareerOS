@@ -1,0 +1,17 @@
+#!/bin/sh
+# Run full CI (matches GitHub Actions) before every commit.
+if [ "$SKIP_CI" = "1" ]; then
+  exit 0
+fi
+
+ROOT="$(git rev-parse --show-toplevel)" || exit 1
+cd "$ROOT" || exit 1
+
+echo "pre-commit: running CareerOS CI (typecheck, extension-unit, api, web-e2e)..."
+echo "  Skip with: SKIP_CI=1 git commit ...  or  git commit --no-verify"
+
+if command -v node >/dev/null 2>&1; then
+  node scripts/ci-run.mjs
+else
+  pnpm ci
+fi

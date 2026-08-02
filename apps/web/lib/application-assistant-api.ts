@@ -422,7 +422,7 @@ export type AggregatePendingResponse = {
   rawOccurrenceCount: number;
   applicationCount: number;
   applicationIds: string[];
-  applications: { appId: string; companyName: string; roleTitle: string; pendingCount: number }[];
+  applications: { appId: string; companyName: string; roleTitle: string; pendingCount: number; readyForBrowser?: boolean }[];
   readyForBrowser: boolean;
 };
 

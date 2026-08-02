@@ -45,8 +45,6 @@ export type QueueApplication = {
   lastPrepFailed?: boolean;
   lastPrepError?: string;
   lastPrepAnalysis?: string;
-  lastPrepError?: string;
-  lastPrepAnalysis?: string;
   fields?: { label?: string; normalizedKey?: string; fieldType?: string; classification?: string }[];
 };
 

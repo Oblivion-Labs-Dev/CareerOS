@@ -58,9 +58,11 @@ export function mergeProfiles(
   const merged = createEmptyProfile();
 
   for (const key of PROFILE_STRING_KEYS) {
-    const a = primary?.[key]?.trim() || '';
-    const b = secondary?.[key]?.trim() || '';
-    if (a || b) merged[key] = a || b;
+    const aVal = primary?.[key];
+    const bVal = secondary?.[key];
+    const a = typeof aVal === 'string' ? aVal.trim() : '';
+    const b = typeof bVal === 'string' ? bVal.trim() : '';
+    if (a || b) Object.assign(merged, { [key]: a || b });
   }
 
   if (primary?.customFields || secondary?.customFields) {

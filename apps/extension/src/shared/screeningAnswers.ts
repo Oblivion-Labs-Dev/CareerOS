@@ -380,8 +380,9 @@ export function syncProfileFromScreeningAnswers(profile: UserProfile): UserProfi
   let answers = mergeDefaultScreeningAnswers(profile.screeningAnswers).map((entry) => ({ ...entry }));
 
   for (const [screeningId, profileField] of Object.entries(SCREENING_PROFILE_FIELD_LINKS)) {
-    const profileValue = profile[profileField]?.trim();
-    if (!profileValue) continue;
+    if (!profileField) continue;
+    const profileValue = profile[profileField];
+    if (typeof profileValue !== 'string' || !profileValue.trim()) continue;
     answers = answers.map((entry) =>
       entry.id === screeningId ? { ...entry, answer: profileValue } : entry
     );
@@ -391,9 +392,10 @@ export function syncProfileFromScreeningAnswers(profile: UserProfile): UserProfi
   const byId = new Map(answers.map((entry) => [entry.id, entry.answer]));
 
   for (const [screeningId, profileField] of Object.entries(SCREENING_PROFILE_FIELD_LINKS)) {
+    if (!profileField) continue;
     const answer = byId.get(screeningId);
     if (answer?.trim()) {
-      next[profileField] = answer.trim();
+      Object.assign(next, { [profileField]: answer.trim() });
     }
   }
 

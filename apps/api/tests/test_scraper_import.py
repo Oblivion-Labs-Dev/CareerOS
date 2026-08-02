@@ -48,39 +48,60 @@ class TestScraperImportHelpers:
 
 class TestScraperImportPersistence:
     def test_import_marks_job_added_to_assistant(self, sample_scraper_job):
+        import uuid
+
+        job = {
+            **sample_scraper_job,
+            "id": f"testco:{uuid.uuid4().hex[:8]}",
+            "companyName": "TestCo",
+            "url": f"https://job-boards.greenhouse.io/testco/jobs/{uuid.uuid4().hex[:8]}",
+            "externalId": uuid.uuid4().hex[:8],
+        }
+        aa_id = aa_job_id_for_scraper(job["id"])
+
         with session_scope() as db:
             set_kv(db, "profile", {"headline": "Software Engineer", "skills": ["python"]})
-            jd_store._persist_snapshot(db, {"jobs": [sample_scraper_job], "scrapedAt": "2026-01-01T00:00:00Z"})
+            jd_store._persist_snapshot(db, {"jobs": [job], "scrapedAt": "2026-01-01T00:00:00Z"})
 
-            result = import_scraper_job_by_id(db, sample_scraper_job["id"])
+            result = import_scraper_job_by_id(db, job["id"])
             assert result["success"] is True
             assert result["job"]["addedToAssistant"] is True
-            assert result["job"]["company"] == "Reddit"
+            assert result["job"]["company"].lower() == "testco"
             assert result["match"]["overallScore"] >= 0
             assert result.get("applicationId")
-            assert result["application"]["jobId"] == "aa_reddit_8082867"
+            assert result["application"]["jobId"] == aa_id
 
             jobs = list_discovered_jobs(db, active_only=False, exclude_demo=False)
-            assert any(j["id"] == "aa_reddit_8082867" and j.get("addedToAssistant") for j in jobs)
+            assert any(j["id"] == aa_id and j.get("addedToAssistant") for j in jobs)
 
             status = scraper_sync_status(db)
             assert status["scraperTotal"] == 1
             assert status["syncedTotal"] == 1
             assert status["pendingSync"] == 0
 
-            unchanged = import_scraper_job_record(db, sample_scraper_job, rescore=False, mark_added=True)
+            unchanged = import_scraper_job_record(db, job, rescore=False, mark_added=True)
             assert unchanged["action"] == "unchanged"
 
     def test_sync_only_refreshes_added_jobs(self, sample_scraper_job):
+        import uuid
+
+        job = {
+            **sample_scraper_job,
+            "id": f"testco:{uuid.uuid4().hex[:8]}",
+            "companyName": "TestCo",
+            "url": f"https://job-boards.greenhouse.io/testco/jobs/{uuid.uuid4().hex[:8]}",
+            "externalId": uuid.uuid4().hex[:8],
+        }
+
         with session_scope() as db:
-            jd_store._persist_snapshot(db, {"jobs": [sample_scraper_job], "scrapedAt": "2026-01-01T00:00:00Z"})
+            jd_store._persist_snapshot(db, {"jobs": [job], "scrapedAt": "2026-01-01T00:00:00Z"})
 
             sync = sync_scraper_jobs(db)
             assert sync["success"] is True
             assert sync["processed"] == 0
             assert sync["syncedTotal"] == 0
 
-            import_scraper_job_by_id(db, sample_scraper_job["id"])
+            import_scraper_job_by_id(db, job["id"])
             sync = sync_scraper_jobs(db)
             assert sync["processed"] == 1
             assert sync["syncedTotal"] == 1

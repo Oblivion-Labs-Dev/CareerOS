@@ -369,7 +369,10 @@ class TestApplicationDraftIdentity:
             assert first["id"] == second["id"]
             assert first["id"] == application_id_for_job(job_id)
             assert second["companyName"] == "Acme Inc"
-            listed = [d for d in list_application_drafts(db) if d.get("jobId") == job_id]
+            listed = [
+                d for d in list_application_drafts(db, exclude_demo=False)
+                if d.get("jobId") == job_id
+            ]
             assert len(listed) == 1
             delete_application_draft(db, first["id"])
 
@@ -423,8 +426,8 @@ class TestApplicationDraftIdentity:
         job_id = f"test_cleanup_{uuid.uuid4().hex[:12]}"
         base = {
             "jobId": job_id,
-            "jobUrl": "https://example.com/apply",
-            "companyName": "Acme",
+            "jobUrl": "https://careers.contoso.com/jobs/engineer",
+            "companyName": "Contoso Labs",
             "roleTitle": "Engineer",
             "status": "ready_to_prepare",
             "fields": [],
@@ -436,8 +439,19 @@ class TestApplicationDraftIdentity:
         with session_scope() as db:
             keeper_id = new_id("app_")
             dup_id = new_id("app_")
-            upsert_entity(db, ENTITY_APPLICATION_DRAFT, {**base, "id": keeper_id, "fields": [{"id": "f1"}]})
-            upsert_entity(db, ENTITY_APPLICATION_DRAFT, {**base, "id": dup_id})
+            upsert_entity(db, ENTITY_APPLICATION_DRAFT, {
+                **base,
+                "id": dup_id,
+                "updatedAt": "2020-01-01T00:00:00Z",
+            })
+            upsert_entity(db, ENTITY_APPLICATION_DRAFT, {
+                **base,
+                "id": keeper_id,
+                "status": "needs_review",
+                "fields": [{"id": "f1"}],
+                "verifiedCount": 2,
+                "updatedAt": now_iso(),
+            })
             removed = cleanup_duplicate_application_drafts(db)
             assert removed == 1
             listed = [d for d in list_application_drafts(db) if d.get("jobId") == job_id]

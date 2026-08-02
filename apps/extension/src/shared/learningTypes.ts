@@ -16,6 +16,8 @@ export interface LearnedAnswer {
   updatedAt: string;
   usageCount: number;
   lastUsedAt?: string;
+  rejectedCount?: number;
+  disabled?: boolean;
 }
 
 export interface MatchResult {

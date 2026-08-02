@@ -261,9 +261,14 @@ def infer_canonical_from_field(field: dict[str, Any]) -> str | None:
         if re.search(r"cover\s*letter", combined, re.I):
             return "documents.cover_letter"
 
+    if re.search(r"\bcountry\b", combined, re.I) and field_type.startswith("select"):
+        return "location.city"
+
     profile_key = match_profile_key(label)
     if profile_key:
-        return PROFILE_TO_CANONICAL.get(profile_key)
+        canonical = PROFILE_TO_CANONICAL.get(profile_key)
+        if canonical:
+            return canonical
 
     demographic_patterns: list[tuple[str, list[str]]] = [
         ("demographics.gender", [r"gender\s+identity", r"\bgender\b"]),
