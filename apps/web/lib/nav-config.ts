@@ -19,7 +19,15 @@ export interface ComingSoonNavItem extends NavItem {
 }
 
 /** Pages active in sidebar, dashboard nav, and command palette. */
-export const VISIBLE_NAV_HREFS = ["/dashboard", "/jobs/discover", "/applications", "/profile", "/application-assistant", "/analytics"] as const;
+export const VISIBLE_NAV_HREFS = [
+  "/dashboard",
+  "/applications",
+  "/jobs/discover",
+  "/analytics",
+  "/profile",
+  "/intelligence/answers",
+  "/settings",
+] as const;
 
 /** Full nav catalog — routes stay available; disabled items appear under Coming soon. */
 export const ALL_NAV_GROUPS: NavGroup[] = [
@@ -86,17 +94,29 @@ export const ALL_NAV_GROUPS: NavGroup[] = [
   },
 ];
 
-function visibleNavGroups(groups: NavGroup[]): NavGroup[] {
-  return groups
-    .map((group) => ({
-      ...group,
-      items: group.items.filter((item) => item.enabled !== false),
-    }))
-    .filter((group) => group.items.length > 0);
-}
-
-/** Sidebar + command palette — enabled pages only. */
-export const NAV_GROUPS = visibleNavGroups(ALL_NAV_GROUPS);
+/** Navigation used by the CareerOS mission-control shell. */
+export const NAV_GROUPS: NavGroup[] = [
+  {
+    label: "Main",
+    items: [
+      { href: "/dashboard", label: "Dashboard", icon: "today", requiresBackend: true },
+      { href: "/applications", label: "Autopilot", icon: "applypilot", requiresBackend: true },
+      { href: "/applications?tab=review", label: "Review Center", icon: "review", requiresBackend: true },
+      { href: "/applications?tab=tracker", label: "All Applications", icon: "applications", requiresBackend: true },
+      { href: "/jobs/discover", label: "Job Discovery", icon: "search", requiresBackend: true },
+      { href: "/analytics", label: "Analytics", icon: "insights", requiresBackend: true },
+    ],
+  },
+  {
+    label: "Tools",
+    items: [
+      { href: "/profile", label: "Resume & Profile", icon: "profile", requiresBackend: true },
+      { href: "/intelligence/answers", label: "AI Answers", icon: "answers", requiresBackend: true },
+      { href: "/settings?section=integrations", label: "Integrations", icon: "integrations" },
+      { href: "/settings", label: "Settings", icon: "settings" },
+    ],
+  },
+];
 
 export const VISIBLE_NAV_ITEMS = NAV_GROUPS.flatMap((group) => group.items);
 
@@ -120,11 +140,12 @@ export const BACKEND_START_COMMAND = `cd CareerOS
 .\\restart-dev.bat`;
 
 export function pathRequiresBackend(pathname: string): boolean {
+  const cleanPathname = pathname.split("?", 1)[0];
   return ALL_NAV_GROUPS.some((group) =>
     group.items.some(
       (item) =>
         item.requiresBackend &&
-        (pathname === item.href || (item.href !== "/" && pathname.startsWith(`${item.href}/`))),
+        (cleanPathname === item.href || (item.href !== "/" && cleanPathname.startsWith(`${item.href}/`))),
     ),
   );
 }

@@ -125,4 +125,8 @@ def get_agent_adapter(name: str | None = None) -> CodingAgentAdapter:
     selected = (name or settings.career_os_repair_agent_adapter).lower()
     if selected == "mock":
         return MockCodingAgentAdapter()
+    if selected == "qwen":
+        from app.services.repair.qwen_adapter import QwenCodingAgentAdapter
+
+        return QwenCodingAgentAdapter()
     raise ValueError(f"Unsupported repair agent adapter: {selected}")

@@ -7,8 +7,8 @@ import {
   IconArrowRight,
   IconCheckCircle,
   IconClock,
-  IconRefresh,
   IconSend,
+  IconShieldCheck,
 } from "./icons";
 
 interface ActivityLogItem {
@@ -16,7 +16,7 @@ interface ActivityLogItem {
   timestamp: string;
   level: "info" | "warning" | "error";
   message: string;
-  metadata?: Record<string, any>;
+  metadata?: any;
 }
 
 interface RecentActivityPanelProps {
@@ -27,36 +27,31 @@ function parseActivityItem(log: ActivityLogItem) {
   const msg = log.message;
   let icon = IconActivity;
   let color = "text-[#2ee8c9]";
-  let title = "Autopilot Event";
+  let title = "Autopilot Activity";
   let detail = msg;
 
-  if (msg.toLowerCase().includes("started")) {
-    icon = IconCheckCircle;
-    color = "text-emerald-400";
-    title = "Run initialized";
-  } else if (msg.toLowerCase().includes("submitted")) {
+  if (msg.includes("Successfully submitted") || msg.includes("Application confirmed")) {
     icon = IconSend;
     color = "text-[#2ee8c9]";
     title = "Application Submitted";
-  } else if (msg.toLowerCase().includes("staged") || msg.toLowerCase().includes("review")) {
+  } else if (msg.includes("Staged application") || msg.includes("Ambiguous question")) {
     icon = IconClock;
     color = "text-amber-400";
     title = "Staged for Review";
-  } else if (msg.toLowerCase().includes("skip") || msg.toLowerCase().includes("duplicate")) {
-    icon = IconArrowRight;
-    color = "text-indigo-400";
-    title = "Application Skipped";
-  } else if (msg.toLowerCase().includes("recover") || msg.toLowerCase().includes("repair")) {
-    icon = IconRefresh;
-    color = "text-cyan-400";
-    title = "Self-Healing Recovery";
-  } else if (log.level === "error" || msg.toLowerCase().includes("error") || msg.toLowerCase().includes("fatal")) {
+  } else if (msg.includes("Pre-submit") || msg.includes("safety check")) {
+    icon = IconShieldCheck;
+    color = "text-[#38bdf8]";
+    title = "Pre-Submission Safety Check";
+  } else if (msg.includes("error") || log.level === "error") {
     icon = IconAlertCircle;
     color = "text-rose-400";
-    title = "Worker Infrastructure Notice";
+    title = "Automation Event";
+  } else if (msg.includes("Ranked") || msg.includes("eligible")) {
+    icon = IconCheckCircle;
+    color = "text-emerald-400";
+    title = "Job Matching & Ranking";
   }
 
-  // Check for company • title pattern
   if (msg.includes("Processing job:") || msg.includes("Application submitted:") || msg.includes("Staged application")) {
     const parts = msg.split(/[:—]/);
     if (parts.length >= 2) {
@@ -69,8 +64,22 @@ function parseActivityItem(log: ActivityLogItem) {
 
 export function RecentActivityPanel({ logs }: RecentActivityPanelProps) {
   const [showFullModal, setShowFullModal] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   const displayLogs = logs.slice(-8).reverse();
+
+  const handleCopyLogs = async () => {
+    const formatted = logs
+      .map((l) => `[${new Date(l.timestamp).toISOString()}] [${l.level.toUpperCase()}] ${l.message}`)
+      .join("\n");
+    try {
+      await navigator.clipboard.writeText(formatted);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // Fallback
+    }
+  };
 
   return (
     <div className="p-5 rounded-2xl border border-white/10 bg-gradient-to-b from-[#0c121c] to-[#070b12] shadow-xl backdrop-blur-xl space-y-4">
@@ -81,12 +90,24 @@ export function RecentActivityPanel({ logs }: RecentActivityPanelProps) {
           <h3 className="text-xs font-bold uppercase tracking-widest text-slate-200">Recent Activity</h3>
         </div>
 
-        <button
-          onClick={() => setShowFullModal(true)}
-          className="text-xs font-semibold text-slate-400 hover:text-[#2ee8c9] flex items-center gap-1 transition-colors cursor-pointer"
-        >
-          View Full Log <IconArrowRight className="w-3.5 h-3.5" />
-        </button>
+        <div className="flex items-center gap-2">
+          {logs.length > 0 && (
+            <button
+              onClick={handleCopyLogs}
+              className="px-2.5 py-1 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-[11px] font-semibold text-slate-300 hover:text-white flex items-center gap-1.5 transition-all cursor-pointer"
+              title="Copy all logs to clipboard"
+            >
+              <span>{copied ? "✓ Copied" : "📋 Copy Logs"}</span>
+            </button>
+          )}
+
+          <button
+            onClick={() => setShowFullModal(true)}
+            className="text-xs font-semibold text-slate-400 hover:text-[#2ee8c9] flex items-center gap-1 transition-colors cursor-pointer"
+          >
+            View Full Log <IconArrowRight className="w-3.5 h-3.5" />
+          </button>
+        </div>
       </div>
 
       {/* Grid of timeline cards */}
@@ -136,12 +157,20 @@ export function RecentActivityPanel({ logs }: RecentActivityPanelProps) {
                 <IconActivity className="w-4 h-4 text-[#2ee8c9]" />
                 <h3 className="text-sm font-bold text-white">Full Autopilot Event Log</h3>
               </div>
-              <button
-                onClick={() => setShowFullModal(false)}
-                className="w-8 h-8 rounded-lg bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white flex items-center justify-center cursor-pointer"
-              >
-                ✕
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleCopyLogs}
+                  className="px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/15 text-xs font-bold text-slate-200 hover:text-white flex items-center gap-1.5 transition-all cursor-pointer"
+                >
+                  <span>{copied ? "✓ Copied" : "📋 Copy All"}</span>
+                </button>
+                <button
+                  onClick={() => setShowFullModal(false)}
+                  className="w-8 h-8 rounded-lg bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white flex items-center justify-center cursor-pointer"
+                >
+                  ✕
+                </button>
+              </div>
             </div>
 
             <div className="flex-1 overflow-y-auto space-y-2 font-mono text-xs pr-2">

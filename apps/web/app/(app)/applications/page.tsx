@@ -4,8 +4,9 @@ import { Suspense, useEffect, useState } from "react";
 import { ApplicationAssistantDashboard } from "@/components/application-assistant/application-assistant-dashboard";
 import { AutopilotDashboard } from "@/components/application-assistant/autopilot-dashboard";
 import { ReviewCenter } from "@/components/application-assistant/review-center";
-import { getAutopilotStatus, getStagedApplications } from "@/lib/application-assistant-api";
-import { IconBolt, IconClock, IconInbox } from "@/components/application-assistant/autopilot/icons";
+import { SubmittedJobsCenter } from "@/components/application-assistant/submitted-jobs-center";
+import { getAutopilotJobs, getAutopilotStatus, getStagedApplications } from "@/lib/application-assistant-api";
+import { IconBolt, IconClock, IconInbox, IconSend } from "@/components/application-assistant/autopilot/icons";
 
 function ApplicationQueueLoading() {
   return (
@@ -17,22 +18,28 @@ function ApplicationQueueLoading() {
 }
 
 export default function ApplicationsPage() {
-  const [activeTab, setActiveTab] = useState<"autopilot" | "review" | "tracker">("autopilot");
-  const [stagedCount, setStagedCount] = useState<number>(0);
+  const [activeTab, setActiveTab] = useState<"autopilot" | "submitted" | "review" | "tracker">("autopilot");
+  const [reviewCount, setReviewCount] = useState<number>(0);
+  const [submittedCount, setSubmittedCount] = useState<number>(0);
   const [isRunning, setIsRunning] = useState<boolean>(false);
 
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const [stagedRes, statusRes] = await Promise.all([
+        const [stagedRes, submittedRes, statusRes] = await Promise.all([
           getStagedApplications().catch(() => []),
+          getAutopilotJobs("SUBMITTED").catch(() => ({ jobs: [] })),
           getAutopilotStatus().catch(() => null),
         ]);
 
         if (Array.isArray(stagedRes)) {
-          setStagedCount(stagedRes.length);
+          setReviewCount(stagedRes.length);
         } else if (stagedRes?.staged && Array.isArray(stagedRes.staged)) {
-          setStagedCount(stagedRes.staged.length);
+          setReviewCount(stagedRes.staged.length);
+        }
+
+        if (submittedRes?.jobs && Array.isArray(submittedRes.jobs)) {
+          setSubmittedCount(submittedRes.jobs.length);
         }
 
         if (statusRes?.running || statusRes?.status === "RUNNING" || statusRes?.status === "RECOVERING") {
@@ -73,12 +80,12 @@ export default function ApplicationsPage() {
           </h1>
 
           <p className="text-xs sm:text-sm text-slate-300 max-w-2xl leading-relaxed">
-            Autonomous nightly application runner with AI-powered matching, self-healing, and smart recovery.
+            Autonomous application runner with AI-powered matching, smart answering, and self-healing.
           </p>
         </div>
 
-        {/* ─── Top Right Navigation Tabs (Exact Color Scheme from Mockup) ─── */}
-        <div className="flex items-center gap-3 self-start md:self-auto">
+        {/* ─── Top Right Navigation Tabs ─── */}
+        <div className="flex flex-wrap items-center gap-2.5 self-start md:self-auto">
           {/* 1. Autopilot Button (Teal) */}
           <button
             onClick={() => setActiveTab("autopilot")}
@@ -88,13 +95,33 @@ export default function ApplicationsPage() {
               color: "#2ee8c9",
               boxShadow: activeTab === "autopilot" ? "0 0 20px rgba(46, 232, 201, 0.4)" : "none",
             }}
-            className="px-4 py-2.5 text-xs font-black rounded-xl border transition-all duration-300 flex items-center gap-2 cursor-pointer hover:scale-[1.02] active:scale-[0.98]"
+            className="px-3.5 py-2 text-xs font-black rounded-xl border transition-all duration-300 flex items-center gap-2 cursor-pointer hover:scale-[1.02] active:scale-[0.98]"
           >
             <IconBolt className="w-4 h-4 text-[#2ee8c9]" />
             <span>Autopilot</span>
           </button>
 
-          {/* 2. Review Center Button (Purple / Violet) */}
+          {/* 2. Submitted Applications Button (Emerald) */}
+          <button
+            onClick={() => setActiveTab("submitted")}
+            style={{
+              background: activeTab === "submitted" ? "#0a241b" : "#081813",
+              borderColor: activeTab === "submitted" ? "#34d399" : "rgba(52, 211, 153, 0.4)",
+              color: "#34d399",
+              boxShadow: activeTab === "submitted" ? "0 0 20px rgba(52, 211, 153, 0.4)" : "none",
+            }}
+            className="px-3.5 py-2 text-xs font-black rounded-xl border transition-all duration-300 flex items-center gap-2 cursor-pointer hover:scale-[1.02] active:scale-[0.98]"
+          >
+            <IconSend className="w-4 h-4 text-[#34d399]" />
+            <span>Submitted</span>
+            {submittedCount > 0 && (
+              <span className="px-1.5 py-0.5 rounded-full text-[10px] font-black bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 shadow-sm">
+                {submittedCount}
+              </span>
+            )}
+          </button>
+
+          {/* 3. Review Center Button (Purple / Violet) */}
           <button
             onClick={() => setActiveTab("review")}
             style={{
@@ -103,18 +130,18 @@ export default function ApplicationsPage() {
               color: "#c084fc",
               boxShadow: activeTab === "review" ? "0 0 20px rgba(168, 85, 247, 0.4)" : "none",
             }}
-            className="px-4 py-2.5 text-xs font-black rounded-xl border transition-all duration-300 flex items-center gap-2 cursor-pointer hover:scale-[1.02] active:scale-[0.98]"
+            className="px-3.5 py-2 text-xs font-black rounded-xl border transition-all duration-300 flex items-center gap-2 cursor-pointer hover:scale-[1.02] active:scale-[0.98]"
           >
             <IconClock className="w-4 h-4 text-[#c084fc]" />
             <span>Review Center</span>
-            {stagedCount > 0 && (
+            {reviewCount > 0 && (
               <span className="px-1.5 py-0.5 rounded-full text-[10px] font-black bg-[#a855f7] text-white shadow-sm">
-                {stagedCount}
+                {reviewCount}
               </span>
             )}
           </button>
 
-          {/* 3. All Applications Button (Amber / Gold) */}
+          {/* 4. All Applications Button (Amber / Gold) */}
           <button
             onClick={() => setActiveTab("tracker")}
             style={{
@@ -123,7 +150,7 @@ export default function ApplicationsPage() {
               color: "#fbbf24",
               boxShadow: activeTab === "tracker" ? "0 0 20px rgba(245, 158, 11, 0.4)" : "none",
             }}
-            className="px-4 py-2.5 text-xs font-black rounded-xl border transition-all duration-300 flex items-center gap-2 cursor-pointer hover:scale-[1.02] active:scale-[0.98]"
+            className="px-3.5 py-2 text-xs font-black rounded-xl border transition-all duration-300 flex items-center gap-2 cursor-pointer hover:scale-[1.02] active:scale-[0.98]"
           >
             <IconInbox className="w-4 h-4 text-[#fbbf24]" />
             <span>All Applications</span>
@@ -135,6 +162,12 @@ export default function ApplicationsPage() {
       {activeTab === "autopilot" && (
         <Suspense fallback={<ApplicationQueueLoading />}>
           <AutopilotDashboard onNavigateTab={(t) => setActiveTab(t)} />
+        </Suspense>
+      )}
+
+      {activeTab === "submitted" && (
+        <Suspense fallback={<ApplicationQueueLoading />}>
+          <SubmittedJobsCenter />
         </Suspense>
       )}
 

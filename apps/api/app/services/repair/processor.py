@@ -204,33 +204,78 @@ def process_logs_and_errors() -> dict[str, Any]:
             worktrees_dir=str(REPO_ROOT / ".repair-worktrees"),
         )
 
-        run_report["state"] = "agent_working"
-        agent_run = adapter.start(task, workspace)
-        task.agent_branch = agent_run.branch
-        task.agent_worktree = agent_run.worktree_path
-        task.patch_summary = agent_run.diff_summary
-        task.agent_run = adapter.get_status(agent_run.run_id)
-        task.status = "validating" if agent_run.status == "completed" else "failed"
+        MAX_ATTEMPTS = 3
+        validation_passed = False
+        final_validation: dict[str, Any] | None = None
+        attempt_history: list[dict[str, Any]] = []
+
+        for attempt_num in range(1, MAX_ATTEMPTS + 1):
+            task.current_attempt = attempt_num
+            task.attempt_history = attempt_history
+            run_report["state"] = "agent_working"
+            run_report["currentAttempt"] = attempt_num
+
+            agent_run = adapter.start(task, workspace)
+            task.agent_branch = agent_run.branch
+            task.agent_worktree = agent_run.worktree_path
+            task.patch_summary = agent_run.diff_summary
+            task.agent_run = adapter.get_status(agent_run.run_id)
+
+            if agent_run.status != "completed":
+                attempt_history.append({
+                    "attempt": attempt_num,
+                    "hypothesis": getattr(agent_run, "hypothesis", ""),
+                    "rootCause": getattr(agent_run, "root_cause", ""),
+                    "failure": agent_run.output or "Agent failed to generate valid code change",
+                })
+                continue
+
+            # Deterministic validation run against the target worktree/repo
+            run_report["state"] = "validating"
+            validation = _run_validation(
+                task.validation_commands,
+                cwd=task.agent_worktree if Path(task.agent_worktree).is_dir() else None,
+            )
+            task.validation = validation
+            final_validation = validation
+
+            if validation.get("passed"):
+                validation_passed = True
+                task.status = "completed"
+                repair_task_store.upsert_task(task)
+                break
+            else:
+                # Capture validation failure output as evidence for the next attempt
+                cmd_errors = [
+                    f"{cmd.get('command')}: {cmd.get('stderr') or cmd.get('stdout')}"
+                    for cmd in validation.get("commands", [])
+                    if not cmd.get("passed")
+                ]
+                attempt_history.append({
+                    "attempt": attempt_num,
+                    "hypothesis": getattr(agent_run, "hypothesis", ""),
+                    "rootCause": getattr(agent_run, "root_cause", ""),
+                    "failure": "Validation failed: " + "; ".join(cmd_errors)[:500],
+                })
+
+        task.attempt_history = attempt_history
+        task.status = "completed" if validation_passed else "failed"
         repair_task_store.upsert_task(task)
+
         run_report["agentRun"] = task.agent_run
-
-        if agent_run.status != "completed":
-            run_report["state"] = "failed"
-            run_report["failure"] = agent_run.output or "Agent run failed"
-            repair_task_store.save_latest_run(run_report)
-            return run_report
-
-        run_report["state"] = "validating"
-        validation = _run_validation(task.validation_commands)
-        task.validation = validation
-        task.status = "completed" if validation.get("passed") else "failed"
-        repair_task_store.upsert_task(task)
-        run_report["validation"] = validation
+        run_report["validation"] = final_validation
         run_report["task"] = repair_task_store.upsert_task(task)
+        run_report["attemptHistory"] = attempt_history
 
-        run_report["state"] = "completed" if validation.get("passed") else "failed"
-        if not validation.get("passed"):
-            run_report["failure"] = "Validation failed"
+        if validation_passed:
+            run_report["state"] = "completed"
+        else:
+            run_report["state"] = "failed"
+            run_report["failure"] = (
+                f"Self-healing failed after {len(attempt_history)} distinct hypothesis attempts."
+                if attempt_history
+                else "Agent run failed"
+            )
         run_report["completedAt"] = utc_now_iso()
         repair_task_store.save_latest_run(run_report)
         return run_report
@@ -249,10 +294,10 @@ def latest_manual_run() -> dict[str, Any] | None:
     return repair_task_store.latest_run()
 
 
-def _run_validation(commands: list[str]) -> dict[str, Any]:
+def _run_validation(commands: list[str], cwd: str | None = None) -> dict[str, Any]:
     results: list[dict[str, Any]] = []
     all_passed = True
-    api_root = Path(__file__).resolve().parents[2]
+    api_root = Path(cwd) if cwd else Path(__file__).resolve().parents[2]
     for command in commands:
         completed = subprocess.run(
             command,

@@ -104,14 +104,14 @@ if ($py -is [array]) {
 
 $nodeCommand = Get-Command "node.exe" -ErrorAction Stop
 $webProc = Start-Process -FilePath $nodeCommand.Source `
-    -ArgumentList @("node_modules/next/dist/bin/next", "start", "--port", "3000") `
+    -ArgumentList @("node_modules/next/dist/bin/next", "start", "--port", "3001") `
     -WorkingDirectory $WebDir `
     -RedirectStandardOutput $webStdout `
     -RedirectStandardError $webStderr `
     -PassThru -WindowStyle Hidden
 
 try {
-    npx --yes wait-on "http-get://127.0.0.1:8000/health" "http://127.0.0.1:3000" -t 120000
+    npx --yes wait-on "http-get://127.0.0.1:8000/health" "http://127.0.0.1:3001" -t 120000
     $waitExitCode = $LASTEXITCODE
     if ($waitExitCode -ne 0) {
         Write-Host "--- API stdout ---"
@@ -126,6 +126,7 @@ try {
     }
 
     $env:CI = "1"
+    $env:PLAYWRIGHT_TEST_BASE_URL = "http://localhost:3001"
     pnpm --filter @career-os/web exec playwright test
     $exitCode = $LASTEXITCODE
 } finally {

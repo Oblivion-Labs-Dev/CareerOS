@@ -61,6 +61,8 @@ class RepairTaskStore:
                 "patchSummary": task.patch_summary,
                 "validation": task.validation,
                 "agentRun": task.agent_run,
+                "currentAttempt": task.current_attempt,
+                "attemptHistory": task.attempt_history,
             }
             tasks[task.task_id] = record
             self._write(data)

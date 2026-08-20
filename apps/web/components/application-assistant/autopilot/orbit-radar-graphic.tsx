@@ -10,7 +10,7 @@ interface OrbitRadarGraphicProps {
 
 export function OrbitRadarGraphic({ isRunning, isCompleted }: OrbitRadarGraphicProps) {
   return (
-    <div className="relative w-44 h-44 sm:w-48 sm:h-48 flex items-center justify-center select-none">
+    <div className="autopilot-orbit relative w-44 h-44 sm:w-48 sm:h-48 flex items-center justify-center select-none">
       {/* Background Radial Glow */}
       <div
         className={`absolute inset-0 rounded-full blur-2xl transition-all duration-700 pointer-events-none ${
@@ -30,7 +30,7 @@ export function OrbitRadarGraphic({ isRunning, isCompleted }: OrbitRadarGraphicP
           cy="100"
           r="88"
           fill="none"
-          stroke="rgba(148, 163, 184, 0.12)"
+          stroke="rgba(107, 74, 236, 0.34)"
           strokeWidth="1"
           strokeDasharray="4 6"
         />
@@ -41,7 +41,7 @@ export function OrbitRadarGraphic({ isRunning, isCompleted }: OrbitRadarGraphicP
           cy="100"
           r="72"
           fill="none"
-          stroke={isRunning ? "rgba(46, 232, 201, 0.25)" : "rgba(148, 163, 184, 0.16)"}
+          stroke={isRunning || isCompleted ? "rgba(13, 232, 193, 0.50)" : "rgba(62, 144, 217, 0.30)"}
           strokeWidth="1.2"
         />
 
@@ -51,7 +51,7 @@ export function OrbitRadarGraphic({ isRunning, isCompleted }: OrbitRadarGraphicP
           cy="100"
           r="54"
           fill="none"
-          stroke="rgba(148, 163, 184, 0.14)"
+          stroke="rgba(61, 139, 239, 0.34)"
           strokeWidth="1"
           strokeDasharray="2 4"
         />
@@ -62,7 +62,7 @@ export function OrbitRadarGraphic({ isRunning, isCompleted }: OrbitRadarGraphicP
           cy="100"
           r="38"
           fill="none"
-          stroke={isRunning ? "rgba(56, 189, 248, 0.4)" : "rgba(148, 163, 184, 0.2)"}
+          stroke={isRunning || isCompleted ? "rgba(28, 205, 255, 0.58)" : "rgba(148, 163, 184, 0.2)"}
           strokeWidth="1"
         />
 
@@ -88,7 +88,7 @@ export function OrbitRadarGraphic({ isRunning, isCompleted }: OrbitRadarGraphicP
             <circle cx="100" cy="28" r="7" fill="#2ee8c9" opacity="0.3" className="animate-ping" />
           </g>
         ) : (
-          <circle cx="100" cy="28" r="3" fill="#64748b" opacity="0.6" />
+          <circle cx="100" cy="28" r="3" fill="#b64fff" opacity="0.9" />
         )}
 
         {/* Orbiting Satellite Particle 2 */}
@@ -97,7 +97,7 @@ export function OrbitRadarGraphic({ isRunning, isCompleted }: OrbitRadarGraphicP
             <circle cx="154" cy="100" r="2.5" fill="#38bdf8" />
           </g>
         ) : (
-          <circle cx="154" cy="100" r="2" fill="#475569" opacity="0.5" />
+          <circle cx="154" cy="100" r="2.5" fill="#14dff1" opacity="0.85" />
         )}
       </svg>
 

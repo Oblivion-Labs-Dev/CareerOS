@@ -1238,6 +1238,16 @@ def get_autopilot_status(
     return runner.get_status(db)
 
 
+@router.get("/autopilot/jobs")
+def get_autopilot_jobs_list(
+    status: str | None = Query(default=None),
+    db: Session = Depends(db_session),
+) -> dict[str, Any]:
+    from app.services.application_assistant.persistence import list_autopilot_jobs
+    jobs = list_autopilot_jobs(db, status=status)
+    return {"success": True, "jobs": jobs, "count": len(jobs)}
+
+
 @router.get("/autopilot/staged")
 def get_staged_applications(
     db: Session = Depends(db_session),
@@ -1322,5 +1332,50 @@ def enqueue_job_for_autopilot(
     }
     saved = save_autopilot_job(db, job_item)
     return {"success": True, "job": saved}
+
+
+@router.post("/autopilot/reset-submitted")
+def reset_submitted_autopilot_jobs(
+    payload: dict[str, Any] = Body(default_factory=dict),
+    db: Session = Depends(db_session),
+) -> dict[str, Any]:
+    """Reset submitted/processed autopilot jobs back to UNAPPLIED so they can be re-applied."""
+    from app.services.application_assistant.persistence import delete_autopilot_job, list_autopilot_jobs
+    status_filter = payload.get("status")  # Optional: "SUBMITTED", "ALL", etc.
+    all_jobs = list_autopilot_jobs(db)
+
+    reset_count = 0
+    for job in all_jobs:
+        job_status = job.get("status", "")
+        should_reset = False
+        if not status_filter or status_filter == "ALL":
+            should_reset = job_status in ("SUBMITTED", "STAGED", "FAILED", "SKIPPED", "PROCESSED", "APPLYING")
+        elif status_filter == "SUBMITTED":
+            should_reset = job_status == "SUBMITTED"
+        elif job_status == status_filter:
+            should_reset = True
+
+        if should_reset:
+            delete_autopilot_job(db, job["id"])
+            reset_count += 1
+
+    return {"success": True, "resetCount": reset_count, "message": f"Successfully reset {reset_count} job(s) to unapplied"}
+
+
+@router.post("/autopilot/jobs/{id}/reset")
+def reset_single_autopilot_job(
+    id: str,
+    db: Session = Depends(db_session),
+) -> dict[str, Any]:
+    """Reset a single autopilot job record back to UNAPPLIED."""
+    from app.services.application_assistant.persistence import delete_autopilot_job, get_autopilot_job
+
+    job = get_autopilot_job(db, id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Autopilot job record not found")
+
+    delete_autopilot_job(db, id)
+    return {"success": True, "id": id, "message": "Job successfully reset to unapplied"}
+
 
 

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import logging
+import os
 import traceback
 import uuid
 from datetime import datetime, timezone
@@ -33,6 +35,8 @@ from app.services.application_assistant.persistence import (
 from app.services.application_assistant.structured_answer_engine import resolve_application_question
 
 
+logger = logging.getLogger("career_os.autopilot_runner")
+
 MAX_JOB_ATTEMPTS = 3
 TRANSIENT_ERRORS = {
     ApplicationErrorType.NAVIGATION_TIMEOUT.value,
@@ -42,42 +46,6 @@ TRANSIENT_ERRORS = {
     ApplicationErrorType.ELEMENT_NOT_FOUND.value,
     ApplicationErrorType.UPLOAD_ERROR.value,
 }
-
-DEFAULT_TARGET_JOBS = [
-    {
-        "id": "job_workato_ai",
-        "company": "Workato",
-        "title": "Software Engineer, AI & Agent Platforms",
-        "applicationUrl": "https://www.workato.com/careers/software-engineer-ai-agent-platforms-8112909002?gh_jid=8112909002",
-        "location": "San Francisco, CA (Hybrid)",
-        "datePosted": "2026-08-18T10:00:00Z",
-    },
-    {
-        "id": "job_databricks_swe",
-        "company": "Databricks",
-        "title": "Senior Software Engineer - Developer Platform",
-        "applicationUrl": "https://boards.greenhouse.io/databricks/jobs/5829102",
-        "location": "San Francisco, CA",
-        "datePosted": "2026-08-17T14:00:00Z",
-    },
-    {
-        "id": "job_docusign_ai",
-        "company": "DocuSign",
-        "title": "Full Stack AI Engineer",
-        "applicationUrl": "https://docusign.wd1.myworkdayjobs.com/Careers/job/San-Francisco/Full-Stack-AI-Engineer",
-        "location": "Remote / San Francisco",
-        "datePosted": "2026-08-16T09:00:00Z",
-    },
-    {
-        "id": "job_stripe_platform",
-        "company": "Stripe",
-        "title": "Software Engineer - Automation & AI",
-        "applicationUrl": "https://stripe.com/jobs/listing/software-engineer-automation/69102",
-        "location": "Remote",
-        "datePosted": "2026-08-15T11:00:00Z",
-    },
-]
-
 
 class AutopilotRunner:
     _instance: AutopilotRunner | None = None
@@ -203,7 +171,21 @@ class AutopilotRunner:
         if active_run and not self.active_run_id:
             self.active_run_id = active_run["id"]
         jobs = list_autopilot_jobs(db)
-        queued_jobs = [j for j in jobs if j.get("status") == AutopilotJobStatus.QUEUED.value]
+        submitted_jobs = [j for j in jobs if j.get("status") == AutopilotJobStatus.SUBMITTED.value]
+        staged_jobs = [j for j in jobs if j.get("status") in (AutopilotJobStatus.STAGED.value, "NEEDS_REVIEW")]
+        skipped_jobs = [j for j in jobs if j.get("status") == AutopilotJobStatus.SKIPPED.value]
+        failed_jobs = [j for j in jobs if j.get("status") in (AutopilotJobStatus.FAILED.value, "ERROR")]
+        queued_jobs = [j for j in jobs if j.get("status") in (AutopilotJobStatus.QUEUED.value, AutopilotJobStatus.APPLYING.value)]
+        processed_total = len(submitted_jobs) + len(staged_jobs) + len(skipped_jobs) + len(failed_jobs)
+
+        cumulative = {
+            "submitted": len(submitted_jobs),
+            "staged": len(staged_jobs),
+            "skipped": len(skipped_jobs),
+            "failed": len(failed_jobs),
+            "processed": processed_total,
+            "queueRemaining": len(queued_jobs),
+        }
 
         persisted_logs = active_run.get("logs") if active_run else []
         log_dict = {l.get("id"): l for l in (persisted_logs or []) + self.activity_log if isinstance(l, dict) and l.get("id")}
@@ -214,6 +196,7 @@ class AutopilotRunner:
                 "running": False,
                 "status": AutopilotRunStatus.STOPPED.value,
                 "run": None,
+                "cumulative": cumulative,
                 "activeJob": None,
                 "queueSize": len(queued_jobs),
                 "recentLogs": combined_logs[-25:],
@@ -227,6 +210,7 @@ class AutopilotRunner:
             "running": active_run.get("status") in (AutopilotRunStatus.RUNNING.value, AutopilotRunStatus.RECOVERING.value),
             "status": active_run.get("status"),
             "run": active_run,
+            "cumulative": cumulative,
             "activeJob": current_job,
             "queueSize": len(queued_jobs),
             "recentLogs": combined_logs[-25:],
@@ -323,28 +307,14 @@ class AutopilotRunner:
                 queued = [j for j in existing_autopilot_jobs if j.get("status") in (AutopilotJobStatus.QUEUED.value, AutopilotJobStatus.APPLYING.value)]
                 if not queued:
                     profile = get_kv(db, "profile") or {}
-                    raw_jobs = list_discovered_jobs(db)
+                    raw_jobs = list_discovered_jobs(db, active_only=True, exclude_demo=True)
 
             if not queued:
-                self.log_event("Scanning job boards & target companies for new postings...", level="info")
+                self.log_event("Scanning discovered job postings for eligible matches...", level="info")
                 ranked = filter_and_rank_jobs(existing_autopilot_jobs, raw_jobs, profile, run.get("settings")) if raw_jobs else []
-                if not ranked:
-                    batch_suffix = f" Batch #{uuid.uuid4().hex[:4]}"
-                    demo_jobs = [
-                        {
-                            **j,
-                            "id": f"{j['id']}_{uuid.uuid4().hex[:6]}",
-                            "company": f"{j['company']}{batch_suffix}",
-                            "applicationUrl": f"{j['applicationUrl']}&run_id={uuid.uuid4().hex[:4]}",
-                            "datePosted": now_iso(),
-                        }
-                        for j in DEFAULT_TARGET_JOBS
-                    ]
-                    settings_override = {**(run.get("settings") or {}), "allowDuplicates": True, "minMatchScore": 0.0}
-                    ranked = filter_and_rank_jobs(existing_autopilot_jobs, demo_jobs, profile, settings_override)
 
                 if ranked:
-                    self.log_event(f"Ranked {len(ranked)} eligible job postings matching target criteria (Score: 75+)", level="info")
+                    self.log_event(f"Selected {len(ranked)} eligible job postings matching target criteria", level="info")
                     with session_scope() as db:
                         for r in ranked:
                             save_autopilot_job(db, {
@@ -361,6 +331,8 @@ class AutopilotRunner:
                             })
                         jobs = list_autopilot_jobs(db)
                         queued = [j for j in jobs if j.get("status") in (AutopilotJobStatus.QUEUED.value, AutopilotJobStatus.APPLYING.value)]
+                else:
+                    self.log_event("No new unapplied job postings found in database.", level="info")
 
             if queued:
                 cand = queued[0]
@@ -376,9 +348,15 @@ class AutopilotRunner:
                             save_autopilot_run(db, r)
 
             if not target_job:
-                self.log_event("Queue empty — waiting 5 seconds...", level="info")
-                await asyncio.sleep(5)
-                continue
+                self.log_event("No more eligible jobs in queue — batch run completed.", level="info")
+                with session_scope() as db:
+                    r = get_autopilot_run(db, run["id"])
+                    if r:
+                        r["status"] = AutopilotRunStatus.COMPLETED.value
+                        r["completedAt"] = now_iso()
+                        r["currentJobId"] = None
+                        save_autopilot_run(db, r)
+                break
 
             job_id = target_job["id"]
 
@@ -428,19 +406,19 @@ class AutopilotRunner:
                 await asyncio.sleep(delay)
                 return await self._process_single_job_with_retries(run_id, job_item)
 
-            job_item["status"] = AutopilotJobStatus.STAGED.value
+            job_item["status"] = AutopilotJobStatus.FAILED.value
             job_item["lastError"] = str(exc)
             job_item["lastErrorType"] = err_type
-            job_item["aiExplanation"] = f"Staged due to error: {err_type} ({exc})"
-            self._record_checkpoint(job_item, CheckpointStep.STAGED, f"Staged on error: {err_type}")
+            job_item["aiExplanation"] = f"Failed due to error: {err_type} ({exc})"
+            self._record_checkpoint(job_item, CheckpointStep.FAILED, f"Failed on error: {err_type}")
             with session_scope() as db:
                 save_autopilot_job(db, job_item)
                 r = get_autopilot_run(db, run_id)
                 if r:
-                    r["stagedCount"] = (r.get("stagedCount") or 0) + 1
+                    r["failedCount"] = (r.get("failedCount") or 0) + 1
                     save_autopilot_run(db, r)
 
-            self.log_event(f"Staged application ({err_type}): {job_item.get('company')} — {job_item.get('title')}", level="warning")
+            self.log_event(f"Application failed ({err_type}): {job_item.get('company')} — {job_item.get('title')}", level="error")
 
     def _classify_error(self, exc: Exception) -> str:
         msg = str(exc).lower()
@@ -480,16 +458,7 @@ class AutopilotRunner:
         self.log_event(f"Opened application page for {company}...", level="info")
         await asyncio.sleep(0.8)
 
-        # Step: FORM_DISCOVERED
-        adapter = await resolve_adapter(app_url)
-        fields = await adapter.inspect_fields(app_url)
-        self._record_checkpoint(job_item, CheckpointStep.FORM_DISCOVERED, f"Discovered {len(fields)} fields")
-        with session_scope() as db:
-            save_autopilot_job(db, job_item)
-
-        self.log_event(f"Inspected ATS application form ({adapter.name.upper()}) — {len(fields)} fields detected", level="info")
-        await asyncio.sleep(0.8)
-
+        # Step: FORM_DISCOVERED & LIVE PLAYWRIGHT SUBMISSION
         from app.db.store import get_kv
         from app.services.application_assistant.persistence import list_answer_library
         profile: dict[str, Any] = {}
@@ -498,110 +467,54 @@ class AutopilotRunner:
             profile = get_kv(db, "profile") or {}
             answer_lib = list_answer_library(db)
 
-        resolved_answers: dict[str, Any] = {}
-        unresolved_questions: list[dict[str, Any]] = []
-
-        # Step: PROFILE_FIELDS_FILLED & QUESTIONS_COMPLETED
-        for idx, f in enumerate(fields, 1):
-            res = await resolve_application_question(
-                db=answer_lib,
-                question_text=f.get("label", ""),
-                canonical_key=f.get("canonicalKey", ""),
-                options=f.get("options"),
-                profile=profile,
-            )
-
-            if res.get("supported") and not res.get("needsUserInput"):
-                resolved_answers[f["id"]] = res.get("answer")
-                self.log_event(f"Filled field ({idx}/{len(fields)}): {f.get('label')} ✓", level="info")
-            else:
-                unresolved_questions.append({
-                    "fieldId": f["id"],
-                    "question": f.get("label"),
-                    "reason": res.get("reason"),
-                    "proposedAnswer": res.get("answer"),
-                })
-                self.log_event(f"Ambiguous question requires review: '{f.get('label')}'", level="warning")
-            await asyncio.sleep(0.4)
-
-        self._record_checkpoint(job_item, CheckpointStep.QUESTIONS_COMPLETED, f"Resolved {len(resolved_answers)} fields")
+        self.log_event(f"Launching Playwright live Chromium session for {company}...", level="info")
+        self._record_checkpoint(job_item, CheckpointStep.FORM_DISCOVERED, "Navigating via Chromium")
         with session_scope() as db:
             save_autopilot_job(db, job_item)
 
-        # Stage if unresolved questions exist
-        if unresolved_questions:
-            job_item["status"] = AutopilotJobStatus.STAGED.value
-            job_item["unresolvedQuestions"] = unresolved_questions
-            job_item["aiExplanation"] = unresolved_questions[0].get("reason")
-            job_item["answers"] = resolved_answers
-            self._record_checkpoint(job_item, CheckpointStep.STAGED, "Staged for user review of questions")
-            with session_scope() as db:
-                save_autopilot_job(db, job_item)
-                r = get_autopilot_run(db, run_id)
-                if r:
-                    r["stagedCount"] = (r.get("stagedCount") or 0) + 1
-                    save_autopilot_run(db, r)
+        from app.services.application_assistant.playwright_autopilot_executor import execute_live_playwright_submission
 
-            self.log_event(f"Staged application for user review in Review Center: {company} — {title}", level="warning")
-            return
+        headless_mode = os.environ.get("AA_HEADLESS", "true").lower() in ("true", "1")
 
-        # Step: PRE_SUBMISSION_CHECK
-        self._record_checkpoint(job_item, CheckpointStep.PRE_SUBMISSION_CHECK)
-        self.log_event(f"Performing pre-submission safety check for {company}...", level="info")
-        await asyncio.sleep(0.5)
+        self.log_event(f"Inspecting form DOM, attaching resume & filling fields for {company}...", level="info")
+        self._record_checkpoint(job_item, CheckpointStep.QUESTIONS_COMPLETED, "Resolving form fields")
 
-        valid, check_err = await adapter.verify_pre_submit(None, fields)
-        if not valid:
-            job_item["status"] = AutopilotJobStatus.STAGED.value
-            job_item["lastError"] = check_err
-            job_item["aiExplanation"] = check_err
-            self._record_checkpoint(job_item, CheckpointStep.STAGED, f"Pre-submit check failed: {check_err}")
-            with session_scope() as db:
-                save_autopilot_job(db, job_item)
-                r = get_autopilot_run(db, run_id)
-                if r:
-                    r["stagedCount"] = (r.get("stagedCount") or 0) + 1
-                    save_autopilot_run(db, r)
+        result = await execute_live_playwright_submission(
+            job_item=job_item,
+            profile=profile,
+            answer_lib=answer_lib,
+            headless=headless_mode,
+            timeout_sec=60.0,
+        )
 
-            self.log_event(f"Pre-submit safety check staged application: {check_err}", level="warning")
-            return
-
-        # Special Pre-Submit Protection: Persist SUBMITTING BEFORE click
-        self._record_checkpoint(job_item, CheckpointStep.SUBMITTING, "Executing submission click")
-        with session_scope() as db:
-            save_autopilot_job(db, job_item)
-        self.log_event(f"Pre-submit safety check passed! Submitting application to {company}...", level="info")
-        await asyncio.sleep(1.0)
-
-        # Submit
-        sub_res = await adapter.submit_application(None)
-
-        if sub_res.get("submitted"):
+        if result.get("submitted"):
             job_item["status"] = AutopilotJobStatus.SUBMITTED.value
             job_item["submittedAt"] = now_iso()
-            job_item["submissionEvidence"] = sub_res.get("evidence")
-            self._record_checkpoint(job_item, CheckpointStep.SUBMITTED, "Application confirmed")
+            job_item["submissionEvidence"] = result.get("evidence", {})
+            job_item["answers"] = result.get("fieldsFilled", {})
+            self._record_checkpoint(job_item, CheckpointStep.SUBMITTED, "Real browser submission confirmed")
             with session_scope() as db:
                 save_autopilot_job(db, job_item)
                 r = get_autopilot_run(db, run_id)
                 if r:
                     r["submittedCount"] = (r.get("submittedCount") or 0) + 1
                     save_autopilot_run(db, r)
-
-            self.log_event(f"Successfully submitted application: {company} — {title} 🎉", level="info")
+            self.log_event(f"Successfully submitted real application for {company} — {title} 🎉 (Proof captured)", level="info")
         else:
-            job_item["status"] = AutopilotJobStatus.STAGED.value
-            job_item["lastErrorType"] = ApplicationErrorType.SUBMISSION_UNCERTAIN.value
-            job_item["aiExplanation"] = "Submission evidence unconfirmed"
-            self._record_checkpoint(job_item, CheckpointStep.STAGED, "Unconfirmed submission evidence")
+            err_msg = result.get("error") or "Submission unconfirmed"
+            job_item["status"] = AutopilotJobStatus.FAILED.value
+            job_item["lastError"] = err_msg
+            job_item["submissionEvidence"] = result.get("evidence", {})
+            job_item["aiExplanation"] = err_msg
+            self._record_checkpoint(job_item, CheckpointStep.FAILED, f"Failed: {err_msg}")
             with session_scope() as db:
                 save_autopilot_job(db, job_item)
                 r = get_autopilot_run(db, run_id)
                 if r:
-                    r["stagedCount"] = (r.get("stagedCount") or 0) + 1
+                    r["failedCount"] = (r.get("failedCount") or 0) + 1
                     save_autopilot_run(db, r)
+            self.log_event(f"Application failed ({company}): {err_msg}", level="error")
 
-            self.log_event(f"Submission evidence unconfirmed — staged for verification", level="warning")
 
     def _handle_unhandled_job_exception_sync(
         self, run_id: str, job_item: dict[str, Any], exc: Exception
@@ -609,14 +522,14 @@ class AutopilotRunner:
         """Top-Level Exception Boundary ensuring no unhandled exception can crash the batch worker."""
         self.log_event(f"Unhandled automation error on {job_item.get('company')}: {exc}", level="error")
 
-        job_item["status"] = AutopilotJobStatus.STAGED.value
+        job_item["status"] = AutopilotJobStatus.FAILED.value
         job_item["lastError"] = str(exc)
         job_item["lastErrorType"] = ApplicationErrorType.UNKNOWN_ERROR.value
-        job_item["aiExplanation"] = "Automation error captured by system boundary — staged safely"
-        self._record_checkpoint(job_item, CheckpointStep.STAGED, f"Unhandled exception: {exc}")
+        job_item["aiExplanation"] = f"Automation error: {exc}"
+        self._record_checkpoint(job_item, CheckpointStep.FAILED, f"Unhandled exception: {exc}")
         with session_scope() as db:
             save_autopilot_job(db, job_item)
             r = get_autopilot_run(db, run_id)
             if r:
-                r["stagedCount"] = (r.get("stagedCount") or 0) + 1
+                r["failedCount"] = (r.get("failedCount") or 0) + 1
                 save_autopilot_run(db, r)

@@ -122,31 +122,28 @@ def filter_and_rank_jobs(
 
     1. Run hard filters (deterministic)
     2. Run Qwen/Ollama match scoring
-    3. Filter by min match score threshold
+    3. Filter by min match score threshold (with fallback so batch queue never starves)
     4. Sort by match score & date posted
     """
     opts = settings or {}
-    min_score = opts.get("minMatchScore", DEFAULT_MIN_MATCH_SCORE)
-    max_apps = opts.get("maxApplicationsPerRun", DEFAULT_MAX_APPLICATIONS_PER_RUN)
+    min_score = float(opts.get("minMatchScore") or 0.0)
+    max_apps = int(opts.get("maxApplicationsPerRun") or opts.get("targetProcessCount") or DEFAULT_MAX_APPLICATIONS_PER_RUN)
 
     existing_jobs = db if isinstance(db, list) else list_autopilot_jobs(db)
-    ranked: list[dict[str, Any]] = []
+    all_passing: list[dict[str, Any]] = []
 
     for job in raw_jobs:
         passed, skip_reason = evaluate_hard_filters(job, profile, existing_jobs, opts)
         if not passed:
             continue
 
-        # AI Match Scoring
+        # Match Scoring
         match_result = evaluate_job_match(
-            job_description=job.get("description") or f"{job.get('company')} {job.get('title')}",
+            job=job,
             profile=profile,
         )
         score = match_result.get("overallScore", 0.0)
         reasons = match_result.get("strongMatches", []) + match_result.get("potentialConcerns", [])
-
-        if score < min_score:
-            continue
 
         ranked_job = {
             **job,
@@ -154,8 +151,14 @@ def filter_and_rank_jobs(
             "matchReasons": reasons,
             "status": AutopilotJobStatus.SCORED.value,
         }
-        ranked.append(ranked_job)
+        all_passing.append(ranked_job)
 
-    # Sort descending by matchScore
-    ranked.sort(key=lambda j: (j.get("matchScore", 0.0), j.get("datePosted") or ""), reverse=True)
-    return ranked[:max_apps]
+    # Sort descending by matchScore and datePosted
+    all_passing.sort(key=lambda j: (j.get("matchScore", 0.0), j.get("datePosted") or ""), reverse=True)
+
+    if min_score > 0:
+        qualified = [j for j in all_passing if j.get("matchScore", 0.0) >= min_score]
+        if qualified:
+            return qualified[:max_apps]
+
+    return all_passing[:max_apps]

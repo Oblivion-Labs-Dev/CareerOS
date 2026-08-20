@@ -43,6 +43,9 @@ class AgentRun:
     diff_summary: str = ""
     commands_run: list[str] = field(default_factory=list)
     output: str = ""
+    hypothesis: str = ""
+    root_cause: str = ""
+    remaining_risk: str = ""
 
 
 @dataclass
@@ -71,6 +74,8 @@ class RepairTask:
     patch_summary: str = ""
     validation: dict[str, Any] | None = None
     agent_run: dict[str, Any] | None = None
+    current_attempt: int = 1
+    attempt_history: list[dict[str, Any]] = field(default_factory=list)
 
 
 class LogSource(Protocol):

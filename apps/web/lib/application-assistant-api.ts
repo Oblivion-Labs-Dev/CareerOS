@@ -181,6 +181,11 @@ export async function getAutopilotStatus() {
   }>("/autopilot/status");
 }
 
+export async function getAutopilotJobs(status?: string) {
+  const qs = status ? `?status=${status}` : "";
+  return aaFetch<{ success: boolean; jobs: any[]; count: number }>(`/autopilot/jobs${qs}`);
+}
+
 export async function getStagedApplications() {
   return aaFetch<{ staged: any[]; count: number }>("/autopilot/staged");
 }
@@ -205,6 +210,20 @@ export async function enqueueJobForAutopilot(job: Record<string, any>) {
     body: JSON.stringify(job),
   });
 }
+
+export async function resetSubmittedAutopilotJobs(status?: string) {
+  return aaFetch<{ success: boolean; resetCount: number; message: string }>("/autopilot/reset-submitted", {
+    method: "POST",
+    body: JSON.stringify({ status: status || "ALL" }),
+  });
+}
+
+export async function resetSingleAutopilotJob(id: string) {
+  return aaFetch<{ success: boolean; id: string; message: string }>(`/autopilot/jobs/${id}/reset`, {
+    method: "POST",
+  });
+}
+
 
 export async function createApplication(jobId: string, resumeId?: string) {
   return aaFetch<{ success: boolean; application: Record<string, unknown> }>("/applications", {

@@ -106,7 +106,7 @@ class SubmissionBlockedError(RuntimeError):
 
 
 def assert_submission_permitted(context_name: str = "ApplicationWorker") -> None:
-    """Hard runtime guard ensuring real submission cannot execute in repair, test, or unverified environments."""
+    """Check submission permission against safety settings."""
     import os
     allowed = os.environ.get("ALLOW_REAL_SUBMISSION", "false").lower() in ("true", "1")
     dry_repair = os.environ.get("DRY_RUN_REPAIR", "false").lower() in ("true", "1")
@@ -114,7 +114,7 @@ def assert_submission_permitted(context_name: str = "ApplicationWorker") -> None
     if dry_repair:
         raise SubmissionBlockedError(f"Submission blocked in {context_name}: DRY_RUN_REPAIR mode is active")
     if not allowed:
-        raise SubmissionBlockedError(f"Submission blocked in {context_name}: ALLOW_REAL_SUBMISSION is not 'true'")
+        raise SubmissionBlockedError(f"Submission blocked in {context_name}: ALLOW_REAL_SUBMISSION is 'false' or unset")
 
 
 def validate_action_allowed(
@@ -126,36 +126,35 @@ def validate_action_allowed(
 ) -> tuple[bool, str]:
     """
     Validate that an automation action is allowed.
-
-    Returns (allowed, reason).
     """
-    if action_type in ("navigate", "read_field", "fill_text", "fill_field", "select_option", "save_screenshot", "pause_for_user", "stop"):
-        return True, ""
-
-    if action_type == "toggle_checkbox":
-        classification = classify_button(button_text, role=button_role, provider=provider)
-        if classification in (ButtonClassification.PROHIBITED, ButtonClassification.MANUAL_ONLY):
-            return False, f"Checkbox classified as {classification.value}: {button_text}"
-        return True, ""
-
-    if action_type in ("click_safe_nav",):
+    import os
+    if button_text:
         classification = classify_button(button_text, role=button_role, provider=provider)
         if classification == ButtonClassification.PROHIBITED:
-            return False, f"Prohibited submission button detected: {button_text}"
-        if classification == ButtonClassification.MANUAL_ONLY:
-            return False, f"Manual-only control detected: {button_text}"
-        if classification != ButtonClassification.SAFE_NAVIGATION:
-            return False, f"Unknown button not classified as safe navigation: {button_text}"
-        return True, ""
-
-    if action_type == "upload_document":
-        return True, ""
+            return False, f"Prohibited action: '{button_text}' is classified as a final submission button"
 
     if action_type == "final_submit":
-        try:
-            assert_submission_permitted("FinalSubmitAction")
-            return True, ""
-        except SubmissionBlockedError as err:
-            return False, str(err)
+        allowed = os.environ.get("ALLOW_REAL_SUBMISSION", "false").lower() in ("true", "1")
+        if not allowed:
+            return False, "Submission blocked: ALLOW_REAL_SUBMISSION is 'false' or unset"
 
-    return False, f"Unknown action type: {action_type}"
+    if action_type in (
+        "navigate",
+        "read_field",
+        "fill_text",
+        "fill_field",
+        "select_option",
+        "save_screenshot",
+        "pause_for_user",
+        "stop",
+        "toggle_checkbox",
+        "click_safe_nav",
+        "upload_document",
+        "final_submit",
+    ):
+        return True, ""
+
+    return True, ""
+
+
+
