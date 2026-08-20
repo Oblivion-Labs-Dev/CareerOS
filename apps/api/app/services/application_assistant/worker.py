@@ -14,7 +14,7 @@ from app.db.store import session_scope
 _tasks: dict[str, asyncio.Task] = {}
 _locks: dict[str, asyncio.Lock] = {}
 
-MAX_CONCURRENT_PREP = max(1, int(os.getenv("AA_MAX_CONCURRENT_PREP", "10")))
+MAX_CONCURRENT_PREP = max(1, int(os.getenv("AA_MAX_CONCURRENT_PREP", "5")))
 MAX_PREP_QUEUE = max(MAX_CONCURRENT_PREP, int(os.getenv("AA_MAX_PREP_QUEUE", "20")))
 
 _prep_semaphore: asyncio.Semaphore | None = None

@@ -103,6 +103,15 @@ async def run_playwright_async(coro: Any, *, timeout: float = 180) -> Any:
     return await asyncio.wait_for(asyncio.wrap_future(asyncio.run_coroutine_threadsafe(coro, loop)), timeout=timeout)
 
 
+def _defer_browser_focus(session: BrowserSession, page: Any) -> None:
+    """Focus browser asynchronously on the Playwright event loop without blocking."""
+    try:
+        loop = _ensure_playwright_loop()
+        asyncio.run_coroutine_threadsafe(session.focus(page), loop)
+    except Exception:
+        pass
+
+
 def _merge_saved_fields(mapped: list[dict[str, Any]], saved_fields: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Overlay previously saved draft values onto freshly inspected fields."""
     by_key: dict[str, dict[str, Any]] = {}
@@ -673,7 +682,7 @@ async def _prepare_application_impl(
 ) -> dict[str, Any]:
     profile_dir = profile_dir_for_app(app_id) if app_id else ""
     review_mode = bool(context.get("reviewMode"))
-    background_browser = bool(context.get("backgroundBrowser", not review_mode))
+    background_browser = False if review_mode else bool(context.get("backgroundBrowser", True))
     session = BrowserSession(headed=headed, profile_dir=profile_dir, background=background_browser)
     results: dict[str, Any] = {
         "success": False,

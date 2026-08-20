@@ -12,7 +12,7 @@ import { scrollToMarkedField } from './fieldMarker';
 import { initSubmitTracker } from './submitTracker';
 import { AUTOFILL_MESSAGES, cycleMessages } from '../shared/loadingMessages';
 import { logToServer, logAutofillResult } from '../shared/serverLog';
-import { extractJobContext, isJobApplicationUrl, isJobBoardUrl, isJobListingUrl, isJobSearchPage, isSubmissionConfirmationUrl } from '../shared/jobPageDetection';
+import { extractJobContext, isJobApplicationPage, isJobApplicationUrl, isJobBoardUrl, isJobListingUrl, isJobSearchPage, isSubmissionConfirmationUrl } from '../shared/jobPageDetection';
 import { employmentTypeLabel, workModeLabel } from '../shared/jobPageEnrichment';
 import { TrackerPipelineStatus } from '../shared/saveJobToTracker';
 import { scanJobKeywords } from '../shared/jobKeywordScan';
@@ -39,6 +39,7 @@ import { getH1bAwareWarning } from '../shared/h1bAware';
 import { buildResumeKeywordSuggestions, formatResumeSuggestionsText } from '../shared/resumeKeywordSuggestions';
 import { recordAutofillSession } from '../shared/autofillSessionLog';
 import { initJobCardOverlays } from './jobCardOverlay';
+import { initAiGenerateButtons } from './aiGenerateButton';
 import type { FloatingWidget } from './floatingWidget';
 import {
   getFloatingWidgetConfig,
@@ -367,22 +368,9 @@ function purgeLegacyFloatingWidget(): void {
 purgeLegacyFloatingWidget();
 
 function shouldMountFloatingWidget(doc: Document): boolean {
-  const href = doc.location.href;
-  const fillable = countFillableControls(doc);
-
-  if (window !== window.top) {
-    if (topFrameHasCopilotWidget()) return false;
-    try {
-      const topHref = window.top?.location.href || '';
-      if (isJobSearchPage(topHref)) return false;
-    } catch {
-      return fillable >= 2;
-    }
-    return fillable >= 3;
-  }
-
-  if (isJobSearchPage(href)) return true;
-  return fillable >= 3;
+  // Only mount the floating widget in top-level window and strictly on job application / career pages
+  if (window !== window.top) return false;
+  return isJobApplicationPage(doc);
 }
 
 let widgetMountObserver: MutationObserver | null = null;
@@ -498,7 +486,10 @@ async function hydrateCopilotInsights(
   }
 }
 
-async function injectFloatingCopilotButton() {
+let isWidgetDismissedByPageUser = false;
+
+async function injectFloatingCopilotButton(): Promise<void> {
+  if (isWidgetDismissedByPageUser) return;
   purgeLegacyFloatingWidget();
   const config = await getFloatingWidgetConfig();
   if (!config.enabled) {
@@ -506,7 +497,13 @@ async function injectFloatingCopilotButton() {
     return;
   }
   const existing = document.getElementById('jobfill-floating-wrapper');
-  if (existing && existing.dataset.uiVersion === COPILOT_UI_VERSION) return;
+  if (existing) {
+    if (existing.dataset.dismissed === 'true') {
+      isWidgetDismissedByPageUser = true;
+      return;
+    }
+    if (existing.dataset.uiVersion === COPILOT_UI_VERSION) return;
+  }
   existing?.remove();
   document.getElementById('jobfill-widget-styles')?.remove();
   if (!isExtensionContextValid()) return;
@@ -526,7 +523,12 @@ async function injectFloatingCopilotButton() {
   const widget = mountFloatingWidget();
   const jobCtx = extractJobContext(document);
   widget.setJobContext(jobCtx);
-  widget.openPanel();
+
+  widget.onDismiss(() => {
+    const el = document.getElementById('jobfill-floating-wrapper');
+    if (el) el.dataset.dismissed = 'true';
+    isWidgetDismissedByPageUser = true;
+  });
 
   void sendRuntimeMessage<{ success?: boolean; profile?: UserProfile }>(
     { action: 'get-profile-for-autofill' },
@@ -869,7 +871,7 @@ async function injectFloatingCopilotButton() {
       } else {
         widget.setState('success', `Filled ${autofillResponse.filledCount} fields`);
         widget.hideSkippedFields();
-        trackAutofillApplication(autofillResponse.filledCount || 0);
+        void saveJobFromPage('applypilot_autofill', 'saved');
         void recordAutofillSession({
           url: document.location.href,
           company: extractJobContext(document).company,
@@ -914,6 +916,7 @@ async function injectFloatingCopilotButton() {
 }
 
 function scheduleFloatingWidgetMount(): void {
+  console.log('[ApplyPilot] Scheduling floating widget mount on', window.location.href);
   const attempt = () => {
     if (document.location.href !== lastTrackedUrl) {
       lastTrackedUrl = document.location.href;
@@ -922,6 +925,7 @@ function scheduleFloatingWidgetMount(): void {
       siteInjectorCleanup = null;
     }
     void injectFloatingCopilotButton();
+    initAiGenerateButtons(document);
   };
 
   attempt();

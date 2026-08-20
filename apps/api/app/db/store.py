@@ -47,9 +47,22 @@ engine = create_engine(
     settings.career_os_database_url
     if not settings.career_os_database_url.startswith("sqlite:///./")
     else f"sqlite:///{DB_PATH.as_posix()}",
-    connect_args={"check_same_thread": False, "timeout": 30} if "sqlite" in settings.career_os_database_url else {},
+    connect_args={"check_same_thread": False, "timeout": 60.0} if "sqlite" in settings.career_os_database_url else {},
 )
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+
+
+from sqlalchemy import event
+
+
+@event.listens_for(engine, "connect")
+def _set_sqlite_pragma(dbapi_connection, connection_record):
+    if "sqlite" in str(engine.url):
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA journal_mode=WAL")
+        cursor.execute("PRAGMA busy_timeout=60000")
+        cursor.execute("PRAGMA synchronous=NORMAL")
+        cursor.close()
 
 
 def _configure_sqlite() -> None:
@@ -59,7 +72,7 @@ def _configure_sqlite() -> None:
 
     with engine.connect() as conn:
         conn.execute(text("PRAGMA journal_mode=WAL"))
-        conn.execute(text("PRAGMA busy_timeout=30000"))
+        conn.execute(text("PRAGMA busy_timeout=60000"))
         conn.commit()
 
 

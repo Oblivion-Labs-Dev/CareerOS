@@ -100,6 +100,23 @@ def get_prohibited_selectors(provider: str) -> list[str]:
     return PROVIDER_PROHIBITED_SELECTORS.get(provider, [])
 
 
+class SubmissionBlockedError(RuntimeError):
+    """Raised when final submission is invoked without ALLOW_REAL_SUBMISSION=true."""
+    pass
+
+
+def assert_submission_permitted(context_name: str = "ApplicationWorker") -> None:
+    """Hard runtime guard ensuring real submission cannot execute in repair, test, or unverified environments."""
+    import os
+    allowed = os.environ.get("ALLOW_REAL_SUBMISSION", "false").lower() in ("true", "1")
+    dry_repair = os.environ.get("DRY_RUN_REPAIR", "false").lower() in ("true", "1")
+
+    if dry_repair:
+        raise SubmissionBlockedError(f"Submission blocked in {context_name}: DRY_RUN_REPAIR mode is active")
+    if not allowed:
+        raise SubmissionBlockedError(f"Submission blocked in {context_name}: ALLOW_REAL_SUBMISSION is not 'true'")
+
+
 def validate_action_allowed(
     action_type: str,
     *,
@@ -133,5 +150,12 @@ def validate_action_allowed(
 
     if action_type == "upload_document":
         return True, ""
+
+    if action_type == "final_submit":
+        try:
+            assert_submission_permitted("FinalSubmitAction")
+            return True, ""
+        except SubmissionBlockedError as err:
+            return False, str(err)
 
     return False, f"Unknown action type: {action_type}"

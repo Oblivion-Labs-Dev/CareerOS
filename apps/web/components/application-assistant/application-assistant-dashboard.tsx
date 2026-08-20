@@ -19,6 +19,7 @@ import {
 } from "@/lib/profile-form-options";
 import {
   archiveApplication,
+  unarchiveApplication,
   closeApplicationBrowser,
   getAggregatePendingFields,
   getPendingFields,
@@ -1409,23 +1410,24 @@ export function ApplicationAssistantDashboard() {
     return () => clearInterval(interval);
   }, [activePrepIds, loadApplications, loadStats, refreshPrepQueue, prefetchWizardQuestions]);
 
-  function startQwenPrep(opts: { appId: string; company?: string; role?: string }) {
+  function startQwenPrep(opts: { appId: string; company?: string; role?: string; force?: boolean }) {
     setError("");
     setMessage("");
 
-    if (prepQueue && prepQueue.available <= 0) {
+    if (prepQueue && prepQueue.available <= 0 && !opts.force) {
       setError(`Prep queue full (${prepQueue.queued}/${prepQueue.maxQueue}). Wait for running jobs to finish.`);
       return;
     }
 
     const key = opts.appId;
-    if (!key || preparing.has(key)) return;
+    if (!key) return;
+    if (preparing.has(key) && !opts.force) return;
 
     const alreadyQueued = Boolean(
       prepQueue?.queuedApplicationIds.includes(key)
       || prepQueue?.activeApplicationIds.includes(key),
     );
-    if (alreadyQueued) {
+    if (alreadyQueued && !opts.force) {
       prepStartedAtRef.current[key] = prepStartedAtRef.current[key] ?? Date.now();
       setActivePrepIds((prev) => new Set(prev).add(key));
       setMessage(`Prep already running for ${opts.company || "this application"} — Playwright is working in the background.`);
@@ -1488,7 +1490,7 @@ export function ApplicationAssistantDashboard() {
   }, [focusAppId, bootstrapping]);
 
   async function handleResume(app: Application) {
-    startQwenPrep({ appId: app.id, company: app.companyName, role: app.roleTitle });
+    startQwenPrep({ appId: app.id, company: app.companyName, role: app.roleTitle, force: true });
   }
 
   async function handleFocusBrowser(appId: string, app?: Application) {
@@ -2177,6 +2179,11 @@ export function ApplicationAssistantDashboard() {
                   onToggleSubmitted={(submitted) => void handleToggleSubmitted(app, submitted)}
                   onArchive={async () => {
                     await archiveApplication(app.id);
+                    loadApplications();
+                    loadStats();
+                  }}
+                  onUnarchive={async () => {
+                    await unarchiveApplication(app.id);
                     loadApplications();
                     loadStats();
                   }}

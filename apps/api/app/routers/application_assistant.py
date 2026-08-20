@@ -146,6 +146,13 @@ class ScraperImportPayload(BaseModel):
     scraperJobId: str
 
 
+class GenerateAnswerPayload(BaseModel):
+    question: str
+    company: str = ""
+    role: str = ""
+    jobDescription: str = ""
+
+
 # ── Settings ──────────────────────────────────────────────────────────────────
 
 @router.get("/settings")
@@ -484,7 +491,7 @@ def get_application(app_id: str, db: Session = Depends(db_session)) -> dict[str,
 async def start_preparation(app_id: str, db: Session = Depends(db_session)) -> dict[str, Any]:
     from app.services.application_assistant.qwen_agent import execute_application_prepare
 
-    prep = await execute_application_prepare(app_id)
+    prep = await execute_application_prepare(app_id, allow_retry=True)
     if prep.get("error") == "Application not found":
         raise HTTPException(status_code=404, detail="Application not found")
     if prep.get("error") == "Application is already being prepared":
@@ -808,10 +815,22 @@ def unmark_submitted(app_id: str, db: Session = Depends(db_session)) -> dict[str
 
 @router.post("/applications/{app_id}/archive")
 def archive_application(app_id: str, db: Session = Depends(db_session)) -> dict[str, Any]:
-    draft = update_application_draft(db, app_id, {"status": "archived"})
+    draft = get_application_draft(db, app_id)
     if not draft:
         raise HTTPException(status_code=404, detail="Application not found")
-    return {"success": True, "application": draft}
+    prev = draft.get("status") if draft.get("status") != "archived" else "ready_to_prepare"
+    updated = update_application_draft(db, app_id, {"status": "archived", "previousStatus": prev})
+    return {"success": True, "application": updated}
+
+
+@router.post("/applications/{app_id}/unarchive")
+def unarchive_application(app_id: str, db: Session = Depends(db_session)) -> dict[str, Any]:
+    draft = get_application_draft(db, app_id)
+    if not draft:
+        raise HTTPException(status_code=404, detail="Application not found")
+    restore = draft.get("previousStatus") or "ready_to_prepare"
+    updated = update_application_draft(db, app_id, {"status": restore, "previousStatus": None})
+    return {"success": True, "application": updated}
 
 
 @router.post("/applications/{app_id}/stop-browser")
@@ -1147,3 +1166,161 @@ def export_diagnostics(app_id: str, db: Session = Depends(db_session)) -> dict[s
             "screenshotCount": len(draft.get("screenshots", [])),
         }),
     }
+
+
+@router.post("/generate-answer")
+async def generate_answer_route(
+    payload: GenerateAnswerPayload,
+    db: Session = Depends(db_session),
+) -> dict[str, Any]:
+    """Generate answer for a freeform screening/textarea question using Ollama Qwen + user profile."""
+    from app.services.application_assistant.llm_answer_generator import generate_theory_answer
+
+    profile = get_kv(db, "profile") or {}
+    docs = get_kv(db, "documents") or {}
+    default_resume = docs.get("defaultResume") or {}
+    resume_text = default_resume.get("text") or default_resume.get("content") or profile.get("resumeText") or ""
+    settings = get_settings(db)
+
+    result = await generate_theory_answer(
+        payload.question,
+        company=payload.company,
+        role=payload.role,
+        job_description=payload.jobDescription,
+        profile=profile,
+        resume_text=resume_text,
+        settings=settings,
+    )
+    if not result.get("success"):
+        raise HTTPException(status_code=400, detail=result.get("error", "Answer generation failed"))
+    return result
+
+
+# ── Autopilot Autonomous Runner Routes ────────────────────────────────────────
+
+@router.post("/autopilot/start")
+async def start_autopilot(
+    options: dict[str, Any] = Body(default_factory=dict),
+    db: Session = Depends(db_session),
+) -> dict[str, Any]:
+    from app.services.application_assistant.autopilot_runner import AutopilotRunner
+    runner = AutopilotRunner.get_instance()
+    run = await runner.start(db, options)
+    return {"success": True, "run": run}
+
+
+@router.post("/autopilot/pause")
+async def pause_autopilot(
+    db: Session = Depends(db_session),
+) -> dict[str, Any]:
+    from app.services.application_assistant.autopilot_runner import AutopilotRunner
+    runner = AutopilotRunner.get_instance()
+    run = await runner.pause(db)
+    return {"success": True, "run": run}
+
+
+@router.post("/autopilot/stop")
+async def stop_autopilot(
+    db: Session = Depends(db_session),
+) -> dict[str, Any]:
+    from app.services.application_assistant.autopilot_runner import AutopilotRunner
+    runner = AutopilotRunner.get_instance()
+    run = await runner.stop(db)
+    return {"success": True, "run": run}
+
+
+@router.get("/autopilot/status")
+def get_autopilot_status(
+    db: Session = Depends(db_session),
+) -> dict[str, Any]:
+    from app.services.application_assistant.autopilot_runner import AutopilotRunner
+    runner = AutopilotRunner.get_instance()
+    return runner.get_status(db)
+
+
+@router.get("/autopilot/staged")
+def get_staged_applications(
+    db: Session = Depends(db_session),
+) -> dict[str, Any]:
+    from app.services.application_assistant.persistence import list_autopilot_jobs
+    jobs = list_autopilot_jobs(db)
+    staged = [j for j in jobs if j.get("status") in ("STAGED", "NEEDS_REVIEW")]
+    return {"staged": staged, "count": len(staged)}
+
+
+@router.post("/autopilot/staged/{id}/approve")
+def approve_staged_answer(
+    id: str,
+    payload: dict[str, Any] = Body(default_factory=dict),
+    db: Session = Depends(db_session),
+) -> dict[str, Any]:
+    from app.services.application_assistant.persistence import get_autopilot_job, save_autopilot_job, upsert_answer
+    from app.db.store import new_id, now_iso
+
+    job = get_autopilot_job(db, id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Staged application not found")
+
+    question = payload.get("question") or ""
+    answer = payload.get("answer") or ""
+
+    if question and answer:
+        entry = {
+            "id": new_id("lib_"),
+            "normalizedKey": question.strip().lower(),
+            "questionVariants": [question],
+            "answerType": "short_text",
+            "value": answer,
+            "verificationStatus": "verified",
+            "source": "user_approved",
+            "createdAt": now_iso(),
+            "updatedAt": now_iso(),
+        }
+        upsert_answer(db, entry)
+
+    job["status"] = "QUEUED"
+    save_autopilot_job(db, job)
+    return {"success": True, "job": job}
+
+
+@router.post("/autopilot/staged/{id}/skip")
+def skip_staged_application(
+    id: str,
+    payload: dict[str, Any] = Body(default_factory=dict),
+    db: Session = Depends(db_session),
+) -> dict[str, Any]:
+    from app.services.application_assistant.persistence import get_autopilot_job, save_autopilot_job
+
+    job = get_autopilot_job(db, id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Staged application not found")
+
+    job["status"] = "SKIPPED"
+    job["skipReason"] = payload.get("reason") or "Skipped by user in Review Center"
+    save_autopilot_job(db, job)
+    return {"success": True, "job": job}
+
+
+@router.post("/autopilot/enqueue")
+def enqueue_job_for_autopilot(
+    payload: dict[str, Any] = Body(default_factory=dict),
+    db: Session = Depends(db_session),
+) -> dict[str, Any]:
+    from app.services.application_assistant.persistence import save_autopilot_job
+    from app.db.store import new_id, now_iso
+
+    job_item = {
+        "id": new_id("apjob_"),
+        "jobId": payload.get("jobId") or new_id("job_"),
+        "company": payload.get("company") or "Unknown Company",
+        "title": payload.get("title") or "Unknown Role",
+        "applicationUrl": payload.get("applicationUrl") or "",
+        "status": "QUEUED",
+        "matchScore": float(payload.get("matchScore") or 85.0),
+        "discoveredAt": now_iso(),
+        "queuedAt": now_iso(),
+    }
+    saved = save_autopilot_job(db, job_item)
+    return {"success": True, "job": saved}
+
+

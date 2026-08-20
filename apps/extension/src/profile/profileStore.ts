@@ -316,19 +316,36 @@ export async function saveProfile(profile: UserProfile): Promise<void> {
 }
 
 export async function resolveProfileForAutofill(): Promise<UserProfile> {
-  const { getDocuments, saveDocuments } = await import('../documents/documentStore');
-  const { syncFromServer } = await import('../db/sync');
-
-  await syncFromServer();
-
   const fromChrome = await readChromeProfile();
-  const serverDb = await fetchServerDb();
+  
+  // If Chrome local storage already has profile data, return it IMMEDIATELY
+  if (fromChrome && hasProfileData(fromChrome)) {
+    void (async () => {
+      try {
+        const { syncFromServer } = await import('../db/sync');
+        await syncFromServer();
+      } catch {}
+    })();
+    return enrichProfile(fromChrome);
+  }
+
+  const { getDocuments, saveDocuments } = await import('../documents/documentStore');
+  let serverDb: any = null;
+  try {
+    serverDb = await Promise.race([
+      fetchServerDb(),
+      new Promise((resolve) => setTimeout(resolve, 800))
+    ]);
+  } catch {}
+
   const profile = mergeProfiles(fromChrome, serverDb?.profile);
-  await writeChromeProfile(profile);
+  if (fromChrome) {
+    void writeChromeProfile(profile);
+  }
 
   const docs = await getDocuments();
   if (serverDb?.documents?.defaultResume && !docs.defaultResume) {
-    await saveDocuments({
+    void saveDocuments({
       ...docs,
       defaultResume: serverDb.documents.defaultResume,
       defaultCoverLetter: serverDb.documents.defaultCoverLetter ?? docs.defaultCoverLetter

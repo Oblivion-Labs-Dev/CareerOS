@@ -17,6 +17,14 @@ describe('checkH1bSponsorship', () => {
     expect(result.status).toBe('unlikely');
   });
 
+  it("detects unlikely sponsorship from 'can't offer visa sponsorship'", () => {
+    const result = checkH1bSponsorship(
+      "Will you require visa sponsorship now or in the future? Please note we can't offer visa sponsorship for this role."
+    );
+    expect(result.status).toBe('unlikely');
+    expect(result.signals[0]).toBe('Cannot offer sponsorship');
+  });
+
   it('returns unknown when no signals found', () => {
     const result = checkH1bSponsorship('Great role for a software engineer in San Francisco.');
     expect(result.status).toBe('unknown');

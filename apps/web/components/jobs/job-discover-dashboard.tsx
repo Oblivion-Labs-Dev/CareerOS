@@ -140,7 +140,42 @@ const POSTED_AGO_OPTIONS: { value: FreshnessFilter; label: string }[] = [
   { value: "720", label: "Last 30 days" },
 ];
 
-const LOCATION_QUICK_PICKS = ["Remote", "United States", "Seattle", "San Francisco", "New York", "Austin"];
+const TOP_10_JOB_TITLES_2026 = [
+  "Senior Software Engineer",
+  "Backend Engineer",
+  "Platform Engineer",
+  "AI / Machine Learning Engineer",
+  "Full Stack Engineer",
+  "Staff Software Engineer",
+  "Infrastructure Engineer",
+  "Site Reliability Engineer (SRE)",
+  "Principal Software Engineer",
+  "Lead Software Engineer",
+];
+
+const TOP_50_COMPANIES = [
+  "Stripe", "OpenAI", "Anthropic", "Databricks", "Datadog", "Cloudflare", "Figma", "Airbnb",
+  "Vercel", "Supabase", "Notion", "Brex", "Ramp", "Snowflake", "Reddit", "Discord",
+  "SpaceX", "Anduril", "Spotify", "Netflix", "Palantir", "Atlassian", "Grammarly", "Plaid",
+  "Deel", "Sentry", "Salesforce", "Nvidia", "Zoom", "Google", "Amazon", "Microsoft",
+  "Meta", "Apple", "Uber", "DoorDash", "Pinterest", "Roblox", "Coinbase", "Block",
+  "Robinhood", "Linear", "Miro", "Canva", "Postman", "HubSpot", "GitLab", "Docker", "Snyk", "Twilio"
+];
+
+const LOCATION_QUICK_PICKS = [
+  "United States",
+  "Remote US",
+  "California",
+  "Washington",
+  "New York",
+  "Texas",
+  "Massachusetts",
+  "Colorado",
+  "Illinois",
+  "Seattle",
+  "San Francisco",
+  "Austin",
+];
 
 function postedAgoLabel(value: FreshnessFilter) {
   return POSTED_AGO_OPTIONS.find((option) => option.value === value)?.label ?? value;
@@ -172,6 +207,420 @@ function formatLocationOption(label: string, count: number) {
   return `${short} (${count.toLocaleString()})`;
 }
 
+type ComboboxOption = {
+  value: string;
+  label?: string;
+  sublabel?: string;
+};
+
+type SearchableComboboxProps = {
+  name: string;
+  value: string;
+  onChange: (val: string) => void;
+  options: ComboboxOption[];
+  placeholder: string;
+  required?: boolean;
+  style?: React.CSSProperties;
+};
+
+function SearchableCombobox({
+  name,
+  value,
+  onChange,
+  options,
+  placeholder,
+  required = false,
+  style,
+}: SearchableComboboxProps) {
+  const [open, setOpen] = useState(false);
+  const [highlightIndex, setHighlightIndex] = useState(0);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  const filteredOptions = useMemo(() => {
+    const query = value.trim().toLowerCase();
+    if (!query) return options;
+    return options.filter(
+      (opt) =>
+        opt.value.toLowerCase().includes(query) ||
+        (opt.label && opt.label.toLowerCase().includes(query))
+    );
+  }, [options, value]);
+
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
+        setOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  return (
+    <div
+      ref={containerRef}
+      className="cos-combobox-wrap"
+      style={{ position: "relative", width: "100%", ...style }}
+    >
+      <input
+        name={name}
+        type="text"
+        value={value}
+        required={required}
+        placeholder={placeholder}
+        onChange={(e) => {
+          onChange(e.target.value);
+          setOpen(true);
+          setHighlightIndex(0);
+        }}
+        onFocus={() => setOpen(true)}
+        onKeyDown={(e) => {
+          if (e.key === "ArrowDown") {
+            e.preventDefault();
+            setOpen(true);
+            setHighlightIndex((prev) => Math.min(prev + 1, Math.max(0, filteredOptions.length - 1)));
+          } else if (e.key === "ArrowUp") {
+            e.preventDefault();
+            setHighlightIndex((prev) => Math.max(prev - 1, 0));
+          } else if (e.key === "Enter" && open && filteredOptions[highlightIndex]) {
+            e.preventDefault();
+            onChange(filteredOptions[highlightIndex].value);
+            setOpen(false);
+          } else if (e.key === "Escape") {
+            setOpen(false);
+          }
+        }}
+        className="cos-combobox-input"
+        style={{ paddingRight: required ? "1.75rem" : "0.75rem" }}
+        autoComplete="off"
+      />
+      {required ? (
+        <span
+          className="cos-required-badge"
+          style={{
+            position: "absolute",
+            right: "0.65rem",
+            top: "50%",
+            transform: "translateY(-50%)",
+            color: "#ef4444",
+            fontWeight: 700,
+            fontSize: "1rem",
+            pointerEvents: "none",
+            lineHeight: 1,
+          }}
+          title="Required field"
+        >
+          *
+        </span>
+      ) : null}
+
+      {open && filteredOptions.length > 0 ? (
+        <ul
+          className="cos-combobox-dropdown"
+          style={{
+            position: "absolute",
+            top: "calc(100% + 4px)",
+            left: 0,
+            right: 0,
+            maxHeight: "220px",
+            overflowY: "auto",
+            backgroundColor: "#11161d",
+            border: "1px solid rgba(166, 181, 201, 0.22)",
+            borderRadius: "10px",
+            boxShadow: "0 12px 32px rgba(0, 0, 0, 0.5)",
+            zIndex: 100,
+            padding: "0.35rem",
+            margin: 0,
+            listStyle: "none",
+          }}
+        >
+          {filteredOptions.slice(0, 40).map((opt, idx) => {
+            const isHighlighted = idx === highlightIndex;
+            return (
+              <li
+                key={opt.value}
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  onChange(opt.value);
+                  setOpen(false);
+                }}
+                onMouseEnter={() => setHighlightIndex(idx)}
+                style={{
+                  padding: "0.45rem 0.65rem",
+                  borderRadius: "6px",
+                  cursor: "pointer",
+                  fontSize: "0.875rem",
+                  color: isHighlighted ? "#62ddc5" : "#f5f8fb",
+                  backgroundColor: isHighlighted ? "#19212b" : "transparent",
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  transition: "background-color 0.12s ease",
+                }}
+              >
+                <span>{opt.label ?? opt.value}</span>
+                {opt.sublabel ? (
+                  <span style={{ fontSize: "0.75rem", color: "#9aa8b9", marginLeft: "0.5rem" }}>
+                    {opt.sublabel}
+                  </span>
+                ) : null}
+              </li>
+            );
+          })}
+        </ul>
+      ) : null}
+    </div>
+  );
+}
+
+type MultiSelectComboboxProps = {
+  name: string;
+  selectedValues: string[];
+  onChange: (vals: string[]) => void;
+  options: ComboboxOption[];
+  placeholder: string;
+  required?: boolean;
+  style?: React.CSSProperties;
+};
+
+function MultiSelectCombobox({
+  name,
+  selectedValues,
+  onChange,
+  options,
+  placeholder,
+  required = false,
+  style,
+}: MultiSelectComboboxProps) {
+  const [inputValue, setInputValue] = useState("");
+  const [open, setOpen] = useState(false);
+  const [highlightIndex, setHighlightIndex] = useState(0);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  const selectedSet = useMemo(
+    () => new Set(selectedValues.map((v) => v.toLowerCase())),
+    [selectedValues]
+  );
+
+  const filteredOptions = useMemo(() => {
+    const query = inputValue.trim().toLowerCase();
+    const available = options.filter((opt) => !selectedSet.has(opt.value.toLowerCase()));
+    if (!query) return available;
+    return available.filter(
+      (opt) =>
+        opt.value.toLowerCase().includes(query) ||
+        (opt.label && opt.label.toLowerCase().includes(query))
+    );
+  }, [options, inputValue, selectedSet]);
+
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
+        setOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  function addValue(val: string) {
+    const clean = val.trim();
+    if (!clean) return;
+    if (!selectedValues.some((v) => v.toLowerCase() === clean.toLowerCase())) {
+      onChange([...selectedValues, clean]);
+    }
+    setInputValue("");
+    setOpen(false);
+  }
+
+  function removeValue(val: string) {
+    onChange(selectedValues.filter((v) => v.toLowerCase() !== val.toLowerCase()));
+  }
+
+  return (
+    <div
+      ref={containerRef}
+      className="cos-multiselect-combobox-wrap"
+      style={{ position: "relative", width: "100%", ...style }}
+    >
+      <input type="hidden" name={name} value={selectedValues.join(", ")} />
+      <div
+        className="cos-multiselect-box"
+        onClick={() => setOpen(true)}
+        style={{
+          display: "flex",
+          flexWrap: "wrap",
+          alignItems: "center",
+          gap: "0.35rem",
+          minHeight: "2.6rem",
+          padding: "0.3rem 0.5rem",
+          backgroundColor: "var(--bg)",
+          border: "1px solid var(--border)",
+          borderRadius: "var(--cos-radius-control)",
+          cursor: "text",
+          position: "relative",
+        }}
+      >
+        {selectedValues.map((val) => (
+          <span
+            key={val}
+            className="cos-location-tag-pill"
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "0.25rem",
+              padding: "0.15rem 0.45rem",
+              backgroundColor: "rgba(98, 221, 197, 0.15)",
+              border: "1px solid rgba(98, 221, 197, 0.35)",
+              color: "#62ddc5",
+              borderRadius: "6px",
+              fontSize: "0.8rem",
+              fontWeight: 600,
+            }}
+          >
+            {val}
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                removeValue(val);
+              }}
+              style={{
+                background: "none",
+                border: 0,
+                color: "#62ddc5",
+                cursor: "pointer",
+                padding: 0,
+                fontSize: "0.85rem",
+                lineHeight: 1,
+              }}
+            >
+              ✕
+            </button>
+          </span>
+        ))}
+
+        <input
+          type="text"
+          value={inputValue}
+          placeholder={selectedValues.length === 0 ? placeholder : "Add location…"}
+          onChange={(e) => {
+            setInputValue(e.target.value);
+            setOpen(true);
+            setHighlightIndex(0);
+          }}
+          onFocus={() => setOpen(true)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              if (open && filteredOptions[highlightIndex]) {
+                addValue(filteredOptions[highlightIndex].value);
+              } else if (inputValue.trim()) {
+                addValue(inputValue);
+              }
+            } else if (e.key === "Backspace" && !inputValue && selectedValues.length > 0) {
+              removeValue(selectedValues[selectedValues.length - 1]);
+            } else if (e.key === "ArrowDown") {
+              e.preventDefault();
+              setOpen(true);
+              setHighlightIndex((prev) => Math.min(prev + 1, Math.max(0, filteredOptions.length - 1)));
+            } else if (e.key === "ArrowUp") {
+              e.preventDefault();
+              setHighlightIndex((prev) => Math.max(prev - 1, 0));
+            } else if (e.key === "Escape") {
+              setOpen(false);
+            }
+          }}
+          style={{
+            flex: 1,
+            minWidth: "120px",
+            background: "transparent",
+            border: 0,
+            color: "var(--text)",
+            fontSize: "0.875rem",
+            outline: "none",
+            padding: "0.2rem",
+          }}
+          autoComplete="off"
+        />
+
+        {required && selectedValues.length === 0 && !inputValue ? (
+          <span
+            style={{
+              position: "absolute",
+              right: "0.65rem",
+              top: "50%",
+              transform: "translateY(-50%)",
+              color: "#ef4444",
+              fontWeight: 700,
+              fontSize: "1rem",
+              pointerEvents: "none",
+            }}
+            title="Required field"
+          >
+            *
+          </span>
+        ) : null}
+      </div>
+
+      {open && filteredOptions.length > 0 ? (
+        <ul
+          className="cos-combobox-dropdown"
+          style={{
+            position: "absolute",
+            top: "calc(100% + 4px)",
+            left: 0,
+            right: 0,
+            maxHeight: "220px",
+            overflowY: "auto",
+            backgroundColor: "#11161d",
+            border: "1px solid rgba(166, 181, 201, 0.22)",
+            borderRadius: "10px",
+            boxShadow: "0 12px 32px rgba(0, 0, 0, 0.5)",
+            zIndex: 100,
+            padding: "0.35rem",
+            margin: 0,
+            listStyle: "none",
+          }}
+        >
+          {filteredOptions.slice(0, 40).map((opt, idx) => {
+            const isHighlighted = idx === highlightIndex;
+            return (
+              <li
+                key={opt.value}
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  addValue(opt.value);
+                }}
+                onMouseEnter={() => setHighlightIndex(idx)}
+                style={{
+                  padding: "0.45rem 0.65rem",
+                  borderRadius: "6px",
+                  cursor: "pointer",
+                  fontSize: "0.875rem",
+                  color: isHighlighted ? "#62ddc5" : "#f5f8fb",
+                  backgroundColor: isHighlighted ? "#19212b" : "transparent",
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  transition: "background-color 0.12s ease",
+                }}
+              >
+                <span>{opt.label ?? opt.value}</span>
+                {opt.sublabel ? (
+                  <span style={{ fontSize: "0.75rem", color: "#9aa8b9", marginLeft: "0.5rem" }}>
+                    {opt.sublabel}
+                  </span>
+                ) : null}
+              </li>
+            );
+          })}
+        </ul>
+      ) : null}
+    </div>
+  );
+}
+
 export function JobDiscoverDashboard() {
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -179,7 +628,7 @@ export function JobDiscoverDashboard() {
   const [q, setQ] = useState("");
   const [company, setCompany] = useState("");
   const [location, setLocation] = useState("");
-  const [locationInput, setLocationInput] = useState("");
+  const [selectedLocations, setSelectedLocations] = useState<string[]>([]);
   const [role, setRole] = useState("");
   const [freshness, setFreshness] = useState<FreshnessFilter>("all");
   const [sponsorship, setSponsorship] = useState<SponsorshipFilter>("all");
@@ -232,7 +681,104 @@ export function JobDiscoverDashboard() {
   const [gapError, setGapError] = useState("");
   const [tier1Rescoring, setTier1Rescoring] = useState(false);
   const [qwenRescoring, setQwenRescoring] = useState(false);
+  const [lastDismissed, setLastDismissed] = useState<DiscoverJob | null>(null);
+  const [selectedJobIds, setSelectedJobIds] = useState<Set<string>>(new Set());
+  const [batchImporting, setBatchImporting] = useState(false);
+  const [batchProgress, setBatchProgress] = useState("");
   const postRescoringRef = useRef(false);
+
+  function toggleSelectJob(jobId: string) {
+    setSelectedJobIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(jobId)) {
+        next.delete(jobId);
+      } else {
+        next.add(jobId);
+      }
+      return next;
+    });
+  }
+
+  function toggleSelectAllVisible(visibleJobs: DiscoverJob[]) {
+    const visibleIds = visibleJobs.map((j) => j.id);
+    const allSelected = visibleIds.length > 0 && visibleIds.every((id) => selectedJobIds.has(id));
+    setSelectedJobIds((prev) => {
+      const next = new Set(prev);
+      if (allSelected) {
+        visibleIds.forEach((id) => next.delete(id));
+      } else {
+        visibleIds.forEach((id) => next.add(id));
+      }
+      return next;
+    });
+  }
+
+  async function handleBatchLaunchPrep(visibleJobs: DiscoverJob[]) {
+    const jobsToImport = visibleJobs.filter((j) => selectedJobIds.has(j.id));
+    if (!jobsToImport.length) return;
+
+    setBatchImporting(true);
+    setBatchProgress(`Launching AI Prep for 0/${jobsToImport.length} jobs…`);
+    let importedCount = 0;
+    let failedCount = 0;
+
+    const CHUNK_SIZE = 5;
+    for (let i = 0; i < jobsToImport.length; i += CHUNK_SIZE) {
+      const chunk = jobsToImport.slice(i, i + CHUNK_SIZE);
+      await Promise.all(
+        chunk.map(async (job) => {
+          try {
+            const result = await importScraperJob(job.id);
+            const aaJobId = String((result.job as { id?: string })?.id || "");
+            if (!result.prepStarted && aaJobId) {
+              await qwenPrepareJob(aaJobId).catch(() => {});
+            }
+            removeJobFromList(job.id);
+            importedCount++;
+          } catch {
+            failedCount++;
+          }
+        })
+      );
+      setBatchProgress(`Launching AI Prep for ${Math.min(i + CHUNK_SIZE, jobsToImport.length)}/${jobsToImport.length} jobs…`);
+    }
+
+    setSelectedJobIds(new Set());
+    setBatchImporting(false);
+    setBatchProgress("");
+    invalidateCachedByPrefix(`${getClientApiBaseUrl()}/jobs/discover?`);
+    await loadJobs();
+    void loadAssistantSyncStatus();
+    void refreshPrepQueue();
+    setActionMsg(
+      `Successfully launched AI Prep for ${importedCount} jobs!${failedCount > 0 ? ` (${failedCount} failed)` : ""}`
+    );
+  }
+
+  const titleComboboxOptions = useMemo(
+    () => TOP_10_JOB_TITLES_2026.map((t) => ({ value: t, label: t })),
+    []
+  );
+
+  const locationComboboxOptions = useMemo(() => {
+    const customList = locationOptions.map((opt) => ({
+      value: opt.value,
+      label: opt.label,
+      sublabel: `${opt.count.toLocaleString()} roles`,
+    }));
+    const existing = new Set(customList.map((c) => c.value.toLowerCase()));
+    LOCATION_QUICK_PICKS.forEach((pick) => {
+      if (!existing.has(pick.toLowerCase())) {
+        customList.push({ value: pick, label: pick, sublabel: "Quick pick" });
+      }
+    });
+    return customList;
+  }, [locationOptions]);
+
+  const companyComboboxOptions = useMemo(
+    () => TOP_50_COMPANIES.map((c) => ({ value: c, label: c })),
+    []
+  );
   const skipInitialFetch = useRef(false);
   const initializedFromWorkspace = useRef(false);
   const scrapingRef = useRef(false);
@@ -291,24 +837,14 @@ export function JobDiscoverDashboard() {
     if (nextQ) setQ(nextQ);
     if (nextLocation) {
       setLocation(nextLocation);
-      setLocationInput(nextLocation);
+      const parsed = nextLocation.split(",").map((s) => s.trim()).filter(Boolean);
+      setSelectedLocations(parsed);
     }
     if (nextRole) setRole(nextRole);
     if (nextFreshness === "12" || nextFreshness === "24" || nextFreshness === "48" || nextFreshness === "72" || nextFreshness === "168" || nextFreshness === "336" || nextFreshness === "720" || nextFreshness === "all") {
       setFreshness(nextFreshness as FreshnessFilter);
     }
   }, [searchParams, prefs.searchQuery, prefs.location, prefs.roleFilter, prefs.freshness]);
-
-  useEffect(() => {
-    const timer = window.setTimeout(() => {
-      const trimmed = locationInput.trim();
-      if (trimmed === location) return;
-      setLocation(trimmed);
-      setPage(1);
-      updatePrefs({ location: trimmed });
-    }, 350);
-    return () => window.clearTimeout(timer);
-  }, [locationInput, location, updatePrefs]);
 
   const syncFilterUrl = useCallback(
     (overrides?: Partial<{ q: string; company: string; location: string; role: string; freshness: FreshnessFilter }>) => {
@@ -648,6 +1184,16 @@ export function JobDiscoverDashboard() {
 
   async function handleScrape(hours: number, mode: ScrapeMode = "ats") {
     const cappedHours = Math.min(Math.max(hours, 1), 720);
+    const targetFreshness = String(cappedHours) as FreshnessFilter;
+    const locStr = selectedLocations.join(", ");
+    if (locStr !== location) {
+      setLocation(locStr);
+    }
+    if (["12", "24", "48", "72", "168", "336", "720"].includes(targetFreshness)) {
+      setFreshness(targetFreshness);
+      setPage(1);
+      updatePrefs({ freshness: targetFreshness, location: locStr });
+    }
     setScraping(true);
     setScrapeStuck(false);
     setScrapeMsg("Starting…");
@@ -742,6 +1288,28 @@ export function JobDiscoverDashboard() {
     } finally {
       setAddingToAssistant(null);
     }
+  }
+
+  async function handleDismissJob(job: DiscoverJob) {
+    removeJobFromList(job.id);
+    setLastDismissed(job);
+    invalidateCachedByPrefix(`${getClientApiBaseUrl()}/jobs/discover?`);
+    try {
+      await fetch(`${getClientApiBaseUrl()}/jobs/discover/${job.id}/dismiss`, { method: "POST" });
+    } catch {
+      /* fallback locally */
+    }
+  }
+
+  async function handleUndismissJob(job: DiscoverJob) {
+    setLastDismissed(null);
+    try {
+      await fetch(`${getClientApiBaseUrl()}/jobs/discover/${job.id}/undismiss`, { method: "POST" });
+    } catch {
+      /* fallback */
+    }
+    invalidateCachedByPrefix(`${getClientApiBaseUrl()}/jobs/discover?`);
+    await loadJobs();
   }
 
   const visibleJobs = useMemo(() => {
@@ -933,7 +1501,7 @@ export function JobDiscoverDashboard() {
     setQ("");
     setCompany("");
     setLocation("");
-    setLocationInput("");
+    setSelectedLocations([]);
     setRole("");
     setFreshness("all");
     setSponsorship("all");
@@ -951,32 +1519,67 @@ export function JobDiscoverDashboard() {
     router.replace("/jobs/discover", { scroll: false });
   }
 
-  function applyLocationFilter(nextLocation: string) {
-    setLocationInput(nextLocation);
-    setLocation(nextLocation);
+  const fetchHours = useMemo(() => {
+    if (freshness === "all") return 720;
+    const parsed = parseInt(freshness, 10);
+    return Number.isNaN(parsed) ? 168 : parsed;
+  }, [freshness]);
+
+  const fetchLabel = useMemo(() => {
+    if (scraping) return "Scraping…";
+    switch (freshness) {
+      case "12": return "Fetch 12h";
+      case "24": return "Fetch 24h";
+      case "48": return "Fetch 48h";
+      case "72": return "Fetch 3 days";
+      case "168": return "Fetch 7 days";
+      case "336": return "Fetch 14 days";
+      case "720": return "Fetch 30 days";
+      default: return "Fetch roles";
+    }
+  }, [scraping, freshness]);
+
+  const isFormValid = Boolean(q.trim() && selectedLocations.length > 0);
+
+  function applyLocationFilter(pick: string) {
+    let nextLocs: string[];
+    if (!pick) {
+      nextLocs = [];
+    } else {
+      const exists = selectedLocations.some((l) => l.toLowerCase() === pick.toLowerCase());
+      if (exists) {
+        nextLocs = selectedLocations.filter((l) => l.toLowerCase() !== pick.toLowerCase());
+      } else {
+        nextLocs = [...selectedLocations, pick];
+      }
+    }
+    setSelectedLocations(nextLocs);
+    const locStr = nextLocs.join(", ");
+    setLocation(locStr);
     setPage(1);
-    updatePrefs({ location: nextLocation });
+    updatePrefs({ location: locStr });
   }
 
   function handleSearch(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (!isFormValid || scraping) return;
     const form = new FormData(event.currentTarget);
-    const nextQ = String(form.get("q") || "");
-    const nextCompany = String(form.get("company") || "");
-    const nextLocation = String(form.get("location") || "");
-    const nextRole = String(form.get("role") || "");
+    const nextQ = String(form.get("q") || "").trim();
+    const nextCompany = String(form.get("company") || "").trim();
+    const locStr = selectedLocations.join(", ");
+    const nextRole = String(form.get("role") || "").trim();
     setQ(nextQ);
     setCompany(nextCompany);
-    setLocationInput(nextLocation);
-    setLocation(nextLocation);
+    setLocation(locStr);
     setRole(nextRole);
     setPage(1);
     updatePrefs({
       searchQuery: nextQ,
-      location: nextLocation,
+      location: locStr,
       roleFilter: nextRole,
       freshness,
     });
+    void handleScrape(fetchHours, "ats");
   }
 
   return (
@@ -1007,21 +1610,6 @@ export function JobDiscoverDashboard() {
             </p>
           </div>
           <div className="target-jobs-actions">
-            <button type="button" className="btn btn-sm btn-primary" onClick={() => void handleScrape(24, "ats")} disabled={scraping}>
-              {scraping ? "Scraping…" : "Fetch 24h"}
-            </button>
-            <button type="button" className="btn btn-sm btn-secondary" onClick={() => void handleScrape(168, "ats")} disabled={scraping}>
-              Fetch 7 days
-            </button>
-            <button type="button" className="btn btn-sm btn-secondary" onClick={() => void handleScrape(720, "ats")} disabled={scraping}>
-              Fetch 30 days
-            </button>
-            <button type="button" className="btn btn-sm btn-secondary" onClick={() => void handleScrape(720, "bigtech")} disabled={scraping}>
-              Big Tech
-            </button>
-            <button type="button" className="btn btn-sm btn-secondary" onClick={() => void handleScrape(720, "all")} disabled={scraping}>
-              Fetch all
-            </button>
             <button type="button" className="btn btn-sm btn-secondary" onClick={() => void handleRescore()} disabled={rescoring || tier1Rescoring}>
               {rescoring || tier1Rescoring ? "Updating scores…" : "Refresh all scores"}
             </button>
@@ -1038,52 +1626,66 @@ export function JobDiscoverDashboard() {
 
         <form className="target-jobs-filters job-discover-filters" onSubmit={handleSearch}>
           <label>
-            Search
-            <input name="q" value={q} onChange={(event) => setQ(event.target.value)} placeholder="Senior software developer" />
-          </label>
-          <label>
-            Company
-            <input name="company" value={company} onChange={(event) => setCompany(event.target.value)} placeholder="e.g. stripe" />
+            Job Title
+            <SearchableCombobox
+              name="q"
+              value={q}
+              onChange={(val) => setQ(val)}
+              options={titleComboboxOptions}
+              placeholder="e.g. Senior Software Engineer"
+              required
+            />
           </label>
           <label>
             Location
-            <input
+            <MultiSelectCombobox
               name="location"
-              list="job-discover-location-options"
-              value={locationInput}
-              onChange={(event) => setLocationInput(event.target.value)}
-              placeholder="e.g. Remote, Seattle, New York"
-              autoComplete="off"
+              selectedValues={selectedLocations}
+              onChange={(vals) => {
+                setSelectedLocations(vals);
+                const locStr = vals.join(", ");
+                setLocation(locStr);
+                setPage(1);
+                updatePrefs({ location: locStr });
+              }}
+              options={locationComboboxOptions}
+              placeholder="e.g. Remote, California, Seattle"
+              required
             />
-            <datalist id="job-discover-location-options">
-              {locationOptions.map((opt) => (
-                <option key={opt.value} value={opt.value}>
-                  {formatLocationOption(opt.label, opt.count)}
-                </option>
-              ))}
-            </datalist>
-          </label>
-          <label>
-            Roles
-            <input name="role" value={role} onChange={(event) => setRole(event.target.value)} placeholder="Filter: pm,swe,ux,tpm" title="Filters the table only — scrape always pulls all role types" />
           </label>
           <label>
             Posted ago
-            <select
-              name="freshness"
-              value={freshness}
-              onChange={(event) => {
-                setFreshness(event.target.value as FreshnessFilter);
-                setPage(1);
-                updatePrefs({ freshness: event.target.value });
-              }}
-            >
-              {POSTED_AGO_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
+            <div className="job-discover-input-wrap" style={{ position: "relative", display: "inline-flex", width: "100%", alignItems: "center" }}>
+              <select
+                name="freshness"
+                required
+                value={freshness}
+                onChange={(event) => {
+                  setFreshness(event.target.value as FreshnessFilter);
+                  setPage(1);
+                  updatePrefs({ freshness: event.target.value });
+                }}
+                style={{ paddingRight: "1.75rem" }}
+              >
+                {POSTED_AGO_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+              <span
+                style={{
+                  position: "absolute",
+                  right: "1.6rem",
+                  color: "#ef4444",
+                  fontWeight: "bold",
+                  fontSize: "1rem",
+                  pointerEvents: "none",
+                }}
+              >
+                *
+              </span>
+            </div>
           </label>
           <label>
             H1B / Sponsorship
@@ -1102,15 +1704,36 @@ export function JobDiscoverDashboard() {
               <option value="company">Company</option>
             </select>
           </label>
-          <button type="submit" className="btn btn-sm btn-secondary">Apply filters</button>
+          <label>
+            Company
+            <SearchableCombobox
+              name="company"
+              value={company}
+              onChange={(val) => setCompany(val)}
+              options={companyComboboxOptions}
+              placeholder="e.g. Stripe, OpenAI, Datadog"
+            />
+          </label>
+          <button
+            type="submit"
+            className="btn btn-sm btn-primary"
+            disabled={!isFormValid || scraping}
+            title={
+              !isFormValid
+                ? "Please fill in required fields (Job Title * and Location *) before fetching"
+                : `Fetch ${freshness} job postings`
+            }
+          >
+            {fetchLabel}
+          </button>
           <button
             type="button"
             className="btn btn-sm btn-secondary"
             onClick={clearFilters}
             disabled={!anyFiltersActive}
-            title="Reset search, location, roles, posted date, sponsorship, sort, and quick filters"
+            title="Reset search, location, company, posted date, sponsorship, sort, and quick filters"
           >
-            Clear all filters
+            Clear filters
           </button>
         </form>
 
@@ -1118,13 +1741,13 @@ export function JobDiscoverDashboard() {
           <span className="job-discover-location-chips-label">Location:</span>
           <button
             type="button"
-            className={`job-discover-location-chip${!location ? " job-discover-location-chip--active" : ""}`}
+            className={`job-discover-location-chip${selectedLocations.length === 0 ? " job-discover-location-chip--active" : ""}`}
             onClick={() => applyLocationFilter("")}
           >
             All
           </button>
           {LOCATION_QUICK_PICKS.map((pick) => {
-            const active = location.toLowerCase() === pick.toLowerCase();
+            const active = selectedLocations.some((l) => l.toLowerCase() === pick.toLowerCase());
             return (
               <button
                 key={pick}
@@ -1203,23 +1826,48 @@ export function JobDiscoverDashboard() {
           </p>
         ) : null}
         {scraping ? (
-          <p className="email-sender-status email-sender-status--ok" role="status" aria-live="polite">
-            Scrape in progress: {scrapeMsg || "Starting…"}
-            {liveCounts ? ` · ${liveCounts.indexed.toLocaleString()} roles saved so far` : ""}
-            {scrapeStuck ? (
-              <>
-                {" "}
-                — appears stuck on the last board.{" "}
-                <button type="button" className="btn btn-sm btn-secondary" onClick={() => void handleCancelScrape()} style={{ marginLeft: "0.35rem" }}>
-                  Cancel and keep partial results
+          <div className="cos-scrape-progress-banner" role="status" aria-live="polite">
+            <div className="cos-scrape-progress-header">
+              <div className="cos-scrape-progress-info">
+                <div className="cos-spinner-pulse" />
+                <span>
+                  <strong>Scrape in progress:</strong> {scrapeMsg || "Starting ATS & career board ingestion…"}
+                  {liveCounts ? ` · ${liveCounts.indexed.toLocaleString()} roles saved` : ""}
+                </span>
+              </div>
+              {scrapeStuck ? (
+                <button
+                  type="button"
+                  className="btn btn-sm btn-secondary"
+                  onClick={() => void handleCancelScrape()}
+                >
+                  Cancel & keep partial
                 </button>
-              </>
-            ) : null}
-          </p>
+              ) : (
+                <span className="muted text-sm">Ingesting background feeds…</span>
+              )}
+            </div>
+            <div className="cos-progress-bar-track">
+              <div className="cos-progress-bar-fill" />
+            </div>
+          </div>
         ) : null}
         {error ? <p className="email-sender-status email-sender-status--warn">{error}</p> : null}
         {!scraping && scrapeMsg ? <p className="muted">{scrapeMsg}</p> : null}
         {actionMsg ? <p className="muted">{actionMsg}</p> : null}
+        {lastDismissed ? (
+          <p className="email-sender-status email-sender-status--ok">
+            Marked <strong>{lastDismissed.title}</strong> at {lastDismissed.companyName} as not relevant.{" "}
+            <button
+              type="button"
+              className="btn btn-sm btn-secondary"
+              onClick={() => void handleUndismissJob(lastDismissed)}
+              style={{ marginLeft: "0.35rem" }}
+            >
+              Undo
+            </button>
+          </p>
+        ) : null}
         {prepQueue && (prepQueue.queued > 0 || (prepQueue.openBrowserCount ?? 0) > 0) ? (
           <p className="email-sender-status email-sender-status--ok" role="status">
             Prep queue: {prepQueue.running} running · {prepQueue.waiting} waiting · {prepQueue.available} slots left
@@ -1280,6 +1928,65 @@ export function JobDiscoverDashboard() {
                 scoringShortlist={scoringShortlist}
               />
             ) : null}
+
+            {visibleJobs.length > 0 ? (
+              <div
+                className="cos-batch-selection-bar"
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  padding: "0.65rem 1rem",
+                  marginBlock: "0.5rem 0.75rem",
+                  backgroundColor: selectedJobIds.size > 0 ? "rgba(98, 221, 197, 0.08)" : "#11161d",
+                  border: `1px solid ${selectedJobIds.size > 0 ? "#62ddc5" : "rgba(166, 181, 201, 0.16)"}`,
+                  borderRadius: "10px",
+                  transition: "all 0.15s ease",
+                }}
+              >
+                <label style={{ display: "flex", alignItems: "center", gap: "0.6rem", cursor: "pointer", fontSize: "0.875rem", fontWeight: 600, color: "#f5f8fb" }}>
+                  <input
+                    type="checkbox"
+                    checked={visibleJobs.length > 0 && visibleJobs.every((j) => selectedJobIds.has(j.id))}
+                    onChange={() => toggleSelectAllVisible(visibleJobs)}
+                    style={{ width: "1.1rem", height: "1.1rem", cursor: "pointer", accentColor: "#62ddc5" }}
+                  />
+                  <span>
+                    {selectedJobIds.size > 0
+                      ? `${selectedJobIds.size} ${selectedJobIds.size === 1 ? "role" : "roles"} selected`
+                      : `Select all ${visibleJobs.length} roles on page`}
+                  </span>
+                </label>
+                {selectedJobIds.size > 0 ? (
+                  <div style={{ display: "flex", alignItems: "center", gap: "0.65rem" }}>
+                    <button
+                      type="button"
+                      className="btn btn-sm btn-secondary"
+                      onClick={() => setSelectedJobIds(new Set())}
+                      disabled={batchImporting}
+                    >
+                      Deselect all
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-sm btn-primary"
+                      onClick={() => void handleBatchLaunchPrep(visibleJobs)}
+                      disabled={batchImporting}
+                      style={{
+                        background: "linear-gradient(135deg, #62ddc5 0%, #84cbe6 100%)",
+                        color: "#07130f",
+                        fontWeight: 700,
+                        border: 0,
+                        paddingInline: "1rem",
+                      }}
+                    >
+                      {batchImporting ? batchProgress : `⚡ Launch AI Prep (${selectedJobIds.size})`}
+                    </button>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+
           <div className="data-list">
             {visibleJobs.map((job, index) => {
               const signals = triageSignals({ id: job.id, title: job.title, url: job.url, updatedAt: job.updatedAt });
@@ -1287,11 +1994,21 @@ export function JobDiscoverDashboard() {
               const inPrepQueue = Boolean(queuedStarts[job.id]);
               const isAdding = addingToAssistant === job.id;
               const queueFull = (prepQueue?.available ?? 1) <= 0;
+              const isSelected = selectedJobIds.has(job.id);
               const gapPercent = Math.round(
                 job.gapAnalysis?.gapPercent ?? Math.max(0, 100 - (job.relevancyScore ?? 0)),
               );
               return (
-              <div className="data-row target-job-row job-discover-row" key={job.id}>
+              <div className={`data-row target-job-row job-discover-row${isSelected ? " job-discover-row--selected" : ""}`} key={job.id}>
+                <div style={{ display: "flex", alignItems: "center", paddingRight: "0.4rem" }}>
+                  <input
+                    type="checkbox"
+                    checked={isSelected}
+                    onChange={() => toggleSelectJob(job.id)}
+                    title="Select role for batch AI Prep"
+                    style={{ width: "1.15rem", height: "1.15rem", cursor: "pointer", accentColor: "#62ddc5" }}
+                  />
+                </div>
                 <div className="job-discover-row-main">
                   <div className="job-discover-match-scores">
                     <span className={scoreClass(job.color)} title="Fit score from your profile and uploaded resume">
@@ -1348,6 +2065,14 @@ export function JobDiscoverDashboard() {
                   <ShortlistToggle jobId={job.id} shortlist={shortlist} onToggle={toggleShortlist} />
                   <button
                     type="button"
+                    className="btn btn-sm btn-secondary"
+                    onClick={() => void handleDismissJob(job)}
+                    title="Mark as not relevant and remove from review queue"
+                  >
+                    Not relevant
+                  </button>
+                  <button
+                    type="button"
                     className="btn btn-sm btn-primary"
                     onClick={() => void handleAddToAssistant(job)}
                     disabled={isAdding || inPrepQueue || (queueFull && !inPrepQueue)}
@@ -1356,10 +2081,10 @@ export function JobDiscoverDashboard() {
                         ? "Already in prep queue"
                         : queueFull
                           ? "Prep queue is full"
-                          : "Add to AI Assistant and start Qwen prep"
+                          : "Launch 1-click AI Assistant Prep for this job"
                     }
                   >
-                    {isAdding ? "Starting…" : inPrepQueue ? "Queued" : "Add to Assistant"}
+                    {isAdding ? "Starting…" : inPrepQueue ? "Queued" : "⚡ Launch AI Prep"}
                   </button>
                   <a className="btn btn-sm btn-primary" href={job.url} target="_blank" rel="noreferrer">
                     Apply

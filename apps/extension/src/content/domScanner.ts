@@ -8,6 +8,9 @@ export interface ScannedField {
   htmlId: string;
   autocomplete: string;
   dataInput?: string;
+  dataAutomationId?: string;
+  dataQa?: string;
+  dataTestId?: string;
   options?: string[]; // Options list for select, radio, or checkboxes
 }
 
@@ -303,6 +306,9 @@ export function scanPage(doc: Document): ScannedField[] {
     const placeholder = input.getAttribute('placeholder') || '';
     const autocomplete = input.getAttribute('autocomplete') || '';
     const dataInput = input.getAttribute('data-input') || '';
+    const dataAutomationId = input.getAttribute('data-automation-id') || input.getAttribute('data-automationid') || '';
+    const dataQa = input.getAttribute('data-qa') || input.getAttribute('data-qa-id') || '';
+    const dataTestId = input.getAttribute('data-testid') || input.getAttribute('data-test-id') || input.getAttribute('data-ashby-input') || '';
 
     // Filter hidden fields or actions
     if (tagName === 'INPUT' && (typeAttr === 'hidden' || typeAttr === 'submit' || typeAttr === 'button')) {
@@ -345,6 +351,9 @@ export function scanPage(doc: Document): ScannedField[] {
         htmlId,
         autocomplete,
         dataInput,
+        dataAutomationId,
+        dataQa,
+        dataTestId,
         options
       });
       continue;
@@ -394,7 +403,10 @@ export function scanPage(doc: Document): ScannedField[] {
       name,
       htmlId,
       autocomplete,
-      dataInput
+      dataInput,
+      dataAutomationId,
+      dataQa,
+      dataTestId
     });
   }
 

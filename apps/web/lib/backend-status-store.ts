@@ -42,9 +42,22 @@ async function runHealthCheck() {
   if (next !== online) {
     online = next;
     emit();
+    resetPollInterval();
   } else if (online === null) {
     online = next;
     emit();
+    resetPollInterval();
+  }
+}
+
+function resetPollInterval() {
+  if (pollId !== null) {
+    window.clearInterval(pollId);
+    pollId = null;
+  }
+  if (subscriberCount > 0) {
+    const interval = online === false ? 3_000 : POLL_MS;
+    pollId = window.setInterval(pollHealth, interval);
   }
 }
 
@@ -57,7 +70,7 @@ function subscribe(listener: Listener) {
   subscriberCount += 1;
   if (subscriberCount === 1) {
     pollHealth();
-    pollId = window.setInterval(pollHealth, POLL_MS);
+    resetPollInterval();
     document.addEventListener("visibilitychange", pollHealth);
   }
   return () => {

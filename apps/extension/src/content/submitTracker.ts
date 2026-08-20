@@ -3,7 +3,7 @@ import {
   getSubmitTrackerConfig,
   SubmitTrackerConfig
 } from '../shared/submitTrackerConfig';
-import { extractJobContext, isJobApplicationUrl, isSubmissionSuccessPage } from '../shared/jobPageDetection';
+import { extractJobContext, isJobApplicationPage, isJobApplicationUrl, isSubmissionSuccessPage } from '../shared/jobPageDetection';
 import { logToServer } from '../shared/serverLog';
 
 const DEDUPE_STORAGE_KEY = 'jobfill-submit-dedupe';
@@ -103,7 +103,14 @@ async function recordSubmit(
   config: SubmitTrackerConfig
 ): Promise<void> {
   const url = location.href;
-  if (config.requireJobPageUrl && !isJobApplicationUrl(url) && trigger !== 'confirmation_page') return;
+  if (
+    config.requireJobPageUrl &&
+    !isJobApplicationPage(document) &&
+    !isJobApplicationUrl(url) &&
+    trigger !== 'confirmation_page'
+  ) {
+    return;
+  }
   if (await wasRecentlyRecorded(url, config)) return;
 
   const { company, role, location: locationText, platform } = extractJobContext(document);

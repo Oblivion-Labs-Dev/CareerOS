@@ -65,7 +65,16 @@ export const DEFAULT_SCREENING_ANSWERS: ScreeningAnswer[] = [
     question:
       'Are you able to commit to coming into the office as advertised on the job description?',
     answer: 'Yes',
-    matchPatterns: ['commit to coming into the office', '4+ days a week']
+    matchPatterns: [
+      'commit to coming into the office',
+      '4+ days a week',
+      'hybrid/in-office',
+      'hybrid / in-office',
+      '3 days a week',
+      'comfortable with',
+      'relocating within the us',
+      'in-office requirement'
+    ]
   },
   {
     id: 'meets-minimum-experience',

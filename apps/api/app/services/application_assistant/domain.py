@@ -42,6 +42,66 @@ class DiscoveryRunStatus(str, Enum):
     CANCELLED = "cancelled"
 
 
+class AutopilotRunStatus(str, Enum):
+    STARTING = "STARTING"
+    RUNNING = "RUNNING"
+    PAUSING = "PAUSING"
+    PAUSED = "PAUSED"
+    STOPPING = "STOPPING"
+    STOPPED = "STOPPED"
+    COMPLETED = "COMPLETED"
+    RECOVERING = "RECOVERING"
+    FAILED = "FAILED"
+
+
+class AutopilotJobStatus(str, Enum):
+    DISCOVERED = "DISCOVERED"
+    SCORED = "SCORED"
+    QUEUED = "QUEUED"
+    APPLYING = "APPLYING"
+    STAGED = "STAGED"
+    NEEDS_REVIEW = "NEEDS_REVIEW"
+    SUBMITTED = "SUBMITTED"
+    SKIPPED = "SKIPPED"
+    FAILED = "FAILED"
+
+
+class ApplicationErrorType(str, Enum):
+    NAVIGATION_TIMEOUT = "NAVIGATION_TIMEOUT"
+    ELEMENT_NOT_FOUND = "ELEMENT_NOT_FOUND"
+    PAGE_CHANGED = "PAGE_CHANGED"
+    NETWORK_ERROR = "NETWORK_ERROR"
+    BROWSER_CRASH = "BROWSER_CRASH"
+    AI_ERROR = "AI_ERROR"
+    AI_TIMEOUT = "AI_TIMEOUT"
+    UNSUPPORTED_QUESTION = "UNSUPPORTED_QUESTION"
+    UNSUPPORTED_ATS = "UNSUPPORTED_ATS"
+    AUTH_REQUIRED = "AUTH_REQUIRED"
+    CAPTCHA = "CAPTCHA"
+    VALIDATION_ERROR = "VALIDATION_ERROR"
+    UPLOAD_ERROR = "UPLOAD_ERROR"
+    SUBMISSION_UNCERTAIN = "SUBMISSION_UNCERTAIN"
+    JOB_CLOSED = "JOB_CLOSED"
+    DUPLICATE_APPLICATION = "DUPLICATE_APPLICATION"
+    UNKNOWN_ERROR = "UNKNOWN_ERROR"
+
+
+class CheckpointStep(str, Enum):
+    JOB_CLAIMED = "JOB_CLAIMED"
+    PAGE_OPENED = "PAGE_OPENED"
+    FORM_DISCOVERED = "FORM_DISCOVERED"
+    RESUME_UPLOADED = "RESUME_UPLOADED"
+    PROFILE_FIELDS_FILLED = "PROFILE_FIELDS_FILLED"
+    QUESTIONS_COMPLETED = "QUESTIONS_COMPLETED"
+    PRE_SUBMISSION_CHECK = "PRE_SUBMISSION_CHECK"
+    SUBMITTING = "SUBMITTING"
+    VERIFYING_SUBMISSION = "VERIFYING_SUBMISSION"
+    SUBMITTED = "SUBMITTED"
+    STAGED = "STAGED"
+    SKIPPED = "SKIPPED"
+    FAILED = "FAILED"
+
+
 class AnswerType(str, Enum):
     SHORT_TEXT = "short_text"
     LONG_TEXT = "long_text"
@@ -254,3 +314,54 @@ class StructuredError(BaseModel):
     retryAllowed: bool = False
     pageUrl: str = ""
     timestamp: str = ""
+
+
+class ApplicationRun(BaseModel):
+    id: str
+    targetProcessCount: int = 25
+    processedCount: int = 0
+    submittedCount: int = 0
+    stagedCount: int = 0
+    skippedCount: int = 0
+    failedCount: int = 0
+    status: AutopilotRunStatus = AutopilotRunStatus.STOPPED
+    startedAt: str
+    completedAt: str | None = None
+    stoppedAt: str | None = None
+    lastHeartbeatAt: str
+    currentJobId: str | None = None
+    currentJobTitle: str | None = None
+    currentCompany: str | None = None
+    lastAction: str = ""
+    settings: dict[str, Any] = Field(default_factory=dict)
+
+
+class JobApplicationItem(BaseModel):
+    id: str
+    jobId: str
+    company: str
+    title: str
+    applicationUrl: str
+    status: AutopilotJobStatus = AutopilotJobStatus.DISCOVERED
+    matchScore: float = 0.0
+    matchReasons: list[str] = Field(default_factory=list)
+    skipReason: str | None = None
+    discoveredAt: str
+    postedAt: str | None = None
+    queuedAt: str | None = None
+    applicationStartedAt: str | None = None
+    submittedAt: str | None = None
+    currentStep: str = ""
+    attemptCount: int = 0
+    lastError: str | None = None
+    lastErrorType: ApplicationErrorType | None = None
+    checkpointHistory: list[dict[str, Any]] = Field(default_factory=list)
+    answers: dict[str, Any] = Field(default_factory=dict)
+    unresolvedQuestions: list[dict[str, Any]] = Field(default_factory=list)
+    aiExplanation: str | None = None
+    screenshots: list[str] = Field(default_factory=list)
+    submissionEvidence: dict[str, Any] | None = None
+    lockedBy: str | None = None
+    lockedAt: str | None = None
+    lockExpiresAt: str | None = None
+

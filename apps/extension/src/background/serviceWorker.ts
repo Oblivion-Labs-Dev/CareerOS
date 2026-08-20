@@ -72,13 +72,49 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  if (message.action === 'generate-ai-answer') {
+    console.log('[ApplyPilot Background] Handling generate-ai-answer:', message);
+    (async () => {
+      try {
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+        console.log('[ApplyPilot Background] Calling API endpoint:', `${apiUrl}/application-assistant/generate-answer`);
+        const response = await fetch(`${apiUrl}/application-assistant/generate-answer`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            question: message.question,
+            company: message.company || '',
+            role: message.role || '',
+            jobDescription: message.jobDescription || ''
+          })
+        });
+        if (!response.ok) {
+          const errText = await response.text();
+          console.error('[ApplyPilot Background] AI endpoint returned non-OK status:', response.status, errText);
+          sendResponse({ success: false, error: errText || `HTTP ${response.status}` });
+          return;
+        }
+        const data = await response.json();
+        console.log('[ApplyPilot Background] AI endpoint response data:', data);
+        sendResponse(data);
+      } catch (err: any) {
+        console.error('[ApplyPilot Background] Exception in generate-ai-answer:', err);
+        sendResponse({ success: false, error: err.message || 'Failed to call backend AI' });
+      }
+    })();
+    return true;
+  }
+
   if (message.action === 'get-profile-for-autofill') {
+    console.log('[ApplyPilot Background] Handling get-profile-for-autofill request');
     (async () => {
       try {
         const { resolveProfileForAutofill } = await import('../profile/profileStore');
         const profile = await resolveProfileForAutofill();
+        console.log('[ApplyPilot Background] Profile resolved successfully for autofill');
         sendResponse({ success: true, profile });
       } catch (err: any) {
+        console.error('[ApplyPilot Background] Profile resolution error:', err);
         sendResponse({ success: false, error: err.message });
       }
     })();

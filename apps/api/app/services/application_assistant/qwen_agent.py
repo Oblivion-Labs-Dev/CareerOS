@@ -1021,6 +1021,8 @@ async def start_autonomous_prepare(app_id: str) -> dict[str, Any]:
             "queue": prep_queue_status(),
         }
 
+    from app.services.application_assistant.worker import release_prep_slot
+    await release_prep_slot(app_id)
     admitted = await try_admit_prep(app_id)
     if not admitted:
         queue = prep_queue_status()

@@ -19,7 +19,7 @@ export interface ComingSoonNavItem extends NavItem {
 }
 
 /** Pages active in sidebar, dashboard nav, and command palette. */
-export const VISIBLE_NAV_HREFS = ["/dashboard", "/jobs/discover", "/profile", "/application-assistant", "/analytics"] as const;
+export const VISIBLE_NAV_HREFS = ["/dashboard", "/jobs/discover", "/applications", "/profile", "/application-assistant", "/analytics"] as const;
 
 /** Full nav catalog — routes stay available; disabled items appear under Coming soon. */
 export const ALL_NAV_GROUPS: NavGroup[] = [
@@ -30,6 +30,7 @@ export const ALL_NAV_GROUPS: NavGroup[] = [
   {
     label: "Intelligence Layer",
     items: [
+      { href: "/applications", label: "AI Autopilot", icon: "applypilot", emoji: "⚡", requiresBackend: true, enabled: true },
       { href: "/jobs/discover", label: "Job Scraper", icon: "jobs", emoji: "🔎", requiresBackend: true, enabled: true },
       { href: "/application-assistant", label: "AI Assistant", icon: "applypilot", emoji: "🤖", requiresBackend: true, enabled: true },
       { href: "/intelligence/signals", label: "Signals", icon: "insights", requiresBackend: true, enabled: false },

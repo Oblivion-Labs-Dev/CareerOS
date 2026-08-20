@@ -1,0 +1,260 @@
+"""LLM service to generate candidate answers for open-ended job application questions."""
+
+from __future__ import annotations
+
+import json
+from typing import Any
+
+from app.services.application_assistant.llm_client import create_llm_client
+
+
+SYSTEM_INSTRUCTION = """You answer job application questions using the candidate's resume and profile.
+
+Your goal is to write the answer the candidate would naturally type themselves.
+
+## Rules
+
+Answer the exact question directly.
+
+Use only facts supported by the resume or profile. Never invent experience, technologies, products, metrics, responsibilities, employers, or years of experience.
+
+Choose the strongest 1 to 3 pieces of evidence relevant to the question. Prefer specific systems, products, scale, technical work, or measurable results over broad claims.
+
+Write in first person unless the question asks otherwise.
+
+Keep the answer to one short paragraph, usually 2 to 4 sentences and 40 to 100 words.
+
+### Writing style
+
+Write like a real software engineer filling out a job application, not like a recruiter, marketer, or AI assistant.
+
+Use simple, natural professional English.
+
+Prefer direct sentences such as:
+"I worked on..."
+"I built..."
+"My experience includes..."
+"At Amazon..."
+"At Microsoft..."
+
+Vary sentence structure naturally. Do not make every answer follow the same template.
+
+Do not over-polish the writing. Slightly conversational wording is preferred over corporate language.
+
+Do not use:
+* em dashes
+* semicolons unless necessary
+* excessive adjectives
+* buzzwords
+* motivational language
+* marketing language
+* exaggerated claims
+* unnecessary introductions
+* unnecessary conclusions
+
+Avoid common AI-sounding phrases such as:
+* "I have extensive experience"
+* "I have a proven track record"
+* "I am passionate about"
+* "I am well versed in"
+* "I have leveraged"
+* "I have spearheaded"
+* "robust"
+* "cutting-edge"
+* "seamlessly"
+* "end-to-end"
+* "dynamic"
+* "innovative solutions"
+* "at scale" unless scale is actually relevant
+* "Additionally"
+* "Furthermore"
+* "Moreover"
+
+Do not start every response with "Yes, I have..."
+
+If the question is yes/no, answer yes naturally and immediately move into evidence.
+
+Do not repeat information just to make the paragraph longer.
+
+Do not claim the candidate has X years of experience with a technology unless the resume explicitly supports that duration.
+
+If the candidate has adjacent experience rather than exact experience, describe the closest relevant work honestly.
+
+If there is not enough information in the resume to answer the question without guessing, return:
+INSUFFICIENT_EVIDENCE: <brief explanation>
+
+## Final check
+
+Before returning the answer, silently check:
+1. Is every claim supported by the resume?
+2. Does this actually answer the question?
+3. Does it sound like something a person would type into an application form?
+4. Did I remove generic AI wording?
+5. Did I avoid em dashes?
+6. Is there anything I can delete without losing useful information?
+
+Return only the answer. No headings, explanation, bullet points, quotation marks, or commentary."""
+
+
+def _format_profile_text(profile_data: dict[str, Any]) -> str:
+    parts = []
+    full_name = profile_data.get("fullName") or f"{profile_data.get('firstName', '')} {profile_data.get('lastName', '')}".strip()
+    if full_name:
+        parts.append(f"Name: {full_name}")
+    if profile_data.get("currentTitle") or profile_data.get("currentCompany"):
+        parts.append(f"Current Role: {profile_data.get('currentTitle', '')} at {profile_data.get('currentCompany', '')}".strip())
+    if profile_data.get("location"):
+        parts.append(f"Location: {profile_data.get('location')}")
+    if profile_data.get("skills"):
+        skills = profile_data.get("skills")
+        skills_str = ", ".join(skills) if isinstance(skills, list) else str(skills)
+        parts.append(f"Skills: {skills_str}")
+    if profile_data.get("summary") or profile_data.get("bio"):
+        parts.append(f"Summary: {profile_data.get('summary') or profile_data.get('bio')}")
+    if profile_data.get("github"):
+        parts.append(f"GitHub: {profile_data.get('github')}")
+    if profile_data.get("linkedin"):
+        parts.append(f"LinkedIn: {profile_data.get('linkedin')}")
+
+    return "\n".join(parts) if parts else "No profile metadata provided."
+
+
+def _synthesize_profile_fallback(
+    question: str,
+    profile_data: dict[str, Any],
+    resume_text: str = "",
+    company: str = "",
+    role: str = ""
+) -> str:
+    """Fall back gracefully when LLM endpoint is unreachable, synthesizing a specific answer matching the question keywords."""
+    from app.services.answer_engine import generate_answer
+    engine_ans = generate_answer(question, company=company, role_title=role, profile=profile_data)
+    if engine_ans:
+        return engine_ans
+
+    q_lower = question.lower()
+    github = profile_data.get("github") or "https://github.com"
+    portfolio = profile_data.get("portfolio") or profile_data.get("linkedin") or ""
+    current_title = profile_data.get("currentTitle") or "Software Engineer"
+    current_company = profile_data.get("currentCompany") or ""
+    company_context = f" at {current_company}" if current_company else ""
+
+    if "github" in q_lower:
+        return github
+    if "linkedin" in q_lower:
+        return profile_data.get("linkedin") or ""
+    if "portfolio" in q_lower or "website" in q_lower:
+        return portfolio
+    if "relocat" in q_lower or "in-office" in q_lower or "hybrid" in q_lower:
+        return "Yes, I am open to hybrid or in-office work schedules and relocating if required for the role."
+
+    # Question specific to LLM / ML / Agentic applications
+    if any(k in q_lower for k in ["llm", "ml", "agent", "ai", "machine learning", "model"]):
+        return (
+            f"At {current_company or 'my current role'}, I built agentic AI workflows, LLM orchestration layers, and RAG pipelines "
+            "using Python and local model runtimes. I've designed autonomous developer tooling and agent systems that execute multi-step tasks."
+        )
+
+    # Question specific to Developer products / APIs / SDKs / CLIs
+    if any(k in q_lower for k in ["developer", "api", "sdk", "cli", "sandbox", "tool"]):
+        return (
+            f"As a {current_title}{company_context}, I designed developer APIs, internal CLI tools, and web microservices. "
+            "My focus included building intuitive developer abstractions, SDK wrappers, and automated testing sandbox environments."
+        )
+
+    # Question specific to experience / background / intro
+    if any(k in q_lower for k in ["why", "about yourself", "tell me", "motivation", "interest"]):
+        return (
+            f"I am a {current_title}{company_context} with a focus on building resilient software platforms and developer tools. "
+            f"I am interested in {company or 'this opportunity'} because of the opportunity to solve complex engineering challenges."
+        )
+
+    return (
+        f"In my work as a {current_title}{company_context}, I've focused on engineering scalable backend services and developer tooling. "
+        "I approach problems by breaking down technical requirements, building reliable abstractions, and shipping clean, tested code."
+    )
+
+
+async def generate_theory_answer(
+    question: str,
+    *,
+    company: str = "",
+    role: str = "",
+    job_description: str = "",
+    profile: dict[str, Any] | None = None,
+    resume_text: str = "",
+    settings: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """
+    Generates a professional, concise candidate answer to a custom open-ended application question.
+    Uses candidate's resume/profile details and Ollama Qwen model, following user's precise prompt template.
+    """
+    if not question or not question.strip():
+        return {"success": False, "error": "Question is empty"}
+
+    profile_data = profile or {}
+    settings_data = settings or {}
+    client = create_llm_client(settings_data)
+
+    effective_resume = resume_text or profile_data.get("resumeText") or profile_data.get("resume") or ""
+    formatted_profile = _format_profile_text(profile_data)
+
+    if not client.enabled:
+        fallback_ans = _synthesize_profile_fallback(
+            question,
+            profile_data,
+            resume_text=effective_resume,
+            company=company,
+            role=role
+        )
+        return {"success": True, "answer": fallback_ans, "question": question, "fallback": True}
+
+    # Construct user prompt adhering strictly to user template
+    user_prompt = (
+        f"You answer job application questions using the candidate's resume and profile.\n\n"
+        f"Your goal is to write the answer the candidate would naturally type themselves.\n\n"
+        f"## Resume\n\n"
+        f"{effective_resume[:6000] if effective_resume else 'No resume text provided.'}\n\n"
+        f"## Profile\n\n"
+        f"{formatted_profile}\n\n"
+        f"## Question\n\n"
+        f"{question.strip()}\n"
+    )
+
+    response = await client.chat(
+        messages=[{"role": "user", "content": user_prompt}],
+        system=SYSTEM_INSTRUCTION,
+    )
+
+    if not response.get("success"):
+        fallback_ans = _synthesize_profile_fallback(
+            question,
+            profile_data,
+            resume_text=effective_resume,
+            company=company,
+            role=role
+        )
+        return {"success": True, "answer": fallback_ans, "question": question, "fallback": True}
+
+    raw_text = str(response.get("data", "")).strip()
+
+    # If LLM returns INSUFFICIENT_EVIDENCE fallback gracefully
+    if "INSUFFICIENT_EVIDENCE" in raw_text:
+        fallback_ans = _synthesize_profile_fallback(
+            question,
+            profile_data,
+            resume_text=effective_resume,
+            company=company,
+            role=role
+        )
+        return {"success": True, "answer": fallback_ans, "question": question, "insufficientEvidence": True}
+
+    # Strip surrounding quotes if present
+    if (raw_text.startswith('"') and raw_text.ends_with('"')) or (raw_text.startswith("'") and raw_text.ends_with("'")):
+        raw_text = raw_text[1:-1].strip()
+
+    return {
+        "success": True,
+        "answer": raw_text,
+        "question": question,
+    }

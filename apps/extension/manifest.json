@@ -63,7 +63,7 @@
   ],
   "web_accessible_resources": [
     {
-      "resources": ["careeros-config.json"],
+      "resources": ["careeros-config.json", "icon.png", "icon-16.png", "icon-48.png", "icon-128.png", "logo.png"],
       "matches": ["<all_urls>"]
     }
   ]

@@ -5,7 +5,7 @@ import "./globals.css";
 import "./career-system.css";
 import "./cos-design-system.css";
 import "./cos-refine.css";
-import "./cos-spectrum.css";
+import "./product-polish.css";
 
 const inter = Inter({
   subsets: ["latin"],

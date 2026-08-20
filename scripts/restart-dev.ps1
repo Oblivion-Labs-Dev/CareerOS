@@ -212,14 +212,25 @@ if ($Background) {
     $errFile = $logFile + '.err'
     $proc = Start-Process -FilePath 'cmd.exe' -ArgumentList '/c', 'pnpm dev' -WorkingDirectory $RepoRoot -PassThru -RedirectStandardOutput $logFile -RedirectStandardError $errFile
     Write-Host ('  PID ' + $proc.Id + ' - log: ' + $logFile)
-    Write-Step 'Waiting for API health'
-    if (Wait-HttpOk ($apiUrl + '/health')) {
-        Write-Host '  API healthy' -ForegroundColor DarkGreen
+    Write-Step 'Waiting for both Backend API & Web Frontend to be healthy...'
+    $apiOk = Wait-HttpOk ($apiUrl + '/health') -TimeoutSec 45
+    $webOk = Wait-HttpOk ($webUrl + '/applications') -TimeoutSec 45
+
+    if ($apiOk -and $webOk) {
+        Write-Host ''
+        Write-Host '=======================================================================' -ForegroundColor Green
+        Write-Host '  [OK] SYSTEM UP AND RUNNING' -ForegroundColor Green
+        Write-Host ('  [✓] Backend API:   ' + $apiUrl + ' (Healthy & Connected)') -ForegroundColor DarkGreen
+        Write-Host ('  [✓] Web Frontend:  ' + $webUrl + ' (Healthy & Connected)') -ForegroundColor DarkGreen
+        Write-Host '  Both health checks passed and servers are fully operational!' -ForegroundColor Green
+        Write-Host '=======================================================================' -ForegroundColor Green
+        Write-Host ''
     } else {
-        Write-Warning ('  API not ready yet - check ' + $logFile)
+        if (-not $apiOk) { Write-Warning ('  [!] Backend API failed health check at ' + $apiUrl + '/health') }
+        if (-not $webOk) { Write-Warning ('  [!] Web Frontend failed health check at ' + $webUrl) }
     }
     Write-Step 'Ready'
-    Write-Host ('  Dashboard: ' + $webUrl + '/application-assistant')
+    Write-Host ('  Dashboard: ' + $webUrl + '/applications')
     Write-Host ('  API docs:  ' + $apiUrl + '/docs')
 } else {
     Write-Host ''

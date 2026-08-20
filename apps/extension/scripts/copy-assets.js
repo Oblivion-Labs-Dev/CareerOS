@@ -13,7 +13,8 @@ const filesToCopy = [
   { src: 'icon-16.png', dest: 'dist/icon-16.png' },
   { src: 'icon-48.png', dest: 'dist/icon-48.png' },
   { src: 'icon-128.png', dest: 'dist/icon-128.png' },
-  { src: 'icon.png', dest: 'dist/icon.png' }
+  { src: 'icon.png', dest: 'dist/icon.png' },
+  { src: 'logo.png', dest: 'dist/logo.png' }
 ];
 
 const apiBase = process.env.CAREER_OS_API_URL || 'http://localhost:8000';

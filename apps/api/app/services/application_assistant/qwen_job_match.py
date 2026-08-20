@@ -272,7 +272,7 @@ async def score_jobs_batch_with_qwen(
     profile: dict[str, Any] | None = None,
     documents: dict[str, Any] | None = None,
     accomplishments: list[dict[str, Any]] | None = None,
-    concurrency: int = 2,
+    concurrency: int = 5,
 ) -> list[dict[str, Any]]:
     """Score many jobs with Qwen (fallback to heuristic per job). Updates relevancy fields."""
     loaded_profile, loaded_documents, loaded_accomplishments = load_match_context(db)
@@ -324,3 +324,18 @@ async def score_jobs_batch_with_qwen(
             )
 
     return list(await asyncio.gather(*(score_one(job) for job in jobs)))
+
+
+def evaluate_job_match(
+    job: dict[str, Any] | None = None,
+    profile: dict[str, Any] | None = None,
+    job_description: str | None = None,
+    **kwargs: Any,
+) -> dict[str, Any]:
+    """Evaluate job match score deterministically using heuristic scoring fallback."""
+    job_dict = job or {"title": "Position", "description": job_description or ""}
+    prof_dict = profile or {}
+    return _heuristic_match(job_dict, prof_dict, documents={}, accomplishments=[])
+
+
+

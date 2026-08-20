@@ -81,11 +81,12 @@ function sleep(ms: number): Promise<void> {
 }
 
 /** Run a function in the page's main JS world so clicks are trusted (required by React Select / Greenhouse). */
-function runInMainWorld<T>(fn: (...args: unknown[]) => T, ...args: unknown[]): T | undefined {
-  const marker = `__careeros_main_${Date.now()}_${Math.random().toString(36).slice(2)}`;
-  const payload = JSON.stringify(args);
-  const script = document.createElement('script');
-  script.textContent = `(function(){
+function runInMainWorld<T>(fn: (...args: any[]) => T, ...args: any[]): T | undefined {
+  try {
+    const marker = `__careeros_main_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+    const payload = JSON.stringify(args);
+    const script = document.createElement('script');
+    script.textContent = `(function(){
     try {
       var fn = ${fn.toString()};
       var result = fn.apply(null, ${payload});
@@ -94,13 +95,12 @@ function runInMainWorld<T>(fn: (...args: unknown[]) => T, ...args: unknown[]): T
       document.documentElement.setAttribute(${JSON.stringify(marker)}, JSON.stringify({ __error: String(e) }));
     }
   })();`;
-  (document.documentElement || document.head).appendChild(script);
-  script.remove();
-  const raw = document.documentElement.getAttribute(marker);
-  document.documentElement.removeAttribute(marker);
-  if (!raw) return undefined;
-  try {
-    const parsed = JSON.parse(raw) as { __error?: string } & T;
+    (document.documentElement || document.head).appendChild(script);
+    script.remove();
+    const raw = document.documentElement.getAttribute(marker);
+    document.documentElement.removeAttribute(marker);
+    if (!raw) return undefined;
+    const parsed = JSON.parse(raw);
     if (parsed && typeof parsed === 'object' && '__error' in parsed) return undefined;
     return parsed as T;
   } catch {
@@ -321,30 +321,6 @@ function normalizePhoneForInput(value: string): string {
 export function fillTextOrTextArea(element: HTMLInputElement | HTMLTextAreaElement, value: string): boolean {
   if (!value.trim()) return false;
 
-  const isLocationCombobox =
-    element instanceof HTMLInputElement &&
-    (element.getAttribute('role') === 'combobox' ||
-      element.getAttribute('aria-autocomplete') === 'list' ||
-      /start typing/i.test(element.getAttribute('placeholder') || '') ||
-      /location|city|address|residence/i.test(
-        `${element.getAttribute('aria-label') || ''} ${element.id} ${element.name}`
-      ));
-
-  const usesAutocomplete =
-    element instanceof HTMLInputElement &&
-    (element.getAttribute('role') === 'combobox' ||
-      element.getAttribute('aria-autocomplete') === 'list' ||
-      element.getAttribute('data-input') === 'select-search-input' ||
-      element.getAttribute('aria-haspopup') === 'listbox' ||
-      element.classList.contains('select__input') ||
-      Boolean(element.closest('.select-shell')) ||
-      /start typing/i.test(element.getAttribute('placeholder') || ''));
-
-  // Searchable dropdowns must pick a list option — typing alone is not valid.
-  if (isLocationCombobox || usesAutocomplete) {
-    return false;
-  }
-
   const fillValue =
     element instanceof HTMLInputElement &&
     (element.type === 'tel' || /phone|tel|mobile/i.test(element.autocomplete))
@@ -355,7 +331,7 @@ export function fillTextOrTextArea(element: HTMLInputElement | HTMLTextAreaEleme
 
   focusWithoutScroll(element);
   dispatchReactInput(element, fillValue);
-  return true;
+  return Boolean(element.value?.trim());
 }
 
 function closeOpenListboxes(): void {
@@ -779,21 +755,64 @@ export function fillCustomRadios(value: string, doc: Document = document): boole
   return false;
 }
 
-export function fillRadio(element: HTMLInputElement, value: string, doc: Document) {
+export function fillRadio(element: HTMLInputElement, value: string, doc: Document = document): boolean {
   const name = element.name;
-  if (!name) return;
+  let radios: HTMLInputElement[] = [];
 
-  const radios = Array.from(doc.querySelectorAll(`input[type="radio"][name="${name}"]`)) as HTMLInputElement[];
-
-  for (const radio of radios) {
-    const label = getLabelText(radio, doc) || radio.value;
-    if (matchesRadioOption(label, value) || matchesRadioOption(radio.value, value)) {
-      radio.checked = true;
-      radio.dispatchEvent(new Event('click', { bubbles: true }));
-      radio.dispatchEvent(new Event('change', { bubbles: true }));
-      break;
+  if (name) {
+    try {
+      radios = Array.from(doc.querySelectorAll(`input[type="radio"][name="${CSS.escape(name)}"]`)) as HTMLInputElement[];
+    } catch {
+      radios = Array.from(doc.querySelectorAll(`input[type="radio"][name="${name}"]`)) as HTMLInputElement[];
     }
   }
+
+  if (!radios.length) {
+    const parentGroup =
+      element.closest('fieldset, [role="radiogroup"], [data-automation-id*="radio"], .form-group, .radio-group') ||
+      element.parentElement;
+    if (parentGroup) {
+      radios = Array.from(parentGroup.querySelectorAll('input[type="radio"]')) as HTMLInputElement[];
+    }
+  }
+
+  if (!radios.length) {
+    radios = [element];
+  }
+
+  for (const radio of radios) {
+    const labelCandidates: string[] = [];
+    if (radio.labels?.[0]?.textContent) labelCandidates.push(radio.labels[0].textContent);
+    if (radio.nextElementSibling?.textContent) labelCandidates.push(radio.nextElementSibling.textContent);
+    if (radio.parentElement?.textContent) labelCandidates.push(radio.parentElement.textContent);
+    if (radio.value) labelCandidates.push(radio.value);
+    const fallbackLabel = getLabelText(radio, doc);
+    if (fallbackLabel) labelCandidates.push(fallbackLabel);
+
+    const matches = labelCandidates.some((candidate) => {
+      const clean = candidate.replace(/\s+/g, ' ').trim();
+      return matchesRadioOption(clean, value) || matchesRadioOption(radio.value, value);
+    });
+
+    if (matches) {
+      const checkedSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'checked')?.set;
+      if (checkedSetter) {
+        checkedSetter.call(radio, true);
+      } else {
+        radio.checked = true;
+      }
+
+      const eventTypes = ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click', 'input', 'change'];
+      eventTypes.forEach((type) => {
+        radio.dispatchEvent(
+          new MouseEvent(type, { bubbles: true, cancelable: true, view: doc.defaultView || window, button: 0 })
+        );
+      });
+      return radio.checked;
+    }
+  }
+
+  return fillCustomRadios(value, doc);
 }
 
 /**

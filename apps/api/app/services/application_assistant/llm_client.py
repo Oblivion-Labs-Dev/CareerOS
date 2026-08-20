@@ -348,3 +348,15 @@ def create_vision_client(settings: dict[str, Any]) -> LLMClient:
         max_retries=llm_config.get("maxRetries", 1),
         confidence_threshold=llm_config.get("confidenceThreshold", 0.7),
     )
+
+
+async def call_llm(system: str, prompt: str, settings: dict[str, Any] | None = None) -> str:
+    """Call LLM with system prompt and user prompt."""
+    client = create_llm_client(settings or {})
+    if not client.enabled:
+        return ""
+    res = await client.chat([{"role": "user", "content": prompt}], system=system)
+    if res.get("success"):
+        return str(res.get("content") or "")
+    return ""
+

@@ -35,6 +35,68 @@ export function isJobSearchPage(href: string): boolean {
   return isJobApplicationUrl(href) || isJobListingUrl(href) || isJobBoardUrl(href) || isSubmissionConfirmationUrl(href);
 }
 
+export function isJobApplicationPage(doc: Document = document): boolean {
+  const href = doc.location.href.toLowerCase();
+  const host = doc.location.hostname.toLowerCase();
+
+  // Explicit non-job sites where floating extension UI should NEVER mount
+  const EXCLUDED_HOSTS = [
+    'chatgpt.com',
+    'openai.com',
+    'claude.ai',
+    'anthropic.com',
+    'github.com',
+    'gitlab.com',
+    'google.com',
+    'youtube.com',
+    'twitter.com',
+    'x.com',
+    'facebook.com',
+    'instagram.com',
+    'reddit.com',
+    'stackoverflow.com',
+    'amazon.com',
+    'netflix.com',
+    'wikipedia.org',
+    'localhost',
+    '127.0.0.1'
+  ];
+
+  if (EXCLUDED_HOSTS.some((h) => host === h || host.endsWith('.' + h))) {
+    return false;
+  }
+
+  // 1. ATS / Known Job Sites
+  if (isJobApplicationUrl(href) || isJobListingUrl(href) || isJobBoardUrl(href)) {
+    return true;
+  }
+
+  // 2. URL containing job application paths
+  if (/\/(careers|jobs|job|apply|open-roles|positions|requisition|candidate)\b/i.test(href)) {
+    return true;
+  }
+
+  // 3. Query string containing job application markers (gh_jid, jobid, posting)
+  if (/(?:[?&](?:gh_jid|jobid|jobId|posting|requisitionId)=)/i.test(href)) {
+    return true;
+  }
+
+  // 4. Custom corporate job forms: Require specific job form inputs/attributes
+  const hasAtsElements = Boolean(
+    doc.querySelector(
+      'input[type="file"][accept*="pdf"], [data-automation-id], [data-qa*="job"], [data-ashby-input], form[action*="apply"], #application_form, .job-application-form, #job-application'
+    )
+  );
+
+  const pageText = doc.body?.innerText?.slice(0, 15000).toLowerCase() || '';
+  const hasJobFormKeywords =
+    /resume|upload cv|cover letter|work authorization|sponsorship|eeo|equal opportunity|veteran status|disability status|linkedin profile|github link/i.test(
+      pageText
+    );
+
+  return hasAtsElements && hasJobFormKeywords;
+}
+
 export function isSubmissionConfirmationUrl(href: string): boolean {
   if (CONFIRMATION_URL_PATTERN.test(href)) return true;
   if (/greenhouse\.io\/.*\/confirmation/i.test(href)) return true;

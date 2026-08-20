@@ -30,6 +30,8 @@ ENTITY_JOB_MATCH = "aa_job_match"
 ENTITY_APPLICATION_DRAFT = "aa_application_draft"
 ENTITY_ANSWER_LIBRARY = "aa_answer_library"
 ENTITY_BROWSER_RUN = "aa_browser_run"
+ENTITY_AUTOPILOT_RUN = "aa_autopilot_run"
+ENTITY_AUTOPILOT_JOB = "aa_autopilot_job"
 KV_SETTINGS = "application_assistant_settings"
 
 
@@ -489,3 +491,83 @@ def get_active_browser_run_for_app(db: Session, app_id: str) -> dict[str, Any] |
         if run.get("applicationId") == app_id and run.get("status") in ("pending", "running"):
             return run
     return None
+
+
+# ── Autopilot Runs & Job Applications ─────────────────────────────────────────
+
+def save_autopilot_run(db: Session, payload: dict[str, Any]) -> dict[str, Any]:
+    if "id" not in payload:
+        payload["id"] = new_id("aprun_")
+    if "startedAt" not in payload:
+        payload["startedAt"] = now_iso()
+    payload["lastHeartbeatAt"] = now_iso()
+    return upsert_entity(db, ENTITY_AUTOPILOT_RUN, payload)
+
+
+def get_autopilot_run(db: Session, run_id: str) -> dict[str, Any] | None:
+    return get_entity(db, ENTITY_AUTOPILOT_RUN, run_id)
+
+
+def get_active_autopilot_run(db: Session) -> dict[str, Any] | None:
+    runs = list_entities(db, ENTITY_AUTOPILOT_RUN)
+    active = [r for r in runs if r.get("status") in ("RUNNING", "PAUSED")]
+    if not active:
+        return None
+    active.sort(key=lambda r: str(r.get("startedAt") or ""), reverse=True)
+    return active[0]
+
+
+def save_autopilot_job(db: Session, payload: dict[str, Any]) -> dict[str, Any]:
+    if "id" not in payload:
+        payload["id"] = new_id("apjob_")
+    if "discoveredAt" not in payload:
+        payload["discoveredAt"] = now_iso()
+    return upsert_entity(db, ENTITY_AUTOPILOT_JOB, payload)
+
+
+def get_autopilot_job(db: Session, job_app_id: str) -> dict[str, Any] | None:
+    return get_entity(db, ENTITY_AUTOPILOT_JOB, job_app_id)
+
+
+def list_autopilot_jobs(db: Session, status: str | None = None) -> list[dict[str, Any]]:
+    jobs = list_entities(db, ENTITY_AUTOPILOT_JOB)
+    if status:
+        jobs = [j for j in jobs if j.get("status") == status]
+    jobs.sort(key=lambda j: str(j.get("queuedAt") or j.get("discoveredAt") or ""), reverse=True)
+    return jobs
+
+
+def claim_job_lock(db: Session, job_app_id: str, worker_id: str, lease_seconds: int = 300) -> bool:
+    job = get_autopilot_job(db, job_app_id)
+    if not job:
+        return False
+    now = now_iso()
+    locked_by = job.get("lockedBy")
+    lock_expires = job.get("lockExpiresAt")
+
+    # Check if currently locked by someone else and lock hasn't expired
+    if locked_by and locked_by != worker_id and lock_expires and lock_expires > now:
+        return False
+
+    from datetime import datetime, timedelta, timezone
+    expires_at = (datetime.now(timezone.utc) + timedelta(seconds=lease_seconds)).isoformat()
+
+    job["lockedBy"] = worker_id
+    job["lockedAt"] = now
+    job["lockExpiresAt"] = expires_at
+    upsert_entity(db, ENTITY_AUTOPILOT_JOB, job)
+    return True
+
+
+def release_job_lock(db: Session, job_app_id: str, worker_id: str) -> bool:
+    job = get_autopilot_job(db, job_app_id)
+    if not job:
+        return False
+    if job.get("lockedBy") == worker_id:
+        job["lockedBy"] = None
+        job["lockedAt"] = None
+        job["lockExpiresAt"] = None
+        upsert_entity(db, ENTITY_AUTOPILOT_JOB, job)
+        return True
+    return False
+

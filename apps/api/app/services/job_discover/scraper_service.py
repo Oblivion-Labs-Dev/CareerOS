@@ -35,39 +35,29 @@ SLUGS_FILE = DATA_DIR / "company_slugs.txt"
 # the broader source of truth used for classification/Night Shift. Changing one
 # does NOT change the other; reconcile deliberately, never mechanically.
 ROLE_FILTERS = {
-    "pm": [
-        r"\bproduct\s+manager\b", r"\btechnical\s+product\s+manager\b",
-        r"\bassociate\s+product\s+manager\b", r"\bsenior\s+product\s+manager\b",
-        r"\bstaff\s+product\s+manager\b", r"\bgroup\s+product\s+manager\b",
-        r"\bprincipal\s+product\s+manager\b", r"\bdirector.*product\s+manage",
-        r"\bvp.*product\b", r"\bhead\s+of\s+product\b",
-        r"\bproduct\s+lead\b", r"\bproduct\s+owner\b",
-    ],
-    "product": [
-        r"^product\b", r"\bproduct$", r"\bproduct\s+analyst\b",
-        r"\bproduct\s+strategy\b", r"\bproduct\s+ops\b",
-        r"\bproduct\s+marketing\b",
-    ],
-    "tpm": [
-        r"\btechnical\s+program\s+manager\b", r"\bprogram\s+manager\b",
-        r"\btpm\b", r"\bagile\s+program\s+manager\b",
-    ],
-    "ux": [
-        r"\bux\s+designer\b", r"\bux\s+design\b", r"\bux\s+researcher\b",
-        r"\bux\s+research\b", r"\buser\s+experience\b",
-        r"\bproduct\s+designer\b", r"\bux/ui\b", r"\bui/ux\b",
-    ],
     "swe": [
-        r"\bsoftware\s+development\s+engineer\b", r"\bsde\b", r"\bswe\b",
-        r"\bsoftware\s+engineer\b", r"\bfrontend\s+engineer\b",
-        r"\bbackend\s+engineer\b", r"\bfull[\s\-]?stack\s+engineer\b",
+        r"\bsenior\s+software\s+engineer\b",
+        r"\bbackend\s+engineer\b",
         r"\bplatform\s+engineer\b",
+        r"\bsoftware\s+development\s+engineer\b",
+        r"\bsoftware\s+engineer\b",
+        r"\bsde\b",
+        r"\bswe\b",
+        r"\bbackend\s+developer\b",
+        r"\bplatform\s+developer\b",
+        r"\bfull[\s\-]?stack\s+engineer\b",
+        r"\binfrastructure\s+engineer\b",
+        r"\bstaff\s+software\s+engineer\b",
+        r"\bprincipal\s+software\s+engineer\b",
+        r"\blead\s+software\s+engineer\b",
+        r"\bsite\s+reliability\s+engineer\b",
+        r"\bsre\b",
     ],
-    "presales": [
-        r"\bpre[\-\s]?sales\b", r"\bsolutions\s+engineer\b",
-        r"\bsolutions\s+consultant\b", r"\bsales\s+engineer\b",
-        r"\bproduct\s+consultant\b", r"\bsolutions\s+architect\b",
-    ],
+    "pm": [],
+    "product": [],
+    "tpm": [],
+    "ux": [],
+    "presales": [],
 }
 
 HEADERS = {

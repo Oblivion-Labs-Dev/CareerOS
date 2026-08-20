@@ -111,11 +111,20 @@ def strip_html(html: str) -> str:
 
 
 ROLE_PATTERNS = [
-    r"\bproduct\s+manager\b", r"\btechnical\s+product\s+manager\b",
-    r"\bassociate\s+product\s+manager\b", r"\bprogram\s+manager\b",
-    r"\btpm\b", r"\bux\s+designer\b", r"\bux\s+researcher\b",
-    r"\bproduct\s+designer\b", r"\bsoftware\s+engineer\b",
-    r"\bsolutions\s+engineer\b", r"\bsolutions\s+architect\b",
+    r"\bsenior\s+software\s+engineer\b",
+    r"\bbackend\s+engineer\b",
+    r"\bplatform\s+engineer\b",
+    r"\bsoftware\s+development\s+engineer\b",
+    r"\bsoftware\s+engineer\b",
+    r"\bbackend\s+developer\b",
+    r"\bplatform\s+developer\b",
+    r"\bfull[\s\-]?stack\s+engineer\b",
+    r"\binfrastructure\s+engineer\b",
+    r"\bstaff\s+software\s+engineer\b",
+    r"\bprincipal\s+software\s+engineer\b",
+    r"\bsde\b",
+    r"\bswe\b",
+    r"\bsre\b",
 ]
 COMPILED_ROLES = [re.compile(p, re.IGNORECASE) for p in ROLE_PATTERNS]
 

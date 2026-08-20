@@ -22,6 +22,7 @@ export function AppTopbar() {
   const [activeIndex, setActiveIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
+  const dialogRef = useRef<HTMLElement>(null);
 
   const items = useMemo(() => [
     ...DIRECT_ACTIONS.map((item) => ({ ...item, group: "Actions" })),
@@ -61,10 +62,28 @@ export function AppTopbar() {
     setActiveIndex(0);
     const frame = window.requestAnimationFrame(() => inputRef.current?.focus());
     const previous = document.body.style.overflow;
+    const trapFocus = (event: KeyboardEvent) => {
+      if (event.key !== "Tab" || !dialogRef.current) return;
+      const focusable = [...dialogRef.current.querySelectorAll<HTMLElement>(
+        'input, button:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])',
+      )];
+      if (!focusable.length) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last?.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first?.focus();
+      }
+    };
     document.body.style.overflow = "hidden";
+    document.addEventListener("keydown", trapFocus);
     return () => {
       window.cancelAnimationFrame(frame);
       document.body.style.overflow = previous;
+      document.removeEventListener("keydown", trapFocus);
     };
   }, [open]);
 
@@ -91,7 +110,15 @@ export function AppTopbar() {
             <BackendStatusDot />
           </strong>
         </div>
-        <button ref={triggerRef} type="button" className="app-topbar-search" onClick={() => setOpen(true)}>
+        <button
+          ref={triggerRef}
+          type="button"
+          className="app-topbar-search"
+          aria-haspopup="dialog"
+          aria-expanded={open}
+          aria-controls="global-command-dialog"
+          onClick={() => setOpen(true)}
+        >
           <CareerIcon name="search" size={16} />
           <span>Search or jump to…</span>
           <kbd>⌘ K</kbd>
@@ -103,6 +130,8 @@ export function AppTopbar() {
           if (event.target === event.currentTarget) close();
         }}>
           <section
+            ref={dialogRef}
+            id="global-command-dialog"
             className="command-dialog"
             role="dialog"
             aria-modal="true"
@@ -133,12 +162,18 @@ export function AppTopbar() {
                 onChange={(event) => setQuery(event.currentTarget.value)}
                 placeholder="Search workflows and actions"
                 autoComplete="off"
+                role="combobox"
+                aria-autocomplete="list"
+                aria-expanded="true"
+                aria-controls="global-command-results"
+                aria-activedescendant={filtered[activeIndex] ? `global-command-option-${activeIndex}` : undefined}
               />
               <button type="button" aria-label="Close search" onClick={close}><CareerIcon name="close" size={18} /></button>
             </div>
-            <div className="command-results" role="listbox" aria-label="CareerOS commands">
+            <div id="global-command-results" className="command-results" role="listbox" aria-label="CareerOS commands">
               {filtered.length ? filtered.map((item, index) => (
                 <button
+                  id={`global-command-option-${index}`}
                   type="button"
                   role="option"
                   aria-selected={index === activeIndex}

@@ -1,13 +1,15 @@
 import asyncio
+import logging
 import sys
+import traceback
 from pathlib import Path
 
 if sys.platform == "win32":
     asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from app.config import settings
@@ -20,7 +22,20 @@ from app.routers.job_search import router as job_search_router
 from app.routers.repair_demo import router as repair_demo_router
 from app.routers.repair_manual import router as repair_manual_router
 from app.routers.resume_intelligence import router as resume_intelligence_router
-from app.services.error_fix_tracker import reconcile_error_history_on_startup, seed_error_fix_history_if_empty
+from app.services.error_fix_tracker import error_fix_tracker, reconcile_error_history_on_startup, seed_error_fix_history_if_empty
+
+log_dir = Path(__file__).resolve().parent.parent / "data" / "logs"
+log_dir.mkdir(parents=True, exist_ok=True)
+api_log_file = log_dir / "api.log"
+
+logger = logging.getLogger("career_os")
+logger.setLevel(logging.INFO)
+
+file_handler = logging.FileHandler(api_log_file, encoding="utf-8")
+file_handler.setFormatter(logging.Formatter("[%(asctime)s] [%(levelname)s] [%(name)s]: %(message)s"))
+logger.addHandler(file_handler)
+logging.getLogger("uvicorn.error").addHandler(file_handler)
+logging.getLogger("uvicorn.access").addHandler(file_handler)
 
 app = FastAPI(
     title="CareerOS API",
@@ -50,6 +65,17 @@ app.include_router(resume_intelligence_router)
 app.include_router(job_search_router)
 
 
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    error_msg = f"Unhandled exception on {request.method} {request.url.path}: {exc}\n{traceback.format_exc()}"
+    logger.error(error_msg)
+    error_fix_tracker.record_api_response(request.method, request.url.path, 500)
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Internal Server Error", "error": str(exc)},
+    )
+
+
 @app.get("/favicon.ico", include_in_schema=False)
 def favicon() -> Response:
     icon_path = static_dir / "api-dashboard" / "favicon.svg"
@@ -63,3 +89,5 @@ def on_startup() -> None:
     init_db()
     seed_error_fix_history_if_empty()
     reconcile_error_history_on_startup()
+    logger.info("CareerOS API started and local file logging initialized.")
+

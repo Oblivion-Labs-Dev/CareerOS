@@ -410,21 +410,29 @@ const WIDGET_STYLES = `
 
 #jobfill-panel-toggle {
   align-self: flex-end;
-  width: 36px;
-  height: 48px;
-  border: none;
-  border-radius: 12px 0 0 12px;
-  background: linear-gradient(135deg, #22d3ee 0%, #a78bfa 100%);
+  width: 44px;
+  height: 44px;
+  border-radius: 50% 0 0 50%;
+  border: 1.5px solid rgba(56, 189, 248, 0.4);
+  background:
+    radial-gradient(ellipse 90% 60% at 100% 0%, rgba(167, 139, 250, 0.25), transparent 55%),
+    rgba(6, 8, 15, 0.94);
   color: #041016;
   font-size: 11px;
   font-weight: 800;
   cursor: pointer;
-  box-shadow: -4px 4px 20px rgba(34, 211, 238, 0.25);
+  box-shadow: -4px 4px 20px rgba(0, 0, 0, 0.4), 0 0 16px rgba(34, 211, 238, 0.25);
   letter-spacing: -0.02em;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 #jobfill-panel-toggle:hover {
-  filter: brightness(1.06);
+  transform: scale(1.08) translateX(-2px);
+  border-color: rgba(56, 189, 248, 0.7);
+  box-shadow: -6px 6px 26px rgba(34, 211, 238, 0.4);
 }
 
 #jobfill-floating-actions {
@@ -842,17 +850,22 @@ export function mountFloatingWidget(): FloatingWidget {
   wrapper.id = 'jobfill-floating-wrapper';
   wrapper.dataset.uiVersion = COPILOT_UI_VERSION;
 
+  const iconUrl = typeof chrome !== 'undefined' && chrome.runtime?.getURL ? chrome.runtime.getURL('icon-48.png') : '';
+
   const toggleBtn = document.createElement('button');
   toggleBtn.id = 'jobfill-panel-toggle';
   toggleBtn.type = 'button';
   toggleBtn.title = 'ApplyPilot copilot';
-  toggleBtn.textContent = 'AP';
+  toggleBtn.innerHTML = `<img src="${iconUrl}" width="22" height="22" style="object-fit:contain;" alt="AP" />`;
 
   const copilotPanel = document.createElement('div');
   copilotPanel.id = 'jobfill-copilot-panel';
   copilotPanel.innerHTML = `
     <div class="jf-panel-header">
-      <span class="jf-brand">ApplyPilot <span class="jf-ui-version">v${COPILOT_UI_VERSION}</span></span>
+      <span class="jf-brand">
+        <img src="${iconUrl}" width="20" height="20" style="margin-right:6px; vertical-align:middle; object-fit:contain;" alt="ApplyPilot" />
+        ApplyPilot <span class="jf-ui-version">v${COPILOT_UI_VERSION}</span>
+      </span>
       <span class="jf-platform-pill" id="jf-platform-pill">ATS</span>
     </div>
     <h3 class="jf-job-role" id="jf-job-role">Job application</h3>
@@ -911,7 +924,7 @@ export function mountFloatingWidget(): FloatingWidget {
   const btn = document.createElement('button');
   btn.id = 'jobfill-floating-button';
   btn.type = 'button';
-  btn.innerHTML = `<span class="jf-mark">AP</span><span class="jf-label">Autofill</span>`;
+  btn.innerHTML = `<img src="${iconUrl}" width="18" height="18" style="margin-right:6px; object-fit:contain;" alt="AP" /><span class="jf-label">Autofill</span>`;
 
   const submitBtn = document.createElement('button');
   submitBtn.id = 'jobfill-floating-submit';
@@ -938,7 +951,6 @@ export function mountFloatingWidget(): FloatingWidget {
   toggleBtn.addEventListener('click', () => {
     copilotPanel.classList.toggle('is-open');
   });
-  openPanel();
 
   const setJobContext = (ctx: CopilotJobContext) => {
     const roleEl = document.getElementById('jf-job-role');
@@ -1088,12 +1100,12 @@ export function mountFloatingWidget(): FloatingWidget {
   });
 
   let dismissHandler: (() => void) | null = null;
-  dismiss.addEventListener('click', (e) => {
-    e.stopPropagation();
-    if (dismissHandler) {
-      dismissHandler();
+  dismiss.addEventListener('click', () => {
+    if (copilotPanel.classList.contains('is-open')) {
+      copilotPanel.classList.remove('is-open');
       return;
     }
+    wrapper.dataset.dismissed = 'true';
     wrapper.remove();
   });
 

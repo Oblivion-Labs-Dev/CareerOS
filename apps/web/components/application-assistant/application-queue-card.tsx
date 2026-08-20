@@ -268,6 +268,7 @@ export type ApplicationQueueCardProps = {
   onOpenInBrowser: () => void;
   onToggleSubmitted: (submitted: boolean) => void;
   onArchive: () => void;
+  onUnarchive?: () => void;
   onCloseBrowser?: () => void;
   prepReportSlot?: React.ReactNode;
   gateSlot?: React.ReactNode;
@@ -300,6 +301,7 @@ export function ApplicationQueueCard({
   onOpenInBrowser,
   onToggleSubmitted,
   onArchive,
+  onUnarchive,
   onCloseBrowser,
   prepReportSlot,
   gateSlot,
@@ -340,6 +342,7 @@ export function ApplicationQueueCard({
   const actionAlert = getActionAlert({ app, readiness });
   const quickApplyHint = resolveQuickApplyHint(app, readiness, { isPreparing: isPrepBusy });
   const isSubmitted = app.status === "submitted_manually";
+  const isArchived = app.status === "archived";
 
   const primary = resolvePrimaryAction({
     readiness,
@@ -442,6 +445,9 @@ export function ApplicationQueueCard({
               {isSubmitted && (
                 <p className="aac-quick-apply aac-quick-apply--none">Submitted</p>
               )}
+              {isArchived && (
+                <p className="aac-quick-apply aac-quick-apply--none">Archived</p>
+              )}
             </div>
           </div>
           <div className="aac-menu-wrap" onClick={stopBubble}>
@@ -460,17 +466,17 @@ export function ApplicationQueueCard({
             </button>
             {menuOpen && (
               <div className="aac-menu">
-                {!isSubmitted && !isBrowserOpen && readiness.canQuickApply && (
+                {!isSubmitted && !isArchived && !isBrowserOpen && readiness.canQuickApply && (
                   <button type="button" onClick={() => { setMenuOpen(false); onOpenInBrowser(); }} disabled={isOpening || isAnalyzing}>
                     Quick apply
                   </button>
                 )}
-                {!isSubmitted && !isBrowserOpen && !readiness.canQuickApply && app.lastPrepFailed && (
+                {!isSubmitted && !isArchived && !isBrowserOpen && !readiness.canQuickApply && app.lastPrepFailed && (
                   <button type="button" onClick={() => { setMenuOpen(false); onResume(); }} disabled={isOpening || isAnalyzing || isPreparing || isActivePrep}>
                     Retry prep
                   </button>
                 )}
-                {!isSubmitted && isBrowserOpen && readiness.canQuickApply && (
+                {!isSubmitted && !isArchived && isBrowserOpen && readiness.canQuickApply && (
                   <button type="button" onClick={() => { setMenuOpen(false); onOpenInBrowser(); }}>
                     Quick apply
                   </button>
@@ -488,7 +494,7 @@ export function ApplicationQueueCard({
                 <button type="button" onClick={() => { setMenuOpen(false); setDrawerOpen(true); }}>
                   View details
                 </button>
-                {app.status !== "submitted_manually" && app.status !== "archived" && (
+                {!isArchived && app.status !== "submitted_manually" && (
                   <button type="button" onClick={() => { setMenuOpen(false); onToggleSubmitted(true); }}>
                     Mark submitted
                   </button>
@@ -498,9 +504,15 @@ export function ApplicationQueueCard({
                     Unmark submitted
                   </button>
                 )}
-                <button type="button" onClick={() => { setMenuOpen(false); onArchive(); }}>
-                  Archive
-                </button>
+                {!isArchived ? (
+                  <button type="button" onClick={() => { setMenuOpen(false); onArchive(); }}>
+                    Archive
+                  </button>
+                ) : (
+                  <button type="button" onClick={() => { setMenuOpen(false); onUnarchive?.(); }}>
+                    Unarchive
+                  </button>
+                )}
               </div>
             )}
           </div>
@@ -561,10 +573,32 @@ export function ApplicationQueueCard({
 
         <footer className="aac-foot" onClick={stopBubble}>
           {updated && <span className="aac-updated">Updated {updated}</span>}
-          {primary && (
-            <button type="button" className="aac-cta" onClick={handlePrimary} disabled={primary.disabled}>
-              {primary.label} →
-            </button>
+          {profileBlocked && pendingCount > 0 ? (
+            <div className="aac-dual-actions" style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+              <button
+                type="button"
+                className="aac-cta aac-cta--secondary"
+                onClick={(e) => { e.stopPropagation(); onAnswerQuestions(); }}
+                disabled={isWizardLoading || isAnalyzing}
+                style={{ background: "rgba(255, 255, 255, 0.08)", color: "var(--color-text, #fff)", border: "1px solid rgba(255, 255, 255, 0.15)" }}
+              >
+                {isWizardLoading ? "Loading…" : `Answer ${pendingCount} question${pendingCount === 1 ? "" : "s"}`}
+              </button>
+              <button
+                type="button"
+                className="aac-cta"
+                onClick={(e) => { e.stopPropagation(); onOpenInBrowser(); }}
+                disabled={isOpening || isAnalyzing}
+              >
+                Apply →
+              </button>
+            </div>
+          ) : (
+            primary && (
+              <button type="button" className="aac-cta" onClick={handlePrimary} disabled={primary.disabled}>
+                {primary.label} →
+              </button>
+            )
           )}
         </footer>
       </article>

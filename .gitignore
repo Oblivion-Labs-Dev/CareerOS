@@ -28,3 +28,9 @@ test-results/
 apps/api/data/application_assistant/browser_profile/
 apps/api/data/application_assistant/traces/
 apps/api/data/application_assistant/screenshots/
+.repair-worktrees/
+logs/
+*.patch
+*.index
+apps/extension/e2e-reports/
+apps/api/test_start.py

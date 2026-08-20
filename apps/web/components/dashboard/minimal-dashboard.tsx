@@ -6,7 +6,6 @@ import { ApplicationPipelineSection, type TrackerSnapshot } from "@/components/d
 import { CareerWorkspaceStrip } from "@/components/career-workspace-strip";
 import { TodayActions } from "@/components/dashboard/today-actions";
 import { PageTitleWithStatus } from "@/components/page-title-with-status";
-import { ThemeToggle } from "@/components/ui/theme-toggle";
 import { useCareerWorkspace } from "@/hooks/use-career-workspace";
 import { getClientApiBaseUrl } from "@/lib/api";
 import { discoverHref } from "@/lib/career-workspace";
@@ -25,18 +24,17 @@ type DiscoverJob = {
   freshness?: { label: string };
 };
 
-const CARD_TONES = [
-  styles.matchCardTone0,
-  styles.matchCardTone1,
-  styles.matchCardTone2,
-  styles.matchCardTone3,
-  styles.matchCardTone4,
-];
 
 type DiscoverPayload = { jobs?: DiscoverJob[] };
 
 function companyInitial(name: string) {
   return (name.trim()[0] || "?").toUpperCase();
+}
+
+function scoreTone(score: number) {
+  if (score >= 75) return styles.matchRingStrong;
+  if (score >= 55) return styles.matchRingModerate;
+  return styles.matchRingLow;
 }
 
 export function MinimalDashboard() {
@@ -144,7 +142,6 @@ export function MinimalDashboard() {
             Today&apos;s priorities, top matches, and your application pipeline.
           </p>
         </div>
-        <ThemeToggle />
       </header>
 
       <CareerWorkspaceStrip active="dashboard" />
@@ -170,14 +167,14 @@ export function MinimalDashboard() {
           <p className={styles.muted}>Loading matches…</p>
         ) : topJobs.length ? (
           <div className={styles.matchGrid}>
-            {topJobs.slice(0, 5).map((job, index) => (
-              <article key={job.id} className={`${styles.matchCard} ${CARD_TONES[index % CARD_TONES.length]}`}>
+            {topJobs.slice(0, 5).map((job) => (
+              <article key={job.id} className={styles.matchCard}>
                 <div className={styles.matchMeta}>
                   <span>
                     {job.location || "United States"} · {job.freshness?.label || "Recently posted"}
                   </span>
                   <span
-                    className={styles.matchRing}
+                    className={`${styles.matchRing} ${scoreTone(job.relevancyScore || 0)}`}
                     title="Relevancy uses your profile, uploaded resume, and accomplishments when available"
                   >
                     {job.relevancyScore || 0}%

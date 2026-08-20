@@ -139,19 +139,34 @@ def _job_key(job: dict[str, Any]) -> str:
 
 
 def _normalize_scraped_job(raw: dict[str, Any]) -> dict[str, Any]:
+    from app.services.job_discover.job_verification_engine import verify_and_normalize_job
+    verified = verify_and_normalize_job(raw, discovery_source=str(raw.get("source") or "JobPilot Scraper"))
     job = {
-        "id": _job_key(raw),
-        "externalId": str(raw.get("greenhouse_id") or ""),
-        "companyName": str(raw.get("company") or "").strip(),
-        "title": str(raw.get("title") or "").strip(),
-        "location": str(raw.get("location") or "").strip(),
+        "id": verified.get("job_id") or _job_key(raw),
+        "externalId": str(raw.get("greenhouse_id") or raw.get("externalId") or verified.get("requisition_id") or ""),
+        "companyName": verified.get("company") or str(raw.get("company") or "").strip(),
+        "title": verified.get("title") or str(raw.get("title") or "").strip(),
+        "normalizedTitle": verified.get("normalized_title"),
+        "seniority": verified.get("seniority"),
+        "location": verified.get("location_raw") or str(raw.get("location") or "").strip(),
+        "remoteStatus": verified.get("remote_status"),
         "department": str(raw.get("department") or "").strip(),
-        "url": str(raw.get("url") or "").strip(),
-        "description": str(raw.get("description") or "").strip(),
+        "url": verified.get("canonical_job_url") or str(raw.get("url") or "").strip(),
+        "applyUrl": verified.get("apply_url"),
+        "description": verified.get("description") or str(raw.get("description") or "").strip(),
+        "descriptionHash": verified.get("description_hash"),
         "updatedAt": str(raw.get("updated_at") or raw.get("updatedAt") or ""),
-        "employmentType": str(raw.get("employment_type") or raw.get("employmentType") or ""),
+        "postingDate": verified.get("posting_date"),
+        "postingDateConfidence": verified.get("posting_date_confidence"),
+        "firstSeenDate": verified.get("first_seen_date"),
+        "lastSeenDate": verified.get("last_seen_date"),
+        "canonicalSource": verified.get("canonical_source"),
+        "canonicalSourceTier": verified.get("canonical_source_tier"),
+        "discoverySources": verified.get("discovery_sources"),
+        "verificationStatus": verified.get("verification_status"),
+        "employmentType": verified.get("employment_type") or str(raw.get("employment_type") or "").strip(),
         "salaryRange": str(raw.get("salary_range") or raw.get("salaryRange") or ""),
-        "scrapedAt": _utc_now(),
+        "scrapedAt": verified.get("last_seen_date") or _utc_now(),
         "relevancyScore": 0,
         "keywordsMatched": [],
         "color": "gray",
@@ -403,8 +418,27 @@ def get_snapshot(db: Session) -> dict[str, Any]:
         "scrapedAt": snapshot.get("scrapedAt") or snapshot.get("partialScrapedAt"),
         "totalJobs": len(jobs),
         "companies": len({job.get("companyName") for job in jobs if job.get("companyName")}),
+        "dismissedIds": snapshot.get("dismissedIds") or [],
         "jobs": jobs,
     }
+
+
+def dismiss_job(db: Session, job_id: str) -> dict[str, Any]:
+    snapshot = _load_snapshot(db)
+    dismissed = list(snapshot.get("dismissedIds") or [])
+    if job_id not in dismissed:
+        dismissed.append(job_id)
+        snapshot["dismissedIds"] = dismissed
+        _persist_snapshot(db, snapshot)
+    return {"success": True, "dismissedId": job_id}
+
+
+def undismiss_job(db: Session, job_id: str) -> dict[str, Any]:
+    snapshot = _load_snapshot(db)
+    dismissed = [jid for jid in (snapshot.get("dismissedIds") or []) if jid != job_id]
+    snapshot["dismissedIds"] = dismissed
+    _persist_snapshot(db, snapshot)
+    return {"success": True, "undismissedId": job_id}
 
 
 async def start_tier1_rescore_background(*, force: bool = False) -> dict[str, Any]:
@@ -736,6 +770,15 @@ def rescore_all(db: Session) -> dict[str, Any]:
     return {"success": False, "error": "Use rescore_jobs_async with jobIds", "rescored": 0}
 
 
+def _matches_location(query: str, job_location: str) -> bool:
+    if not query or not query.strip():
+        return True
+    loc_queries = [q.strip() for q in query.replace("|", ",").split(",") if q.strip()]
+    if not loc_queries:
+        return True
+    return any(_matches_single_location(q, job_location) for q in loc_queries)
+
+
 def filter_jobs(
     jobs: list[dict[str, Any]],
     *,
@@ -766,8 +809,7 @@ def filter_jobs(
         filtered = [job for job in filtered if needle in job.get("companyName", "").lower()]
 
     if location:
-        needle = location.lower()
-        filtered = [job for job in filtered if needle in job.get("location", "").lower()]
+        filtered = [job for job in filtered if _matches_location(location, job.get("location", ""))]
 
     if role:
         role_keys = [part.strip() for part in role.split(",") if part.strip()]
@@ -784,10 +826,16 @@ def filter_jobs(
         except (TypeError, ValueError):
             hours = -1
         if hours in POSTED_AGO_HOURS:
+            def _job_freshness_hours(job: dict[str, Any]) -> float:
+                h_updated = relevancy_engine.compute_freshness(job.get("updatedAt", "")).get("hours_ago", 999)
+                h_scraped = relevancy_engine.compute_freshness(job.get("scrapedAt", "")).get("hours_ago", 999)
+                h_published = relevancy_engine.compute_freshness(job.get("firstPublished", "")).get("hours_ago", 999)
+                return min(h_updated, h_scraped, h_published)
+
             filtered = [
                 job
                 for job in filtered
-                if relevancy_engine.compute_freshness(job.get("updatedAt", "")).get("hours_ago", 999) <= hours
+                if _job_freshness_hours(job) <= hours
             ]
 
     if sponsorship and sponsorship != "all":

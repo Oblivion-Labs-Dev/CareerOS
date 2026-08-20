@@ -228,6 +228,44 @@ def upsert_profile(payload: ProfilePayload, db: Session = Depends(db_session)) -
     return {"success": True, "profile": payload.profile}
 
 
+@router.get("/api/db")
+def get_api_db(db: Session = Depends(db_session)) -> dict[str, Any]:
+    return {
+        "success": True,
+        "profile": get_kv(db, "profile"),
+        "documents": get_kv(db, "documents") or {"defaultResume": None, "defaultCoverLetter": None},
+        "applications": list_entities(db, "application"),
+        "jobs": list_entities(db, "job"),
+        "learnedAnswers": list_entities(db, "learned_answer"),
+        "sessions": list_entities(db, "autofill_session"),
+        "fieldMappings": list_entities(db, "field_mapping"),
+        "activityEvents": list_entities(db, "career_event"),
+    }
+
+
+@router.post("/api/db")
+def upsert_api_db(payload: dict[str, Any], db: Session = Depends(db_session)) -> dict[str, Any]:
+    if "profile" in payload and payload["profile"] is not None:
+        set_kv(db, "profile", payload["profile"])
+    if "documents" in payload and payload["documents"] is not None:
+        set_kv(db, "documents", payload["documents"])
+    return {"success": True}
+
+
+@router.post("/api/parse-resume")
+def parse_resume_route(db: Session = Depends(db_session)) -> dict[str, Any]:
+    docs = get_kv(db, "documents") or {}
+    resume = docs.get("defaultResume") or {}
+    text = resume.get("text") or resume.get("content") or ""
+    if text:
+        parsed = parse_resume_into_profile(text)
+        current = get_kv(db, "profile") or {}
+        merged = {**current, **parsed}
+        set_kv(db, "profile", merged)
+        return {"success": True, "parsed": True, "profile": merged}
+    return {"success": True, "parsed": False, "reason": "No resume text found"}
+
+
 @router.post("/jobs/extract")
 def extract_job(payload: JobExtractPayload) -> dict[str, Any]:
     job = {
@@ -323,6 +361,47 @@ class JobDiscoverScrapePayload(BaseModel):
     hours: int = Field(default=168, ge=1, le=720)
     roles: str = ""
     mode: str = "ats"
+
+
+class CompanyRegistryPayload(BaseModel):
+    company: str
+    source: str = "auto"
+    careersUrl: str = ""
+    config: dict[str, Any] = Field(default_factory=dict)
+
+
+class CompanyDiscoverPayload(BaseModel):
+    company: str
+    careersUrl: str
+
+
+@router.get("/jobs/companies")
+def list_target_companies() -> dict[str, Any]:
+    from app.services.job_discover.discovery.company_registry import CompanyRegistry
+    reg = CompanyRegistry()
+    return {"success": True, "companies": reg.list_companies()}
+
+
+@router.post("/jobs/companies")
+def upsert_target_company(payload: CompanyRegistryPayload) -> dict[str, Any]:
+    from app.services.job_discover.discovery.company_registry import CompanyRegistry
+    reg = CompanyRegistry()
+    reg.upsert_company(payload.company, payload.source, payload.config or {"careersUrl": payload.careersUrl})
+    return {"success": True, "company": payload.company, "source": payload.source}
+
+
+@router.post("/jobs/companies/discover")
+async def discover_company_source(payload: CompanyDiscoverPayload) -> dict[str, Any]:
+    import httpx
+    from app.services.job_discover.discovery.company_registry import JobSourceDiscoveryService
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        res = await JobSourceDiscoveryService.discover_source(client, payload.company, payload.careersUrl)
+        return {
+            "success": True,
+            "detectedSource": res.detected_source,
+            "confidence": res.confidence,
+            "sourceConfig": res.source_config,
+        }
 
 
 @router.get("/jobs/discover/status")
@@ -449,7 +528,11 @@ def list_discovered_jobs(
     from app.services.application_assistant.scraper_import import get_synced_scraper_job_ids
 
     synced_ids = get_synced_scraper_job_ids(db)
-    available_jobs = [job for job in (snapshot.get("jobs") or []) if job.get("id") not in synced_ids]
+    dismissed_ids = set(snapshot.get("dismissedIds") or [])
+    available_jobs = [
+        job for job in (snapshot.get("jobs") or [])
+        if job.get("id") not in synced_ids and job.get("id") not in dismissed_ids
+    ]
     jobs, total = job_discover.filter_jobs(
         available_jobs,
         q=q,
@@ -469,6 +552,7 @@ def list_discovered_jobs(
         "total": total,
         "indexedTotal": snapshot.get("totalJobs", 0),
         "assistantTotal": len(synced_ids),
+        "dismissedTotal": len(dismissed_ids),
         "page": page,
         "perPage": per_page,
         "totalPages": total_pages,
@@ -498,7 +582,11 @@ def job_discover_locations(db: Session = Depends(db_session)) -> dict[str, Any]:
 
     snapshot = job_discover.get_snapshot(db)
     synced_ids = get_synced_scraper_job_ids(db)
-    available_jobs = [job for job in (snapshot.get("jobs") or []) if job.get("id") not in synced_ids]
+    dismissed_ids = set(snapshot.get("dismissedIds") or [])
+    available_jobs = [
+        job for job in (snapshot.get("jobs") or [])
+        if job.get("id") not in synced_ids and job.get("id") not in dismissed_ids
+    ]
     return {
         "success": True,
         "locations": job_discover.get_location_options(available_jobs),
@@ -536,6 +624,16 @@ def job_discover_save(job_id: str, db: Session = Depends(db_session)) -> dict[st
     if not result.get("success"):
         raise HTTPException(status_code=404, detail=result.get("error", "Job not found"))
     return result
+
+
+@router.post("/jobs/discover/{job_id}/dismiss")
+def job_discover_dismiss(job_id: str, db: Session = Depends(db_session)) -> dict[str, Any]:
+    return job_discover.dismiss_job(db, job_id)
+
+
+@router.post("/jobs/discover/{job_id}/undismiss")
+def job_discover_undismiss(job_id: str, db: Session = Depends(db_session)) -> dict[str, Any]:
+    return job_discover.undismiss_job(db, job_id)
 
 
 @router.post("/applications")

@@ -142,6 +142,70 @@ export async function getScraperSyncStatus() {
   }>("/jobs/scraper-status");
 }
 
+export async function generateFreeformAnswer(question: string, company?: string, role?: string, jobDescription?: string) {
+  return aaFetch<{ success: boolean; answer: string; reasoning?: string }>("/generate-answer", {
+    method: "POST",
+    body: JSON.stringify({ question, company, role, jobDescription }),
+  });
+}
+
+// ── Autopilot Autonomous Runner API Helpers ───────────────────────────────────
+
+export async function startAutopilot(options?: Record<string, any>) {
+  return aaFetch<{ success: boolean; run: any }>("/autopilot/start", {
+    method: "POST",
+    body: JSON.stringify(options || {}),
+  });
+}
+
+export async function pauseAutopilot() {
+  return aaFetch<{ success: boolean; run: any }>("/autopilot/pause", {
+    method: "POST",
+  });
+}
+
+export async function stopAutopilot() {
+  return aaFetch<{ success: boolean; run: any }>("/autopilot/stop", {
+    method: "POST",
+  });
+}
+
+export async function getAutopilotStatus() {
+  return aaFetch<{
+    running: boolean;
+    status: string;
+    run: any;
+    activeJob: any;
+    queueSize: number;
+    recentLogs: Array<{ id: string; timestamp: string; level: string; message: string; metadata?: any }>;
+  }>("/autopilot/status");
+}
+
+export async function getStagedApplications() {
+  return aaFetch<{ staged: any[]; count: number }>("/autopilot/staged");
+}
+
+export async function approveStagedAnswer(id: string, question: string, answer: string) {
+  return aaFetch<{ success: boolean; job: any }>(`/autopilot/staged/${id}/approve`, {
+    method: "POST",
+    body: JSON.stringify({ question, answer }),
+  });
+}
+
+export async function skipStagedApplication(id: string, reason?: string) {
+  return aaFetch<{ success: boolean; job: any }>(`/autopilot/staged/${id}/skip`, {
+    method: "POST",
+    body: JSON.stringify({ reason: reason || "" }),
+  });
+}
+
+export async function enqueueJobForAutopilot(job: Record<string, any>) {
+  return aaFetch<{ success: boolean; job: any }>("/autopilot/enqueue", {
+    method: "POST",
+    body: JSON.stringify(job),
+  });
+}
+
 export async function createApplication(jobId: string, resumeId?: string) {
   return aaFetch<{ success: boolean; application: Record<string, unknown> }>("/applications", {
     method: "POST",
@@ -375,6 +439,10 @@ export async function unmarkSubmitted(appId: string) {
 
 export async function archiveApplication(appId: string) {
   return aaFetch<{ success: boolean }>(`/applications/${appId}/archive`, { method: "POST" });
+}
+
+export async function unarchiveApplication(appId: string) {
+  return aaFetch<{ success: boolean }>(`/applications/${appId}/unarchive`, { method: "POST" });
 }
 
 export async function getSettings() {

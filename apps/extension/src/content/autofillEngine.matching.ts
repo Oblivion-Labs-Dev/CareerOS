@@ -19,7 +19,12 @@ export const SYNONYMS: Record<string, string[]> = {
     'not a protected veteran',
     'non veteran',
     'non-veteran',
-    'i am not a protected veteran.'
+    'i am not a protected veteran.',
+    'i am not a veteran',
+    'not a veteran',
+    'i do not identify as a protected veteran',
+    'no, i am not a protected veteran',
+    'no'
   ],
   "no, i don't have a disability": [
     "i don't have a disability",
@@ -161,6 +166,16 @@ export function pickBestMatchingOptionText(options: string[], profileValue: stri
 export function expandSelectFillValues(value: string): string[] {
   const trimmed = value.trim();
   const targets = [trimmed];
+  if (/i am not a protected veteran/i.test(trimmed) || /not a veteran/i.test(trimmed)) {
+    targets.push(
+      'I am not a protected veteran',
+      'I am not a veteran',
+      'Not a protected veteran',
+      'No, I am not a protected veteran',
+      'I do not identify as a protected veteran',
+      'No'
+    );
+  }
   if (/^none$/i.test(trimmed) || /^n\/a/i.test(trimmed)) {
     targets.push(
       'N/A - have never held U.S. security clearance',

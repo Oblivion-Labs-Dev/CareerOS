@@ -206,15 +206,13 @@ function isCustomSelectField(field: ScannedField): boolean {
 async function scrollFormToLoadFields(doc: Document): Promise<void> {
   const win = doc.defaultView;
   if (!win) return;
-  const step = Math.max(220, Math.floor(win.innerHeight * 0.8));
-  for (let y = 0; y < doc.body.scrollHeight; y += step) {
-    win.scrollTo(0, y);
-    await new Promise((r) => setTimeout(r, 90));
-  }
+  // If height is small or no lazy load needed, skip slow incremental scroll
+  if (doc.body.scrollHeight <= win.innerHeight * 1.5) return;
+  
   win.scrollTo(0, doc.body.scrollHeight);
-  await new Promise((r) => setTimeout(r, 250));
+  await new Promise((r) => setTimeout(r, 60));
   win.scrollTo(0, 0);
-  await new Promise((r) => setTimeout(r, 120));
+  await new Promise((r) => setTimeout(r, 40));
 }
 
 async function fillLabeledComboboxes(
@@ -526,8 +524,7 @@ export async function applyFieldFill(
   }
 
   if (field.type === 'radio' && field.element instanceof HTMLInputElement) {
-    fillRadio(field.element, trimmed, document);
-    return true;
+    return fillRadio(field.element, trimmed, document);
   }
 
   if (field.type === 'checkbox' && field.element instanceof HTMLInputElement) {

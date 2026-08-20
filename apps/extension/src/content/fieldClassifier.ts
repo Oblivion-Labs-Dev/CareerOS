@@ -53,8 +53,8 @@ const CANONICAL_PATTERNS: Record<string, RegExp[]> = {
   state: [/state/i, /province/i],
   zip: [/zip/i, /postal\s*code/i, /postal/i, /postcode/i],
   country: [/country/i],
-  linkedin: [/linkedin/i],
-  github: [/github/i],
+  linkedin: [/linkedin/i, /linked\s*in/i],
+  github: [/github/i, /git\s*hub/i, /share.*github/i],
   portfolio: [/portfolio/i, /website/i, /personal\s*site/i],
   resume: [/resume/i, /\bcv\b/i, /curriculum\s*vitae/i],
   coverLetter: [/cover\s*letter/i, /writing\s*sample/i],
@@ -209,6 +209,9 @@ export async function classifyFields(
       { text: field.placeholder, weight: 2, label: 'Placeholder' },
       { text: field.name, weight: 1.5, label: 'Name attribute' },
       { text: field.htmlId, weight: 1.5, label: 'ID attribute' },
+      { text: field.dataAutomationId || '', weight: 2, label: 'Automation ID' },
+      { text: field.dataQa || '', weight: 2, label: 'Data QA' },
+      { text: field.dataTestId || '', weight: 2, label: 'Data Test ID' },
       { text: field.autocomplete, weight: 1, label: 'Autocomplete' }
     ];
 
@@ -275,6 +278,15 @@ export async function classifyFields(
             : 'Mapped current company from profile current title';
         }
       }
+    }
+
+    // Safety guard: reject URLs for non-URL fields (e.g. location, city, phone)
+    const isUrlLike = /^(https?:\/\/|www\.|linkedin\.com|github\.com)/i.test(proposedValue);
+    const isUrlField = ['linkedin', 'github', 'portfolio', 'website'].includes(matchedKey || '');
+    if (isUrlLike && matchedKey && !isUrlField) {
+      proposedValue = '';
+      confidence = 'low';
+      matchReason = `Rejected URL value for non-URL field "${matchedKey}"`;
     }
 
     if (!proposedValue && enrichedProfile.customFields) {
