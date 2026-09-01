@@ -1241,6 +1241,23 @@ async def _try_direct_replay_fill(
             el = await page.query_selector(selector)
         if not el:
             return None
+        
+        el_type = (await el.getAttribute("type") or "").lower() if hasattr(el, "getAttribute") else ""
+        if not el_type:
+            try:
+                el_type = await el.evaluate("el => (el.type || el.getAttribute('type') || '').toLowerCase()")
+            except Exception:
+                pass
+
+        if el_type == "file":
+            await _set_input_file(el, value_str, file_name=str(field.get("fileName") or ""))
+            return True, "file_direct"
+        
+        # Don't try to fill hidden or recaptcha textarea inputs
+        is_hidden_or_recaptcha = await el.evaluate("el => el.classList.contains('g-recaptcha-response') || el.offsetParent === null || el.type === 'hidden'")
+        if is_hidden_or_recaptcha:
+            return False, "hidden_or_recaptcha"
+
         await el.fill(value_str, timeout=3000)
         return True, "text_direct"
 
@@ -1368,6 +1385,16 @@ async def fill_field(
         return True, "file"
 
     if strategy == FILL_TEXT:
+        el_type = ""
+        try:
+            el_type = (await el.evaluate("el => (el.type || el.getAttribute('type') || '').toLowerCase()")) or ""
+        except Exception:
+            pass
+
+        if el_type == "file":
+            await _set_input_file(el, value_str, file_name=str(field.get("fileName") or ""))
+            return True, "file"
+
         if not await el.is_visible():
             return False, "not_visible"
         await el.fill(value_str, timeout=3000 if fast_mode else 5000)

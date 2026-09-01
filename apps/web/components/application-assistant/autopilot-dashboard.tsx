@@ -1,7 +1,8 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
+  getAutopilotEventSource,
   getAutopilotStatus,
   pauseAutopilot,
   startAutopilot,
@@ -25,7 +26,7 @@ import { RecentActivityPanel } from "./autopilot/recent-activity-panel";
 import { BatchConfigModal } from "./autopilot/batch-config-modal";
 
 interface AutopilotDashboardProps {
-  onNavigateTab?: (tab: "autopilot" | "submitted" | "review" | "tracker") => void;
+  onNavigateTab?: (tab: "autopilot" | "submitted" | "review" | "failed" | "tracker") => void;
 }
 
 const BATCH_PRESETS = [5, 10, 25, 50, 100];
@@ -63,6 +64,7 @@ export function AutopilotDashboard({ onNavigateTab }: AutopilotDashboardProps) {
   const [customBatchInput, setCustomBatchInput] = useState<string>("");
   const [isCustomMode, setIsCustomMode] = useState<boolean>(false);
   const [showConfigModal, setShowConfigModal] = useState<boolean>(false);
+  const statusRefreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const fetchStatus = async () => {
     try {
@@ -76,16 +78,70 @@ export function AutopilotDashboard({ onNavigateTab }: AutopilotDashboardProps) {
 
   useEffect(() => {
     fetchStatus();
-    const interval = setInterval(fetchStatus, 2500);
-    return () => clearInterval(interval);
+
+    // ── Realtime Push Model via Server-Sent Events (SSE) ──
+    let es: EventSource | null = null;
+    try {
+      es = getAutopilotEventSource();
+
+      es.addEventListener("status", (e: MessageEvent) => {
+        try {
+          const data = JSON.parse(e.data);
+          setStatusData(data);
+          setError(null);
+        } catch {}
+      });
+
+      es.addEventListener("log", (e: MessageEvent) => {
+        try {
+          const logEntry = JSON.parse(e.data);
+          setStatusData((prev: any) => {
+            if (!prev) return prev;
+            const updatedLogs = [logEntry, ...(prev.recentLogs || [])].slice(0, 100);
+            return { ...prev, recentLogs: updatedLogs };
+          });
+          // A busy run can emit many granular events in one second. Coalesce
+          // status refreshes instead of issuing one database request per event.
+          if (!statusRefreshTimer.current) {
+            statusRefreshTimer.current = setTimeout(() => {
+              statusRefreshTimer.current = null;
+              fetchStatus();
+            }, 750);
+          }
+        } catch {}
+      });
+
+      es.onerror = () => {
+        // Fallback gracefully to polling if SSE drops
+      };
+    } catch (e) {
+      console.warn("SSE connection error, falling back to interval:", e);
+    }
+
+    // SSE provides immediate activity updates; this is only a recovery sync.
+    const interval = setInterval(fetchStatus, 10000);
+    return () => {
+      if (es) {
+        es.close();
+      }
+      if (statusRefreshTimer.current) {
+        clearTimeout(statusRefreshTimer.current);
+      }
+      clearInterval(interval);
+    };
   }, []);
 
-  const handleStart = async (customCount?: number) => {
+  const handleStart = async (customCount?: number, opts?: { concurrency?: number; staggerDelay?: number; selfHealing?: boolean }) => {
     setLoading(true);
     setError(null);
     const targetCount = customCount || (isCustomMode ? parseInt(customBatchInput) || 5 : selectedBatchSize);
     try {
-      await startAutopilot({ targetProcessCount: targetCount });
+      await startAutopilot({
+        targetProcessCount: targetCount,
+        concurrency: opts?.concurrency ?? 5,
+        staggerDelay: opts?.staggerDelay ?? 0.5,
+        selfHealing: opts?.selfHealing ?? true,
+      });
       await fetchStatus();
       setShowConfigModal(false);
     } catch (err: any) {
@@ -177,7 +233,8 @@ export function AutopilotDashboard({ onNavigateTab }: AutopilotDashboardProps) {
       {/* ─── 1. Main Run Progress & Current Status (2-Column Grid Matching Mockup 1) ─── */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
         {/* Left: Primary Run Progress Card (~68% width on desktop) */}
-        <div className="lg:col-span-8 relative overflow-hidden rounded-2xl border border-white/10 bg-gradient-to-b from-[#0e1622] via-[#0a1019] to-[#070b12] p-6 shadow-2xl backdrop-blur-2xl flex flex-col justify-between space-y-6">
+        <div className="lg:col-span-8 relative overflow-hidden rounded-2xl border border-white/10 bg-[radial-gradient(circle_at_78%_18%,rgba(56,189,248,0.10),transparent_26%),radial-gradient(circle_at_18%_84%,rgba(99,102,241,0.08),transparent_28%),linear-gradient(to_bottom,#0e1622,#0a1019,#070b12)] p-6 shadow-[0_20px_60px_rgba(0,0,0,0.28)] backdrop-blur-2xl flex flex-col justify-between space-y-6">
+          <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-cyan-300/70 to-violet-300/40" />
           {/* Top Label & Status Pill */}
           <div className="flex items-center justify-between">
             <span className="text-[11px] font-black tracking-wider text-slate-400 uppercase">
@@ -212,7 +269,7 @@ export function AutopilotDashboard({ onNavigateTab }: AutopilotDashboardProps) {
               {/* Batch Size Selector Buttons (Matching Mockup 1) */}
               <div className="flex flex-wrap items-center gap-2 pt-1">
                 <span className="text-xs font-black text-slate-300 mr-1">Batch Size:</span>
-                <div className="flex items-center gap-1.5 bg-[#060a10] p-1.5 rounded-xl border border-white/10 shadow-inner">
+                <div className="flex items-center gap-1.5 bg-black/20 p-1.5 rounded-xl border border-white/[0.12] shadow-inner backdrop-blur-sm">
                   {BATCH_PRESETS.map((size) => (
                     <button
                       key={size}
@@ -264,7 +321,7 @@ export function AutopilotDashboard({ onNavigateTab }: AutopilotDashboardProps) {
                   <span>Batch Progress: <strong className="text-[#2ee8c9] font-black">{processedCount} / {targetCount} processed</strong></span>
                   <span className="font-bold">{progressPercent}%</span>
                 </div>
-                <div className="w-full bg-[#05080f] rounded-full h-2.5 overflow-hidden border border-white/10">
+                <div className="w-full bg-black/35 rounded-full h-2.5 overflow-hidden border border-white/[0.08]">
                   <div
                     className="bg-gradient-to-r from-[#2ee8c9] via-[#38bdf8] to-[#818cf8] h-full rounded-full transition-all duration-700 shadow-[0_0_12px_rgba(46,232,201,0.5)]"
                     style={{ width: `${progressPercent}%` }}
@@ -283,22 +340,22 @@ export function AutopilotDashboard({ onNavigateTab }: AutopilotDashboardProps) {
 
           {/* Bottom Metadata Block */}
           <div className="pt-4 border-t border-white/5 grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
-            <div className="p-2.5 rounded-xl bg-[#060a10] border border-white/5 space-y-0.5">
+            <div className="p-2.5 rounded-xl bg-white/[0.035] border border-white/[0.07] space-y-0.5 backdrop-blur-sm">
               <span className="text-[10px] uppercase font-bold text-slate-500 block">Started</span>
               <span className="font-mono text-slate-200 font-semibold">{startTimeStr}</span>
             </div>
 
-            <div className="p-2.5 rounded-xl bg-[#060a10] border border-white/5 space-y-0.5">
+            <div className="p-2.5 rounded-xl bg-white/[0.035] border border-white/[0.07] space-y-0.5 backdrop-blur-sm">
               <span className="text-[10px] uppercase font-bold text-slate-500 block">Elapsed</span>
               <span className="font-mono text-slate-200 font-semibold">{elapsedTimeStr}</span>
             </div>
 
-            <div className="p-2.5 rounded-xl bg-[#060a10] border border-white/5 space-y-0.5">
+            <div className="p-2.5 rounded-xl bg-white/[0.035] border border-white/[0.07] space-y-0.5 backdrop-blur-sm">
               <span className="text-[10px] uppercase font-bold text-slate-500 block">Est. Remaining</span>
               <span className="font-mono text-slate-200 font-semibold">{estRemainingStr}</span>
             </div>
 
-            <div className="p-2.5 rounded-xl bg-[#060a10] border border-white/5 space-y-0.5">
+            <div className="p-2.5 rounded-xl bg-white/[0.035] border border-white/[0.07] space-y-0.5 backdrop-blur-sm">
               <span className="text-[10px] uppercase font-bold text-slate-500 block">Queue Mode</span>
               <span className="text-[#2ee8c9] font-semibold truncate block">Highest Match First</span>
             </div>
@@ -306,7 +363,8 @@ export function AutopilotDashboard({ onNavigateTab }: AutopilotDashboardProps) {
         </div>
 
         {/* Right: Current Status Card (~32% width on desktop) */}
-        <div className="lg:col-span-4 relative overflow-hidden rounded-2xl border border-white/10 bg-gradient-to-b from-[#0e1622] via-[#0a1019] to-[#070b12] p-6 shadow-2xl backdrop-blur-2xl flex flex-col justify-between space-y-5">
+        <div className="lg:col-span-4 relative overflow-hidden rounded-2xl border border-white/10 bg-[radial-gradient(circle_at_72%_8%,rgba(45,212,191,0.11),transparent_30%),radial-gradient(circle_at_24%_92%,rgba(139,92,246,0.08),transparent_32%),linear-gradient(to_bottom,#0e1622,#0a1019,#070b12)] p-6 shadow-[0_20px_60px_rgba(0,0,0,0.28)] backdrop-blur-2xl flex flex-col justify-between space-y-5">
+          <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-emerald-300/60 to-cyan-300/40" />
           {/* Header */}
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
@@ -316,29 +374,29 @@ export function AutopilotDashboard({ onNavigateTab }: AutopilotDashboardProps) {
               </span>
             </div>
             <span className="text-xs font-bold text-slate-300 font-mono">
-              {processedCount} / {targetCount}
+              {isRunning ? `${processedCount} / ${targetCount}` : `${totalProcessed} Total`}
             </span>
           </div>
 
           {/* Donut Progress Ring */}
           <DonutProgressRing
-            processed={processedCount}
+            processed={isRunning ? processedCount : totalProcessed}
             target={targetCount}
-            submitted={submittedCount}
-            staged={stagedCount}
-            skipped={skippedCount}
-            failed={failedCount}
+            submitted={isRunning ? submittedCount : totalSubmitted}
+            staged={isRunning ? stagedCount : totalStaged}
+            skipped={isRunning ? skippedCount : totalSkipped}
+            failed={isRunning ? failedCount : totalFailed}
             isCompleted={isCompleted}
           />
 
           {/* Run Parameter Badges */}
           <div className="grid grid-cols-2 gap-3 pt-2 border-t border-white/5 text-center text-xs">
-            <div className="p-2.5 rounded-xl bg-[#060a10] border border-white/5">
+            <div className="p-2.5 rounded-xl bg-white/[0.035] border border-white/[0.07] backdrop-blur-sm">
               <span className="text-[10px] text-slate-400 uppercase font-bold block">Match Threshold</span>
               <span className="font-extrabold text-[#2ee8c9] text-sm">75+</span>
             </div>
 
-            <div className="p-2.5 rounded-xl bg-[#060a10] border border-white/5">
+            <div className="p-2.5 rounded-xl bg-white/[0.035] border border-white/[0.07] backdrop-blur-sm">
               <span className="text-[10px] text-slate-400 uppercase font-bold block">Max Post Age</span>
               <span className="font-extrabold text-slate-200 text-sm">7 days</span>
             </div>
@@ -428,6 +486,8 @@ export function AutopilotDashboard({ onNavigateTab }: AutopilotDashboardProps) {
         failed={totalFailed}
         queueRemaining={queueSize}
         processedCount={totalProcessed}
+        concurrencyMetrics={statusData?.concurrencyMetrics}
+        selfHealing={statusData?.selfHealing}
         onSelectCategory={(cat) => {
           if (cat === "SUBMITTED") {
             onNavigateTab?.("submitted");
@@ -441,8 +501,45 @@ export function AutopilotDashboard({ onNavigateTab }: AutopilotDashboardProps) {
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
         {/* Left: Active Job & Activity Timeline (8 cols) */}
         <div className="lg:col-span-8 space-y-5">
-          {/* Currently Processing Job Card */}
-          {activeJob ? (
+          {/* Currently Processing Job Cards */}
+          {statusData?.workers && statusData.workers.some((w: any) => w.status !== "idle" && w.status !== "done" && w.currentJob) ? (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between px-1">
+                <span className="text-[11px] font-black text-[#2ee8c9] uppercase tracking-widest flex items-center gap-2">
+                  <span className="h-2 w-2 rounded-full bg-[#2ee8c9] animate-ping" />
+                  Active Worker Applications ({statusData.workers.filter((w: any) => w.status !== "idle" && w.status !== "done" && w.currentJob).length})
+                </span>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {statusData.workers
+                  .filter((w: any) => w.status !== "idle" && w.status !== "done" && w.currentJob)
+                  .map((w: any) => (
+                    <div
+                      key={w.workerId}
+                      className="p-4 rounded-2xl border border-[#2ee8c9]/40 bg-gradient-to-r from-[#0a1622] via-[#0d1c2a] to-[#08121d] text-slate-200 shadow-xl space-y-2.5"
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="px-2 py-0.5 rounded bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 text-[10px] font-mono font-bold flex items-center gap-1.5">
+                          <span className="w-1.5 h-1.5 rounded-full bg-[#2ee8c9] animate-pulse" />
+                          W{w.slot + 1} • Worker {w.slot + 1}
+                        </span>
+                        <span className="px-2.5 py-0.5 rounded-full bg-[#2ee8c9]/15 border border-[#2ee8c9]/40 text-[#2ee8c9] text-[11px] font-extrabold uppercase tracking-wider">
+                          {w.status}
+                        </span>
+                      </div>
+                      <div>
+                        <h4 className="text-sm font-black text-white truncate">{w.currentJob?.title}</h4>
+                        <p className="text-xs text-slate-300 truncate mt-0.5">{w.currentJob?.company}</p>
+                      </div>
+                      <div className="pt-2 border-t border-white/10 flex items-center justify-between text-[11px] text-slate-400 font-mono">
+                        <span className="truncate max-w-[200px]">Step: <strong className="text-[#38bdf8] font-bold">{w.currentStep || "PROCESSING"}</strong></span>
+                        <span>{w.startedAt ? new Date(w.startedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }) : "Active"}</span>
+                      </div>
+                    </div>
+                  ))}
+              </div>
+            </div>
+          ) : activeJob ? (
             <div className="p-5 rounded-2xl border border-[#2ee8c9]/40 bg-gradient-to-r from-[#0a1622] via-[#0d1c2a] to-[#08121d] text-slate-200 shadow-2xl space-y-3">
               <div className="flex items-center justify-between">
                 <span className="text-[11px] font-black text-[#2ee8c9] uppercase tracking-widest flex items-center gap-2">
@@ -477,14 +574,19 @@ export function AutopilotDashboard({ onNavigateTab }: AutopilotDashboardProps) {
             </div>
           )}
 
-          {/* Recent Activity Timeline */}
-          <RecentActivityPanel logs={recentLogs} />
+          {/* Recent Activity Timeline with Worker Tabs */}
+          <RecentActivityPanel
+            logs={recentLogs}
+            workers={statusData?.workers}
+            concurrency={statusData?.concurrency}
+          />
         </div>
 
         {/* Right: System Health Panel (4 cols) */}
         <div className="lg:col-span-4">
           <SystemHealthPanel
-            runnerStatus={statusData?.status}
+            connected={Boolean(statusData && !error)}
+            runnerStatus={statusData?.status || "READY"}
             repairCount={0}
             lastRepairEvent={null}
           />
@@ -495,7 +597,9 @@ export function AutopilotDashboard({ onNavigateTab }: AutopilotDashboardProps) {
       <BatchConfigModal
         isOpen={showConfigModal}
         onClose={() => setShowConfigModal(false)}
-        onStartRun={({ batchSize }) => handleStart(batchSize)}
+        onStartRun={({ batchSize, concurrency, staggerDelay, selfHealing }) =>
+          handleStart(batchSize, { concurrency, staggerDelay, selfHealing })
+        }
         initialBatchSize={selectedBatchSize}
         loading={loading}
       />

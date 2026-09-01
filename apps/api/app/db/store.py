@@ -47,7 +47,7 @@ engine = create_engine(
     settings.career_os_database_url
     if not settings.career_os_database_url.startswith("sqlite:///./")
     else f"sqlite:///{DB_PATH.as_posix()}",
-    connect_args={"check_same_thread": False, "timeout": 60.0} if "sqlite" in settings.career_os_database_url else {},
+    connect_args={"check_same_thread": False, "timeout": 60.0},
 )
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 
@@ -175,15 +175,24 @@ def seed_extension_db_if_needed(db: Session) -> None:
 
 @contextmanager
 def session_scope() -> Iterator[Session]:
-    db = SessionLocal()
-    try:
-        yield db
-        db.commit()
-    except Exception:
-        db.rollback()
-        raise
-    finally:
-        db.close()
+    import time
+    max_retries = 5
+    for attempt in range(max_retries):
+        db = SessionLocal()
+        try:
+            yield db
+            db.commit()
+            return
+        except Exception as e:
+            db.rollback()
+            err_str = str(e).lower()
+            if "database is locked" in err_str or "busy" in err_str:
+                if attempt < max_retries - 1:
+                    time.sleep(0.1 * (2 ** attempt))
+                    continue
+            raise
+        finally:
+            db.close()
 
 
 def now_iso() -> str:

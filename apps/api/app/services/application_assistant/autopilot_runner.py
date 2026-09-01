@@ -1,12 +1,18 @@
-"""Fault-Tolerant Autopilot Application Runner Daemon for CareerOS."""
+"""Fault-Tolerant Autopilot Application Runner Daemon for CareerOS.
+
+Supports N concurrent browser workers with per-worker status tracking,
+concurrency metrics, and a batch-end self-healing cycle powered by Qwen.
+"""
 
 from __future__ import annotations
 
 import asyncio
 import logging
 import os
+import time
 import traceback
 import uuid
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
 
@@ -38,6 +44,12 @@ from app.services.application_assistant.structured_answer_engine import resolve_
 logger = logging.getLogger("career_os.autopilot_runner")
 
 MAX_JOB_ATTEMPTS = 3
+DEFAULT_CONCURRENCY = 5
+# Launches are staggered just enough to avoid a burst of browser startups.  The
+# former three-second default left most worker slots idle at the start of every
+# batch without improving form reliability.
+DEFAULT_STAGGER_DELAY = 0.5
+
 TRANSIENT_ERRORS = {
     ApplicationErrorType.NAVIGATION_TIMEOUT.value,
     ApplicationErrorType.NETWORK_ERROR.value,
@@ -46,6 +58,73 @@ TRANSIENT_ERRORS = {
     ApplicationErrorType.ELEMENT_NOT_FOUND.value,
     ApplicationErrorType.UPLOAD_ERROR.value,
 }
+
+
+@dataclass
+class WorkerState:
+    """Per-worker status for frontend display."""
+    worker_id: str
+    slot: int
+    status: str = "idle"  # idle | claiming | applying | filling | submitting | done | error
+    current_job: dict[str, Any] | None = None
+    current_step: str = ""
+    started_at: str = ""
+    error: str = ""
+    jobs_completed: int = 0
+    jobs_failed: int = 0
+
+    def to_dict(self) -> dict[str, Any]:
+        job_info = None
+        if self.current_job:
+            job_info = {
+                "id": self.current_job.get("id"),
+                "company": self.current_job.get("company"),
+                "title": self.current_job.get("title"),
+            }
+        return {
+            "workerId": self.worker_id,
+            "slot": self.slot,
+            "status": self.status,
+            "currentJob": job_info,
+            "currentStep": self.current_step,
+            "startedAt": self.started_at,
+            "error": self.error,
+            "jobsCompleted": self.jobs_completed,
+            "jobsFailed": self.jobs_failed,
+        }
+
+
+@dataclass
+class ConcurrencyMetrics:
+    """Concurrency performance metrics."""
+    total_jobs_started: int = 0
+    total_jobs_finished: int = 0
+    total_job_time_sec: float = 0.0
+    lock_contention_count: int = 0
+    self_healing_rounds_completed: int = 0
+    batch_start_time: float = 0.0
+
+    @property
+    def avg_job_time_sec(self) -> float:
+        return self.total_job_time_sec / max(1, self.total_jobs_finished)
+
+    @property
+    def throughput_per_min(self) -> float:
+        elapsed = time.time() - self.batch_start_time if self.batch_start_time else 1
+        return (self.total_jobs_finished / max(1, elapsed)) * 60
+
+    def to_dict(self, active_count: int, total_slots: int) -> dict[str, Any]:
+        return {
+            "activeWorkers": active_count,
+            "totalWorkers": total_slots,
+            "avgJobTimeSec": round(self.avg_job_time_sec, 1),
+            "throughputPerMin": round(self.throughput_per_min, 2),
+            "lockContentionCount": self.lock_contention_count,
+            "selfHealingRoundsCompleted": self.self_healing_rounds_completed,
+            "totalJobsStarted": self.total_jobs_started,
+            "totalJobsFinished": self.total_jobs_finished,
+        }
+
 
 class AutopilotRunner:
     _instance: AutopilotRunner | None = None
@@ -57,12 +136,47 @@ class AutopilotRunner:
         self._pause_requested = False
         self._loop_task: asyncio.Task | None = None
         self.activity_log: list[dict[str, Any]] = []
+        self._subscribers: set[asyncio.Queue[dict[str, Any]]] = set()
+
+        # ── Concurrency state ──
+        self.concurrency: int = DEFAULT_CONCURRENCY
+        self.stagger_delay: float = DEFAULT_STAGGER_DELAY
+        self.self_healing_enabled: bool = True
+        self.worker_states: dict[int, WorkerState] = {}
+        self.metrics = ConcurrencyMetrics()
 
     @classmethod
     def get_instance(cls) -> AutopilotRunner:
         if cls._instance is None:
             cls._instance = AutopilotRunner()
         return cls._instance
+
+    def subscribe_events(self) -> asyncio.Queue[dict[str, Any]]:
+        """Subscribe to real-time push events via Server-Sent Events (SSE)."""
+        queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue(maxsize=100)
+        self._subscribers.add(queue)
+        return queue
+
+    def unsubscribe_events(self, queue: asyncio.Queue[dict[str, Any]]) -> None:
+        """Unsubscribe an SSE client queue."""
+        self._subscribers.discard(queue)
+
+    def _broadcast(self, event_type: str, data: Any) -> None:
+        """Push real-time SSE payload to all connected frontend listeners."""
+        payload = {"event": event_type, "data": data, "timestamp": now_iso()}
+        dead_queues = []
+        for q in list(self._subscribers):
+            try:
+                if q.full():
+                    try:
+                        q.get_nowait()
+                    except Exception:
+                        pass
+                q.put_nowait(payload)
+            except Exception:
+                dead_queues.append(q)
+        for dq in dead_queues:
+            self._subscribers.discard(dq)
 
     def log_event(self, message: str, level: str = "info", metadata: dict[str, Any] | None = None) -> None:
         entry = {
@@ -73,13 +187,36 @@ class AutopilotRunner:
             "metadata": metadata or {},
         }
         self.activity_log.append(entry)
-        if len(self.activity_log) > 300:
+        if len(self.activity_log) > 500:
             self.activity_log.pop(0)
 
-    async def start(self, db: Session | None = None, options: dict[str, Any] | None = None) -> dict[str, Any]:
+        # Real-time SSE push
+        self._broadcast("log", entry)
+
+    async def start(self, options: dict[str, Any] | None = None, db: Session | None = None, **kwargs: Any) -> dict[str, Any]:
         """Start or resume a fault-tolerant Autopilot run."""
-        opts = options or {}
+        # Normalize positional / keyword options
+        if isinstance(options, Session):
+            local_session = options
+            opts = kwargs.get("options") or db or {}
+        else:
+            opts = options or kwargs.get("options") or {}
         target_count = int(opts.get("targetProcessCount") or opts.get("batchSize") or 25)
+
+        # Configure concurrency from options
+        self.concurrency = max(1, min(10, int(opts.get("concurrency") or DEFAULT_CONCURRENCY)))
+        self.stagger_delay = float(opts.get("staggerDelay") or DEFAULT_STAGGER_DELAY)
+        self.self_healing_enabled = bool(opts.get("selfHealing", True))
+
+        # Initialize worker states
+        self.worker_states = {
+            slot: WorkerState(
+                worker_id=f"{self.worker_id}_slot{slot}",
+                slot=slot,
+            )
+            for slot in range(self.concurrency)
+        }
+        self.metrics = ConcurrencyMetrics()
 
         saved_run: dict[str, Any] | None = None
         with session_scope() as local_db:
@@ -91,6 +228,7 @@ class AutopilotRunner:
                     current_proc = existing.get("processedCount", 0)
                     existing["targetProcessCount"] = max(existing.get("targetProcessCount", 25), current_proc + target_count)
                     existing["status"] = AutopilotRunStatus.RUNNING.value
+                    existing["concurrency"] = self.concurrency
                     self.active_run_id = existing["id"]
                     if hb_str:
                         try:
@@ -107,7 +245,12 @@ class AutopilotRunner:
                     self._stop_requested = False
                     self._pause_requested = False
                     if self._loop_task is None or self._loop_task.done():
+                        logger.info("Resuming _run_batch_worker for existing run %s (concurrency=%d)...", existing.get("id"), self.concurrency)
                         self._loop_task = asyncio.create_task(self._run_batch_worker())
+                        def _log_task_done_existing(t: asyncio.Task) -> None:
+                            if not t.cancelled() and t.exception():
+                                logger.error("Autopilot batch worker crashed on resume with: %s", t.exception(), exc_info=t.exception())
+                        self._loop_task.add_done_callback(_log_task_done_existing)
                     return saved_run
 
             self._stop_requested = False
@@ -128,14 +271,24 @@ class AutopilotRunner:
                 "stoppedAt": None,
                 "lastHeartbeatAt": now_iso(),
                 "settings": opts,
+                "concurrency": self.concurrency,
             }
             saved_run = save_autopilot_run(local_db, run_payload)
             self.active_run_id = run_id
 
-        self.log_event(f"Autopilot run started (Target batch: {target_count} jobs)", level="info", metadata={"runId": self.active_run_id})
+        self.log_event(
+            f"Autopilot run started (Target batch: {target_count} jobs, Concurrency: {self.concurrency} workers)",
+            level="info",
+            metadata={"runId": self.active_run_id, "concurrency": self.concurrency},
+        )
 
         if self._loop_task is None or self._loop_task.done():
+            logger.info("Spawning new _run_batch_worker asyncio task for run %s (concurrency=%d)...", self.active_run_id, self.concurrency)
             self._loop_task = asyncio.create_task(self._run_batch_worker())
+            def _log_task_done(t: asyncio.Task) -> None:
+                if not t.cancelled() and t.exception():
+                    logger.error("Autopilot batch worker crashed with: %s", t.exception(), exc_info=t.exception())
+            self._loop_task.add_done_callback(_log_task_done)
 
         return saved_run or {}
 
@@ -191,6 +344,14 @@ class AutopilotRunner:
         log_dict = {l.get("id"): l for l in (persisted_logs or []) + self.activity_log if isinstance(l, dict) and l.get("id")}
         combined_logs = sorted(list(log_dict.values()), key=lambda l: l.get("timestamp", ""))
 
+        # Build per-worker state for frontend
+        workers_list = [ws.to_dict() for ws in self.worker_states.values()]
+        active_worker_count = sum(1 for ws in self.worker_states.values() if ws.status not in ("idle", "done"))
+
+        # Self-healing state
+        from app.services.application_assistant.autopilot_self_healer import get_self_healing_state
+        heal_state = get_self_healing_state().to_dict()
+
         if not active_run:
             return {
                 "running": False,
@@ -200,11 +361,20 @@ class AutopilotRunner:
                 "activeJob": None,
                 "queueSize": len(queued_jobs),
                 "recentLogs": combined_logs[-25:],
+                "workers": workers_list,
+                "concurrency": self.concurrency,
+                "concurrencyMetrics": self.metrics.to_dict(active_worker_count, self.concurrency),
+                "selfHealing": heal_state,
             }
 
         current_job = None
         if active_run.get("currentJobId"):
             current_job = get_autopilot_job(db, active_run["currentJobId"])
+        if not current_job:
+            for ws in self.worker_states.values():
+                if ws.current_job:
+                    current_job = ws.current_job
+                    break
 
         return {
             "running": active_run.get("status") in (AutopilotRunStatus.RUNNING.value, AutopilotRunStatus.RECOVERING.value),
@@ -214,6 +384,10 @@ class AutopilotRunner:
             "activeJob": current_job,
             "queueSize": len(queued_jobs),
             "recentLogs": combined_logs[-25:],
+            "workers": workers_list,
+            "concurrency": self.concurrency,
+            "concurrencyMetrics": self.metrics.to_dict(active_worker_count, self.concurrency),
+            "selfHealing": heal_state,
         }
 
     def _recover_stale_run_sync(self, run: dict[str, Any]) -> None:
@@ -244,9 +418,13 @@ class AutopilotRunner:
     async def _run_batch_worker(self) -> None:
         """Worker-Level Error Boundary protecting overall batch worker execution."""
         try:
+            logger.info("Batch worker loop starting (concurrency=%d)...", self.concurrency)
             await self._process_batch_loop()
+            logger.info("Batch worker loop exited normally.")
         except Exception as fatal_error:
-            self.log_event(f"Fatal worker infrastructure error: {fatal_error}", level="error")
+            tb = traceback.format_exc()
+            logger.error("Fatal worker infrastructure error:\n%s", tb)
+            self.log_event(f"Fatal worker infrastructure error: {fatal_error}", level="error", metadata={"traceback": tb})
             try:
                 with session_scope() as db:
                     if self.active_run_id:
@@ -258,7 +436,10 @@ class AutopilotRunner:
                 pass
 
     async def _process_batch_loop(self) -> None:
-        """Main Batch Loop with non-blocking, isolated database transactions."""
+        """Main Batch Loop with N concurrent workers using asyncio.Semaphore."""
+        self.metrics.batch_start_time = time.time()
+        semaphore = asyncio.Semaphore(self.concurrency)
+
         while not self._stop_requested:
             if self._pause_requested:
                 await asyncio.sleep(2)
@@ -285,6 +466,7 @@ class AutopilotRunner:
                         r["currentJobId"] = None
                         save_autopilot_run(db, r)
                 self.log_event(f"Batch completed: {processed_count} of {target_count} jobs processed!", level="info")
+                await self._trigger_post_batch_self_healing(run["id"])
                 break
 
             # Heartbeat update
@@ -296,11 +478,7 @@ class AutopilotRunner:
                     save_autopilot_run(db, r)
 
             # 2. Fetch and auto-enqueue queued jobs
-            target_job: dict[str, Any] | None = None
             queued: list[dict[str, Any]] = []
-            existing_autopilot_jobs: list[dict[str, Any]] = []
-            profile: dict[str, Any] = {}
-            raw_jobs: list[dict[str, Any]] = []
             with session_scope() as db:
                 from app.db.store import get_kv
                 existing_autopilot_jobs = list_autopilot_jobs(db)
@@ -311,6 +489,11 @@ class AutopilotRunner:
 
             if not queued:
                 self.log_event("Scanning discovered job postings for eligible matches...", level="info")
+                with session_scope() as db:
+                    from app.db.store import get_kv
+                    existing_autopilot_jobs = list_autopilot_jobs(db)
+                    profile = get_kv(db, "profile") or {}
+                    raw_jobs = list_discovered_jobs(db, active_only=True, exclude_demo=True)
                 ranked = filter_and_rank_jobs(existing_autopilot_jobs, raw_jobs, profile, run.get("settings")) if raw_jobs else []
 
                 if ranked:
@@ -334,20 +517,7 @@ class AutopilotRunner:
                 else:
                     self.log_event("No new unapplied job postings found in database.", level="info")
 
-            if queued:
-                cand = queued[0]
-                with session_scope() as db:
-                    if claim_job_lock(db, cand["id"], self.worker_id):
-                        target_job = cand
-                        r = get_autopilot_run(db, run["id"])
-                        if r:
-                            r["currentJobId"] = cand["id"]
-                            r["currentCompany"] = cand.get("company")
-                            r["currentJobTitle"] = cand.get("title")
-                            r["lastAction"] = f"Processing {cand.get('company')} — {cand.get('title')}"
-                            save_autopilot_run(db, r)
-
-            if not target_job:
+            if not queued:
                 self.log_event("No more eligible jobs in queue — batch run completed.", level="info")
                 with session_scope() as db:
                     r = get_autopilot_run(db, run["id"])
@@ -356,25 +526,177 @@ class AutopilotRunner:
                         r["completedAt"] = now_iso()
                         r["currentJobId"] = None
                         save_autopilot_run(db, r)
+                await self._trigger_post_batch_self_healing(run["id"])
                 break
 
-            job_id = target_job["id"]
+            # 3. Claim up to N jobs concurrently
+            claimed_jobs: list[dict[str, Any]] = []
+            with session_scope() as db:
+                for cand in queued:
+                    if len(claimed_jobs) >= self.concurrency:
+                        break
+                    if claim_job_lock(db, cand["id"], self.worker_id):
+                        claimed_jobs.append(cand)
+                    else:
+                        self.metrics.lock_contention_count += 1
 
-            # 3. Process Job Execution Boundary
+            if not claimed_jobs:
+                self.log_event("Could not claim any jobs — all locked or queue empty.", level="info")
+                await asyncio.sleep(2)
+                continue
+
+            self.log_event(
+                f"Claimed {len(claimed_jobs)} job(s) for parallel processing (concurrency={self.concurrency})",
+                level="info",
+                metadata={"jobIds": [j.get("id") for j in claimed_jobs]},
+            )
+
+            # 4. Process claimed jobs in parallel using semaphore
+            tasks: list[asyncio.Task] = []
+            for slot_idx, job_item in enumerate(claimed_jobs):
+                # Assign worker state
+                if slot_idx in self.worker_states:
+                    ws = self.worker_states[slot_idx]
+                else:
+                    ws = WorkerState(worker_id=f"{self.worker_id}_slot{slot_idx}", slot=slot_idx)
+                    self.worker_states[slot_idx] = ws
+
+                ws.status = "claiming"
+                ws.current_job = job_item
+                ws.started_at = now_iso()
+                ws.error = ""
+
+                task = asyncio.create_task(
+                    self._run_worker_slot(semaphore, run["id"], job_item, ws, slot_idx)
+                )
+                tasks.append(task)
+
+                # Stagger delay between worker launches to avoid thundering herd
+                if slot_idx < len(claimed_jobs) - 1:
+                    await asyncio.sleep(self.stagger_delay)
+
+            # Wait for all parallel workers to complete
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+
+            # Log any exceptions from workers
+            for i, result in enumerate(results):
+                if isinstance(result, Exception):
+                    logger.error("Worker slot %d raised exception: %s", i, result)
+                    self.log_event(f"Worker slot {i} exception: {result}", level="error")
+
+            # Reset worker states to idle
+            for ws in self.worker_states.values():
+                if ws.status not in ("error",):
+                    ws.status = "idle"
+                    ws.current_job = None
+
+                # Yield briefly before claiming the next wave. The browser work
+                # itself is the rate limiter; a longer fixed idle wastes slots.
+                await asyncio.sleep(0.35)
+
+    async def _run_worker_slot(
+        self,
+        semaphore: asyncio.Semaphore,
+        run_id: str,
+        job_item: dict[str, Any],
+        worker_state: WorkerState,
+        slot_idx: int,
+    ) -> None:
+        """Process a single job within a concurrency-limited worker slot."""
+        async with semaphore:
+            job_id = job_item["id"]
+            job_start = time.time()
+            self.metrics.total_jobs_started += 1
+            worker_state.status = "applying"
+
+            self.log_event(
+                f"[Worker {slot_idx}] Processing: {job_item.get('company')} — {job_item.get('title')}",
+                level="info",
+                metadata={"workerId": worker_state.worker_id, "slot": slot_idx, "jobId": job_id},
+            )
+
             try:
-                await self._process_single_job_with_retries(run["id"], target_job)
+                await self._process_single_job_with_retries(run_id, job_item, worker_state)
+                worker_state.jobs_completed += 1
             except Exception as unhandled_job_error:
-                self._handle_unhandled_job_exception_sync(run["id"], target_job, unhandled_job_error)
+                self._handle_unhandled_job_exception_sync(run_id, job_item, unhandled_job_error)
+                worker_state.status = "error"
+                worker_state.error = str(unhandled_job_error)
+                worker_state.jobs_failed += 1
             finally:
                 with session_scope() as db:
                     release_job_lock(db, job_id, self.worker_id)
-                    r = get_autopilot_run(db, run["id"])
+                    r = get_autopilot_run(db, run_id)
                     if r:
                         r["processedCount"] = (r.get("processedCount") or 0) + 1
                         r["currentJobId"] = None
                         save_autopilot_run(db, r)
 
-            await asyncio.sleep(1.5)
+                job_elapsed = time.time() - job_start
+                self.metrics.total_jobs_finished += 1
+                self.metrics.total_job_time_sec += job_elapsed
+                worker_state.status = "done"
+
+                self.log_event(
+                    f"[Worker {slot_idx}] Finished: {job_item.get('company')} ({job_elapsed:.1f}s)",
+                    level="info",
+                    metadata={"slot": slot_idx, "elapsedSec": round(job_elapsed, 1)},
+                )
+
+    async def _trigger_post_batch_self_healing(self, run_id: str) -> None:
+        """After a batch completes, check for failures and trigger self-healing if enabled."""
+        if not self.self_healing_enabled:
+            return
+
+        failed_jobs: list[dict[str, Any]] = []
+        with session_scope() as db:
+            all_jobs = list_autopilot_jobs(db)
+            failed_jobs = [j for j in all_jobs if j.get("status") in (AutopilotJobStatus.FAILED.value, "ERROR")]
+
+        if not failed_jobs:
+            self.log_event("Post-batch check: No failures detected — self-healing not needed.", level="info")
+            return
+
+        self.log_event(
+            f"Post-batch check: {len(failed_jobs)} failed job(s) detected — triggering self-healing cycle...",
+            level="warning",
+            metadata={"failedCount": len(failed_jobs)},
+        )
+
+        from app.services.application_assistant.autopilot_self_healer import run_self_healing_cycle
+
+        try:
+            result = await run_self_healing_cycle(
+                failed_jobs=failed_jobs,
+                log_event_fn=self.log_event,
+                max_rounds=MAX_JOB_ATTEMPTS,
+            )
+            self.metrics.self_healing_rounds_completed += result.get("totalRounds", 0)
+
+            # If patches were applied and jobs were re-queued, restart the batch loop
+            if result.get("patchesApplied", 0) > 0:
+                self.log_event(
+                    f"Self-healing applied {result['patchesApplied']} patch(es) — re-entering batch loop to retry failed jobs",
+                    level="info",
+                )
+                # Update the run status back to RUNNING so the loop continues
+                with session_scope() as db:
+                    r = get_autopilot_run(db, run_id)
+                    if r:
+                        r["status"] = AutopilotRunStatus.RUNNING.value
+                        r["completedAt"] = None
+                        # Increase target count to cover the re-queued jobs
+                        requeued_count = sum(1 for j in failed_jobs)
+                        r["targetProcessCount"] = (r.get("processedCount") or 0) + requeued_count
+                        save_autopilot_run(db, r)
+                # Re-enter the batch loop — spawn a new loop task
+                if self._loop_task is None or self._loop_task.done():
+                    self._loop_task = asyncio.create_task(self._run_batch_worker())
+            else:
+                self.log_event("Self-healing completed but no patches were applied.", level="info")
+        except Exception as e:
+            self.log_event(f"Self-healing cycle failed: {e}", level="error")
+            logger.error("Self-healing cycle error: %s", traceback.format_exc())
 
     def _record_checkpoint(self, job_item: dict[str, Any], step: CheckpointStep, details: str = "") -> None:
         if "checkpointHistory" not in job_item or job_item["checkpointHistory"] is None:
@@ -387,7 +709,7 @@ class AutopilotRunner:
         job_item["currentStep"] = step.value
 
     async def _process_single_job_with_retries(
-        self, run_id: str, job_item: dict[str, Any]
+        self, run_id: str, job_item: dict[str, Any], worker_state: WorkerState | None = None
     ) -> None:
         attempt = (job_item.get("attemptCount") or 0) + 1
         job_item["attemptCount"] = attempt
@@ -396,7 +718,7 @@ class AutopilotRunner:
             save_autopilot_job(db, job_item)
 
         try:
-            await self._execute_application_pipeline(run_id, job_item)
+            await self._execute_application_pipeline(run_id, job_item, worker_state)
         except Exception as exc:
             err_type = self._classify_error(exc)
 
@@ -404,7 +726,7 @@ class AutopilotRunner:
                 delay = 2 if attempt == 1 else 5
                 self.log_event(f"Transient error ({err_type}). Retrying attempt {attempt + 1} after {delay}s...", level="warning")
                 await asyncio.sleep(delay)
-                return await self._process_single_job_with_retries(run_id, job_item)
+                return await self._process_single_job_with_retries(run_id, job_item, worker_state)
 
             job_item["status"] = AutopilotJobStatus.FAILED.value
             job_item["lastError"] = str(exc)
@@ -439,14 +761,22 @@ class AutopilotRunner:
         return ApplicationErrorType.UNKNOWN_ERROR.value
 
     async def _execute_application_pipeline(
-        self, run_id: str, job_item: dict[str, Any]
+        self, run_id: str, job_item: dict[str, Any], worker_state: WorkerState | None = None
     ) -> None:
         company = job_item.get("company") or "Unknown"
         title = job_item.get("title") or "Unknown"
         app_url = job_item.get("applicationUrl") or ""
+        slot_idx = worker_state.slot if worker_state is not None else None
+        w_prefix = f"[Worker {slot_idx}] " if slot_idx is not None else ""
 
-        self.log_event(f"Processing job: {company} — {title} (Match Score: {job_item.get('matchScore', 85)}%)", level="info")
-        await asyncio.sleep(0.8)
+        self.log_event(
+            f"{w_prefix}Processing: {company} — {title} (Match Score: {job_item.get('matchScore', 85)}%)",
+            level="info",
+            metadata={"slot": slot_idx, "company": company, "title": title},
+        )
+        if worker_state:
+            worker_state.current_step = "PAGE_OPENED"
+        await asyncio.sleep(0.2)
 
         # Step: PAGE_OPENED
         job_item["status"] = AutopilotJobStatus.APPLYING.value
@@ -455,8 +785,14 @@ class AutopilotRunner:
         with session_scope() as db:
             save_autopilot_job(db, job_item)
 
-        self.log_event(f"Opened application page for {company}...", level="info")
-        await asyncio.sleep(0.8)
+        self.log_event(
+            f"{w_prefix}Opened application page for {company}...",
+            level="info",
+            metadata={"slot": slot_idx, "company": company},
+        )
+        if worker_state:
+            worker_state.current_step = "FORM_DISCOVERED"
+        await asyncio.sleep(0.2)
 
         # Step: FORM_DISCOVERED & LIVE PLAYWRIGHT SUBMISSION
         from app.db.store import get_kv
@@ -467,7 +803,11 @@ class AutopilotRunner:
             profile = get_kv(db, "profile") or {}
             answer_lib = list_answer_library(db)
 
-        self.log_event(f"Launching Playwright live Chromium session for {company}...", level="info")
+        self.log_event(
+            f"{w_prefix}Launching Playwright live Chromium session for {company}...",
+            level="info",
+            metadata={"slot": slot_idx, "company": company},
+        )
         self._record_checkpoint(job_item, CheckpointStep.FORM_DISCOVERED, "Navigating via Chromium")
         with session_scope() as db:
             save_autopilot_job(db, job_item)
@@ -476,8 +816,24 @@ class AutopilotRunner:
 
         headless_mode = os.environ.get("AA_HEADLESS", "true").lower() in ("true", "1")
 
-        self.log_event(f"Inspecting form DOM, attaching resume & filling fields for {company}...", level="info")
+        self.log_event(
+            f"{w_prefix}Inspecting form DOM, attaching resume & filling fields for {company}...",
+            level="info",
+            metadata={"slot": slot_idx, "company": company},
+        )
+        if worker_state:
+            worker_state.status = "filling"
+            worker_state.current_step = "QUESTIONS_COMPLETED"
         self._record_checkpoint(job_item, CheckpointStep.QUESTIONS_COMPLETED, "Resolving form fields")
+
+        def _granular_log(msg: str, lvl: str = "info") -> None:
+            if worker_state and msg:
+                worker_state.current_step = msg[:40]
+            self.log_event(
+                f"{w_prefix}{msg}",
+                level=lvl,
+                metadata={"slot": slot_idx, "company": company},
+            )
 
         result = await execute_live_playwright_submission(
             job_item=job_item,
@@ -485,9 +841,13 @@ class AutopilotRunner:
             answer_lib=answer_lib,
             headless=headless_mode,
             timeout_sec=60.0,
+            log_callback=_granular_log,
         )
 
         if result.get("submitted"):
+            if worker_state:
+                worker_state.status = "submitting"
+                worker_state.current_step = "SUBMITTED"
             job_item["status"] = AutopilotJobStatus.SUBMITTED.value
             job_item["submittedAt"] = now_iso()
             job_item["submissionEvidence"] = result.get("evidence", {})
@@ -499,21 +859,59 @@ class AutopilotRunner:
                 if r:
                     r["submittedCount"] = (r.get("submittedCount") or 0) + 1
                     save_autopilot_run(db, r)
-            self.log_event(f"Successfully submitted real application for {company} — {title} 🎉 (Proof captured)", level="info")
+            self.log_event(
+                f"{w_prefix}Successfully submitted real application for {company} — {title} 🎉 (Proof captured)",
+                level="info",
+                metadata={"slot": slot_idx, "company": company, "title": title},
+            )
+        elif result.get("expired"):
+            # Job is unlisted / removed by employer: Drop from list and exclude permanently from future queue
+            self.log_event(
+                f"{w_prefix}Job unlisted / expired by employer ({company} — {title}). Dropping from candidate list.",
+                level="info",
+                metadata={"slot": slot_idx, "company": company, "title": title},
+            )
+            with session_scope() as db:
+                from app.services.application_assistant.persistence import delete_autopilot_job
+                delete_autopilot_job(db, job_item["id"])
+                # Also archive or mark inactive in discovered jobs so it is never picked up again
+                from app.db.store import get_entity, upsert_entity
+                job_id = job_item.get("jobId")
+                if job_id:
+                    dj = get_entity(db, "discovered_job", job_id)
+                    if dj:
+                        dj["active"] = False
+                        dj["expired"] = True
+                        dj["unlistedAt"] = now_iso()
+                        upsert_entity(db, "discovered_job", dj)
         else:
             err_msg = result.get("error") or "Submission unconfirmed"
             job_item["status"] = AutopilotJobStatus.FAILED.value
             job_item["lastError"] = err_msg
-            job_item["submissionEvidence"] = result.get("evidence", {})
+            evidence = result.get("evidence", {}) or {}
+            if evidence.get("unresolvedRequiredFields") or evidence.get("preSubmitValidationErrors"):
+                job_item["lastErrorType"] = ApplicationErrorType.VALIDATION_ERROR.value
+            elif "submit button not found" in err_msg.lower():
+                job_item["lastErrorType"] = ApplicationErrorType.ELEMENT_NOT_FOUND.value
+            else:
+                job_item["lastErrorType"] = ApplicationErrorType.SUBMISSION_UNCERTAIN.value
+            job_item["submissionEvidence"] = evidence
             job_item["aiExplanation"] = err_msg
             self._record_checkpoint(job_item, CheckpointStep.FAILED, f"Failed: {err_msg}")
+            if worker_state:
+                worker_state.status = "error"
+                worker_state.error = err_msg
             with session_scope() as db:
                 save_autopilot_job(db, job_item)
                 r = get_autopilot_run(db, run_id)
                 if r:
                     r["failedCount"] = (r.get("failedCount") or 0) + 1
                     save_autopilot_run(db, r)
-            self.log_event(f"Application failed ({company}): {err_msg}", level="error")
+            self.log_event(
+                f"{w_prefix}Application failed ({company}): {err_msg}",
+                level="error",
+                metadata={"slot": slot_idx, "company": company, "error": err_msg},
+            )
 
 
     def _handle_unhandled_job_exception_sync(

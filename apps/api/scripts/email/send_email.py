@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_RESUME_PATH = Path(r"D:\Docs\Interview\Resume\Akshay_Borse_Resume.pdf")
+DEFAULT_RESUME_PATH = Path(r"D:\3 - Resources\Docs\Interview\Resume\Akshay_Borse_Resume.pdf")
 sys.path.insert(0, str(ROOT))
 
 from app.config import settings  # noqa: E402

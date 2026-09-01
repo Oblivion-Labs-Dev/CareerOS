@@ -11,6 +11,9 @@ interface BatchConfigModalProps {
     minMatchScore: number;
     maxPostAgeDays: number;
     sortMode: string;
+    concurrency: number;
+    staggerDelay: number;
+    selfHealing: boolean;
   }) => void;
   initialBatchSize?: number;
   loading?: boolean;
@@ -31,6 +34,9 @@ export function BatchConfigModal({
   const [minMatchScore, setMinMatchScore] = useState<number>(75);
   const [maxPostAgeDays, setMaxPostAgeDays] = useState<number>(7);
   const [sortMode, setSortMode] = useState<string>("highest_match");
+  const [concurrency, setConcurrency] = useState<number>(5);
+  const [staggerDelay, setStaggerDelay] = useState<number>(0.5);
+  const [selfHealingEnabled, setSelfHealingEnabled] = useState<boolean>(true);
 
   if (!isOpen) return null;
 
@@ -41,6 +47,9 @@ export function BatchConfigModal({
       minMatchScore,
       maxPostAgeDays,
       sortMode,
+      concurrency,
+      staggerDelay,
+      selfHealing: selfHealingEnabled,
     });
   };
 
@@ -161,6 +170,75 @@ export function BatchConfigModal({
             <option value="newest_first">Newest Postings First</option>
             <option value="target_companies">Target Companies Priority</option>
           </select>
+        </div>
+
+        {/* Concurrency & Self-Healing Settings */}
+        <div className="space-y-3 pt-2 border-t border-white/10">
+          <label className="text-xs font-semibold text-slate-300 uppercase tracking-wider">
+            Parallel Workers & Self-Healing
+          </label>
+
+          <div className="grid grid-cols-2 gap-4">
+            {/* Concurrency Slider */}
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-semibold text-slate-300">Concurrent Workers</label>
+                <span className="text-xs font-mono text-[#2ee8c9] font-bold">{concurrency}</span>
+              </div>
+              <input
+                type="range"
+                min={1}
+                max={10}
+                value={concurrency}
+                onChange={(e) => setConcurrency(Number(e.target.value))}
+                className="w-full h-1.5 rounded-full appearance-none bg-white/10 accent-[#2ee8c9] cursor-pointer"
+              />
+              <div className="flex justify-between text-[9px] text-slate-500">
+                <span>1 (Sequential)</span>
+                <span>5 (Balanced)</span>
+                <span>10 (Max)</span>
+              </div>
+            </div>
+
+            {/* Stagger Delay */}
+            <div className="space-y-1.5">
+              <label className="text-xs font-semibold text-slate-300">Stagger Delay</label>
+              <select
+                value={staggerDelay}
+                onChange={(e) => setStaggerDelay(Number(e.target.value))}
+                className="w-full px-3 py-2 rounded-xl bg-[#060a10] border border-white/15 text-slate-200 text-xs focus:outline-none focus:border-[#2ee8c9]"
+              >
+                <option value={0.5}>0.5s (Recommended)</option>
+                <option value={1}>1s (Conservative)</option>
+                <option value={2}>2s (Slow / rate-limit recovery)</option>
+              </select>
+            </div>
+          </div>
+
+          {/* Self-Healing Toggle */}
+          <div className="flex items-center justify-between p-3 rounded-xl bg-[#060a10] border border-white/10">
+            <div>
+              <div className="text-xs font-bold text-slate-200 flex items-center gap-1.5">
+                🔧 Self-Healing Code Fix
+              </div>
+              <div className="text-[10px] text-slate-500 mt-0.5">
+                After each batch, Qwen analyzes failures and auto-patches the executor code
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setSelfHealingEnabled(!selfHealingEnabled)}
+              className={`relative w-10 h-5 rounded-full transition-colors cursor-pointer ${
+                selfHealingEnabled ? "bg-[#2ee8c9]" : "bg-white/20"
+              }`}
+            >
+              <span
+                className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${
+                  selfHealingEnabled ? "translate-x-5" : "translate-x-0.5"
+                }`}
+              />
+            </button>
+          </div>
         </div>
 
         {/* Action Buttons */}

@@ -210,7 +210,7 @@ async def resolve_application_question(
             "level": 2,
         }
 
-    # Level 3: Grounded Agent Answer Generator
+    # Level 3: Grounded Agent Answer Generator with Strict Confidence Gating (>= 0.90)
     l3 = await resolve_level_3_llm(
         question_text=question_text,
         options=options,
@@ -219,17 +219,35 @@ async def resolve_application_question(
         role=role,
         resume_text=resume_text,
     )
-    if l3.get("supported") and l3.get("confidence", 0.0) >= 0.75 and not l3.get("needsUserInput") and l3.get("answer"):
+    conf = float(l3.get("confidence", 0.0) or 0.0)
+    ans = str(l3.get("answer") or "").strip()
+
+    if l3.get("supported") and conf >= 0.90 and not l3.get("needsUserInput") and ans:
         l3["level"] = 3
+        # Auto-Learn: Persist high-confidence answer to Answer Library so future queries are 100% deterministic (<1ms)
+        try:
+            from app.db.store import session_scope
+            from app.services.application_assistant.persistence import upsert_answer
+            with session_scope() as sdb:
+                upsert_answer(sdb, {
+                    "questionVariants": [question_text],
+                    "value": ans,
+                    "canonicalKey": canonical_key or "",
+                    "source": "qwen_auto_learned",
+                    "confidence": conf,
+                })
+        except Exception:
+            pass
+
         return l3
 
-    # Level 4: Stage for user review
+    # Level 4: Stage for user review when confidence is below 90%
     return {
-        "answer": l3.get("answer", ""),
-        "confidence": l3.get("confidence", 0.0),
+        "answer": ans,
+        "confidence": conf,
         "supported": False,
         "source": l3.get("source", []),
-        "reason": l3.get("reason") or "Question requires candidate review in Review Center",
+        "reason": l3.get("reason") or f"Confidence ({conf:.2f}) below 0.90 threshold — staged for candidate input",
         "needsUserInput": True,
         "level": 4,
     }

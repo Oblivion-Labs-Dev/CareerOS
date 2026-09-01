@@ -257,6 +257,15 @@ CANONICAL_PATTERNS: dict[str, list[str]] = {
     "school": [r"school", r"university", r"college", r"institution", r"education"],
     "degree": [r"degree", r"level\s*of\s*education", r"highest\s*degree"],
     "discipline": [r"major", r"discipline", r"field\s*of\s*study"],
+    "relocate": [r"relocate", r"willing\s*to\s*relocate", r"open\s*to\s*relocat"],
+    "exportControl": [r"export\s*control", r"itar", r"\bear\b", r"u\.s\.\s*person", r"export\s*administration"],
+    "clearanceEligibility": [r"clearance\s*eligib", r"eligibility\s*to\s*obtain.*clearance", r"able\s*to\s*obtain.*security\s*clearance"],
+    "clearanceLevel": [r"clearance\s*level", r"security\s*clearance\s*held", r"current.*security\s*clearance", r"highest.*clearance"],
+    "companyHistory": [r"previously\s*employed", r"have\s*you\s*ever\s*worked\s*(at|for)", r"former\s*employee", r"conflict\s*of\s*interest", r"relative.*employed"],
+    "englishProficiency": [r"english\s*proficiency", r"english\s*language", r"fluent\s*in\s*english"],
+    "gpa": [r"\bgpa\b", r"grade\s*point\s*average"],
+    "transcript": [r"transcript", r"unofficial\s*transcript"],
+    "referralSource": [r"how\s*did\s*you\s*hear", r"source", r"how\s*did\s*you\s*find\s*us"],
 }
 
 
@@ -494,6 +503,77 @@ def extract_canonical_value(
             if matched:
                 return matched, "Matched degree option"
         return deg or "Bachelor's Degree", "Candidate degree"
+
+    if key == "relocate":
+        rel = profile.get("relocate", "Yes")
+        if options:
+            matched = pick_best_matching_option(options, str(rel))
+            if matched:
+                return matched, "Matched relocation option"
+        return "Yes", "Relocation preference"
+
+    if key == "exportControl":
+        val = "U.S. Citizen / Lawful Permanent Resident"
+        if options:
+            matched = pick_best_matching_option(options, "U.S. Citizen") or pick_best_matching_option(options, "A person lawful") or pick_best_matching_option(options, "Yes")
+            if matched:
+                return matched, "Matched export control option"
+        return val, "Export control authorization"
+
+    if key == "clearanceEligibility":
+        if options:
+            matched = pick_best_matching_option(options, "Yes, I am eligible") or pick_best_matching_option(options, "Yes")
+            if matched:
+                return matched, "Matched clearance eligibility"
+        return "Yes", "Clearance eligibility default"
+
+    if key == "clearanceLevel":
+        cl = profile.get("clearanceLevel") or "None"
+        if options:
+            matched = pick_best_matching_option(options, cl) or pick_best_matching_option(options, "None")
+            if matched:
+                return matched, "Matched clearance level"
+        return cl, "Candidate clearance level"
+
+    if key == "companyHistory":
+        val = "No"
+        if options:
+            matched = pick_best_matching_option(options, "No")
+            if matched:
+                return matched, "Matched employment history option"
+        return val, "Prior company affiliation default"
+
+    if key == "englishProficiency":
+        val = "Fluent"
+        if options:
+            matched = pick_best_matching_option(options, "Fluent") or pick_best_matching_option(options, "Professional") or pick_best_matching_option(options, "Native")
+            if matched:
+                return matched, "Matched English proficiency option"
+        return val, "English proficiency default"
+
+    if key == "gpa":
+        val = str(profile.get("gpa") or "3.5")
+        if options:
+            matched = pick_best_matching_option(options, val) or pick_best_matching_option(options, "3.5") or pick_best_matching_option(options, "3.0")
+            if matched:
+                return matched, "Matched GPA option"
+        return val, "Candidate GPA"
+
+    if key == "transcript":
+        val = "Yes"
+        if options:
+            matched = pick_best_matching_option(options, "Yes") or pick_best_matching_option(options, "Official") or pick_best_matching_option(options, "Unofficial")
+            if matched:
+                return matched, "Transcript option default"
+        return val, "Transcript default"
+
+    if key == "referralSource":
+        val = "LinkedIn"
+        if options:
+            matched = pick_best_matching_option(options, "LinkedIn") or pick_best_matching_option(options, "Job Board") or pick_best_matching_option(options, "Other")
+            if matched:
+                return matched, "Matched referral source option"
+        return val, "Referral source default"
 
     return None, ""
 

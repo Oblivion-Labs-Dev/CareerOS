@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import os
 import sys
 import traceback
 from pathlib import Path
@@ -85,10 +86,51 @@ def favicon() -> Response:
     return Response(status_code=204)
 
 
+def _ensure_ollama_started_background() -> None:
+    """Check if Ollama is running and start it in background if not already alive."""
+    import shutil
+    import subprocess
+    import urllib.request
+
+    try:
+        req = urllib.request.Request("http://127.0.0.1:11434/api/tags", headers={"User-Agent": "CareerOS"})
+        with urllib.request.urlopen(req, timeout=1.5) as resp:
+            if resp.status == 200:
+                logger.info("Ollama is already running and reachable at http://127.0.0.1:11434")
+                return
+    except Exception:
+        pass
+
+    ollama_path = shutil.which("ollama")
+    if not ollama_path:
+        candidate = Path(os.environ.get("LOCALAPPDATA", "")) / "Programs" / "Ollama" / "ollama.exe"
+        if candidate.is_file():
+            ollama_path = str(candidate)
+
+    if ollama_path:
+        try:
+            flags = 0
+            if sys.platform == "win32":
+                flags = subprocess.CREATE_NO_WINDOW | getattr(subprocess, "DETACHED_PROCESS", 0x00000008)
+            subprocess.Popen(
+                [ollama_path, "serve"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                creationflags=flags,
+                close_fds=True,
+            )
+            logger.info("Automatically launched Ollama serve (%s) in background.", ollama_path)
+        except Exception as ex:
+            logger.warning("Attempted to start Ollama in background but encountered: %s", ex)
+    else:
+        logger.info("Ollama executable not detected on PATH or default location.")
+
+
 @app.on_event("startup")
 def on_startup() -> None:
     init_db()
     seed_error_fix_history_if_empty()
     reconcile_error_history_on_startup()
+    _ensure_ollama_started_background()
     logger.info("CareerOS API started and local file logging initialized.")
 

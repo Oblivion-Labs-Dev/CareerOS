@@ -3,32 +3,41 @@
 import { Suspense, useEffect, useState } from "react";
 import { ApplicationAssistantDashboard } from "@/components/application-assistant/application-assistant-dashboard";
 import { AutopilotDashboard } from "@/components/application-assistant/autopilot-dashboard";
+import { FailedJobsCenter } from "@/components/application-assistant/failed-jobs-center";
 import { ReviewCenter } from "@/components/application-assistant/review-center";
 import { SubmittedJobsCenter } from "@/components/application-assistant/submitted-jobs-center";
 import { getAutopilotJobs, getAutopilotStatus, getStagedApplications } from "@/lib/application-assistant-api";
-import { IconBolt, IconClock, IconInbox, IconSend } from "@/components/application-assistant/autopilot/icons";
+import { IconAlertCircle, IconBolt, IconClock, IconInbox, IconSend } from "@/components/application-assistant/autopilot/icons";
 
 function ApplicationQueueLoading() {
   return (
-    <div className="p-16 text-center" role="status" aria-label="Loading applications">
-      <div className="inline-block w-8 h-8 rounded-full border-2 border-[#2ee8c9] border-t-transparent animate-spin mb-3" />
-      <p className="text-xs text-slate-400 font-mono">Loading Autopilot Control Center…</p>
+    <div className="flex min-h-[360px] flex-col items-center justify-center p-16 text-center" role="status" aria-label="Loading applications">
+      <div className="relative mb-5 flex h-16 w-16 items-center justify-center">
+        <span className="absolute inset-0 rounded-full border border-cyan-300/20" />
+        <span className="absolute inset-2 rounded-full border border-cyan-300/40 border-t-cyan-200 animate-spin" />
+        <span className="absolute inset-5 rounded-full bg-cyan-300/10 shadow-[0_0_24px_rgba(103,232,249,0.22)] animate-pulse" />
+        <span className="relative h-2.5 w-2.5 rounded-full bg-cyan-200 shadow-[0_0_14px_rgba(103,232,249,0.9)]" />
+      </div>
+      <p className="text-xs font-semibold tracking-[0.14em] text-slate-300 uppercase">Preparing your workspace</p>
+      <p className="mt-2 text-xs text-slate-500">Syncing the latest application activity.</p>
     </div>
   );
 }
 
 export default function ApplicationsPage() {
-  const [activeTab, setActiveTab] = useState<"autopilot" | "submitted" | "review" | "tracker">("autopilot");
+  const [activeTab, setActiveTab] = useState<"autopilot" | "submitted" | "review" | "failed" | "tracker">("autopilot");
   const [reviewCount, setReviewCount] = useState<number>(0);
   const [submittedCount, setSubmittedCount] = useState<number>(0);
+  const [failedCount, setFailedCount] = useState<number>(0);
   const [isRunning, setIsRunning] = useState<boolean>(false);
 
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const [stagedRes, submittedRes, statusRes] = await Promise.all([
+        const [stagedRes, submittedRes, failedRes, statusRes] = await Promise.all([
           getStagedApplications().catch(() => []),
           getAutopilotJobs("SUBMITTED").catch(() => ({ jobs: [] })),
+          getAutopilotJobs("FAILED").catch(() => ({ jobs: [] })),
           getAutopilotStatus().catch(() => null),
         ]);
 
@@ -40,6 +49,9 @@ export default function ApplicationsPage() {
 
         if (submittedRes?.jobs && Array.isArray(submittedRes.jobs)) {
           setSubmittedCount(submittedRes.jobs.length);
+        }
+        if (failedRes?.jobs && Array.isArray(failedRes.jobs)) {
+          setFailedCount(failedRes.jobs.length);
         }
 
         if (statusRes?.running || statusRes?.status === "RUNNING" || statusRes?.status === "RECOVERING") {
@@ -141,7 +153,27 @@ export default function ApplicationsPage() {
             )}
           </button>
 
-          {/* 4. All Applications Button (Amber / Gold) */}
+          {/* 4. Failed Applications Button */}
+          <button
+            onClick={() => setActiveTab("failed")}
+            style={{
+              background: activeTab === "failed" ? "#2a0d14" : "#19080c",
+              borderColor: activeTab === "failed" ? "#f43f5e" : "rgba(244, 63, 94, 0.4)",
+              color: "#fb7185",
+              boxShadow: activeTab === "failed" ? "0 0 20px rgba(244, 63, 94, 0.4)" : "none",
+            }}
+            className="px-3.5 py-2 text-xs font-black rounded-xl border transition-all duration-300 flex items-center gap-2 cursor-pointer hover:scale-[1.02] active:scale-[0.98]"
+          >
+            <IconAlertCircle className="w-4 h-4 text-[#fb7185]" />
+            <span>Failed</span>
+            {failedCount > 0 && (
+              <span className="px-1.5 py-0.5 rounded-full text-[10px] font-black bg-rose-500/30 text-rose-300 border border-rose-500/40 shadow-sm">
+                {failedCount}
+              </span>
+            )}
+          </button>
+
+          {/* 5. All Applications Button (Amber / Gold) */}
           <button
             onClick={() => setActiveTab("tracker")}
             style={{
@@ -174,6 +206,12 @@ export default function ApplicationsPage() {
       {activeTab === "review" && (
         <Suspense fallback={<ApplicationQueueLoading />}>
           <ReviewCenter />
+        </Suspense>
+      )}
+
+      {activeTab === "failed" && (
+        <Suspense fallback={<ApplicationQueueLoading />}>
+          <FailedJobsCenter onReprocessSuccess={() => setActiveTab("autopilot")} />
         </Suspense>
       )}
 

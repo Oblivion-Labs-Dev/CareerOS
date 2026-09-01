@@ -95,14 +95,73 @@ def evaluate_hard_filters(
         except Exception:
             pass
 
-    # 3. Employment Type & Location Constraints
+    # 3. Role Title Filter (Software Engineering Roles Only)
+    title_lower = title.lower()
+    swe_keywords = [
+        "software engineer",
+        "software developer",
+        "full stack",
+        "fullstack",
+        "backend",
+        "back end",
+        "frontend",
+        "front end",
+        "platform engineer",
+        "systems engineer",
+        "infrastructure engineer",
+        "distributed systems",
+        "devops",
+        "site reliability",
+        "sre",
+        "applications engineer",
+        "application engineer",
+        "swe",
+    ]
+    is_swe_role = any(kw in title_lower for kw in swe_keywords)
+    if not is_swe_role:
+        return False, f"Role '{title}' is not a Software Engineering role"
+
+    # 4. Location Filter (United States Positions Only)
+    job_loc = (job.get("location") or "").lower()
+    job_wp = (job.get("workplaceType") or "").lower()
+    
+    # Check for international non-US countries / locations to exclude
+    non_us_indicators = [
+        "poland", "warsaw", "krakow", "uk", "united kingdom", "london",
+        "canada", "toronto", "vancouver", "germany", "berlin", "munich",
+        "india", "bangalore", "hyderabad", "france", "paris", "brazil",
+        "australia", "sydney", "singapore", "ireland", "dublin", "japan",
+        "tokyo", "china", "emea", "apac", "latam", "mexico", "netherlands",
+        "amsterdam", "spain", "madrid", "barcelona", "sweden", "stockholm",
+    ]
+    if any(country in job_loc or country in title_lower for country in non_us_indicators):
+        return False, f"Location '{job.get('location')}' is outside the United States"
+
+    # Require explicit US indicators or US state/remote patterns if location is present
+    us_indicators = [
+        "united states", "usa", "u.s.", "remote - us", "remote (us", "us remote",
+        ", us", ", usa", "al", "ak", "az", "ar", "ca", "co", "ct", "de", "fl",
+        "ga", "hi", "id", "il", "in", "ia", "ks", "ky", "la", "me", "md", "ma",
+        "mi", "mn", "ms", "mo", "mt", "ne", "nv", "nh", "nj", "nm", "ny", "nc",
+        "nd", "oh", "ok", "or", "pa", "ri", "sc", "sd", "tn", "tx", "ut", "vt",
+        "va", "wa", "wv", "wi", "wy", "washington", "california", "new york",
+        "texas", "massachusetts", "colorado", "seattle", "austin", "san francisco",
+        "boston", "los angeles", "chicago", "new york city"
+    ]
+    if job_loc:
+        has_us_marker = any(ind in job_loc for ind in us_indicators)
+        # If it's a generic "remote" with no non-US markers, allow US remote
+        if not has_us_marker and "remote" in job_loc:
+            has_us_marker = True
+        if not has_us_marker:
+            return False, f"Location '{job.get('location')}' does not match United States criteria"
+
+    # 5. Employment Type Constraints
     job_emp = (job.get("employmentType") or "").lower()
     pref_emp = (profile.get("preferredEmploymentType") or "").lower()
     if pref_emp and job_emp and pref_emp not in job_emp and "full" in pref_emp and "part" in job_emp:
         return False, f"Employment type mismatch: job is {job_emp}, preferred is {pref_emp}"
 
-    job_loc = (job.get("location") or "").lower()
-    job_wp = (job.get("workplaceType") or "").lower()
     profile_loc = (profile.get("location") or "").lower()
     remote_pref = profile.get("remoteOnly", False)
 

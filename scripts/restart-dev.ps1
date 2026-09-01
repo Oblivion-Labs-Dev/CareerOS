@@ -95,6 +95,46 @@ function Test-OllamaRunning([string]$BaseUrl) {
     }
 }
 
+function Start-OllamaIfNeeded([string]$BaseUrl) {
+    if (Test-OllamaRunning $BaseUrl) {
+        Write-Host '  Ollama: already running and reachable' -ForegroundColor DarkGreen
+        return $true
+    }
+
+    Write-Step 'Starting Ollama service...'
+    $ollamaCmd = Get-Command ollama -ErrorAction SilentlyContinue
+    $ollamaPath = $null
+    if ($ollamaCmd) {
+        $ollamaPath = $ollamaCmd.Source
+    } else {
+        $candidate = "$env:LOCALAPPDATA\Programs\Ollama\ollama.exe"
+        if (Test-Path $candidate) {
+            $ollamaPath = $candidate
+        }
+    }
+
+    if ($ollamaPath) {
+        try {
+            Start-Process -FilePath $ollamaPath -ArgumentList 'serve' -WindowStyle Hidden
+            Write-Host ('  Launched Ollama serve (' + $ollamaPath + ')') -ForegroundColor DarkGreen
+            $deadline = (Get-Date).AddSeconds(15)
+            while ((Get-Date) -lt $deadline) {
+                if (Test-OllamaRunning $BaseUrl) {
+                    Write-Host '  Ollama is ready!' -ForegroundColor DarkGreen
+                    return $true
+                }
+                Start-Sleep -Milliseconds 600
+            }
+            Write-Warning '  Ollama started but taking longer than 15s to respond.'
+        } catch {
+            Write-Warning ('  Failed to start Ollama automatically: ' + $_.Exception.Message)
+        }
+    } else {
+        Write-Warning '  Ollama executable not found on PATH or default location. Please install Ollama.'
+    }
+    return $false
+}
+
 function Wait-HttpOk([string]$Url, [int]$TimeoutSec = 60) {
     $deadline = (Get-Date).AddSeconds($TimeoutSec)
     while ((Get-Date) -lt $deadline) {
@@ -191,11 +231,7 @@ Write-Host ('  Web:  ' + $webUrl)
 Write-Host ('  LLM:  ' + $env:APPLICATION_ASSISTANT_LLM_BASE_URL + ' (' + $env:APPLICATION_ASSISTANT_LLM_MODEL + ')')
 
 if (-not $SkipOllamaCheck) {
-    if (Test-OllamaRunning $env:APPLICATION_ASSISTANT_LLM_BASE_URL) {
-        Write-Host '  Ollama: reachable' -ForegroundColor DarkGreen
-    } else {
-        Write-Warning ('  Ollama not reachable at ' + $env:APPLICATION_ASSISTANT_LLM_BASE_URL + ' - start Ollama for Qwen prep')
-    }
+    Start-OllamaIfNeeded $env:APPLICATION_ASSISTANT_LLM_BASE_URL | Out-Null
 }
 
 Set-Location $RepoRoot

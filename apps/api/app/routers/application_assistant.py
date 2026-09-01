@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Query
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -1205,7 +1207,7 @@ async def start_autopilot(
 ) -> dict[str, Any]:
     from app.services.application_assistant.autopilot_runner import AutopilotRunner
     runner = AutopilotRunner.get_instance()
-    run = await runner.start(db, options)
+    run = await runner.start(options=options)
     return {"success": True, "run": run}
 
 
@@ -1238,6 +1240,111 @@ def get_autopilot_status(
     return runner.get_status(db)
 
 
+@router.get("/autopilot/events")
+async def autopilot_events_sse(
+    request: Request,
+) -> StreamingResponse:
+    """Server-Sent Events (SSE) push stream for live dashboard logs and worker updates."""
+    import asyncio
+    from app.services.application_assistant.autopilot_runner import AutopilotRunner
+    from app.db.store import session_scope
+
+    runner = AutopilotRunner.get_instance()
+    queue = runner.subscribe_events()
+
+    async def event_generator():
+        # Send initial status snapshot immediately on connect
+        try:
+            with session_scope() as db:
+                initial_status = runner.get_status(db)
+            yield f"event: status\ndata: {json.dumps(initial_status)}\n\n"
+        except Exception:
+            pass
+
+        try:
+            while True:
+                if await request.is_disconnected():
+                    break
+                try:
+                    # Wait up to 15s for push event or send keep-alive heartbeat
+                    msg = await asyncio.wait_for(queue.get(), timeout=12.0)
+                    evt_type = msg.get("event", "message")
+                    evt_data = json.dumps(msg.get("data", {}))
+                    yield f"event: {evt_type}\ndata: {evt_data}\n\n"
+                except asyncio.TimeoutError:
+                    # Heartbeat comment to keep SSE connection alive
+                    yield ": ping\n\n"
+        finally:
+            runner.unsubscribe_events(queue)
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+@router.get("/autopilot/workers")
+def get_autopilot_workers() -> dict[str, Any]:
+    """Return live per-worker status for each concurrency slot."""
+    from app.services.application_assistant.autopilot_runner import AutopilotRunner
+    runner = AutopilotRunner.get_instance()
+    workers = [ws.to_dict() for ws in runner.worker_states.values()]
+    active_count = sum(1 for ws in runner.worker_states.values() if ws.status not in ("idle", "done"))
+    return {
+        "success": True,
+        "workers": workers,
+        "concurrency": runner.concurrency,
+        "activeWorkers": active_count,
+        "concurrencyMetrics": runner.metrics.to_dict(active_count, runner.concurrency),
+    }
+
+
+@router.post("/autopilot/self-heal")
+async def trigger_self_heal() -> dict[str, Any]:
+    """Manually trigger a self-healing cycle for all currently failed autopilot jobs."""
+    from app.services.application_assistant.autopilot_runner import AutopilotRunner
+    from app.services.application_assistant.autopilot_self_healer import run_self_healing_cycle
+    from app.services.application_assistant.persistence import list_autopilot_jobs
+
+    runner = AutopilotRunner.get_instance()
+    failed_jobs: list[dict[str, Any]] = []
+    with session_scope() as db:
+        all_jobs = list_autopilot_jobs(db)
+        failed_jobs = [j for j in all_jobs if j.get("status") in ("FAILED", "ERROR")]
+
+    if not failed_jobs:
+        return {"success": True, "message": "No failed jobs to heal", "patchesApplied": 0}
+
+    result = await run_self_healing_cycle(
+        failed_jobs=failed_jobs,
+        log_event_fn=runner.log_event,
+    )
+
+    # If patches were applied, restart the autopilot to process re-queued jobs
+    if result.get("patchesApplied", 0) > 0:
+        run = await runner.start(options={"targetProcessCount": len(failed_jobs)})
+        result["autopilotRestarted"] = True
+        result["run"] = run
+
+    return {"success": True, **result}
+
+
+@router.get("/autopilot/self-healing-log")
+def get_self_healing_log() -> dict[str, Any]:
+    """Return the full patch history from self-healing cycles."""
+    from app.services.application_assistant.autopilot_self_healer import get_self_healing_state
+    state = get_self_healing_state()
+    return {
+        "success": True,
+        **state.to_dict(),
+    }
+
+
 @router.get("/autopilot/jobs")
 def get_autopilot_jobs_list(
     status: str | None = Query(default=None),
@@ -1246,6 +1353,20 @@ def get_autopilot_jobs_list(
     from app.services.application_assistant.persistence import list_autopilot_jobs
     jobs = list_autopilot_jobs(db, status=status)
     return {"success": True, "jobs": jobs, "count": len(jobs)}
+
+
+@router.delete("/autopilot/jobs/{job_id}")
+def delete_autopilot_job_endpoint(
+    job_id: str,
+    db: Session = Depends(db_session),
+) -> dict[str, Any]:
+    """Delete a specific application job from processing/queue."""
+    from app.services.application_assistant.persistence import delete_autopilot_job, get_autopilot_job
+    existing = get_autopilot_job(db, job_id)
+    if not existing:
+        raise HTTPException(status_code=404, detail="Job application not found")
+    delete_autopilot_job(db, job_id)
+    return {"success": True, "deletedId": job_id, "message": f"Successfully removed job application '{existing.get('title')}'"}
 
 
 @router.get("/autopilot/staged")
@@ -1362,20 +1483,193 @@ def reset_submitted_autopilot_jobs(
     return {"success": True, "resetCount": reset_count, "message": f"Successfully reset {reset_count} job(s) to unapplied"}
 
 
+@router.post("/autopilot/reprocess-failed")
+async def reprocess_failed_autopilot_jobs() -> dict[str, Any]:
+    """Re-queue all failed/staged applications for self-healing reprocessing and launch Autopilot."""
+    from app.services.application_assistant.persistence import list_autopilot_jobs, save_autopilot_job
+    from app.services.application_assistant.autopilot_runner import AutopilotRunner
+    from app.db.store import session_scope, now_iso
+
+    reprocessed_count = 0
+    with session_scope() as db:
+        jobs = list_autopilot_jobs(db)
+        for j in jobs:
+            if j.get("status") in ("FAILED", "ERROR", "STAGED", "VALIDATION_FAILED"):
+                j["status"] = "QUEUED"
+                j["lastError"] = None
+                j["lastErrorType"] = None
+                j["attemptCount"] = 0
+                j["lockedBy"] = None
+                j["lockedAt"] = None
+                j["lockExpiresAt"] = None
+                j["queuedAt"] = now_iso()
+                save_autopilot_job(db, j)
+                reprocessed_count += 1
+
+    runner = AutopilotRunner.get_instance()
+    run = await runner.start(options={"targetProcessCount": max(5, reprocessed_count)})
+    return {
+        "success": True,
+        "reprocessedCount": reprocessed_count,
+        "message": f"Queued {reprocessed_count} failed application(s) for self-healing reprocessing.",
+        "run": run,
+    }
+
+
+@router.post("/autopilot/jobs/{id}/reprocess")
+async def reprocess_single_autopilot_job(id: str) -> dict[str, Any]:
+    """Re-queue a specific job for immediate self-healing reprocessing."""
+    from app.services.application_assistant.persistence import get_autopilot_job, save_autopilot_job
+    from app.services.application_assistant.autopilot_runner import AutopilotRunner
+    from app.db.store import session_scope, now_iso
+
+    job_title = ""
+    with session_scope() as db:
+        job = get_autopilot_job(db, id)
+        if not job:
+            raise HTTPException(status_code=404, detail="Job not found")
+
+        job_title = job.get("title", "Job")
+        job["status"] = "QUEUED"
+        job["lastError"] = None
+        job["lastErrorType"] = None
+        job["attemptCount"] = 0
+        job["lockedBy"] = None
+        job["lockedAt"] = None
+        job["lockExpiresAt"] = None
+        job["queuedAt"] = now_iso()
+        save_autopilot_job(db, job)
+
+    runner = AutopilotRunner.get_instance()
+    run = await runner.start(options={"targetProcessCount": 1})
+    return {
+        "success": True,
+        "id": id,
+        "message": f"Queued '{job_title}' for self-healing reprocessing.",
+        "run": run,
+    }
+
+
 @router.post("/autopilot/jobs/{id}/reset")
-def reset_single_autopilot_job(
+def reset_single_autopilot_job_endpoint(id: str) -> dict[str, Any]:
+    """Reset a single autopilot job back to unapplied state by removing it from the autopilot entity list."""
+    from app.services.application_assistant.persistence import get_autopilot_job, delete_autopilot_job
+    from app.db.store import session_scope
+
+    with session_scope() as db:
+        job = get_autopilot_job(db, id)
+        if not job:
+            raise HTTPException(status_code=404, detail="Job not found in autopilot list")
+        job_title = job.get("title", "Job")
+        delete_autopilot_job(db, id)
+
+    return {
+        "success": True,
+        "id": id,
+        "message": f"Successfully reset '{job_title}' to unapplied.",
+    }
+
+
+# ─── TSENTA SUITE: VISUAL DIFFS, PRE-FLIGHT APPROVAL, RECEIPTS & EMAIL SYNC ───
+
+@router.get("/jobs/{id}/tailor-diff")
+async def get_job_tailor_diff(
     id: str,
     db: Session = Depends(db_session),
 ) -> dict[str, Any]:
-    """Reset a single autopilot job record back to UNAPPLIED."""
-    from app.services.application_assistant.persistence import delete_autopilot_job, get_autopilot_job
+    """Generate or retrieve role-tailored materials with full visual diff chunks."""
+    from app.services.application_assistant.persistence import get_autopilot_job
+    from app.services.application_assistant.resume_diff_service import generate_role_tailoring_diff
+    from app.db.store import get_kv
 
     job = get_autopilot_job(db, id)
     if not job:
-        raise HTTPException(status_code=404, detail="Autopilot job record not found")
+        # Fallback: check job search table or mock job item
+        queue = get_kv(db, "autopilot_job_queue") or []
+        for q in queue:
+            if isinstance(q, dict) and q.get("id") == id:
+                job = q
+                break
 
-    delete_autopilot_job(db, id)
-    return {"success": True, "id": id, "message": "Job successfully reset to unapplied"}
+    if not job:
+        job = {"id": id, "title": "Software Engineer", "company": "Target Company"}
+
+    profile = get_kv(db, "profile") or {}
+    master_resume = get_kv(db, "resume_corpus_master") or {}
+
+    diff_data = await generate_role_tailoring_diff(job, profile, master_resume)
+    return {"success": True, "diff": diff_data}
+
+
+@router.post("/jobs/{id}/preflight-approve")
+async def approve_preflight_submission(
+    id: str,
+    payload: dict[str, Any] = Body(default_factory=dict),
+    db: Session = Depends(db_session),
+) -> dict[str, Any]:
+    """Approve pre-flight tailored materials and enqueue job for cloud submission."""
+    from app.services.application_assistant.persistence import get_autopilot_job, save_autopilot_job
+    from app.services.application_assistant.autopilot_runner import AutopilotRunner
+    from app.db.store import now_iso
+
+    job = get_autopilot_job(db, id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Application not found")
+
+    job["status"] = "QUEUED"
+    job["preflightApproved"] = True
+    job["preflightApprovedAt"] = now_iso()
+    if payload.get("customAnswers"):
+        job["customAnswers"] = payload["customAnswers"]
+    save_autopilot_job(db, job)
+
+    runner = AutopilotRunner.get_instance()
+    run = await runner.start(options={"targetProcessCount": 1})
+    return {
+        "success": True,
+        "message": f"Pre-flight approved for {job.get('company')} — cloud submission initiated.",
+        "job": job,
+        "run": run,
+    }
+
+
+@router.get("/receipts/{id}")
+def get_receipt_endpoint(id: str) -> dict[str, Any]:
+    """Fetch an archived submission receipt by jobId or receiptId."""
+    from app.services.application_assistant.submission_receipt_service import get_submission_receipt
+
+    receipt = get_submission_receipt(id)
+    if not receipt:
+        raise HTTPException(status_code=404, detail="Submission receipt not found")
+    return {"success": True, "receipt": receipt}
+
+
+@router.get("/receipts")
+def list_receipts_endpoint() -> dict[str, Any]:
+    """List all archived submission receipts."""
+    from app.services.application_assistant.submission_receipt_service import list_all_submission_receipts
+
+    receipts = list_all_submission_receipts()
+    return {"success": True, "receipts": receipts, "total": len(receipts)}
+
+
+@router.post("/email-sync")
+def email_sync_webhook(
+    payload: dict[str, Any] = Body(...),
+) -> dict[str, Any]:
+    """Inbound email sync webhook to parse recruiter responses and update job status."""
+    from app.services.application_assistant.inbound_email_tracker import process_inbound_email
+
+    sender = payload.get("sender") or payload.get("from") or "recruiter@company.com"
+    subject = payload.get("subject") or "Application Update"
+    body = payload.get("body") or payload.get("text") or ""
+    received_at = payload.get("receivedAt") or payload.get("date")
+
+    record = process_inbound_email(sender, subject, body, received_at)
+    return {"success": True, "record": record}
+
+
+
 
 
 

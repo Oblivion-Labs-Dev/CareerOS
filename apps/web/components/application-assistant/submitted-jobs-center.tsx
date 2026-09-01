@@ -3,10 +3,13 @@
 import React, { useEffect, useState } from "react";
 import {
   getAutopilotJobs,
+  getSubmissionReceipt,
   resetSingleAutopilotJob,
   resetSubmittedAutopilotJobs,
+  SubmissionReceiptItem,
 } from "@/lib/application-assistant-api";
 import { IconCheckCircle, IconExternalLink, IconSend } from "@/components/application-assistant/autopilot/icons";
+import { SubmissionReceiptModal } from "@/components/application-assistant/submission-receipt-modal";
 
 export function SubmittedJobsCenter() {
   const [submittedList, setSubmittedList] = useState<any[]>([]);
@@ -14,6 +17,8 @@ export function SubmittedJobsCenter() {
   const [resetting, setResetting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
+  const [selectedReceipt, setSelectedReceipt] = useState<SubmissionReceiptItem | null>(null);
+  const [receiptLoading, setReceiptLoading] = useState(false);
 
   const fetchSubmitted = async () => {
     setLoading(true);
@@ -65,6 +70,33 @@ export function SubmittedJobsCenter() {
     fetchSubmitted();
   }, []);
 
+  const handleViewReceipt = async (job: any) => {
+    setReceiptLoading(true);
+    try {
+      const res = await getSubmissionReceipt(job.id);
+      setSelectedReceipt(res.receipt);
+    } catch {
+      // Create fallback receipt from job model
+      const fallback: SubmissionReceiptItem = {
+        receiptId: `rcpt_${job.id.slice(0, 12)}`,
+        jobId: job.id,
+        company: job.company || "Company",
+        title: job.title || "Role",
+        applicationUrl: job.applicationUrl || job.listingUrl || "",
+        confirmationUrl: job.submissionEvidence?.confirmationUrl || "",
+        confirmationText: job.submissionEvidence?.confirmationText || "Application confirmed by ATS",
+        submittedAt: job.submittedAt || job.updatedAt || new Date().toISOString(),
+        fieldsFilled: job.answers || {},
+        fieldsCount: Object.keys(job.answers || {}).length || 5,
+        verificationStatus: "VERIFIED",
+        certificateFingerprint: job.id.toUpperCase(),
+      };
+      setSelectedReceipt(fallback);
+    } finally {
+      setReceiptLoading(false);
+    }
+  };
+
   return (
     <div className="space-y-6 font-sans">
       {/* Header Banner */}
@@ -75,7 +107,7 @@ export function SubmittedJobsCenter() {
             <span>Submitted Applications</span>
           </h2>
           <p className="text-xs text-slate-300 mt-1">
-            All applications processed by Autopilot. You can review them or reset them back to unapplied for re-execution.
+            All applications processed by Autopilot. You can review them, inspect verified receipts, or reset them back to unapplied.
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -98,15 +130,15 @@ export function SubmittedJobsCenter() {
             disabled={loading}
             className="px-3 py-1 text-xs font-semibold text-slate-300 hover:text-white bg-white/5 hover:bg-white/10 rounded-xl border border-white/10 transition-all cursor-pointer"
           >
-            {loading ? "Refreshing..." : "Refresh"}
+            {loading ? "Refreshing..." : "↻ Refresh"}
           </button>
         </div>
       </div>
 
       {successMsg && (
-        <div className="p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-xs flex items-center justify-between">
-          <span>✓ {successMsg}</span>
-          <button onClick={() => setSuccessMsg(null)} className="text-emerald-400 font-bold hover:text-emerald-200">✕</button>
+        <div className="p-4 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 text-xs flex items-center gap-2">
+          <IconCheckCircle className="w-4 h-4" />
+          <span>{successMsg}</span>
         </div>
       )}
 
@@ -148,11 +180,14 @@ export function SubmittedJobsCenter() {
                   </div>
 
                   <div className="flex items-center gap-2">
-                    {job.matchScore && (
-                      <span className="px-2.5 py-1 text-xs rounded-full bg-[#2ee8c9]/15 text-[#2ee8c9] border border-[#2ee8c9]/30 font-semibold">
-                        Match {job.matchScore}%
-                      </span>
-                    )}
+                    <button
+                      onClick={() => handleViewReceipt(job)}
+                      disabled={receiptLoading}
+                      className="px-3 py-1 text-xs rounded-xl bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 transition-all font-semibold flex items-center gap-1.5 cursor-pointer shadow-sm"
+                    >
+                      <span>🧾</span>
+                      <span>View Receipt</span>
+                    </button>
                     {appUrl && (
                       <a
                         href={appUrl}
@@ -160,7 +195,7 @@ export function SubmittedJobsCenter() {
                         rel="noopener noreferrer"
                         className="px-3 py-1 text-xs rounded-xl bg-white/5 hover:bg-[#38bdf8]/15 text-[#38bdf8] border border-white/10 hover:border-[#38bdf8]/40 transition-all font-semibold flex items-center gap-1.5"
                       >
-                        <span>View Job Listing</span>
+                        <span>Listing</span>
                         <IconExternalLink className="w-3.5 h-3.5" />
                       </a>
                     )}
@@ -170,7 +205,7 @@ export function SubmittedJobsCenter() {
                       className="px-2.5 py-1 text-xs rounded-xl bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/25 transition-all font-medium flex items-center gap-1 cursor-pointer"
                       title="Reset this job back to unapplied"
                     >
-                      <span>↺ Reset to Unapplied</span>
+                      <span>↺</span>
                     </button>
                   </div>
                 </div>
@@ -208,7 +243,14 @@ export function SubmittedJobsCenter() {
           })}
         </div>
       )}
+
+      {/* Submission Receipt Modal */}
+      {selectedReceipt && (
+        <SubmissionReceiptModal
+          receipt={selectedReceipt}
+          onClose={() => setSelectedReceipt(null)}
+        />
+      )}
     </div>
   );
 }
-

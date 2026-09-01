@@ -10,7 +10,28 @@ import {
   IconSend,
   IconX,
 } from "./icons";
-import { getAutopilotJobs } from "@/lib/application-assistant-api";
+import {
+  getAutopilotJobs,
+  reprocessFailedAutopilotJobs,
+  reprocessSingleAutopilotJob,
+} from "@/lib/application-assistant-api";
+
+interface ConcurrencyMetrics {
+  activeWorkers: number;
+  totalWorkers: number;
+  avgJobTimeSec: number;
+  throughputPerMin: number;
+  lockContentionCount: number;
+  selfHealingRoundsCompleted: number;
+}
+
+interface SelfHealingInfo {
+  status: string;
+  currentRound: number;
+  maxRounds: number;
+  lastPatchSummary: string;
+  patchesApplied: number;
+}
 
 interface MetricsRibbonProps {
   submitted: number;
@@ -19,6 +40,8 @@ interface MetricsRibbonProps {
   failed: number;
   queueRemaining: number;
   processedCount: number;
+  concurrencyMetrics?: ConcurrencyMetrics;
+  selfHealing?: SelfHealingInfo;
   onSelectCategory?: (category: "SUBMITTED" | "STAGED" | "SKIPPED" | "FAILED" | "QUEUED") => void;
 }
 
@@ -29,6 +52,8 @@ export function MetricsRibbon({
   failed,
   queueRemaining,
   processedCount,
+  concurrencyMetrics,
+  selfHealing,
   onSelectCategory,
 }: MetricsRibbonProps) {
   const [activeModalCategory, setActiveModalCategory] = useState<string | null>(null);
@@ -226,6 +251,63 @@ export function MetricsRibbon({
         </div>
       </div>
 
+      {/* Concurrency & Self-Healing Metrics Strip */}
+      {concurrencyMetrics && (
+        <div className="grid grid-cols-3 gap-3 mt-3">
+          {/* Active Workers */}
+          <div className="p-3 rounded-xl border border-indigo-500/15 bg-gradient-to-b from-[#0e0f1e] to-[#08091a] flex items-center gap-3">
+            <div className="w-8 h-8 rounded-lg bg-indigo-500/10 border border-indigo-500/25 flex items-center justify-center">
+              <span className="text-indigo-400 text-sm font-black">{concurrencyMetrics.activeWorkers}</span>
+            </div>
+            <div className="min-w-0">
+              <div className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Active Workers</div>
+              <div className="text-xs font-bold text-indigo-300">
+                {concurrencyMetrics.activeWorkers}/{concurrencyMetrics.totalWorkers} slots
+              </div>
+            </div>
+          </div>
+
+          {/* Throughput */}
+          <div className="p-3 rounded-xl border border-teal-500/15 bg-gradient-to-b from-[#0b1518] to-[#070e12] flex items-center gap-3">
+            <div className="w-8 h-8 rounded-lg bg-teal-500/10 border border-teal-500/25 flex items-center justify-center">
+              <span className="text-teal-400 text-sm font-black">⚡</span>
+            </div>
+            <div className="min-w-0">
+              <div className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Throughput</div>
+              <div className="text-xs font-bold text-teal-300">
+                {concurrencyMetrics.throughputPerMin.toFixed(1)} jobs/min
+                <span className="text-[10px] text-slate-500 ml-1">
+                  (avg {concurrencyMetrics.avgJobTimeSec.toFixed(0)}s)
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* Self-Healing */}
+          <div className="p-3 rounded-xl border border-amber-500/15 bg-gradient-to-b from-[#14120e] to-[#0d0c09] flex items-center gap-3">
+            <div className="w-8 h-8 rounded-lg bg-amber-500/10 border border-amber-500/25 flex items-center justify-center">
+              <span className="text-amber-400 text-sm font-black">🔧</span>
+            </div>
+            <div className="min-w-0">
+              <div className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Self-Healing</div>
+              <div className="text-xs font-bold text-amber-300">
+                {selfHealing?.status === "idle" ? (
+                  <>
+                    {selfHealing.patchesApplied > 0
+                      ? `${selfHealing.patchesApplied} patch(es) applied`
+                      : "Standby"}
+                  </>
+                ) : (
+                  <span className="animate-pulse">
+                    {selfHealing?.status}… (Round {selfHealing?.currentRound}/{selfHealing?.maxRounds})
+                  </span>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Detail Drilldown Modal */}
       {activeModalCategory && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fadeIn">
@@ -308,17 +390,38 @@ export function MetricsRibbon({
                           <p className="text-xs text-slate-400 mt-0.5">{job.company}</p>
                         </div>
 
-                        {appUrl && (
-                          <a
-                            href={appUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/5 border border-white/10 text-xs font-semibold text-[#38bdf8] hover:bg-[#38bdf8]/10 hover:border-[#38bdf8]/40 transition-all cursor-pointer"
-                          >
-                            <span>Open Job Link</span>
-                            <IconExternalLink className="w-3.5 h-3.5" />
-                          </a>
-                        )}
+                        <div className="flex items-center gap-2">
+                          {(activeModalCategory === "FAILED" || activeModalCategory === "STAGED") && (
+                            <button
+                              onClick={async () => {
+                                setLoadingModal(true);
+                                try {
+                                  await reprocessSingleAutopilotJob(job.id);
+                                  setActiveModalCategory(null);
+                                  window.location.reload();
+                                } catch (err: any) {
+                                  alert(err?.message || "Failed to reprocess job");
+                                  setLoadingModal(false);
+                                }
+                              }}
+                              disabled={loadingModal}
+                              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 hover:bg-amber-500/20 text-xs font-bold transition-all cursor-pointer shadow-sm"
+                            >
+                              <span>⚡ Reprocess with Self-Healing</span>
+                            </button>
+                          )}
+                          {appUrl && (
+                            <a
+                              href={appUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/5 border border-white/10 text-xs font-semibold text-[#38bdf8] hover:bg-[#38bdf8]/10 hover:border-[#38bdf8]/40 transition-all cursor-pointer"
+                            >
+                              <span>Open Job Link</span>
+                              <IconExternalLink className="w-3.5 h-3.5" />
+                            </a>
+                          )}
+                        </div>
                       </div>
 
                       {/* Timestamps & Evidence Grid */}
@@ -368,7 +471,28 @@ export function MetricsRibbon({
             </div>
 
             {/* Footer */}
-            <div className="pt-2 border-t border-white/10 flex justify-end">
+            <div className="pt-3 border-t border-white/10 flex items-center justify-between">
+              <div>
+                {(activeModalCategory === "FAILED" || activeModalCategory === "STAGED") && modalJobs.length > 0 && (
+                  <button
+                    onClick={async () => {
+                      setLoadingModal(true);
+                      try {
+                        await reprocessFailedAutopilotJobs();
+                        setActiveModalCategory(null);
+                        window.location.reload();
+                      } catch (err: any) {
+                        alert(err?.message || "Failed to reprocess jobs");
+                        setLoadingModal(false);
+                      }
+                    }}
+                    disabled={loadingModal}
+                    className="px-4 py-2 rounded-xl bg-gradient-to-r from-emerald-500 via-teal-500 to-cyan-500 text-slate-950 font-black text-xs shadow-[0_0_15px_rgba(46,232,201,0.4)] hover:shadow-[0_0_20px_rgba(46,232,201,0.6)] hover:scale-[1.02] active:scale-[0.98] transition-all cursor-pointer flex items-center gap-2"
+                  >
+                    <span>⚡ Reprocess All with Self-Healing Loop</span>
+                  </button>
+                )}
+              </div>
               <button
                 onClick={() => setActiveModalCategory(null)}
                 className="px-5 py-2 rounded-xl bg-white/10 hover:bg-white/15 text-xs font-bold text-white transition-all cursor-pointer"

@@ -178,12 +178,53 @@ export async function getAutopilotStatus() {
     activeJob: any;
     queueSize: number;
     recentLogs: Array<{ id: string; timestamp: string; level: string; message: string; metadata?: any }>;
+    workers?: Array<{
+      workerId: string;
+      slot: number;
+      status: string;
+      currentJob: { id: string; company: string; title: string } | null;
+      currentStep: string;
+      startedAt: string;
+      error: string;
+      jobsCompleted: number;
+      jobsFailed: number;
+    }>;
+    concurrency?: number;
+    concurrencyMetrics?: {
+      activeWorkers: number;
+      totalWorkers: number;
+      avgJobTimeSec: number;
+      throughputPerMin: number;
+      lockContentionCount: number;
+      selfHealingRoundsCompleted: number;
+      totalJobsStarted: number;
+      totalJobsFinished: number;
+    };
+    selfHealing?: {
+      status: string;
+      currentRound: number;
+      maxRounds: number;
+      lastPatchSummary: string;
+      patchesApplied: number;
+      lastError: string;
+      patchHistory: any[];
+    };
   }>("/autopilot/status");
+}
+
+export function getAutopilotEventSource(): EventSource {
+  return new EventSource(`${aaBaseUrl()}/application-assistant/autopilot/events`);
 }
 
 export async function getAutopilotJobs(status?: string) {
   const qs = status ? `?status=${status}` : "";
   return aaFetch<{ success: boolean; jobs: any[]; count: number }>(`/autopilot/jobs${qs}`);
+}
+
+export async function deleteAutopilotJob(jobId: string) {
+  return aaFetch<{ success: boolean; deletedId: string; message: string }>(`/autopilot/jobs/${jobId}`, {
+    method: "DELETE",
+  });
 }
 
 export async function getStagedApplications() {
@@ -222,6 +263,64 @@ export async function resetSingleAutopilotJob(id: string) {
   return aaFetch<{ success: boolean; id: string; message: string }>(`/autopilot/jobs/${id}/reset`, {
     method: "POST",
   });
+}
+
+export async function reprocessFailedAutopilotJobs() {
+  return aaFetch<{ success: boolean; reprocessedCount: number; message: string; run?: any }>("/autopilot/reprocess-failed", {
+    method: "POST",
+  });
+}
+
+export async function reprocessSingleAutopilotJob(id: string) {
+  return aaFetch<{ success: boolean; id: string; message: string; run?: any }>(`/autopilot/jobs/${id}/reprocess`, {
+    method: "POST",
+  });
+}
+
+export async function getAutopilotWorkers() {
+  return aaFetch<{
+    success: boolean;
+    workers: Array<{
+      workerId: string;
+      slot: number;
+      status: string;
+      currentJob: { id: string; company: string; title: string } | null;
+      currentStep: string;
+      startedAt: string;
+      error: string;
+      jobsCompleted: number;
+      jobsFailed: number;
+    }>;
+    concurrency: number;
+    activeWorkers: number;
+    concurrencyMetrics: any;
+  }>("/autopilot/workers");
+}
+
+export async function triggerSelfHeal() {
+  return aaFetch<{
+    success: boolean;
+    totalRounds?: number;
+    patchesApplied?: number;
+    lastPatchSummary?: string;
+    rounds?: any[];
+    autopilotRestarted?: boolean;
+    run?: any;
+    message?: string;
+  }>("/autopilot/self-heal", { method: "POST" });
+}
+
+export async function getSelfHealingLog() {
+  return aaFetch<{
+    success: boolean;
+    status: string;
+    currentRound: number;
+    maxRounds: number;
+    lastPatchSummary: string;
+    patchesApplied: number;
+    lastError: string;
+    patchHistory: any[];
+  }>("/autopilot/self-healing-log");
 }
 
 
@@ -579,3 +678,75 @@ export async function submitFieldAnswers(
 export async function listProviders() {
   return aaFetch<{ success: boolean; providers: { name: string; supported: boolean }[] }>("/providers");
 }
+
+// ─── TSENTA SUITE: VISUAL DIFFS, RECEIPTS & PRE-FLIGHT APPROVAL ───
+
+export interface BulletDiffChunk {
+  type: "eq" | "add" | "del";
+  text: string;
+}
+
+export interface BulletDiffItem {
+  index: number;
+  original: string;
+  tailored: string;
+  isModified: boolean;
+  chunks: BulletDiffChunk[];
+}
+
+export interface TailorDiffResponse {
+  jobId: string;
+  company: string;
+  title: string;
+  matchScore: number;
+  salaryRange: string;
+  visaStatus: string;
+  bulletDiffs: BulletDiffItem[];
+  tailoredCoverLetter: string;
+  screeningQAs: { question: string; suggestedAnswer: string; confidence: number }[];
+  totalChanges: number;
+}
+
+export interface SubmissionReceiptItem {
+  receiptId: string;
+  jobId: string;
+  company: string;
+  title: string;
+  applicationUrl: string;
+  confirmationUrl: string;
+  confirmationText: string;
+  submittedAt: string;
+  fieldsFilled: Record<string, string>;
+  fieldsCount: number;
+  presubmitScreenshot?: string;
+  confirmationScreenshot?: string;
+  verificationStatus: string;
+  certificateFingerprint: string;
+}
+
+export async function getJobTailorDiff(jobId: string) {
+  return aaFetch<{ success: boolean; diff: TailorDiffResponse }>(`/jobs/${jobId}/tailor-diff`);
+}
+
+export async function approvePreflightSubmission(jobId: string, customAnswers?: Record<string, string>) {
+  return aaFetch<{ success: boolean; message: string; job: any; run: any }>(`/jobs/${jobId}/preflight-approve`, {
+    method: "POST",
+    body: JSON.stringify({ customAnswers }),
+  });
+}
+
+export async function getSubmissionReceipt(id: string) {
+  return aaFetch<{ success: boolean; receipt: SubmissionReceiptItem }>(`/receipts/${id}`);
+}
+
+export async function listSubmissionReceipts() {
+  return aaFetch<{ success: boolean; receipts: SubmissionReceiptItem[]; total: number }>("/receipts");
+}
+
+export async function syncInboundEmail(payload: { sender: string; subject: string; body: string }) {
+  return aaFetch<{ success: boolean; record: any }>("/email-sync", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
