@@ -49,6 +49,8 @@ class TestScraperImportHelpers:
 class TestScraperImportPersistence:
     def test_import_marks_job_added_to_assistant(self, sample_scraper_job):
         import uuid
+        from datetime import datetime, timezone
+        now_ts = datetime.now(timezone.utc).isoformat()
 
         job = {
             **sample_scraper_job,
@@ -56,12 +58,14 @@ class TestScraperImportPersistence:
             "companyName": "TestCo",
             "url": f"https://job-boards.greenhouse.io/testco/jobs/{uuid.uuid4().hex[:8]}",
             "externalId": uuid.uuid4().hex[:8],
+            "scrapedAt": now_ts,
+            "updatedAt": now_ts,
         }
         aa_id = aa_job_id_for_scraper(job["id"])
 
         with session_scope() as db:
             set_kv(db, "profile", {"headline": "Software Engineer", "skills": ["python"]})
-            jd_store._persist_snapshot(db, {"jobs": [job], "scrapedAt": "2026-01-01T00:00:00Z"})
+            jd_store._persist_snapshot(db, {"jobs": [job], "scrapedAt": now_ts})
 
             result = import_scraper_job_by_id(db, job["id"])
             assert result["success"] is True
@@ -84,6 +88,8 @@ class TestScraperImportPersistence:
 
     def test_sync_only_refreshes_added_jobs(self, sample_scraper_job):
         import uuid
+        from datetime import datetime, timezone
+        now_ts = datetime.now(timezone.utc).isoformat()
 
         job = {
             **sample_scraper_job,
@@ -91,10 +97,12 @@ class TestScraperImportPersistence:
             "companyName": "TestCo",
             "url": f"https://job-boards.greenhouse.io/testco/jobs/{uuid.uuid4().hex[:8]}",
             "externalId": uuid.uuid4().hex[:8],
+            "scrapedAt": now_ts,
+            "updatedAt": now_ts,
         }
 
         with session_scope() as db:
-            jd_store._persist_snapshot(db, {"jobs": [job], "scrapedAt": "2026-01-01T00:00:00Z"})
+            jd_store._persist_snapshot(db, {"jobs": [job], "scrapedAt": now_ts})
 
             sync = sync_scraper_jobs(db)
             assert sync["success"] is True
