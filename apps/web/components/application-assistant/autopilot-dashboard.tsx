@@ -16,6 +16,7 @@ import {
   IconCheck,
   IconPause,
   IconPlay,
+  IconRefresh,
   IconSettings,
   IconSquare,
 } from "./autopilot/icons";
@@ -31,7 +32,7 @@ interface AutopilotDashboardProps {
   onNavigateTab?: (tab: "autopilot" | "submitted" | "review" | "failed" | "tracker") => void;
 }
 
-const BATCH_PRESETS = [1, 5, 10, 25, 50, 100];
+const BATCH_PRESETS = [1, 5, 10, 15, 30, 50];
 
 function formatElapsedTime(startedAt?: string): string {
   if (!startedAt) return "0m";
@@ -66,8 +67,12 @@ export function AutopilotDashboard({ onNavigateTab }: AutopilotDashboardProps) {
   const [customBatchInput, setCustomBatchInput] = useState<string>("");
   const [isCustomMode, setIsCustomMode] = useState<boolean>(false);
   const [showConfigModal, setShowConfigModal] = useState<boolean>(false);
+<<<<<<< HEAD
   const [aiModel, setAiModel] = useState<string>("mistral-small");
   const [modelSaving, setModelSaving] = useState<boolean>(false);
+=======
+  const [selectedModel, setSelectedModel] = useState<string>("mistral-small3.2:24b");
+>>>>>>> main-restored
   const statusRefreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const fetchSettings = async () => {
@@ -346,14 +351,14 @@ export function AutopilotDashboard({ onNavigateTab }: AutopilotDashboardProps) {
         {/* Left: Primary Run Progress Card (~68% width on desktop) */}
         <div className="lg:col-span-8 relative overflow-hidden rounded-2xl border border-white/10 bg-[radial-gradient(circle_at_78%_18%,rgba(56,189,248,0.10),transparent_26%),radial-gradient(circle_at_18%_84%,rgba(99,102,241,0.08),transparent_28%),linear-gradient(to_bottom,#0e1622,#0a1019,#070b12)] p-6 shadow-[0_20px_60px_rgba(0,0,0,0.28)] backdrop-blur-2xl flex flex-col justify-between space-y-6">
           <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-cyan-300/70 to-violet-300/40" />
-          {/* Top Label, AI Model Switcher & Status Pill */}
+          {/* Top Label & Status Pill & Actions */}
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-3">
               <span className="text-[11px] font-black tracking-wider text-slate-400 uppercase">
                 RUN PROGRESS
               </span>
 
-              {/* AI Model Dropdown Selector with Measured Benchmark Accuracy Badges */}
+              {/* AI Model Dropdown Selector */}
               <div className="relative flex items-center bg-[#060a10] px-2.5 py-1.5 rounded-xl border border-white/10 shadow-inner">
                 <span className="text-[10px] font-bold text-slate-400 mr-2 flex items-center gap-1.5">
                   <span
@@ -378,7 +383,7 @@ export function AutopilotDashboard({ onNavigateTab }: AutopilotDashboardProps) {
                   className="bg-transparent text-xs font-black text-slate-200 outline-none cursor-pointer pr-1 focus:text-white"
                 >
                   <option value="mistral-small" className="bg-[#0b121c] text-emerald-400 font-bold">
-                    mistral-small3.2:24b · 98% verified (🏆 Top Accuracy)
+                    mistral-small3.2:24b · 98% verified (🏆 Default)
                   </option>
                   <option value="gemma3" className="bg-[#0b121c] text-violet-400 font-bold">
                     gemma3:12b · 97% verified (🛡️ Recommended)
@@ -387,32 +392,53 @@ export function AutopilotDashboard({ onNavigateTab }: AutopilotDashboardProps) {
                     qwen2.5:3b · 87% verified (⚡ Fast · 1.3s)
                   </option>
                   <option value="gemini" className="bg-[#0b121c] text-amber-300 font-bold">
-                    gemini-3.6-flash · 57% verified (☁️ Cloud · 0.8s)
+                    gemini-2.5-flash · Cloud API
                   </option>
                   <option value="gpt-oss" className="bg-[#0b121c] text-slate-300 font-bold">
                     gpt-oss:20b · 93% verified (Local)
-                  </option>
-                  <option value="chatgpt-mini" className="bg-[#0b121c] text-emerald-300 font-bold">
-                    ChatGPT 4o-mini · OpenAI Cloud
-                  </option>
-                  <option value="chatgpt-4o" className="bg-[#0b121c] text-emerald-400 font-bold">
-                    ChatGPT 4o · OpenAI Cloud
                   </option>
                 </select>
               </div>
             </div>
 
-            <span
-              style={{
-                background: isCompleted ? "rgba(6, 182, 212, 0.15)" : isRunning ? "rgba(46, 232, 201, 0.15)" : "rgba(255, 255, 255, 0.05)",
-                borderColor: isCompleted ? "rgba(6, 182, 212, 0.4)" : isRunning ? "rgba(46, 232, 201, 0.4)" : "rgba(255, 255, 255, 0.1)",
-                color: isCompleted ? "#67e8f9" : isRunning ? "#2ee8c9" : "#94a3b8",
-                boxShadow: isRunning ? "0 0 15px rgba(46, 232, 201, 0.3)" : "none",
-              }}
-              className="px-3.5 py-1 rounded-full text-xs font-black tracking-wider uppercase border transition-all flex items-center gap-1.5"
-            >
-              <span>✓</span> {isCompleted ? "RUN COMPLETED" : isRunning ? "RUNNING" : "READY"}
-            </span>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={async () => {
+                  if (confirm("Reset entire autopilot queue, active runs, and drafts back to clean initial state?")) {
+                    setLoading(true);
+                    try {
+                      const { resetAutopilotQueue } = await import("@/lib/application-assistant-api");
+                      const res = await resetAutopilotQueue();
+                      alert(`Queue reset successfully: ${res.resetJobsCount} jobs ready.`);
+                      await fetchStatus();
+                    } catch (err: any) {
+                      setError(err?.message || "Failed to reset queue");
+                    } finally {
+                      setLoading(false);
+                    }
+                  }
+                }}
+                disabled={loading || isRunning}
+                className="px-3 py-1 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 text-slate-300 hover:text-white text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer disabled:opacity-40"
+                title="Reset queue and all jobs"
+              >
+                <IconRefresh className="w-3.5 h-3.5" />
+                <span>Reset Queue</span>
+              </button>
+
+              <span
+                style={{
+                  background: isCompleted ? "rgba(6, 182, 212, 0.15)" : isRunning ? "rgba(46, 232, 201, 0.15)" : "rgba(255, 255, 255, 0.05)",
+                  borderColor: isCompleted ? "rgba(6, 182, 212, 0.4)" : isRunning ? "rgba(46, 232, 201, 0.4)" : "rgba(255, 255, 255, 0.1)",
+                  color: isCompleted ? "#67e8f9" : isRunning ? "#2ee8c9" : "#94a3b8",
+                  boxShadow: isRunning ? "0 0 15px rgba(46, 232, 201, 0.3)" : "none",
+                }}
+                className="px-3.5 py-1 rounded-full text-xs font-black tracking-wider uppercase border transition-all flex items-center gap-1.5"
+              >
+                <span>✓</span> {isCompleted ? "RUN COMPLETED" : isRunning ? "RUNNING" : "READY"}
+              </span>
+            </div>
+          </div>
           </div>
 
           {/* Center Graphic & Batch Controls */}
@@ -549,6 +575,12 @@ export function AutopilotDashboard({ onNavigateTab }: AutopilotDashboardProps) {
             skipped={isRunning ? skippedCount : totalSkipped}
             failed={isRunning ? failedCount : totalFailed}
             isCompleted={isCompleted}
+            onSelectSegment={(seg) => {
+              if (seg === "submitted") onNavigateTab?.("submitted");
+              else if (seg === "staged") onNavigateTab?.("review");
+              else if (seg === "failed") onNavigateTab?.("failed");
+              else if (seg === "skipped") onNavigateTab?.("tracker");
+            }}
           />
 
           {/* Run Parameter Badges */}

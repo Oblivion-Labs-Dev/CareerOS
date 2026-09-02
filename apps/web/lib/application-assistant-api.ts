@@ -757,3 +757,10 @@ export async function syncInboundEmail(payload: { sender: string; subject: strin
   });
 }
 
+export async function resetAutopilotQueue() {
+  return aaFetch<{ success: boolean; resetJobsCount: number; resetDraftsCount: number }>("/autopilot/reset", {
+    method: "POST",
+  });
+}
+
+

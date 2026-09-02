@@ -21,14 +21,14 @@ interface BatchConfigModalProps {
   loading?: boolean;
 }
 
-const PRESET_SIZES = [1, 5, 10, 25, 50, 100];
+const PRESET_SIZES = [1, 5, 10, 15, 30, 50];
 
 export function BatchConfigModal({
   isOpen,
   onClose,
   onStartRun,
   initialBatchSize = 1,
-  initialAiModel = "mistral-small",
+  initialAiModel = "mistral-small3.2:24b",
   loading = false,
 }: BatchConfigModalProps) {
   const [batchSize, setBatchSize] = useState<number>(initialBatchSize);

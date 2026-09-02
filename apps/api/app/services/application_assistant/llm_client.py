@@ -335,7 +335,7 @@ def _resolve_llm_config(llm_config: dict[str, Any], default_model: str = "qwen3:
 def create_llm_client(settings: dict[str, Any]) -> LLMClient:
     """Create default LLM client from application assistant settings."""
     llm_config = settings.get("llm", {})
-    base_url, model, api_key = _resolve_llm_config(llm_config, default_model="qwen3:8b")
+    base_url, model, api_key = _resolve_llm_config(llm_config, default_model="mistral-small3.2:24b")
     return LLMClient(
         base_url=base_url,
         model=model,
@@ -356,7 +356,7 @@ def create_mapping_client(settings: dict[str, Any]) -> LLMClient:
     if model_override:
         cfg["model"] = model_override
         
-    base_url, model, api_key = _resolve_llm_config(cfg, default_model="qwen3:8b")
+    base_url, model, api_key = _resolve_llm_config(cfg, default_model="mistral-small3.2:24b")
     return LLMClient(
         base_url=base_url,
         model=model,
@@ -389,12 +389,22 @@ def create_vision_client(settings: dict[str, Any]) -> LLMClient:
 
 
 async def call_llm(system: str, prompt: str, settings: dict[str, Any] | None = None) -> str:
-    """Call LLM with system prompt and user prompt."""
+    """Call LLM with system prompt and user prompt, supporting local Ollama Mistral and Gemini Flash."""
     client = create_llm_client(settings or {})
-    if not client.enabled:
-        return ""
-    res = await client.chat([{"role": "user", "content": prompt}], system=system)
-    if res.get("success"):
-        return str(res.get("content") or "")
+    if client.enabled:
+        res = await client.chat([{"role": "user", "content": prompt}], system=system)
+        if res.get("success"):
+            data_val = res.get("data") or res.get("content") or ""
+            if data_val:
+                return str(data_val)
+    # Gemini Flash fallback via OpenRouter / LLM service
+    try:
+        from app.services.llm import call_openrouter_json
+        openrouter_res = await call_openrouter_json(prompt, system_instruction=system)
+        if openrouter_res:
+            return json.dumps(openrouter_res)
+    except Exception:
+        pass
     return ""
+
 
