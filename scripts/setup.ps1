@@ -5,11 +5,11 @@
 
 .EXAMPLE
   .\setup.bat
-  .\scripts\setup.ps1 -Model qwen3:8b
+  .\scripts\setup.ps1 -Model mistral-small3.2:24b
   .\scripts\setup.ps1 -SkipOllama -SkipModels
 #>
 param(
-    [string]$Model = "qwen3:8b",
+    [string]$Model = "mistral-small3.2:24b",
     [switch]$SkipOllama,
     [switch]$SkipModels,
     [switch]$SkipExtension,

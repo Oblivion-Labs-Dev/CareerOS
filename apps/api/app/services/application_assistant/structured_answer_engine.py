@@ -225,19 +225,35 @@ async def resolve_application_question(
     if l3.get("supported") and conf >= 0.90 and not l3.get("needsUserInput") and ans:
         l3["level"] = 3
         # Auto-Learn: Persist high-confidence answer to Answer Library so future queries are 100% deterministic (<1ms)
+        # SAFEGUARD: Never auto-learn for sensitive factual fields (work auth, demographics, clearance, etc.)
+        _sensitive_autolearn_blocked = False
         try:
-            from app.db.store import session_scope
-            from app.services.application_assistant.persistence import upsert_answer
-            with session_scope() as sdb:
-                upsert_answer(sdb, {
-                    "questionVariants": [question_text],
-                    "value": ans,
-                    "canonicalKey": canonical_key or "",
-                    "source": "qwen_auto_learned",
-                    "confidence": conf,
-                })
+            from app.services.application_assistant.question_classifier import (
+                classify_question,
+                is_sensitive_factual,
+            )
+            qtype = classify_question(question_text)
+            if is_sensitive_factual(qtype):
+                _sensitive_autolearn_blocked = True
+                logger.info("Auto-learn BLOCKED for sensitive field '%s' (type=%s)", question_text[:50], qtype.value)
         except Exception:
             pass
+
+        if not _sensitive_autolearn_blocked:
+            try:
+                from app.db.store import session_scope
+                from app.services.application_assistant.persistence import upsert_answer
+                with session_scope() as sdb:
+                    upsert_answer(sdb, {
+                        "questionVariants": [question_text],
+                        "value": ans,
+                        "canonicalKey": canonical_key or "",
+                        "source": "qwen_auto_learned",
+                        "confidence": conf,
+                        "isApplicationDerived": True,  # Tag for traceability
+                    })
+            except Exception:
+                pass
 
         return l3
 

@@ -720,7 +720,8 @@ class AutopilotRunner:
         try:
             await self._execute_application_pipeline(run_id, job_item, worker_state)
         except Exception as exc:
-            err_type = self._classify_error(exc)
+            exc_detail = str(exc).strip() or exc.__class__.__name__
+            err_type = self._classify_error(Exception(exc_detail))
 
             if err_type in TRANSIENT_ERRORS and attempt < MAX_JOB_ATTEMPTS:
                 delay = 2 if attempt == 1 else 5
@@ -729,9 +730,9 @@ class AutopilotRunner:
                 return await self._process_single_job_with_retries(run_id, job_item, worker_state)
 
             job_item["status"] = AutopilotJobStatus.FAILED.value
-            job_item["lastError"] = str(exc)
+            job_item["lastError"] = exc_detail
             job_item["lastErrorType"] = err_type
-            job_item["aiExplanation"] = f"Failed due to error: {err_type} ({exc})"
+            job_item["aiExplanation"] = f"Failed due to error: {err_type} ({exc_detail})"
             self._record_checkpoint(job_item, CheckpointStep.FAILED, f"Failed on error: {err_type}")
             with session_scope() as db:
                 save_autopilot_job(db, job_item)
@@ -739,6 +740,47 @@ class AutopilotRunner:
                 if r:
                     r["failedCount"] = (r.get("failedCount") or 0) + 1
                     save_autopilot_run(db, r)
+
+            # This is best-effort bookkeeping only. Never allow creating a
+            # preparation draft to mask the original browser failure or crash
+            # every worker in the batch.
+            try:
+                # Keep failed Autopilot work in the same preparation queue used
+                # by All Applications. This preserves answers and evidence so a
+                # user can resume a prepared application instead of starting
+                # from a blank form after a safe submission block.
+                from app.services.application_assistant.persistence import create_application_draft
+
+                captured_answers = job_item.get("answers") or {}
+                prepared_fields = [
+                    {
+                        "label": str(label),
+                        "value": value,
+                        "classification": "verified",
+                        "source": "autopilot",
+                    }
+                    for label, value in captured_answers.items()
+                    if value not in (None, "")
+                ]
+                create_application_draft(db, {
+                    "jobId": job_item.get("jobId") or job_item.get("id"),
+                    "jobUrl": job_item.get("applicationUrl") or job_item.get("listingUrl") or "",
+                    "companyName": job_item.get("company") or "",
+                    "roleTitle": job_item.get("title") or "",
+                    "provider": job_item.get("provider") or job_item.get("sourceProvider") or "unknown",
+                    "matchScore": job_item.get("matchScore") or 0,
+                    "status": "ready_to_prepare",
+                    "fields": prepared_fields,
+                    "autopilotFailure": {
+                        "jobId": job_item.get("id"),
+                        "error": exc_detail,
+                        "errorType": job_item.get("lastErrorType"),
+                        "evidence": job_item.get("submissionEvidence") or {},
+                        "capturedAnswers": captured_answers,
+                    },
+                })
+            except Exception:
+                logger.exception("Could not preserve failed job %s as a preparation draft", job_item.get("id"))
 
             self.log_event(f"Application failed ({err_type}): {job_item.get('company')} — {job_item.get('title')}", level="error")
 
@@ -884,6 +926,29 @@ class AutopilotRunner:
                         dj["expired"] = True
                         dj["unlistedAt"] = now_iso()
                         upsert_entity(db, "discovered_job", dj)
+        elif result.get("stagedForReview") or result.get("status") == "NEEDS_REVIEW":
+            # ─── VERIFIED AUTONOMY: STAGE TO NEEDS_REVIEW (NOT FAILED) ───
+            review_reason = result.get("error") or "Requires human review before submission"
+            job_item["status"] = AutopilotJobStatus.NEEDS_REVIEW.value
+            job_item["lastError"] = review_reason
+            job_item["lastErrorType"] = ApplicationErrorType.VALIDATION_ERROR.value
+            job_item["submissionEvidence"] = result.get("evidence", {}) or {}
+            job_item["answers"] = result.get("fieldsFilled", {})
+            job_item["aiExplanation"] = f"Staged for human review: {review_reason}"
+            self._record_checkpoint(job_item, CheckpointStep.STAGED, f"Staged for Review: {review_reason}")
+            
+            if worker_state:
+                worker_state.status = "done"
+                worker_state.current_step = "NEEDS_REVIEW"
+                
+            with session_scope() as db:
+                save_autopilot_job(db, job_item)
+                
+            self.log_event(
+                f"{w_prefix}Application safely staged for human review: {company} — {title} (Ambiguity or safety rule triggered)",
+                level="warning",
+                metadata={"slot": slot_idx, "company": company, "title": title, "status": "NEEDS_REVIEW"},
+            )
         else:
             err_msg = result.get("error") or "Submission unconfirmed"
             job_item["status"] = AutopilotJobStatus.FAILED.value

@@ -3,8 +3,8 @@ import { Suspense } from "react";
 import nextDynamic from "next/dynamic";
 
 import { PageTitleWithStatus } from "@/components/page-title-with-status";
-
 import { ApplicationAssistantDashboard } from "@/components/application-assistant/application-assistant-dashboard";
+import { ModelBenchmarkSelector } from "@/components/ui/model-benchmark-selector";
 
 
 
@@ -44,17 +44,18 @@ export default function ApplicationAssistantPage() {
 
       <header className="cos-page-header aa-page-header">
 
-        <div className="stack gap-xs">
-          <span className="toc-eyebrow">Intelligence Layer</span>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", flexWrap: "wrap", gap: "1rem" }}>
+          <div className="stack gap-xs">
+            <span className="toc-eyebrow">Intelligence Layer</span>
+            <PageTitleWithStatus>AI Assistant</PageTitleWithStatus>
+            <p className="muted">
+              Prep applications in a visible browser and track what still needs your input.
+            </p>
+          </div>
 
-          <PageTitleWithStatus>AI Assistant</PageTitleWithStatus>
-
-          <p className="muted">
-
-            Prep applications in a visible browser and track what still needs your input.
-
-          </p>
-
+          <div style={{ marginBottom: "0.5rem" }}>
+            <ModelBenchmarkSelector />
+          </div>
         </div>
       </header>
 

@@ -297,7 +297,7 @@ def list_jobs(
 @router.post("/jobs/import-scraper")
 async def import_scraper_job(payload: ScraperImportPayload, db: Session = Depends(db_session)) -> dict[str, Any]:
     """Import a scraper job into Application Assistant, add to queue, and start Qwen prep."""
-    from app.services.application_assistant.qwen_agent import start_autonomous_prepare
+    from app.services.application_assistant.agent import start_autonomous_prepare
     from app.services.application_assistant.scraper_import import import_scraper_job_by_id
 
     try:
@@ -343,7 +343,7 @@ def scraper_jobs_status(db: Session = Depends(db_session)) -> dict[str, Any]:
 @router.get("/dashboard/stats")
 def dashboard_stats(db: Session = Depends(db_session)) -> dict[str, Any]:
     from app.services.application_assistant.qwen_activity import get_active_prep_from_logs, get_logs, get_metrics
-    from app.services.application_assistant.qwen_agent import get_agent_run
+    from app.services.application_assistant.agent import get_agent_run
     from app.services.application_assistant.scraper_import import scraper_sync_status
 
     drafts = list_application_drafts(db)
@@ -411,7 +411,7 @@ def list_applications(
 ) -> dict[str, Any]:
     from app.services.application_assistant.browser_replay import summarize_application_list_item
     from app.services.application_assistant.persistence import index_active_browser_runs
-    from app.services.application_assistant.qwen_agent import _get_agent_runs, reconcile_stale_prep_state
+    from app.services.application_assistant.agent import _get_agent_runs, reconcile_stale_prep_state
 
     drafts = list_application_drafts(db, status=status, cleanup_duplicates=False)
     agent_runs = _get_agent_runs(db)
@@ -445,7 +445,7 @@ def list_autofill_state(
 ) -> dict[str, Any]:
     """Per-job saved Playwright autofill state (applicationId + jobId + hasSavedAutofillState)."""
     from app.services.application_assistant.browser_replay import list_autofill_states
-    from app.services.application_assistant.qwen_agent import reconcile_stale_prep_state
+    from app.services.application_assistant.agent import reconcile_stale_prep_state
 
     drafts = list_application_drafts(db)
     reconciled = [reconcile_stale_prep_state(db, d) for d in drafts]
@@ -491,7 +491,7 @@ def get_application(app_id: str, db: Session = Depends(db_session)) -> dict[str,
 
 @router.post("/applications/{app_id}/prepare")
 async def start_preparation(app_id: str, db: Session = Depends(db_session)) -> dict[str, Any]:
-    from app.services.application_assistant.qwen_agent import execute_application_prepare
+    from app.services.application_assistant.agent import execute_application_prepare
 
     prep = await execute_application_prepare(app_id, allow_retry=True)
     if prep.get("error") == "Application not found":
@@ -680,7 +680,7 @@ async def submit_unified_field_answers(
 ) -> dict[str, Any]:
     """Save normalized answers once and apply them to every matching application field."""
     from app.services.application_assistant.field_answers import save_unified_field_answers
-    from app.services.application_assistant.qwen_agent import schedule_autonomous_prepare
+    from app.services.application_assistant.agent import schedule_autonomous_prepare
 
     if not payload.answers:
         raise HTTPException(status_code=400, detail="No answers provided")
@@ -709,7 +709,7 @@ async def submit_field_answers(
 ) -> dict[str, Any]:
     """Save user-provided answers to profile + answer library and update the draft."""
     from app.services.application_assistant.field_answers import save_field_answers
-    from app.services.application_assistant.qwen_agent import schedule_autonomous_prepare
+    from app.services.application_assistant.agent import schedule_autonomous_prepare
 
     if not payload.answers:
         raise HTTPException(status_code=400, detail="No answers provided")
@@ -852,7 +852,7 @@ async def stop_browser(app_id: str, db: Session = Depends(db_session)) -> dict[s
 
 @router.get("/applications/{app_id}/review-status")
 def review_session_status(app_id: str, db: Session = Depends(db_session)) -> dict[str, Any]:
-    from app.services.application_assistant.qwen_agent import get_review_session_status
+    from app.services.application_assistant.agent import get_review_session_status
 
     status = get_review_session_status(db, app_id)
     if status.get("status") == "not_found":
@@ -867,7 +867,61 @@ async def open_application_review(
     db: Session = Depends(db_session),
 ) -> dict[str, Any]:
     """Open employer application page in visible browser and fill from saved draft."""
-    from app.services.application_assistant.qwen_agent import execute_application_open_review
+    from app.services.application_assistant.agent import execute_application_open_review
+    from app.services.application_assistant.persistence import (
+        get_application_draft,
+        create_application_draft,
+        get_autopilot_job,
+        list_autopilot_jobs,
+    )
+    from app.db.store import now_iso
+
+    # Ensure draft exists; if app_id belongs to an autopilot job, auto-seed draft with saved fields & answers
+    draft = get_application_draft(db, app_id)
+    if not draft:
+        # Check if app_id or raw ID matches an autopilot job
+        target_job = get_autopilot_job(db, app_id)
+        if not target_job:
+            # Check by canonical job ID suffix
+            for j in list_autopilot_jobs(db):
+                cand_id = f"app_{str(j.get('jobId') or j.get('id') or '').replace('-', '_')}"[:120]
+                if cand_id == app_id or j.get("id") == app_id or j.get("jobId") == app_id:
+                    target_job = j
+                    break
+
+        if target_job:
+            job_url = target_job.get("applicationUrl") or target_job.get("listingUrl") or ""
+            answers = target_job.get("answers") or {}
+            fields_list = []
+            for k, v in answers.items():
+                fields_list.append({
+                    "fieldId": f"fld_{k.lower().replace(' ', '_')}",
+                    "label": k,
+                    "normalizedKey": k.lower().strip(),
+                    "classification": "verified",
+                    "proposedValue": v,
+                    "userEdited": True,
+                    "confidence": 1.0,
+                    "requiresUserReview": False,
+                })
+
+            draft = create_application_draft(db, {
+                "id": app_id,
+                "jobId": target_job.get("jobId") or target_job.get("id"),
+                "companyName": target_job.get("company", "Unknown company"),
+                "roleTitle": target_job.get("title", "Unknown role"),
+                "jobUrl": job_url,
+                "status": "needs_review",
+                "readyForBrowser": True,
+                "pendingFieldCount": 0,
+                "fields": fields_list,
+                "verifiedCount": len(fields_list),
+                "reviewCount": 0,
+                "missingCount": 0,
+                "matchScore": target_job.get("matchScore"),
+                "aiAnalyzed": True,
+                "updatedAt": now_iso(),
+            })
 
     result = await execute_application_open_review(db, app_id, force_reopen=payload.force, background=True)
     if result.get("error") == "Application not found":
@@ -960,7 +1014,7 @@ Never claim to submit applications or bypass submission guards."""
 
 @router.post("/qwen/agent/prepare")
 async def qwen_agent_prepare(payload: QwenAgentPreparePayload, db: Session = Depends(db_session)) -> dict[str, Any]:
-    from app.services.application_assistant.qwen_agent import (
+    from app.services.application_assistant.agent import (
         start_autonomous_prepare,
         start_autonomous_prepare_for_job,
     )
@@ -986,7 +1040,7 @@ def qwen_agent_prep_queue() -> dict[str, Any]:
 
 @router.get("/qwen/agent/status/{app_id}")
 def qwen_agent_status(app_id: str, db: Session = Depends(db_session)) -> dict[str, Any]:
-    from app.services.application_assistant.qwen_agent import get_agent_run
+    from app.services.application_assistant.agent import get_agent_run
 
     run = get_agent_run(db, app_id)
     draft = get_application_draft(db, app_id)
@@ -1054,7 +1108,7 @@ def qwen_live_status(db: Session = Depends(db_session)) -> dict[str, Any]:
         get_logs,
         get_metrics,
     )
-    from app.services.application_assistant.qwen_agent import get_agent_run
+    from app.services.application_assistant.agent import get_agent_run
 
     active_prep = get_active_prep_from_logs(db)
     active_analyze = get_active_analyze_from_logs(db)
@@ -1087,7 +1141,7 @@ async def qwen_chat(payload: QwenChatPayload, db: Session = Depends(db_session))
     ]
 
     context_note = ""
-    from app.services.application_assistant.qwen_agent import build_chat_context
+    from app.services.application_assistant.agent import build_chat_context
 
     context_note = build_chat_context(db, payload.context)
     if context_note:
@@ -1485,16 +1539,15 @@ def reset_submitted_autopilot_jobs(
 
 @router.post("/autopilot/reprocess-failed")
 async def reprocess_failed_autopilot_jobs() -> dict[str, Any]:
-    """Re-queue all failed/staged applications for self-healing reprocessing and launch Autopilot."""
+    """Return failed/staged applications to the queue without starting Autopilot."""
     from app.services.application_assistant.persistence import list_autopilot_jobs, save_autopilot_job
-    from app.services.application_assistant.autopilot_runner import AutopilotRunner
     from app.db.store import session_scope, now_iso
 
     reprocessed_count = 0
     with session_scope() as db:
         jobs = list_autopilot_jobs(db)
         for j in jobs:
-            if j.get("status") in ("FAILED", "ERROR", "STAGED", "VALIDATION_FAILED"):
+            if j.get("status") in ("FAILED", "ERROR", "STAGED", "NEEDS_REVIEW", "VALIDATION_FAILED"):
                 j["status"] = "QUEUED"
                 j["lastError"] = None
                 j["lastErrorType"] = None
@@ -1506,21 +1559,17 @@ async def reprocess_failed_autopilot_jobs() -> dict[str, Any]:
                 save_autopilot_job(db, j)
                 reprocessed_count += 1
 
-    runner = AutopilotRunner.get_instance()
-    run = await runner.start(options={"targetProcessCount": max(5, reprocessed_count)})
     return {
         "success": True,
         "reprocessedCount": reprocessed_count,
-        "message": f"Queued {reprocessed_count} failed application(s) for self-healing reprocessing.",
-        "run": run,
+        "message": f"Queued {reprocessed_count} application(s). Choose a batch size and press Start Run when you are ready.",
     }
 
 
 @router.post("/autopilot/jobs/{id}/reprocess")
 async def reprocess_single_autopilot_job(id: str) -> dict[str, Any]:
-    """Re-queue a specific job for immediate self-healing reprocessing."""
+    """Return one failed job to the queue without starting Autopilot."""
     from app.services.application_assistant.persistence import get_autopilot_job, save_autopilot_job
-    from app.services.application_assistant.autopilot_runner import AutopilotRunner
     from app.db.store import session_scope, now_iso
 
     job_title = ""
@@ -1540,13 +1589,10 @@ async def reprocess_single_autopilot_job(id: str) -> dict[str, Any]:
         job["queuedAt"] = now_iso()
         save_autopilot_job(db, job)
 
-    runner = AutopilotRunner.get_instance()
-    run = await runner.start(options={"targetProcessCount": 1})
     return {
         "success": True,
         "id": id,
-        "message": f"Queued '{job_title}' for self-healing reprocessing.",
-        "run": run,
+        "message": f"Queued '{job_title}'. Press Start Run when you are ready to process it.",
     }
 
 
@@ -1667,7 +1713,6 @@ def email_sync_webhook(
 
     record = process_inbound_email(sender, subject, body, received_at)
     return {"success": True, "record": record}
-
 
 
 

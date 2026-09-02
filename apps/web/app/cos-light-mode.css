@@ -1,0 +1,244 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   CareerOS Light Mode Refinements & Global Harmonization
+   Ensures crystal-clear contrast, readable text, and light background across ALL elements.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+[data-theme="light"] {
+  /* Surface and card elevations */
+  --bg: #f8fafc;
+  --bg-elevated: #ffffff;
+  --bg-surface: rgba(255, 255, 255, 0.96);
+  --card: #ffffff;
+  --card-hover: #f1f5f9;
+  --border: rgba(15, 23, 42, 0.12);
+  --border-strong: rgba(15, 23, 42, 0.2);
+  
+  /* Text and contrast tokens */
+  --text: #0f172a;
+  --text-secondary: #334155;
+  --muted: #64748b;
+  --muted-dim: #94a3b8;
+
+  /* Accent & status colors */
+  --accent: #0a947e;
+  --accent-secondary: #b87333;
+  --accent-tertiary: #6e5bd3;
+  --accent-soft: rgba(10, 148, 126, 0.1);
+  --accent-glow: rgba(10, 148, 126, 0.22);
+  --violet-soft: rgba(110, 91, 211, 0.08);
+  --success: #0d8a6a;
+  --warning: #b45309;
+  --danger: #dc2626;
+
+  /* Button and brand */
+  --btn-primary-bg: linear-gradient(135deg, #0a947e 0%, #0c7d6b 52%, #087561 100%);
+  --btn-primary-text: #ffffff;
+  --sidebar-bg: #ffffff;
+  --nav-active: rgba(10, 148, 126, 0.12);
+  --shadow-sm: 0 1px 3px rgba(15, 23, 42, 0.06), 0 4px 12px rgba(15, 23, 42, 0.04);
+  --shadow-md: 0 10px 30px rgba(15, 23, 42, 0.08);
+  --shadow-card: 0 1px 3px rgba(15, 23, 42, 0.05), 0 6px 20px rgba(15, 23, 42, 0.04);
+}
+
+/* Base Body & Layout in Light Mode */
+[data-theme="light"] body {
+  background-color: #f8fafc !important;
+  background-image: none !important;
+  color: #0f172a !important;
+}
+
+[data-theme="light"] .shell,
+[data-theme="light"] .app-stage,
+[data-theme="light"] .main,
+[data-theme="light"] .page-content,
+[data-theme="light"] .aa-page {
+  background-color: #f8fafc !important;
+  color: #0f172a !important;
+}
+
+/* Sidebar & Header */
+[data-theme="light"] .sidebar {
+  background: #ffffff !important;
+  border-right: 1px solid rgba(15, 23, 42, 0.12) !important;
+}
+
+[data-theme="light"] .app-topbar {
+  background: rgba(255, 255, 255, 0.94) !important;
+  border-bottom: 1px solid rgba(15, 23, 42, 0.12) !important;
+}
+
+[data-theme="light"] .app-topbar-search {
+  background: #f1f5f9 !important;
+  border-color: rgba(15, 23, 42, 0.15) !important;
+  color: #475569 !important;
+}
+
+[data-theme="light"] .app-topbar-search:hover {
+  background: #e2e8f0 !important;
+  border-color: rgba(15, 23, 42, 0.25) !important;
+  color: #0f172a !important;
+}
+
+[data-theme="light"] .app-topbar-icon-button {
+  background: #f1f5f9 !important;
+  border: 1px solid rgba(15, 23, 42, 0.12) !important;
+  color: #334155 !important;
+}
+
+[data-theme="light"] .app-topbar-avatar {
+  background: #0a947e !important;
+  color: #ffffff !important;
+}
+
+/* ALL Dashboard Cards, Grids, and Containers */
+[data-theme="light"] .card,
+[data-theme="light"] .workflow-panel,
+[data-theme="light"] .dashboard-panel,
+[data-theme="light"] .aa-panel,
+[data-theme="light"] .panel,
+[data-theme="light"] .cos-surface,
+[data-theme="light"] div[class*="bg-[radial-gradient"],
+[data-theme="light"] div[class*="from-[#0e1622]"],
+[data-theme="light"] div[class*="from-[#0c131d]"],
+[data-theme="light"] div[class*="from-[#0b161f]"],
+[data-theme="light"] div[class*="from-[#14120e]"],
+[data-theme="light"] div[class*="from-[#10111e]"],
+[data-theme="light"] div[class*="from-[#160e10]"],
+[data-theme="light"] div[class*="from-[#0b1620]"],
+[data-theme="light"] div[class*="from-[#0a1622]"],
+[data-theme="light"] div[class*="from-[#08121d]"] {
+  background: #ffffff !important;
+  border: 1px solid rgba(15, 23, 42, 0.12) !important;
+  box-shadow: 0 4px 16px rgba(15, 23, 42, 0.05) !important;
+}
+
+/* Sub-card widgets and parameter pills inside dashboard */
+[data-theme="light"] .bg-white\/\[0\.035\],
+[data-theme="light"] .bg-white\/\[0\.025\],
+[data-theme="light"] .bg-white\/5,
+[data-theme="light"] .bg-black\/20,
+[data-theme="light"] .bg-black\/35,
+[data-theme="light"] .bg-black\/40,
+[data-theme="light"] .bg-\[\#060a10\],
+[data-theme="light"] .bg-\[\#09101b\],
+[data-theme="light"] .bg-\[\#06090e\] {
+  background-color: #f1f5f9 !important;
+  border-color: rgba(15, 23, 42, 0.12) !important;
+}
+
+/* Dark arbitrary Tailwind surfaces used by legacy and Autopilot components. */
+[data-theme="light"] [class*="bg-[#0"],
+[data-theme="light"] [class*="bg-slate-9"],
+[data-theme="light"] [class*="bg-slate-8"],
+[data-theme="light"] [class*="from-[#0"],
+[data-theme="light"] [class*="to-[#0"] {
+  background-color: #ffffff !important;
+  background-image: none !important;
+  border-color: rgba(15, 23, 42, 0.12) !important;
+}
+
+/* Neon-on-dark text colors need darker equivalents on white surfaces. */
+[data-theme="light"] [class*="text-[#2ee8c9]"],
+[data-theme="light"] [class*="text-[#58dec4]"] { color: #087561 !important; }
+[data-theme="light"] [class*="text-[#38bdf8]"],
+[data-theme="light"] [class*="text-cyan-300"] { color: #0369a1 !important; }
+[data-theme="light"] [class*="text-amber-300"],
+[data-theme="light"] [class*="text-amber-400"] { color: #9a5a08 !important; }
+[data-theme="light"] [class*="text-rose-200"],
+[data-theme="light"] [class*="text-rose-300"] { color: #be123c !important; }
+
+/* Keep utility-based overlays and dialogs crisp instead of dark or translucent. */
+[data-theme="light"] [class*="shadow-[0_0"],
+[data-theme="light"] [class*="shadow-2xl"] {
+  box-shadow: 0 12px 32px rgba(15, 23, 42, 0.10) !important;
+}
+
+/* Navigation tabs in header */
+[data-theme="light"] button[style*="background: rgb(13, 42, 42)"],
+[data-theme="light"] button[style*="background: #0d2a2a"],
+[data-theme="light"] button[style*="background: rgb(10, 36, 27)"],
+[data-theme="light"] button[style*="background: #0a241b"],
+[data-theme="light"] button[style*="background: rgb(32, 17, 39)"],
+[data-theme="light"] button[style*="background: #201127"],
+[data-theme="light"] button[style*="background: rgb(40, 16, 22)"],
+[data-theme="light"] button[style*="background: #281016"],
+[data-theme="light"] button[style*="background: rgb(44, 29, 12)"],
+[data-theme="light"] button[style*="background: #2c1d0c"],
+[data-theme="light"] button[style*="background: rgb(15, 34, 49)"],
+[data-theme="light"] button[style*="background: #0f2231"] {
+  background-color: #e6f4f1 !important;
+  border-color: #0a947e !important;
+  color: #0a947e !important;
+  box-shadow: 0 2px 8px rgba(10, 148, 126, 0.15) !important;
+}
+
+[data-theme="light"] button[style*="background: rgb(12, 24, 32)"],
+[data-theme="light"] button[style*="background: #0c1820"],
+[data-theme="light"] button[style*="background: rgb(8, 24, 19)"],
+[data-theme="light"] button[style*="background: #081813"],
+[data-theme="light"] button[style*="background: rgb(17, 10, 24)"],
+[data-theme="light"] button[style*="background: #110a18"],
+[data-theme="light"] button[style*="background: rgb(22, 10, 14)"],
+[data-theme="light"] button[style*="background: #160a0e"],
+[data-theme="light"] button[style*="background: rgb(30, 21, 9)"],
+[data-theme="light"] button[style*="background: #1e1509"],
+[data-theme="light"] button[style*="background: rgb(10, 23, 34)"],
+[data-theme="light"] button[style*="background: #0a1722"] {
+  background-color: #f1f5f9 !important;
+  border-color: rgba(15, 23, 42, 0.14) !important;
+  color: #334155 !important;
+}
+
+/* Metric Ribbon Card Overrides */
+[data-theme="light"] .group.border-emerald-500\/20,
+[data-theme="light"] .group.border-amber-500\/20,
+[data-theme="light"] .group.border-indigo-500\/20,
+[data-theme="light"] .group.border-rose-500\/20,
+[data-theme="light"] .group.border-cyan-500\/20 {
+  background: #ffffff !important;
+  border-color: rgba(15, 23, 42, 0.12) !important;
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.05) !important;
+}
+
+/* Light mode text colors */
+[data-theme="light"] h1,
+[data-theme="light"] h2,
+[data-theme="light"] h3,
+[data-theme="light"] h4,
+[data-theme="light"] strong,
+[data-theme="light"] .text-white,
+[data-theme="light"] .text-slate-100,
+[data-theme="light"] .text-slate-200 {
+  color: #0f172a !important;
+}
+
+[data-theme="light"] .text-slate-300,
+[data-theme="light"] .text-slate-400 {
+  color: #475569 !important;
+}
+
+[data-theme="light"] .text-slate-500,
+[data-theme="light"] .text-slate-600 {
+  color: #64748b !important;
+}
+
+/* Model selector in Light Mode */
+[data-theme="light"] select,
+[data-theme="light"] select option {
+  background-color: #ffffff !important;
+  color: #0f172a !important;
+}
+
+/* Input fields in Light Mode */
+[data-theme="light"] input,
+[data-theme="light"] textarea {
+  background-color: #ffffff !important;
+  color: #0f172a !important;
+  border-color: rgba(15, 23, 42, 0.18) !important;
+}
+
+/* Donut chart & progress backgrounds */
+[data-theme="light"] .stroke-white\/5,
+[data-theme="light"] .stroke-white\/10 {
+  stroke: rgba(15, 23, 42, 0.1) !important;
+}

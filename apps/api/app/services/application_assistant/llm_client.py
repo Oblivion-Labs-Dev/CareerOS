@@ -14,8 +14,8 @@ class LLMClient:
     def __init__(
         self,
         *,
-        base_url: str = "http://localhost:1234/v1",
-        model: str = "",
+        base_url: str = "http://localhost:11434/v1",
+        model: str = "qwen3:8b",
         api_key: str = "",
         timeout: int = 30,
         max_retries: int = 2,
@@ -301,13 +301,45 @@ class LLMClient:
         return LLMClient._parse_json_object(text)
 
 
+import os
+
+
+def _resolve_llm_config(llm_config: dict[str, Any], default_model: str = "qwen3:8b") -> tuple[str, str, str]:
+    """Resolve base_url, model, and api_key based on provider or explicit settings."""
+    provider = str(llm_config.get("provider") or "").lower().strip()
+    model = str(llm_config.get("model") or "").strip()
+    api_key = str(llm_config.get("apiKey") or "").strip()
+    base_url = str(llm_config.get("baseUrl") or "").strip()
+
+    if provider in ("openai", "chatgpt") or (not provider and ("gpt" in model.lower() or "o1" in model.lower() or "o3" in model.lower())):
+        base_url = base_url or "https://api.openai.com/v1"
+        model = model or "gpt-4o-mini"
+        api_key = api_key or os.environ.get("OPENAI_API_KEY", "")
+    elif provider in ("gemini", "google") or (not provider and "gemini" in model.lower()):
+        base_url = base_url or "https://generativelanguage.googleapis.com/v1beta/openai"
+        model = model or "gemini-2.5-flash"
+        api_key = api_key or os.environ.get("GEMINI_API_KEY", "")
+    elif provider in ("openrouter",) or (not provider and "openrouter" in base_url.lower()):
+        base_url = base_url or os.environ.get("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
+        model = model or "openai/gpt-4o-mini"
+        api_key = api_key or os.environ.get("OPENROUTER_API_KEY", "")
+    else:
+        # Default Ollama / Local Qwen
+        base_url = base_url or "http://localhost:11434/v1"
+        model = model or default_model
+        api_key = api_key
+
+    return base_url, model, api_key
+
+
 def create_llm_client(settings: dict[str, Any]) -> LLMClient:
     """Create default LLM client from application assistant settings."""
     llm_config = settings.get("llm", {})
+    base_url, model, api_key = _resolve_llm_config(llm_config, default_model="qwen3:8b")
     return LLMClient(
-        base_url=llm_config.get("baseUrl", "http://localhost:11434/v1"),
-        model=llm_config.get("model", "qwen3:8b"),
-        api_key=llm_config.get("apiKey", ""),
+        base_url=base_url,
+        model=model,
+        api_key=api_key,
         timeout=llm_config.get("timeout", 60),
         max_retries=llm_config.get("maxRetries", 2),
         confidence_threshold=llm_config.get("confidenceThreshold", 0.7),
@@ -318,15 +350,17 @@ def create_mapping_client(settings: dict[str, Any]) -> LLMClient:
     """Text mapping model (field interpretation planner)."""
     llm_config = settings.get("llm", {})
     field_mapping = settings.get("fieldMapping") or {}
-    model = (
-        field_mapping.get("mappingModel")
-        or llm_config.get("mappingModel")
-        or llm_config.get("model", "qwen3:8b")
-    )
+    model_override = field_mapping.get("mappingModel") or llm_config.get("mappingModel")
+    
+    cfg = dict(llm_config)
+    if model_override:
+        cfg["model"] = model_override
+        
+    base_url, model, api_key = _resolve_llm_config(cfg, default_model="qwen3:8b")
     return LLMClient(
-        base_url=llm_config.get("baseUrl", "http://localhost:11434/v1"),
+        base_url=base_url,
         model=model,
-        api_key=llm_config.get("apiKey", ""),
+        api_key=api_key,
         timeout=llm_config.get("timeout", 90),
         max_retries=llm_config.get("maxRetries", 2),
         confidence_threshold=llm_config.get("confidenceThreshold", 0.7),
@@ -340,10 +374,14 @@ def create_vision_client(settings: dict[str, Any]) -> LLMClient:
     model = field_mapping.get("visionModel") or llm_config.get("visionModel") or ""
     if not model or not field_mapping.get("visionEnabled", False):
         return LLMClient(base_url="", model="")
+    
+    cfg = dict(llm_config)
+    cfg["model"] = model
+    base_url, model, api_key = _resolve_llm_config(cfg, default_model="gpt-4o")
     return LLMClient(
-        base_url=llm_config.get("baseUrl", "http://localhost:11434/v1"),
+        base_url=base_url,
         model=model,
-        api_key=llm_config.get("apiKey", ""),
+        api_key=api_key,
         timeout=llm_config.get("timeout", 120),
         max_retries=llm_config.get("maxRetries", 1),
         confidence_threshold=llm_config.get("confidenceThreshold", 0.7),

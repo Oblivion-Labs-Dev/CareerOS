@@ -41,6 +41,8 @@ export const ALL_NAV_GROUPS: NavGroup[] = [
       { href: "/applications", label: "AI Autopilot", icon: "applypilot", emoji: "⚡", requiresBackend: true, enabled: true },
       { href: "/jobs/discover", label: "Job Scraper", icon: "jobs", emoji: "🔎", requiresBackend: true, enabled: true },
       { href: "/application-assistant", label: "AI Assistant", icon: "applypilot", emoji: "🤖", requiresBackend: true, enabled: true },
+      { href: "/benchmarks", label: "LLM Benchmarks", icon: "evidence", emoji: "⚡", requiresBackend: true, enabled: true },
+      { href: "/dev/dummy-job", label: "Dummy Job Test Bed", icon: "evidence", emoji: "🧪", requiresBackend: true, enabled: true },
       { href: "/intelligence/signals", label: "Signals", icon: "insights", requiresBackend: true, enabled: false },
       { href: "/intelligence/night-shift", label: "Night Shift", icon: "applypilot", requiresBackend: true, enabled: false },
       { href: "/intelligence/auto-apply", label: "Auto Apply", icon: "applypilot", requiresBackend: true, enabled: false },
@@ -51,10 +53,10 @@ export const ALL_NAV_GROUPS: NavGroup[] = [
     label: "Build",
     items: [
       { href: "/profile", label: "Profile", icon: "profile", emoji: "👤", requiresBackend: true, enabled: true },
-      { href: "/resumes", label: "Documents", icon: "documents", requiresBackend: true, enabled: false },
-      { href: "/resume-scanner", label: "Resume Scanner", icon: "evidence", emoji: "📄", requiresBackend: true, enabled: false },
-      { href: "/resume-corpus", label: "Resume Intelligence", icon: "evidence", requiresBackend: true, enabled: false },
-      { href: "/intelligence/answers", label: "Answer Bank", icon: "documents", requiresBackend: true, enabled: false },
+      { href: "/resume-corpus", label: "Resume Intelligence", icon: "evidence", emoji: "🧠", requiresBackend: true, enabled: true },
+      { href: "/resume-scanner", label: "Resume Scanner", icon: "evidence", emoji: "📄", requiresBackend: true, enabled: true },
+      { href: "/resumes", label: "Documents", icon: "documents", emoji: "📁", requiresBackend: true, enabled: true },
+      { href: "/intelligence/answers", label: "Answer Bank", icon: "documents", emoji: "💬", requiresBackend: true, enabled: true },
     ],
   },
   {
@@ -110,6 +112,9 @@ export const NAV_GROUPS: NavGroup[] = [
   {
     label: "Tools",
     items: [
+      { href: "/benchmarks", label: "LLM Benchmarks", icon: "evidence", requiresBackend: true },
+      { href: "/dev/dummy-job", label: "Dummy Job Test Bed", icon: "evidence", requiresBackend: true },
+      { href: "/resume-corpus", label: "Resume Intelligence", icon: "evidence", requiresBackend: true },
       { href: "/profile", label: "Resume & Profile", icon: "profile", requiresBackend: true },
       { href: "/intelligence/answers", label: "AI Answers", icon: "answers", requiresBackend: true },
       { href: "/settings?section=integrations", label: "Integrations", icon: "integrations" },

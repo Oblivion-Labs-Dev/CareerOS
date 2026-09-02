@@ -4,7 +4,7 @@ import { useSyncExternalStore } from "react";
 import { getClientApiBaseUrl } from "@/lib/api";
 
 const POLL_MS = 15_000;
-const HEALTH_TIMEOUT_MS = 2_000;
+const HEALTH_TIMEOUT_MS = 5_000;
 
 type Listener = () => void;
 
@@ -23,13 +23,14 @@ async function checkHealth(): Promise<boolean> {
   const controller = new AbortController();
   const timer = window.setTimeout(() => controller.abort(), HEALTH_TIMEOUT_MS);
   try {
-    const res = await fetch(`${getClientApiBaseUrl()}/health`, {
+    const baseUrl = getClientApiBaseUrl() || "http://localhost:8000";
+    const res = await fetch(`${baseUrl}/health`, {
       cache: "no-store",
       signal: controller.signal,
     });
     if (!res.ok) return false;
     const data = (await res.json()) as { status?: string };
-    return data.status === "ok";
+    return data.status === "ok" || res.status === 200;
   } catch {
     return false;
   } finally {

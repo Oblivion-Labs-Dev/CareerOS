@@ -117,7 +117,7 @@ class TestOpenReviewBrowser:
         async def _run(force: bool):
             with session_scope() as db:
                 with patch(
-                    "app.services.application_assistant.qwen_agent.detect_provider",
+                    "app.services.application_assistant.agent.detect_provider",
                     return_value=("greenhouse", adapter, True),
                 ):
                     return await execute_application_open_review(db, app_id, force_reopen=force)

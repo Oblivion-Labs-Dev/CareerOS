@@ -171,7 +171,7 @@ async def test_greenhouse_anduril_form_filling_and_file_safety():
             "location": "Auburn, WA",
             "portfolio": "https://amsborse.github.io/resume",
             "workAuthorization": "Yes",
-            "sponsorship": "No",
+            "sponsorship": "Yes",
         }
 
         # 1. Run standard and custom filling

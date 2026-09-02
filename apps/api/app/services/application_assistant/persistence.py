@@ -42,7 +42,7 @@ def default_settings() -> dict[str, Any]:
         "llm": {
             "enabled": True,
             "baseUrl": "http://localhost:11434/v1",
-            "model": "qwen3:8b",
+            "model": "mistral-small3.2:24b",
             "apiKey": "",
             "timeout": 60,
             "maxRetries": 2,

@@ -14,23 +14,27 @@ interface BatchConfigModalProps {
     concurrency: number;
     staggerDelay: number;
     selfHealing: boolean;
+    aiModel?: string;
   }) => void;
   initialBatchSize?: number;
+  initialAiModel?: string;
   loading?: boolean;
 }
 
-const PRESET_SIZES = [5, 10, 25, 50, 100];
+const PRESET_SIZES = [1, 5, 10, 25, 50, 100];
 
 export function BatchConfigModal({
   isOpen,
   onClose,
   onStartRun,
-  initialBatchSize = 25,
+  initialBatchSize = 1,
+  initialAiModel = "mistral-small",
   loading = false,
 }: BatchConfigModalProps) {
   const [batchSize, setBatchSize] = useState<number>(initialBatchSize);
   const [customInput, setCustomInput] = useState<string>("");
   const [isCustom, setIsCustom] = useState<boolean>(false);
+  const [aiModel, setAiModel] = useState<string>(initialAiModel);
   const [minMatchScore, setMinMatchScore] = useState<number>(75);
   const [maxPostAgeDays, setMaxPostAgeDays] = useState<number>(7);
   const [sortMode, setSortMode] = useState<string>("highest_match");
@@ -50,6 +54,7 @@ export function BatchConfigModal({
       concurrency,
       staggerDelay,
       selfHealing: selfHealingEnabled,
+      aiModel,
     });
   };
 
@@ -125,6 +130,90 @@ export function BatchConfigModal({
               />
             </div>
           )}
+        </div>
+
+        {/* AI Reasoning Engine Selector */}
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <label className="text-xs font-semibold text-slate-300 uppercase tracking-wider">
+              AI Reasoning Engine
+            </label>
+            <span className="text-[10px] text-slate-400">Powers candidate matching & self-healing</span>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
+            <button
+              type="button"
+              onClick={() => setAiModel("mistral-small")}
+              className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${
+                aiModel === "mistral-small"
+                  ? "bg-emerald-950/30 border-emerald-500/60 shadow-[0_0_15px_rgba(16,185,129,0.25)] text-white"
+                  : "bg-[#060a10] border-white/10 text-slate-400 hover:text-slate-200 hover:border-white/20"
+              }`}
+            >
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-black text-emerald-400">Mistral 24B</span>
+                {aiModel === "mistral-small" && <span className="text-[10px] text-emerald-300 font-bold">TOP ACC</span>}
+              </div>
+              <p className="text-[10px] text-slate-400 mt-1 leading-tight">
+                mistral-small:24b. 98% verified accuracy.
+              </p>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setAiModel("gemini")}
+              className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${
+                aiModel === "gemini"
+                  ? "bg-amber-950/30 border-amber-500/60 shadow-[0_0_15px_rgba(245,158,11,0.25)] text-white"
+                  : "bg-[#060a10] border-white/10 text-slate-400 hover:text-slate-200 hover:border-white/20"
+              }`}
+            >
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-black text-amber-400">Gemini Flash</span>
+                {aiModel === "gemini" && <span className="text-[10px] text-amber-300 font-bold">GOOGLE</span>}
+              </div>
+              <p className="text-[10px] text-slate-400 mt-1 leading-tight">
+                2.5 Flash. Ultra-fast &amp; multimodal.
+              </p>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setAiModel("gpt-oss")}
+              className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${
+                aiModel === "gpt-oss"
+                  ? "bg-cyan-950/30 border-cyan-500/60 shadow-[0_0_15px_rgba(34,211,238,0.25)] text-white"
+                  : "bg-[#060a10] border-white/10 text-slate-400 hover:text-slate-200 hover:border-white/20"
+              }`}
+            >
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-black text-cyan-400">gpt-oss:20b</span>
+                {aiModel === "gpt-oss" && <span className="text-[10px] text-cyan-300 font-bold">LOCAL</span>}
+              </div>
+              <p className="text-[10px] text-slate-400 mt-1 leading-tight">
+                Local Ollama 20B. High accuracy, private.
+              </p>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setAiModel("chatgpt-mini")}
+              className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${
+                aiModel === "chatgpt-mini"
+                  ? "bg-emerald-950/30 border-emerald-500/60 shadow-[0_0_15px_rgba(16,185,129,0.25)] text-white"
+                  : "bg-[#060a10] border-white/10 text-slate-400 hover:text-slate-200 hover:border-white/20"
+              }`}
+            >
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-black text-emerald-400">ChatGPT (4o-mini)</span>
+                {aiModel === "chatgpt-mini" && <span className="text-[10px] text-emerald-300 font-bold">OPENAI</span>}
+              </div>
+              <p className="text-[10px] text-slate-400 mt-1 leading-tight">
+                OpenAI API. Fast, 99.8% precision.
+              </p>
+            </button>
+          </div>
         </div>
 
         {/* Quality Controls */}

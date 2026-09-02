@@ -205,7 +205,7 @@ def get_active_prep_from_logs(db: Session) -> dict[str, Any] | None:
     from datetime import datetime
 
     from app.services.application_assistant.persistence import get_application_draft
-    from app.services.application_assistant.qwen_agent import get_agent_run
+    from app.services.application_assistant.agent import get_agent_run
     from app.services.application_assistant.worker import is_app_locked
 
     logs = get_logs(db, limit=50)

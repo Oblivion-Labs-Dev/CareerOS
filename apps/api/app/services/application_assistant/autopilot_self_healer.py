@@ -16,6 +16,7 @@ from __future__ import annotations
 import importlib
 import json
 import logging
+import os
 import re
 import shutil
 import traceback
@@ -38,6 +39,9 @@ BACKUP_DIR = Path(__file__).resolve().parents[3] / "data" / "self_healing_backup
 BACKUP_DIR.mkdir(parents=True, exist_ok=True)
 
 MAX_HEAL_ROUNDS = 3
+# AI may analyze failures, but it must not rewrite the live submitter unless an
+# operator explicitly enables that capability in the environment.
+ALLOW_AI_SOURCE_PATCHES = os.getenv("AA_SELF_HEAL_APPLY_PATCHES", "false").strip().lower() in {"1", "true", "yes"}
 
 SELF_HEALING_SYSTEM_PROMPT = """You are Qwen, the elite self-healing code-fix engine inside CareerOS Autopilot.
 
@@ -366,6 +370,18 @@ async def run_self_healing_cycle(
             _log(f"Round {round_num}: Qwen determined no code fix needed (confidence={confidence:.0%}). Stopping.", level="warning")
             round_result["status"] = "no_fix"
             rounds_log.append(round_result)
+            break
+
+        if not ALLOW_AI_SOURCE_PATCHES:
+            _log(
+                f"Round {round_num}: AI diagnosis is ready for review; live source changes are disabled.",
+                level="warning",
+            )
+            round_result["status"] = "review_required"
+            round_result["fixDescription"] = fix_desc
+            round_result["targetFunction"] = patch_response.get("targetFunction", "")
+            rounds_log.append(round_result)
+            state.last_patch_summary = (fix_desc or analysis)[:200]
             break
 
         # 4. Validate the patch

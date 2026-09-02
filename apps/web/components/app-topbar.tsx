@@ -7,6 +7,7 @@ import { BackendStatusDot } from "@/components/backend-status-dot";
 import { NAV_GROUPS } from "@/lib/nav-config";
 import { CareerIcon } from "@/components/ui/career-icon";
 import { useBackendStatus } from "@/hooks/use-backend-status";
+import { ThemeMorphButton } from "@/components/ui/theme-morph-button";
 
 const DIRECT_ACTIONS = [
   { label: "Open dashboard", href: "/dashboard", detail: "Dashboard" },
@@ -143,6 +144,7 @@ export function AppTopbar() {
             <span>Search jobs, companies, roles…</span>
             <kbd>⌘ K</kbd>
           </button>
+          <ThemeMorphButton />
           <Link className="app-topbar-icon-button" href="/applications?tab=review" aria-label="Open Review Center">
             <CareerIcon name="bell" size={18} />
           </Link>

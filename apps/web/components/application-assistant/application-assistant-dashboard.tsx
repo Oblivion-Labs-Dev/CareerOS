@@ -35,184 +35,26 @@ import {
   type PrepQueueStatus,
 } from "@/lib/application-assistant-api";
 
-type Application = {
-  id: string;
-  companyName: string;
-  roleTitle: string;
-  provider: string;
-  status: string;
-  progress: number;
-  verifiedCount: number;
-  reviewCount: number;
-  missingCount: number;
-  conflictingCount: number;
-  pendingFieldCount?: number;
-  readyForBrowser?: boolean;
-  aiAnalyzed?: boolean;
-  aiAnalyzedAt?: string;
-  matchScore?: number;
-  updatedAt: string;
-  jobId?: string;
-  resumeId?: string;
-  jobLocation?: string;
-  workplaceType?: string;
-  currentPage: string;
-  errors: { error?: string; type?: string }[];
-  skipped?: { field?: string; reason?: string }[];
-  prepLog?: Record<string, unknown> | null;
-  browserPlan?: { fillActions?: unknown[]; savedAt?: string; actionCount?: number } | null;
-  hasSavedAutofillState?: boolean;
-  autofillStepCount?: number;
-  prepRequired?: boolean;
-  quickApplyAvailable?: boolean;
-  quickApplyMode?: "focus" | "replay" | "slow" | "none" | "rebuild";
-  quickApplyStepCount?: number;
-  quickApplyLabel?: string;
-  stoppedReason?: string;
-  lastPrepFailed?: boolean;
-  lastPrepError?: string;
-  lastPrepAnalysis?: string;
-  fields?: { label?: string; normalizedKey?: string; fieldType?: string; classification?: string }[];
-  wizardPendingCache?: {
-    pending?: PendingQuestion[];
-    profilePending?: PendingQuestion[];
-    applicationPending?: PendingQuestion[];
-    profileKeysMissing?: string[];
-  };
-};
-
-type DashboardStats = {
-  statusCounts: Record<string, number>;
-  totalApplications: number;
-  fieldTotals: { verified: number; missing: number; needsReview: number };
-  activePrep: { active?: boolean; applicationId?: string; step?: string } | null;
-  scraper?: {
-    scraperTotal: number;
-    syncedTotal: number;
-    pendingSync: number;
-    lastScrapedAt?: string;
-  };
-};
-
-const STATUS_LABELS: Record<string, string> = {
-  ready_to_prepare: "Ready to prepare",
-  in_progress: "In progress",
-  needs_review: "Quick apply",
-  blocked: "Blocked",
-  ready_for_final_review: "Ready for final review",
-  submitted_manually: "Submitted manually",
-  archived: "Archived",
-};
-
-const STATUS_ACCENT: Record<string, string> = {
-  ready_to_prepare: "cyan",
-  in_progress: "violet",
-  needs_review: "amber",
-  blocked: "rose",
-  ready_for_final_review: "emerald",
-  submitted_manually: "teal",
-  archived: "slate",
-};
-
-function appIsActivelyPreparing(
-  appId: string,
-  app: Application,
-  prepQueue: PrepQueueStatus | null,
-  preparing: Set<string>,
-  activePrepIds: Set<string>,
-): boolean {
-  if (preparing.has(appId)) return true;
-  if (activePrepIds.has(appId)) return true;
-  if (!prepQueue) return false;
-  return (
-    prepQueue.activeApplicationIds.includes(appId)
-    || prepQueue.queuedApplicationIds.includes(appId)
-  );
-}
-
-/** Map an application to the queue section that matches its readiness (Quick apply vs retry). */
-function resolveQueueGroupKeyForApp(
-  app: Application,
-  opts: {
-    readiness: ReturnType<typeof resolveApplicationReadiness>;
-    isPreparing?: boolean;
-  },
-): string {
-  return resolveQueueGroupKey(app, {
-    readyForBrowser: opts.readiness.readyForBrowser,
-    profileBlocked: opts.readiness.profileBlocked,
-    needsAiAnalysis: opts.readiness.needsAiAnalysis,
-    canQuickApply: opts.readiness.canQuickApply,
-    needsStartPrep: opts.readiness.needsStartPrep,
-    isPreparing: opts.isPreparing,
-    lastPrepFailed: Boolean(app.lastPrepFailed),
-  });
-}
-
-const QUEUE_GROUPS = [
-  { key: "needs_review", label: "Quick apply" },
-  { key: "ready_to_prepare", label: "Start prep" },
-  { key: "blocked", label: "Blocked" },
-  { key: "ready_for_final_review", label: "Ready for final review" },
-  { key: "submitted_manually", label: "Submitted manually" },
-  { key: "archived", label: "Archived" },
-];
-
-type ReviewSessionStatus = {
-  status: "idle" | "opening" | "browser_open" | "ready" | "failed" | "profile_incomplete" | "submitted" | "preparing" | "busy";
-  message: string;
-  browserOpen: boolean;
-  readyForBrowser?: boolean;
-  pendingFieldCount?: number;
-  elapsedSec?: number;
-  updatedAt: number;
-};
-
-const REVIEW_STATUS_LABELS: Record<string, string> = {
-  opening: "Opening browser…",
-  browser_open: "Form open — submit on the job site",
-  submitted: "Submitted",
-  ready: "Ready to open",
-  failed: "Could not open browser",
-  profile_incomplete: "Answer profile questions first",
-  preparing: "Prep still running",
-  busy: "Application busy",
-  idle: "",
-};
+import {
+  type Application,
+  type DashboardStats,
+  type ProfileGateEntry,
+  type ReviewSessionStatus,
+  STATUS_LABELS,
+  STATUS_ACCENT,
+  REVIEW_STATUS_LABELS,
+  QUEUE_GROUPS,
+  appIsActivelyPreparing,
+  resolveQueueGroupKeyForApp,
+  formatAppError,
+  resolveProfileGate,
+  stripOpeningMessageSuffix,
+  sanitizeWizardQuestion,
+} from "./dashboard-helpers";
 
 type PrepReportProps = {
   app: Application;
 };
-
-function formatAppError(err: Application["errors"][number] | undefined): string {
-  if (!err) return "Error occurred";
-  if (typeof err === "string") return err;
-  if (typeof err.error === "string") return err.error;
-  const message = (err as { message?: string }).message;
-  if (typeof message === "string") return message;
-  try {
-    return JSON.stringify(err);
-  } catch {
-    return "Error occurred";
-  }
-}
-
-type ProfileGateEntry = { count: number; ready: boolean; loading?: boolean; aiAnalyzed?: boolean };
-
-function resolveProfileGate(app: Application, gate?: ProfileGateEntry) {
-  const readiness = resolveApplicationReadiness(app, gate);
-  const canOpenBrowser =
-    ["needs_review", "in_progress", "blocked"].includes(app.status) &&
-    !readiness.profileBlocked &&
-    !readiness.gateLoading &&
-    !readiness.needsAiAnalysis &&
-    readiness.readyForBrowser;
-  return { ...readiness, canOpenBrowser };
-}
-
-function stripOpeningMessageSuffix(message: string): string {
-  return message.replace(/\s*\(\d+s\)\s*$/i, "").replace(/(…|\.\.\.)\s*\(\d+s\)/gi, "$1");
-}
 
 export type QuestionsGateHandle = {
   openWizard: () => void;
@@ -241,20 +83,6 @@ function applyPendingApiResponse(res: Awaited<ReturnType<typeof getPendingFields
   };
 }
 
-function sanitizeWizardQuestion(field: PendingQuestion): PendingQuestion {
-  let next = { ...field };
-  const options = normalizeFieldOptions(next.options);
-  if (looksLikePhoneCountryOptions(options)) {
-    next = { ...next, options: [] };
-  }
-  if (isConsentQuestion(next)) {
-    return { ...next, fieldType: "checkbox", options: [] };
-  }
-  if (isFreeTextApplicationQuestion(next)) {
-    return { ...next, fieldType: "text", options: [] };
-  }
-  return next;
-}
 
 function wizardDataFromApplication(app: Application): AppWizardData | null {
   const cache = app.wizardPendingCache;

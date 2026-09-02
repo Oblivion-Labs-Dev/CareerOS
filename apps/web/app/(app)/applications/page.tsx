@@ -6,8 +6,9 @@ import { AutopilotDashboard } from "@/components/application-assistant/autopilot
 import { FailedJobsCenter } from "@/components/application-assistant/failed-jobs-center";
 import { ReviewCenter } from "@/components/application-assistant/review-center";
 import { SubmittedJobsCenter } from "@/components/application-assistant/submitted-jobs-center";
+import { LatencyDiagnosticsCenter } from "@/components/application-assistant/latency-diagnostics-center";
 import { getAutopilotJobs, getAutopilotStatus, getStagedApplications } from "@/lib/application-assistant-api";
-import { IconAlertCircle, IconBolt, IconClock, IconInbox, IconSend } from "@/components/application-assistant/autopilot/icons";
+import { IconActivity, IconAlertCircle, IconBolt, IconClock, IconInbox, IconSend } from "@/components/application-assistant/autopilot/icons";
 
 function ApplicationQueueLoading() {
   return (
@@ -25,7 +26,7 @@ function ApplicationQueueLoading() {
 }
 
 export default function ApplicationsPage() {
-  const [activeTab, setActiveTab] = useState<"autopilot" | "submitted" | "review" | "failed" | "tracker">("autopilot");
+  const [activeTab, setActiveTab] = useState<"autopilot" | "submitted" | "review" | "failed" | "tracker" | "diagnostics">("autopilot");
   const [reviewCount, setReviewCount] = useState<number>(0);
   const [submittedCount, setSubmittedCount] = useState<number>(0);
   const [failedCount, setFailedCount] = useState<number>(0);
@@ -113,7 +114,7 @@ export default function ApplicationsPage() {
             <span>Autopilot</span>
           </button>
 
-          {/* 2. Submitted Applications Button (Emerald) */}
+          {/* 2. Submitted Button (Emerald) */}
           <button
             onClick={() => setActiveTab("submitted")}
             style={{
@@ -145,7 +146,7 @@ export default function ApplicationsPage() {
             className="px-3.5 py-2 text-xs font-black rounded-xl border transition-all duration-300 flex items-center gap-2 cursor-pointer hover:scale-[1.02] active:scale-[0.98]"
           >
             <IconClock className="w-4 h-4 text-[#c084fc]" />
-            <span>Review Center</span>
+            <span>In Review</span>
             {reviewCount > 0 && (
               <span className="px-1.5 py-0.5 rounded-full text-[10px] font-black bg-[#a855f7] text-white shadow-sm">
                 {reviewCount}
@@ -187,10 +188,25 @@ export default function ApplicationsPage() {
             <IconInbox className="w-4 h-4 text-[#fbbf24]" />
             <span>All Applications</span>
           </button>
+
+          {/* 6. Diagnostics Button (Cyan / Blue) */}
+          <button
+            onClick={() => setActiveTab("diagnostics")}
+            style={{
+              background: activeTab === "diagnostics" ? "#0f2231" : "#0a1722",
+              borderColor: activeTab === "diagnostics" ? "#38bdf8" : "rgba(56, 189, 248, 0.4)",
+              color: "#38bdf8",
+              boxShadow: activeTab === "diagnostics" ? "0 0 20px rgba(56, 189, 248, 0.4)" : "none",
+            }}
+            className="px-3.5 py-2 text-xs font-black rounded-xl border transition-all duration-300 flex items-center gap-2 cursor-pointer hover:scale-[1.02] active:scale-[0.98]"
+          >
+            <IconActivity className="w-4 h-4 text-[#38bdf8]" />
+            <span>Diagnostics</span>
+          </button>
         </div>
       </header>
 
-      {/* ─── Main Tab Content ─── */}
+      {/* ─── Main Content ─── */}
       {activeTab === "autopilot" && (
         <Suspense fallback={<ApplicationQueueLoading />}>
           <AutopilotDashboard onNavigateTab={(t) => setActiveTab(t)} />
@@ -211,13 +227,22 @@ export default function ApplicationsPage() {
 
       {activeTab === "failed" && (
         <Suspense fallback={<ApplicationQueueLoading />}>
-          <FailedJobsCenter onReprocessSuccess={() => setActiveTab("autopilot")} />
+          <FailedJobsCenter
+            onReprocessSuccess={() => setActiveTab("autopilot")}
+            onOpenPrep={() => setActiveTab("tracker")}
+          />
         </Suspense>
       )}
 
       {activeTab === "tracker" && (
         <Suspense fallback={<ApplicationQueueLoading />}>
           <ApplicationAssistantDashboard />
+        </Suspense>
+      )}
+
+      {activeTab === "diagnostics" && (
+        <Suspense fallback={<ApplicationQueueLoading />}>
+          <LatencyDiagnosticsCenter />
         </Suspense>
       )}
     </div>

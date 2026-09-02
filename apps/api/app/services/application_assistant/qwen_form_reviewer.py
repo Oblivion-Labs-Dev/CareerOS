@@ -46,8 +46,16 @@ async def review_and_heal_form_state(
     profile: dict[str, Any],
     company: str,
     title: str,
+    filled_answers: dict[str, str] | None = None,
 ) -> dict[str, Any]:
-    """Run Qwen verification on live form DOM fields and determine if self-healing actions are needed."""
+    """Run verification on live form DOM fields and determine if self-healing actions are needed.
+
+    Enhanced to also validate filled answers against the candidate profile.
+    qwenPreApproved=true now means:
+      - form complete
+      - answers semantically correct
+      - answers consistent with candidate profile
+    """
     try:
         with session_scope() as db:
             settings = get_settings(db)
@@ -83,19 +91,77 @@ async def review_and_heal_form_state(
                 "actionType": act,
             })
 
-    # If all required fields are filled and there are no validation errors, submit immediately (<1ms)
-    if len(missing_required) == 0 and len(validation_errors) == 0:
+    # 2. Profile consistency check on filled answers
+    profile_contradictions: list[dict[str, Any]] = []
+    if filled_answers and profile:
+        wa = profile.get("workAuth") or {}
+        sec = profile.get("security") or {}
+
+        for label, answer in filled_answers.items():
+            label_lower = label.lower()
+            answer_lower = answer.lower()
+
+            # Check sponsorship consistency
+            if any(kw in label_lower for kw in ["sponsor", "visa"]):
+                requires_sponsorship = wa.get("requiresSponsorshipNowOrFuture",
+                    str(profile.get("sponsorship", "")).lower() in ("yes", "true"))
+                if requires_sponsorship and answer_lower.startswith("no"):
+                    profile_contradictions.append({
+                        "fieldId": label,
+                        "label": label,
+                        "issue": f"Candidate requires sponsorship (H1B) but answer is '{answer}'",
+                        "severity": "BLOCKING",
+                        "suggestedFixValue": "Yes",
+                        "actionType": "select_option",
+                    })
+
+            # Check citizenship/export control
+            if any(kw in label_lower for kw in ["export control", "citizen", "u.s. person"]):
+                if not wa.get("usCitizen", False) and not wa.get("usNational", False):
+                    if "citizen" in answer_lower and "none" not in answer_lower:
+                        profile_contradictions.append({
+                            "fieldId": label,
+                            "label": label,
+                            "issue": f"Candidate is not a US citizen but answer claims citizenship: '{answer}'",
+                            "severity": "BLOCKING",
+                            "suggestedFixValue": "None of the above",
+                            "actionType": "select_option",
+                        })
+
+            # Check permanent authorization
+            if "permanent" in label_lower and "authoriz" in label_lower:
+                if not wa.get("permanentWorkAuthorization", False) and answer_lower.startswith("yes"):
+                    profile_contradictions.append({
+                        "fieldId": label,
+                        "label": label,
+                        "issue": f"Candidate does not have permanent work authorization but answer is '{answer}'",
+                        "severity": "BLOCKING",
+                        "suggestedFixValue": "No",
+                        "actionType": "select_option",
+                    })
+
+    # If all required fields are filled, no errors, and no contradictions → approve
+    if len(missing_required) == 0 and len(validation_errors) == 0 and len(profile_contradictions) == 0:
         return {
             "readyToSubmit": True,
-            "overallAssessment": "All required fields populated and no active validation errors",
+            "overallAssessment": "All required fields populated, no validation errors, answers consistent with profile",
             "missingOrInvalidFields": [],
+            "profileContradictions": [],
         }
 
-    # Only if required fields are actually missing do we check candidate profile / LLM
+    # Combine issues
+    all_issues = missing_required + profile_contradictions
+    has_blocking = any(item.get("severity") == "BLOCKING" for item in profile_contradictions)
+
     return {
         "readyToSubmit": False,
-        "overallAssessment": f"Found {len(missing_required)} unfilled required field(s)",
+        "overallAssessment": (
+            f"Found {len(missing_required)} unfilled required field(s)"
+            + (f" and {len(profile_contradictions)} profile contradiction(s)" if profile_contradictions else "")
+        ),
         "missingOrInvalidFields": missing_required,
+        "profileContradictions": profile_contradictions,
+        "hasBlockingContradictions": has_blocking,
     }
 
 

@@ -513,19 +513,19 @@ def extract_canonical_value(
         return "Yes", "Relocation preference"
 
     if key == "exportControl":
-        val = "U.S. Citizen / Lawful Permanent Resident"
+        val = "None of the above"
         if options:
-            matched = pick_best_matching_option(options, "U.S. Citizen") or pick_best_matching_option(options, "A person lawful") or pick_best_matching_option(options, "Yes")
+            matched = pick_best_matching_option(options, "None of the above") or pick_best_matching_option(options, "No") or pick_best_matching_option(options, "None")
             if matched:
                 return matched, "Matched export control option"
         return val, "Export control authorization"
 
     if key == "clearanceEligibility":
         if options:
-            matched = pick_best_matching_option(options, "Yes, I am eligible") or pick_best_matching_option(options, "Yes")
+            matched = pick_best_matching_option(options, "No") or pick_best_matching_option(options, "Not eligible")
             if matched:
                 return matched, "Matched clearance eligibility"
-        return "Yes", "Clearance eligibility default"
+        return "No", "Clearance eligibility default"
 
     if key == "clearanceLevel":
         cl = profile.get("clearanceLevel") or "None"

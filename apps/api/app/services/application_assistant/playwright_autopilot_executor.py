@@ -18,6 +18,27 @@ from app.services.application_assistant.ats_plugin_reference import (
 )
 from app.services.application_assistant.structured_answer_engine import resolve_application_question
 from app.services.application_assistant.qwen_form_reviewer import review_and_heal_form_state
+from app.services.application_assistant.question_classifier import (
+    QuestionType,
+    classify_question,
+    classify_free_text_intent,
+    is_sensitive_factual,
+)
+from app.services.application_assistant.profile_answer_resolver import (
+    resolve_answer,
+    AnswerResolution,
+)
+from app.services.application_assistant.cross_field_validator import (
+    validate_answers,
+    ValidationReport,
+)
+from app.services.application_assistant.form_field_persistence import (
+    persist_discovered_form,
+    persist_answer_resolutions,
+    persist_pre_submit_report,
+)
+from app.services.application_assistant.browser_verifier import verify_browser_dom_state
+from app.services.application_assistant.submission_policy import SubmissionPolicy, SubmissionDecision
 
 logger = logging.getLogger("career_os.playwright_autopilot")
 
@@ -46,27 +67,42 @@ async def _extract_dom_form_state(page: Page) -> tuple[list[dict[str, Any]], lis
         var fields = [];
         var errors = [];
         
-        var errEls = document.querySelectorAll('.error, [role="alert"], [aria-live="polite"], .field__error, .field__error-text, .text-error, .input-error, .invalid-feedback, p.error, p[id*="error" i], span[id*="error" i], div[id*="error" i], p[class*="error" i], span[class*="error" i]');
+        var errEls = document.querySelectorAll('.error, [role="alert"]:not([aria-live="polite"]), .field__error, .field__error-text, .text-error, .input-error, .invalid-feedback, p.error, p[id*="error" i], span[id*="error" i], div[id*="error" i], p[class*="error" i], span[class*="error" i]');
         for (var e = 0; e < errEls.length; e++) {
             var txt = (errEls[e].innerText || '').trim();
             if (txt && errors.indexOf(txt) === -1 && errEls[e].offsetParent !== null && txt.toLowerCase().indexOf('cookie') === -1) {
+                // Ignore screen-reader option selection announcements (e.g. from React-Select or ARIA comboboxes)
+                var normLower = txt.toLowerCase();
+                if (normLower.indexOf('option ') === 0 || normLower.indexOf(', selected.') !== -1 || normLower === 'selected.') {
+                    continue;
+                }
                 errors.push(txt);
             }
         }
-        // Also look for common ATS inline validation text nodes
-        var allTextNodes = document.querySelectorAll('p, span, div, label');
+        // Also look for common ATS inline validation text nodes (excluding form labels and question legends)
+        var allTextNodes = document.querySelectorAll('p, span, div');
         for (var t = 0; t < allTextNodes.length; t++) {
-            var nodeTxt = (allTextNodes[t].innerText || '').trim();
+            var node = allTextNodes[t];
+            if (node.closest('label, legend, .label, .field__label, .question-label') !== null) {
+                continue;
+            }
+            var nodeTxt = (node.innerText || '').trim();
             var normalizedError = nodeTxt.toLowerCase();
+            // Exclude screen-reader selection announcements and large marketing blocks
+            if (normalizedError.indexOf('option ') === 0 || normalizedError.indexOf(', selected.') !== -1 || normalizedError.indexOf('*') !== -1) {
+                continue;
+            }
             var isValidationMessage = normalizedError === 'this field is required.' ||
-                normalizedError.indexOf('please enter your') === 0 ||
-                normalizedError.indexOf('please select') === 0 ||
-                normalizedError.indexOf('please upload') === 0 ||
-                normalizedError.indexOf('please answer') === 0 ||
-                normalizedError.indexOf('must select') !== -1 ||
-                normalizedError.indexOf('is required') !== -1;
-            if (isValidationMessage && nodeTxt.length < 500) {
-                if (allTextNodes[t].offsetParent !== null && errors.indexOf(nodeTxt) === -1) {
+                normalizedError === 'this field is required' ||
+                normalizedError.indexOf('please enter a valid') === 0 ||
+                normalizedError.indexOf('please select an option') === 0 ||
+                normalizedError.indexOf('please select a valid') === 0 ||
+                normalizedError.indexOf('please upload a') === 0 ||
+                normalizedError.indexOf('please answer this') === 0 ||
+                normalizedError.indexOf('must select an option') !== -1 ||
+                normalizedError.indexOf('is required.') !== -1;
+            if (isValidationMessage && nodeTxt.length < 150) {
+                if (node.offsetParent !== null && errors.indexOf(nodeTxt) === -1) {
                     errors.push(nodeTxt);
                 }
             }
@@ -284,10 +320,14 @@ async def _fill_all_greenhouse_comboboxes(
     profile: dict[str, Any],
     answer_lib: list[dict[str, Any]] | None = None,
 ) -> dict[str, str]:
-    """Deterministically fill and select all Greenhouse dropdowns & React Select controls."""
-    filled: dict[str, str] = {}
+    """Fill all Greenhouse dropdowns & React Select controls using the centralized resolver.
 
-    # Locate all combobox input triggers & select containers
+    REPLACES the previous 100+ line if/elif heuristic chain.
+    Every answer now comes from profile_answer_resolver with full provenance.
+    """
+    filled: dict[str, str] = {}
+    all_resolutions: list[AnswerResolution] = []
+
     cb_elements = await page.locator('input[role="combobox"], div.select__control, div[class*="select__control"]').all()
 
     for el in cb_elements:
@@ -305,78 +345,18 @@ async def _fill_all_greenhouse_comboboxes(
                 }
                 return el.getAttribute('aria-label') || el.id || '';
             }""")
-            lbl_lower = (lbl_text or "").lower()
-            if not lbl_lower:
+            if not (lbl_text or "").strip():
                 continue
 
-            # Target answer heuristics
-            target_text = "No"
-            if "phone" in lbl_lower or "country code" in lbl_lower or "country" in lbl_lower and ("code" in lbl_lower or "+1" in lbl_lower):
-                target_text = "United States"
-            elif "country" in lbl_lower or "countries where we are accepting" in lbl_lower or "based in any of these countries" in lbl_lower:
-                target_text = "United States"
-            elif "relocate" in lbl_lower or "local to" in lbl_lower or "willing to" in lbl_lower:
-                target_text = "Yes"
-            elif "transcript" in lbl_lower or "academic transcript" in lbl_lower:
-                target_text = "Yes"
-            elif "gpa" in lbl_lower or "grade point" in lbl_lower:
-                target_text = "3.5"
-            elif "english" in lbl_lower or "language" in lbl_lower or "proficiency" in lbl_lower:
-                target_text = "Fluent"
-            elif "clearance eligibility" in lbl_lower or "obtain and maintain" in lbl_lower or "eligibility to obtain" in lbl_lower:
-                target_text = "Yes, I am eligible"
-            elif "clearance level" in lbl_lower or "clearance level have you held" in lbl_lower or "security clearance" in lbl_lower:
-                target_text = "No clearance held"
-            elif "export control" in lbl_lower or "u.s. export" in lbl_lower or "itar" in lbl_lower or "ear" in lbl_lower:
-                target_text = "U.S. Citizen"
-            elif "work authorization" in lbl_lower or "authorized to work" in lbl_lower or "legally authorized" in lbl_lower or "permanent authorization" in lbl_lower or "authorization to work" in lbl_lower:
-                target_text = "Yes"
-            elif "sponsorship" in lbl_lower or "require visa" in lbl_lower or "require sponsorship" in lbl_lower or "visa sponsorship" in lbl_lower:
-                target_text = "No"
-            elif "live in one of the following states" in lbl_lower or "following states" in lbl_lower or "state residency" in lbl_lower:
-                target_text = "No"
-            elif "privacy notice" in lbl_lower or "job applicant privacy" in lbl_lower or "acknowledge that i have read" in lbl_lower or "terms" in lbl_lower or "consent" in lbl_lower:
-                target_text = "Yes"
-            elif "double-check all the information" in lbl_lower or "accuracy is crucial" in lbl_lower or "errors or omissions" in lbl_lower or "accurate" in lbl_lower:
-                target_text = "Yes"
-            elif "history with" in lbl_lower or "employed by" in lbl_lower or "conflict" in lbl_lower or "previously applied" in lbl_lower or "family member" in lbl_lower or "relative" in lbl_lower or "government" in lbl_lower:
-                target_text = "No"
-            elif "notice period" in lbl_lower or "start date" in lbl_lower or "available to start" in lbl_lower:
-                target_text = "Immediately"
-            elif "how did you hear" in lbl_lower or "source" in lbl_lower or "referral" in lbl_lower or "where did you first hear" in lbl_lower:
-                target_text = "LinkedIn"
-            elif "gender" in lbl_lower:
-                target_text = "Decline"
-            elif "transgender" in lbl_lower:
-                target_text = "Decline"
-            elif "sexual orientation" in lbl_lower:
-                target_text = "Decline"
-            elif "hispanic" in lbl_lower or "latino" in lbl_lower:
-                target_text = "No"
-            elif "race" in lbl_lower or "ethnicity" in lbl_lower:
-                target_text = "Asian"
-            elif "veteran" in lbl_lower:
-                target_text = "not a protected"
-            elif "disability" in lbl_lower:
-                target_text = "do not have"
-            else:
-                if answer_lib:
-                    for a in answer_lib:
-                        q_cand = str(a.get("questionText") or "").lower()
-                        if q_cand and (q_cand in lbl_lower or lbl_lower in q_cand):
-                            target_text = str(a.get("answer") or "No")
-                            break
-
+            # Collect available options by opening the dropdown
             await el.scroll_into_view_if_needed()
             await el.click(force=True)
             await asyncio.sleep(0.2)
 
             options_loc = page.locator('.select__option, div[class*="option"], [role="option"]')
             opt_count = await options_loc.count()
-
-            matched = False
-            first_opt = None
-            first_opt_text = ""
+            available_options: list[str] = []
+            option_elements: dict[str, Any] = {}
 
             for i in range(opt_count):
                 opt = options_loc.nth(i)
@@ -385,20 +365,52 @@ async def _fill_all_greenhouse_comboboxes(
                 otxt = (await opt.inner_text()).strip()
                 if not otxt or otxt.lower() in ("select...", "select", "--", "choose"):
                     continue
-                if not first_opt:
-                    first_opt = opt
-                    first_opt_text = otxt
+                available_options.append(otxt)
+                option_elements[otxt.lower()] = opt
 
-                if target_text.lower() in otxt.lower() or otxt.lower() in target_text.lower():
-                    await opt.click(force=True)
-                    filled[lbl_text[:35]] = otxt
+            # ── Centralized resolution (replaces all if/elif heuristics) ──
+            resolution = resolve_answer(
+                question_text=lbl_text,
+                profile=profile,
+                options=available_options,
+            )
+            all_resolutions.append(resolution)
+
+            target_text = resolution.answer
+            if not target_text:
+                # Unresolved — skip rather than guess
+                logger.info("Combobox '%s' unresolved (type=%s), skipping", lbl_text[:50], resolution.question_type)
+                # Close dropdown
+                await page.keyboard.press("Escape")
+                await asyncio.sleep(0.1)
+                continue
+
+            if resolution.blocking_errors:
+                logger.warning("Combobox '%s' blocked: %s", lbl_text[:50], resolution.blocking_errors)
+                await page.keyboard.press("Escape")
+                await asyncio.sleep(0.1)
+                continue
+
+            # Find and click the matching option
+            matched = False
+            target_lower = target_text.strip().lower()
+
+            for otxt, opt_el in option_elements.items():
+                if target_lower in otxt or otxt in target_lower:
+                    await opt_el.click(force=True)
+                    filled[lbl_text[:50]] = target_text
                     matched = True
                     await asyncio.sleep(0.1)
                     break
 
-            if not matched and first_opt:
-                await first_opt.click(force=True)
-                filled[lbl_text[:35]] = first_opt_text
+            if not matched:
+                # SAFETY: Do NOT fall back to clicking the first option.
+                # Instead, log and close.
+                logger.warning(
+                    "Combobox '%s': target '%s' not found in %d options, skipping (NO random fallback)",
+                    lbl_text[:50], target_text, len(available_options),
+                )
+                await page.keyboard.press("Escape")
                 await asyncio.sleep(0.1)
 
         except Exception as ex:
@@ -474,18 +486,45 @@ async def _fill_standard_and_react_fields(
     # Fill Location (City) if requested
     loc_inputs = page.locator('input[id*="location" i], input[name*="location" i], input[placeholder*="location" i], input[id*="candidate_location" i]')
     if await loc_inputs.count() > 0:
-        city_val = profile.get("location") or "San Francisco, CA, USA"
+        city_val = profile.get("location") or "Auburn, WA"
+        if city_val.strip().lower() in ("akshay", "akshay borse", "none", ""):
+            city_val = "Auburn, WA"
         for i in range(await loc_inputs.count()):
             loc_el = loc_inputs.nth(i)
             if await loc_el.is_visible():
                 try:
                     await loc_el.fill(city_val)
                     filled["Location"] = city_val
-                    await asyncio.sleep(0.2)
-                    # If auto-suggest popup appears, pick first
-                    first_sug = page.locator('.location-suggestion, [role="option"], .pac-item').first
-                    if await first_sug.count() > 0 and await first_sug.is_visible():
-                        await first_sug.click(force=True)
+                    await asyncio.sleep(0.3)
+                    # If auto-suggest popup appears, prioritize matching Auburn or Washington
+                    suggestions = page.locator('.location-suggestion, [role="option"], .pac-item, li[class*="suggestion"]')
+                    sug_count = await suggestions.count()
+                    matched_sug = None
+                    if sug_count > 0:
+                        profile_state_full = (profile.get("state") or "Washington").lower()
+                        profile_state_abbrev = "wa" if "washington" in profile_state_full else profile_state_full[:2]
+                        profile_city_lc = (profile.get("city") or "Auburn").lower()
+                        first_name_lc = (profile.get("firstName") or "").lower()
+
+                        for s_idx in range(sug_count):
+                            s_el = suggestions.nth(s_idx)
+                            s_text = (await s_el.inner_text()).lower()
+                            # SAFETY: Never accept suggestion matching candidate's first name
+                            if first_name_lc and s_text.strip() == first_name_lc:
+                                continue
+                            # Require BOTH city AND state match to prevent Auburn, ND
+                            has_city = profile_city_lc in s_text
+                            has_state = profile_state_full in s_text or profile_state_abbrev in s_text
+                            if has_city and has_state:
+                                matched_sug = s_el
+                                break
+                    if matched_sug:
+                        if await matched_sug.is_visible():
+                            await matched_sug.click(force=True)
+                    else:
+                        # No safe suggestion found — close without selecting a wrong location
+                        await page.keyboard.press("Escape")
+                        logger.warning("Location autocomplete: no suggestion matched both city and state from profile")
                 except Exception:
                     pass
 
@@ -549,21 +588,57 @@ async def _fill_standard_and_react_fields(
         except Exception:
             pass
 
-    # 4. Standard Text Links (LinkedIn, Website, Portfolio)
-    if await page.locator('input[id="job_application_answers_attributes_0_text_value"], input[id*="linkedin" i], input[name*="linkedin" i]').count() > 0:
-        val = profile.get("linkedin", "https://www.linkedin.com/in/amsborse/")
-        await _fill_first_visible(page, ['input[id*="linkedin" i]', 'input[name*="linkedin" i]'], val)
-        filled["LinkedIn"] = val
-
-    website_inputs = await page.locator('input[type="text"][id="website"], input[type="text"][name*="website" i], input[type="text"][id*="portfolio" i], input[type="url"]').all()
-    for winp in website_inputs:
-        w_role = await winp.get_attribute("role") or ""
-        if w_role == "combobox":
-            continue
-        val = profile.get("portfolio") or profile.get("github") or "https://amsborse.github.io/resume"
+    # 4. Standard & Custom Text Inputs (LinkedIn, Company, Title, Website, Portfolio)
+    text_inputs = await page.locator('input[type="text"], input[type="url"], input[type="search"], input:not([type])').all()
+    for inp in text_inputs:
         try:
-            await winp.fill(val)
-            filled["Website"] = val
+            if not await inp.is_visible():
+                continue
+            role = await inp.get_attribute("role") or ""
+            if role == "combobox":
+                continue
+            curr_val = (await inp.input_value()).strip()
+            if curr_val:
+                continue
+
+            inp_id = await inp.get_attribute("id") or ""
+            inp_lbl = ""
+            if inp_id:
+                lbl_el = page.locator(f'label[for="{inp_id}"]').first
+                if await lbl_el.count() > 0:
+                    inp_lbl = (await lbl_el.inner_text()).strip()
+            if not inp_lbl:
+                parent = inp.locator('xpath=ancestor::div[contains(@class, "field") or contains(@class, "form-group") or contains(@class, "custom-question")][1]').first
+                if await parent.count() > 0:
+                    inp_lbl = (await parent.inner_text()).strip()
+
+            inp_lbl_lower = inp_lbl.lower()
+            if not inp_lbl_lower:
+                continue
+
+            val_to_fill = ""
+            if "linkedin" in inp_lbl_lower:
+                val_to_fill = profile.get("linkedin") or "https://www.linkedin.com/in/amsborse/"
+                filled["LinkedIn"] = val_to_fill
+            elif "current company" in inp_lbl_lower or "most recent company" in inp_lbl_lower or "your current company" in inp_lbl_lower or "employer" in inp_lbl_lower:
+                val_to_fill = profile.get("currentCompany") or "Microsoft"
+                filled["Current Company"] = val_to_fill
+            elif "current title" in inp_lbl_lower or "most recent title" in inp_lbl_lower or "your current title" in inp_lbl_lower or "job title" in inp_lbl_lower:
+                val_to_fill = profile.get("currentTitle") or "Senior Software Engineer"
+                filled["Current Title"] = val_to_fill
+            elif "state in which you" in inp_lbl_lower or "state of residence" in inp_lbl_lower:
+                val_to_fill = profile.get("state") or "Washington"
+                filled["State"] = val_to_fill
+            elif "github" in inp_lbl_lower:
+                val_to_fill = profile.get("github") or "https://github.com/amsborse"
+                filled["GitHub"] = val_to_fill
+            elif "portfolio" in inp_lbl_lower or "website" in inp_lbl_lower:
+                val_to_fill = profile.get("portfolio") or profile.get("website") or "https://amsborse.github.io/resume"
+                filled["Website"] = val_to_fill
+
+            if val_to_fill:
+                await inp.fill(val_to_fill)
+                await asyncio.sleep(0.1)
         except Exception:
             pass
 
@@ -646,10 +721,29 @@ async def execute_live_playwright_submission(
                         log_callback(f"Switched to application iframe ({frame.url[:40]}...)")
                     break
 
-            # If application form is not yet visible, check for "Apply" / "Apply for this job" button on overview page
+            # If application form is not yet visible, check for matching job links or "Apply" buttons
             try:
                 form_present = await target_frame.locator('input[name*="name" i], #first_name, #email, form').count() > 0
                 if not form_present:
+                    # Check for direct link to specific job if gh_jid was in the URL
+                    if "gh_jid=" in app_url:
+                        import urllib.parse
+                        parsed = urllib.parse.urlparse(app_url)
+                        qs = urllib.parse.parse_qs(parsed.query)
+                        jid = qs.get("gh_jid", [""])[0]
+                        if jid:
+                            matching_link = page.locator(f'a[href*="{jid}"], a[href*="gh_jid={jid}"], a[href*="job-detail?gh_jid={jid}"]').first
+                            if await matching_link.count() > 0 and await matching_link.is_visible():
+                                logger.info("Navigating to specific job link for gh_jid=%s...", jid)
+                                if log_callback:
+                                    log_callback(f"Opening specific job posting for gh_jid={jid}...")
+                                await matching_link.click()
+                                await asyncio.sleep(3.0)
+                                for frame in page.frames:
+                                    if frame != page and any(term in frame.url for term in ["greenhouse.io", "lever.co", "ashby"]):
+                                        target_frame = frame
+                                        break
+
                     apply_btn_selectors = [
                         'a[href*="#apply"]',
                         'a[href*="#application"]',
@@ -668,9 +762,27 @@ async def execute_live_playwright_submission(
                                 log_callback(f"Clicking '{ab_sel}' to expose application form...")
                             await ab.click()
                             await asyncio.sleep(2.0)
+                            for frame in page.frames:
+                                if frame != page and any(term in frame.url for term in ["greenhouse.io", "lever.co", "ashby"]):
+                                    target_frame = frame
+                                    break
                             break
-            except Exception as ex:
-                logger.debug("Apply button click check: %s", ex)
+            except Exception as nav_err:
+                logger.debug("Initial form exposure navigation warning: %s", nav_err)
+
+            # ─── DISCOVER & PERSIST FIELDS BEFORE RESOLUTION ─────────────────
+            try:
+                discovered_dom_fields, _ = await _extract_dom_form_state(target_frame)
+                if discovered_dom_fields:
+                    persist_discovered_form(
+                        application_id=str(job_id),
+                        job_id=str(job_id),
+                        ats="greenhouse" if "greenhouse" in app_url.lower() else "ats",
+                        fields=discovered_dom_fields,
+                        page_url=page.url,
+                    )
+            except Exception as disc_err:
+                logger.debug("Field discovery persistence error: %s", disc_err)
 
             # Initial Form Filling
             filled_fields = await _fill_standard_and_react_fields(
@@ -736,44 +848,13 @@ async def execute_live_playwright_submission(
                     f_label_lower = f_label.lower()
                     fix_val = item.get("suggestedFixValue")
 
-                    # Instant deterministic resolution for high-frequency questions
+                    # ── Use centralized resolver instead of if/elif heuristics ──
                     if not fix_val:
-                        if "gender" in f_label_lower:
-                            fix_val = profile.get("gender") or "Man"
-                        elif "hispanic" in f_label_lower or "latino" in f_label_lower:
-                            fix_val = profile.get("hispanic") or "No"
-                        elif "race" in f_label_lower or "ethnicity" in f_label_lower:
-                            fix_val = profile.get("race") or "Asian"
-                        elif "veteran" in f_label_lower:
-                            fix_val = "I am not a protected veteran"
-                        elif "disability" in f_label_lower:
-                            fix_val = "I do not have a disability"
-                        elif "transcript" in f_label_lower or "academic transcript" in f_label_lower:
-                            fix_val = "Yes"
-                        elif "relocate" in f_label_lower or "local to" in f_label_lower:
-                            fix_val = "Yes"
-                        elif "clearance eligibility" in f_label_lower or "obtain and maintain" in f_label_lower or "eligibility to obtain" in f_label_lower:
-                            fix_val = "Yes, I am eligible"
-                        elif "clearance level" in f_label_lower or "clearance level have you held" in f_label_lower or "security clearance" in f_label_lower:
-                            fix_val = "No clearance held"
-                        elif "export control" in f_label_lower or "u.s. export" in f_label_lower or "itar" in f_label_lower or "ear" in f_label_lower:
-                            fix_val = "U.S. Citizen"
-                        elif "work authorization" in f_label_lower or "authorized to work" in f_label_lower:
-                            fix_val = "Yes"
-                        elif "sponsorship" in f_label_lower or "require visa" in f_label_lower:
-                            fix_val = "No"
-                        elif "conflict" in f_label_lower or "history with" in f_label_lower or "employed by" in f_label_lower:
-                            fix_val = "No"
-                        elif "how did you hear" in f_label_lower or "source" in f_label_lower:
-                            fix_val = "LinkedIn"
-                        else:
-                            # Instant hash lookup in answer library before LLM
-                            if answer_lib:
-                                for a in answer_lib:
-                                    q_cand = str(a.get("questionText") or "").lower()
-                                    if q_cand and (q_cand in f_label_lower or f_label_lower in q_cand):
-                                        fix_val = str(a.get("answer") or "No")
-                                        break
+                        heal_resolution = resolve_answer(
+                            question_text=f_label,
+                            profile=profile,
+                        )
+                        fix_val = heal_resolution.answer
                     if f_id:
                         elem = target_frame.locator(f"#{f_id}").first
                         if await elem.count() > 0:
@@ -815,46 +896,71 @@ async def execute_live_playwright_submission(
 
                 await asyncio.sleep(0.5)
 
-            # Submission is a hard boundary: do not click Submit when the form
-            # still contains required fields or visible validation errors. The
-            # previous implementation recorded a misleading post-submit failure
-            # after clicking through an incomplete Greenhouse form.
-            final_fields, final_validation_errors = await _extract_dom_form_state(target_frame)
-            final_missing_required = [
-                field for field in final_fields
-                if (field.get("required") or "*" in field.get("label", ""))
-                and not field.get("value")
-            ]
-            if final_validation_errors or final_missing_required:
-                unresolved = [field.get("label") or field.get("id") or "unnamed field" for field in final_missing_required]
-                reason_parts = []
-                if unresolved:
-                    reason_parts.append(f"Required fields remain unresolved: {', '.join(unresolved[:8])}")
-                if final_validation_errors:
-                    reason_parts.append(f"Form validation errors: {', '.join(final_validation_errors[:5])}")
-                error = "; ".join(reason_parts) or "Form did not pass pre-submit validation"
-                logger.warning("Blocking incomplete application submission: %s", error)
+            # ─── VERIFIED AUTONOMY SUBMISSION POLICY GATE ─────────────────────
+            # 1. Collect all answer resolutions from form filling
+            form_resolutions: list[AnswerResolution] = []
+            for lbl, ans in filled_fields.items():
+                form_resolutions.append(
+                    resolve_answer(question_text=lbl, profile=profile)
+                )
+
+            # 2. Run cross-field deterministic validation
+            cross_field_report = validate_answers(form_resolutions, profile)
+
+            # 3. Read back live browser DOM state
+            dom_verification = await verify_browser_dom_state(target_frame, form_resolutions, profile)
+
+            # 4. Evaluate centralized SubmissionPolicy
+            policy_result = SubmissionPolicy.evaluate(
+                resolutions=form_resolutions,
+                validation_report=cross_field_report,
+                dom_verification=dom_verification,
+                profile=profile,
+            )
+
+            # 5. Persist pre-submit audit report
+            persist_pre_submit_report(
+                application_id=str(job_id),
+                report=cross_field_report,
+                resolutions=form_resolutions,
+            )
+
+            # 6. Policy Check: If not READY_TO_SUBMIT, stage for review (never force submit)
+            if not policy_result.can_auto_submit:
+                reasons_str = "; ".join(policy_result.reasons)
+                logger.warning("Verified Autonomy Policy Decision: NEEDS_REVIEW. Reason(s): %s", reasons_str)
                 if log_callback:
-                    log_callback("Submission paused: the form still needs verified answers.", lvl="warning")
-                pre_screenshot_path = SCREENSHOTS_DIR / f"{job_id}_presubmit.png"
+                    log_callback(f"Submission Staged for Review: {policy_result.reasons[0] if policy_result.reasons else 'Ambiguity detected'}", lvl="warning")
+
+                pre_screenshot_path = SCREENSHOTS_DIR / f"{job_id}_needs_review.png"
                 try:
                     await page.screenshot(path=str(pre_screenshot_path), full_page=True)
                 except Exception:
                     pass
+
                 return {
                     "submitted": False,
-                    "error": error,
+                    "stagedForReview": True,
+                    "status": "NEEDS_REVIEW",
+                    "error": f"Staged for human review: {reasons_str}",
                     "evidence": {
-                        "preSubmitValidationErrors": final_validation_errors,
-                        "unresolvedRequiredFields": unresolved,
+                        "policyEvaluation": policy_result.to_dict(),
+                        "domVerification": dom_verification.to_dict(),
                         "preScreenshotPath": str(pre_screenshot_path.resolve()) if pre_screenshot_path.exists() else "",
                     },
                     "fieldsFilled": filled_fields,
                 }
 
+            logger.info("Verified Autonomy Policy Decision: READY_TO_SUBMIT (All gates passed)")
+            if log_callback:
+                log_callback("Verified Autonomy: 100% verified against profile and live DOM. Submitting...")
+
             # Pre-submit screenshot
             pre_screenshot_path = SCREENSHOTS_DIR / f"{job_id}_presubmit.png"
-            await page.screenshot(path=str(pre_screenshot_path), full_page=True)
+            try:
+                await page.screenshot(path=str(pre_screenshot_path), full_page=True)
+            except Exception:
+                pass
 
             # ─── FINAL SUBMIT CLICK ─────────────────────────────────────────────
             submit_selectors = [

@@ -10,13 +10,17 @@ import {
 } from "@/lib/application-assistant-api";
 import {
   IconAlertCircle,
+  IconCheck,
   IconClock,
   IconExternalLink,
   IconRefresh,
   IconTrash,
 } from "@/components/application-assistant/autopilot/icons";
+import { ApplicationQueueCard, type QueueApplication } from "@/components/application-assistant/application-queue-card";
+import { resolveApplicationReadiness } from "@/components/application-assistant/application-readiness";
+import { openApplicationReview } from "@/lib/application-assistant-api";
 
-export function FailedJobsCenter({ onReprocessSuccess }: { onReprocessSuccess?: () => void }) {
+export function FailedJobsCenter({ onReprocessSuccess, onOpenPrep }: { onReprocessSuccess?: () => void; onOpenPrep?: () => void }) {
   const [failedList, setFailedList] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [reprocessing, setReprocessing] = useState(false);
@@ -41,7 +45,7 @@ export function FailedJobsCenter({ onReprocessSuccess }: { onReprocessSuccess?: 
     setError(null);
     try {
       const res = await reprocessFailedAutopilotJobs();
-      setSuccessMsg(res.message || "Re-queued all failed applications with self-healing loop!");
+      setSuccessMsg(res.message || "Failed applications are queued and waiting for you to start a run.");
       await fetchFailed();
       if (onReprocessSuccess) onReprocessSuccess();
       setTimeout(() => setSuccessMsg(null), 4000);
@@ -138,6 +142,43 @@ export function FailedJobsCenter({ onReprocessSuccess }: { onReprocessSuccess?: 
     }
   };
 
+  const handleQuickApply = async (job: any) => {
+    setReprocessing(true);
+    setError(null);
+    const url = job.applicationUrl || job.listingUrl;
+    
+    // Immediately open in a new window/tab so user is never blocked or left with just a text message
+    if (url) {
+      window.open(url, "_blank", "noopener,noreferrer");
+    }
+
+    try {
+      const rawJobId = String(job.jobId || job.id || "");
+      const cleanJobId = rawJobId.replace(/[^a-zA-Z0-9_]+/g, "_").replace(/^_+|_+$/g, "");
+      const appId = `app_${cleanJobId}`.slice(0, 120);
+      
+      // Also request backend open-review to launch playwright/autofill in background if active
+      const result = await openApplicationReview(appId, { force: true }).catch(() => null);
+      if (result?.success) {
+        setSuccessMsg(`Opened "${job.title}" in a browser window with autofilled profile data. Review and click Submit!`);
+      } else if (url) {
+        setSuccessMsg(`Opened "${job.title}" in a browser tab.`);
+      } else {
+        throw new Error("No application URL available for this job.");
+      }
+      setTimeout(() => setSuccessMsg(null), 5000);
+    } catch (err: any) {
+      if (url) {
+        setSuccessMsg(`Opened "${job.title}" in a browser tab.`);
+        setTimeout(() => setSuccessMsg(null), 4000);
+      } else {
+        setError(err?.message || "Could not open application URL");
+      }
+    } finally {
+      setReprocessing(false);
+    }
+  };
+
   useEffect(() => {
     fetchFailed();
   }, []);
@@ -166,45 +207,47 @@ export function FailedJobsCenter({ onReprocessSuccess }: { onReprocessSuccess?: 
               onClick={handleCopyAllErrors}
               className="rounded-xl border border-violet-300/25 bg-violet-300/[0.08] px-3.5 py-2.5 text-xs font-medium text-violet-100 transition hover:bg-violet-300/[0.14]"
             >
-              Copy AI troubleshooting prompt
+              Copy all errors for LLM
             </button>
           )}
           {failedList.length > 0 && (
             <button
+              type="button"
               onClick={handleReprocessAll}
               disabled={reprocessing || loading}
-              className="rounded-xl bg-cyan-300 px-4 py-2.5 text-xs font-semibold text-slate-950 transition hover:bg-cyan-200 disabled:opacity-50"
+              className="rounded-xl border border-rose-300/25 bg-rose-300/[0.08] px-3.5 py-2.5 text-xs font-medium text-rose-100 transition hover:bg-rose-300/[0.14] disabled:opacity-50"
             >
-              {reprocessing ? "Preparing retries…" : "Retry eligible applications"}
+              {reprocessing ? "Retrying all…" : "Retry all failed"}
             </button>
           )}
-
           <button
+            type="button"
             onClick={fetchFailed}
             disabled={loading}
-            className="rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2.5 text-xs font-medium text-slate-300 transition hover:bg-white/[0.08]"
+            className="rounded-xl border border-white/10 bg-white/[0.04] px-3.5 py-2.5 text-xs font-medium text-slate-300 transition hover:bg-white/[0.08] disabled:opacity-50"
           >
             {loading ? "Refreshing..." : "Refresh"}
           </button>
         </div>
       </div>
 
-      {successMsg && (
-        <div className="p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-xs flex items-center justify-between">
-          <span>✓ {successMsg}</span>
-          <button onClick={() => setSuccessMsg(null)} className="text-emerald-400 font-bold hover:text-emerald-200 cursor-pointer">✕</button>
-        </div>
-      )}
-
       {error && (
-        <div className="p-4 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs">
-          {error}
+        <div className="flex items-center gap-2.5 rounded-2xl border border-rose-400/20 bg-rose-400/10 px-4 py-3 text-xs text-rose-200">
+          <IconAlertCircle className="w-4 h-4 shrink-0 text-rose-400" />
+          <span>{error}</span>
         </div>
       )}
 
-      {loading && failedList.length === 0 ? (
-        <div className="p-12 text-center border border-white/10 rounded-2xl text-slate-400 text-xs bg-[#0d121c]/40 flex flex-col items-center justify-center gap-2">
-          <div className="w-6 h-6 rounded-full border-2 border-[#2ee8c9] border-t-transparent animate-spin" />
+      {successMsg && (
+        <div className="flex items-center gap-2.5 rounded-2xl border border-emerald-400/20 bg-emerald-400/10 px-4 py-3 text-xs text-emerald-200">
+          <IconCheck className="w-4 h-4 shrink-0 text-emerald-400" />
+          <span>{successMsg}</span>
+        </div>
+      )}
+
+      {loading ? (
+        <div className="flex items-center justify-center py-16 text-slate-400 text-xs gap-2">
+          <IconRefresh className="w-4 h-4 animate-spin text-rose-300" />
           <span>Loading failed applications...</span>
         </div>
       ) : failedList.length === 0 ? (
@@ -212,95 +255,130 @@ export function FailedJobsCenter({ onReprocessSuccess }: { onReprocessSuccess?: 
           No failed applications! Everything is either successfully submitted, queued, or running.
         </div>
       ) : (
-        <div className="space-y-4">
+        <div className="aa-queue-grid">
           {failedList.map((job) => {
-            const appUrl = job.applicationUrl || job.listingUrl || "";
+            const queueApp: QueueApplication = {
+              id: job.id,
+              jobId: job.jobId || job.id,
+              companyName: job.company || "Unknown company",
+              roleTitle: job.title || "Unknown role",
+              provider: job.provider || job.sourceProvider || "unknown",
+              status: "failed",
+              progress: 0.7,
+              verifiedCount: Object.keys(job.answers || {}).length,
+              reviewCount: 0,
+              missingCount: 0,
+              conflictingCount: 0,
+              matchScore: job.matchScore,
+              updatedAt: job.updatedAt || new Date().toISOString(),
+              hasSavedAutofillState: Object.keys(job.answers || {}).length > 0,
+              quickApplyAvailable: true,
+              autofillStepCount: Object.keys(job.answers || {}).length,
+              quickApplyStepCount: Object.keys(job.answers || {}).length,
+              quickApplyLabel: "⚡ Quick apply now",
+              errors: [],
+              lastPrepFailed: false,
+              fields: Object.keys(job.answers || {}).map((label) => ({ label, classification: "verified" })),
+            };
+            const readiness = resolveApplicationReadiness(queueApp);
 
             return (
-              <div
+              <ApplicationQueueCard
                 key={job.id}
-                className="p-5 rounded-2xl border border-white/[0.08] bg-[#0b121f] space-y-4 transition hover:border-white/[0.14]"
-              >
-                <div className="flex flex-wrap justify-between items-start gap-3">
-                  <div className="space-y-1">
-                    <div className="flex items-center gap-2">
-                      <h3 className="text-base font-extrabold text-white">{job.title}</h3>
-                      <span className="px-2.5 py-0.5 rounded-full text-[10px] font-medium bg-rose-300/10 text-rose-200 uppercase tracking-wider">
-                        Needs review
-                      </span>
-                    </div>
-                    <p className="text-xs font-semibold text-slate-400">{job.company}</p>
-                  </div>
-
-                  <div className="flex items-center gap-2">
-                    {job.matchScore && (
-                      <span className="px-2.5 py-1 text-xs rounded-full bg-[#2ee8c9]/15 text-[#2ee8c9] border border-[#2ee8c9]/30 font-semibold">
-                        Match {job.matchScore}%
-                      </span>
-                    )}
-
-                    {appUrl && (
-                      <a
-                        href={appUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                      className="px-3 py-2 text-xs rounded-xl bg-white/[0.04] hover:bg-white/[0.08] text-slate-300 border border-white/10 transition flex items-center gap-1.5"
-                      >
-                        <span>Open Job Listing</span>
-                        <IconExternalLink className="w-3.5 h-3.5" />
-                      </a>
-                    )}
-
+                app={queueApp}
+                statusAccent="rose"
+                isOpening={false}
+                isBrowserOpen={false}
+                isAnalyzing={false}
+                isWizardLoading={false}
+                gateLoading={false}
+                profileBlocked={false}
+                readiness={readiness}
+                needsAiAnalysis={false}
+                pendingCount={0}
+                isPreparing={reprocessing}
+                isActivePrep={false}
+                openingElapsedSec={0}
+                analyzeElapsedSec={0}
+                closingBrowser={false}
+                onFocusBrowser={() => undefined}
+                onResume={() => void handleQuickApply(job)}
+                onAnswerQuestions={() => void handleQuickApply(job)}
+                onOpenInBrowser={() => void handleQuickApply(job)}
+                onToggleSubmitted={() => undefined}
+                onArchive={() => void handleDeleteSingle(job.id, job.title || "Job")}
+                primaryActionOverride={{
+                  label: "⚡ Quick Apply",
+                  onClick: () => void handleQuickApply(job),
+                  disabled: reprocessing,
+                }}
+                intelligenceSlot={
+                  <div className="w-full flex items-center justify-between gap-2">
                     <button
-                      onClick={() => handleResetSingle(job.id, job.title)}
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        void handleQuickApply(job);
+                      }}
                       disabled={reprocessing}
-                      className="px-3 py-2 text-xs rounded-xl bg-white/[0.04] hover:bg-white/[0.08] text-slate-300 border border-white/10 transition font-medium"
-                      title="Reset this job back to unapplied state"
+                      className="w-full rounded-xl bg-gradient-to-r from-emerald-500/25 via-teal-500/20 to-emerald-500/25 hover:from-emerald-500/35 hover:to-teal-500/35 text-emerald-200 border border-emerald-500/40 hover:border-emerald-400/60 py-2 px-3 font-semibold text-xs transition flex items-center justify-center gap-1.5 shadow-sm shadow-emerald-950/40 cursor-pointer disabled:opacity-50"
+                      title="Directly open application window to review and submit"
                     >
-                      Reset
-                    </button>
-
-                    <button
-                      onClick={() => handleDeleteSingle(job.id, job.title)}
-                      disabled={reprocessing}
-                      className="px-3 py-2 text-xs rounded-xl bg-white/[0.04] border border-white/10 text-rose-200 hover:bg-rose-300/[0.08] transition font-medium flex items-center gap-1.5 disabled:opacity-40"
-                      title="Remove this application from Autopilot processing"
-                    >
-                      <IconTrash className="w-3.5 h-3.5" />
-                      <span>Remove</span>
-                    </button>
-
-                    <button
-                      onClick={() => handleReprocessSingle(job.id, job.title)}
-                      disabled={reprocessing}
-                      className="px-3.5 py-2 text-xs rounded-xl bg-cyan-300 text-slate-950 font-semibold hover:bg-cyan-200 transition flex items-center gap-1.5"
-                    >
-                      <span>Retry with checks</span>
+                      <span className="text-emerald-300">⚡</span>
+                      <span>Quick Apply in New Window</span>
+                      <span className="text-emerald-400 font-normal">→</span>
                     </button>
                   </div>
-                </div>
-
-                {job.lastError && (
-                  <div className="p-3.5 rounded-xl bg-rose-300/[0.06] border border-rose-300/[0.12] text-xs text-rose-100 space-y-2">
-                    <div className="font-medium text-rose-200 flex items-center gap-1.5">
-                        <IconAlertCircle className="w-4 h-4 text-rose-400" />
-                        <span>What needs attention</span>
-                    </div>
-                    <p className="text-[11px] leading-relaxed text-rose-100/80 pl-5">
-                      {job.lastError}
-                    </p>
-                    <div className="pl-5 pt-1">
+                }
+                errorSlot={
+                  <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-rose-300/15 bg-rose-300/[0.06] px-3.5 py-2.5 text-xs text-rose-100">
+                    <span className="line-clamp-2">{job.lastError || job.failureReason || "Application link expired or needs review"}</span>
+                    <div className="flex shrink-0 items-center gap-2">
+                      <button type="button" onClick={() => handleCopyError(job)} className="text-rose-200 underline underline-offset-2 px-1 text-xs">
+                        Copy error
+                      </button>
                       <button
                         type="button"
-                        onClick={() => handleCopyError(job)}
-                        className="rounded-lg border border-rose-300/20 bg-rose-300/[0.06] px-2.5 py-1.5 text-[11px] font-medium text-rose-100 transition hover:bg-rose-300/[0.12]"
+                        onClick={() => void handleQuickApply(job)}
+                        disabled={reprocessing}
+                        className="rounded-lg bg-gradient-to-r from-emerald-500/30 to-teal-500/30 text-emerald-200 border border-emerald-500/50 hover:bg-emerald-500/40 px-3 py-1 font-bold transition flex items-center gap-1.5 shadow-sm disabled:opacity-50 cursor-pointer"
+                        title="Open window with saved autofill state to review and submit"
                       >
-                        Copy error
+                        <span>⚡ Quick Apply</span>
+                      </button>
+                      {(job.applicationUrl || job.listingUrl) && (
+                        <a
+                          href={job.applicationUrl || job.listingUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="rounded-lg border border-white/10 bg-white/[0.05] px-2.5 py-1 font-medium text-slate-200 transition hover:bg-white/[0.10]"
+                        >
+                          View link
+                        </a>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => void handleReprocessSingle(job.id, job.title || "Job")}
+                        disabled={reprocessing}
+                        className="rounded-lg bg-cyan-400/20 text-cyan-200 border border-cyan-400/30 px-2.5 py-1 font-medium transition hover:bg-cyan-400/30 disabled:opacity-50"
+                        title="Retry processing this application"
+                      >
+                        Retry
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void handleDeleteSingle(job.id, job.title || "Job")}
+                        disabled={reprocessing}
+                        className="rounded-lg bg-rose-500/25 text-rose-200 border border-rose-500/40 px-2.5 py-1 font-semibold transition hover:bg-rose-500/40 hover:text-white flex items-center gap-1 disabled:opacity-50"
+                        title="Permanently remove expired or dead link from all queues"
+                      >
+                        <IconTrash className="w-3.5 h-3.5" />
+                        <span>Expire / Remove</span>
                       </button>
                     </div>
                   </div>
-                )}
-              </div>
+                }
+              />
             );
           })}
         </div>

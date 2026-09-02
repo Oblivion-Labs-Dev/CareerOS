@@ -4,9 +4,11 @@ import React, { useEffect, useRef, useState } from "react";
 import {
   getAutopilotEventSource,
   getAutopilotStatus,
+  getSettings,
   pauseAutopilot,
   startAutopilot,
   stopAutopilot,
+  updateSettings,
 } from "@/lib/application-assistant-api";
 import {
   IconActivity,
@@ -29,7 +31,7 @@ interface AutopilotDashboardProps {
   onNavigateTab?: (tab: "autopilot" | "submitted" | "review" | "failed" | "tracker") => void;
 }
 
-const BATCH_PRESETS = [5, 10, 25, 50, 100];
+const BATCH_PRESETS = [1, 5, 10, 25, 50, 100];
 
 function formatElapsedTime(startedAt?: string): string {
   if (!startedAt) return "0m";
@@ -60,11 +62,113 @@ export function AutopilotDashboard({ onNavigateTab }: AutopilotDashboardProps) {
   const [statusData, setStatusData] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [selectedBatchSize, setSelectedBatchSize] = useState<number>(5);
+  const [selectedBatchSize, setSelectedBatchSize] = useState<number>(1);
   const [customBatchInput, setCustomBatchInput] = useState<string>("");
   const [isCustomMode, setIsCustomMode] = useState<boolean>(false);
   const [showConfigModal, setShowConfigModal] = useState<boolean>(false);
+  const [aiModel, setAiModel] = useState<string>("mistral-small");
+  const [modelSaving, setModelSaving] = useState<boolean>(false);
   const statusRefreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const fetchSettings = async () => {
+    try {
+      const res = await getSettings();
+      const llm = (res?.settings?.llm as any) || {};
+      const prov = (llm.provider || "").toLowerCase();
+      const mdl = (llm.model || "").toLowerCase();
+      if (mdl.includes("mistral-small") || mdl.includes("24b")) {
+        setAiModel("mistral-small");
+      } else if (mdl.includes("gemma3") || mdl.includes("12b")) {
+        setAiModel("gemma3");
+      } else if (mdl.includes("qwen2.5") || mdl.includes("3b")) {
+        setAiModel("qwen2.5");
+      } else if (prov === "gemini" || prov === "google" || mdl.includes("gemini")) {
+        setAiModel("gemini");
+      } else if (mdl.includes("gpt-oss")) {
+        setAiModel("gpt-oss");
+      } else if (prov === "openai" || prov === "chatgpt" || mdl.includes("gpt")) {
+        if (mdl.includes("4o-mini") || mdl.includes("mini")) {
+          setAiModel("chatgpt-mini");
+        } else if (mdl.includes("4o")) {
+          setAiModel("chatgpt-4o");
+        } else {
+          setAiModel("chatgpt-mini");
+        }
+      } else {
+        setAiModel("mistral-small");
+      }
+    } catch {}
+  };
+
+  const handleModelChange = async (newModel: string) => {
+    setAiModel(newModel);
+    setModelSaving(true);
+    try {
+      let patch: any = {};
+      if (newModel === "mistral-small") {
+        patch = {
+          llm: {
+            provider: "ollama",
+            model: "mistral-small3.2:24b",
+            baseUrl: "http://localhost:11434/v1",
+          },
+        };
+      } else if (newModel === "gemma3") {
+        patch = {
+          llm: {
+            provider: "ollama",
+            model: "gemma3:12b",
+            baseUrl: "http://localhost:11434/v1",
+          },
+        };
+      } else if (newModel === "qwen2.5") {
+        patch = {
+          llm: {
+            provider: "ollama",
+            model: "qwen2.5:3b",
+            baseUrl: "http://localhost:11434/v1",
+          },
+        };
+      } else if (newModel === "gemini") {
+        patch = {
+          llm: {
+            provider: "gemini",
+            model: "gemini-3.6-flash",
+            baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai",
+          },
+        };
+      } else if (newModel === "gpt-oss") {
+        patch = {
+          llm: {
+            provider: "ollama",
+            model: "gpt-oss:20b",
+            baseUrl: "http://localhost:11434/v1",
+          },
+        };
+      } else if (newModel === "chatgpt-mini") {
+        patch = {
+          llm: {
+            provider: "openai",
+            model: "gpt-4o-mini",
+            baseUrl: "https://api.openai.com/v1",
+          },
+        };
+      } else if (newModel === "chatgpt-4o") {
+        patch = {
+          llm: {
+            provider: "openai",
+            model: "gpt-4o",
+            baseUrl: "https://api.openai.com/v1",
+          },
+        };
+      }
+      await updateSettings(patch);
+    } catch (err: any) {
+      console.error("Failed to update AI model:", err);
+    } finally {
+      setModelSaving(false);
+    }
+  };
 
   const fetchStatus = async () => {
     try {
@@ -78,6 +182,7 @@ export function AutopilotDashboard({ onNavigateTab }: AutopilotDashboardProps) {
 
   useEffect(() => {
     fetchStatus();
+    fetchSettings();
 
     // ── Realtime Push Model via Server-Sent Events (SSE) ──
     let es: EventSource | null = null;
@@ -131,9 +236,15 @@ export function AutopilotDashboard({ onNavigateTab }: AutopilotDashboardProps) {
     };
   }, []);
 
-  const handleStart = async (customCount?: number, opts?: { concurrency?: number; staggerDelay?: number; selfHealing?: boolean }) => {
+  const handleStart = async (
+    customCount?: number,
+    opts?: { concurrency?: number; staggerDelay?: number; selfHealing?: boolean; aiModel?: string }
+  ) => {
     setLoading(true);
     setError(null);
+    if (opts?.aiModel && opts.aiModel !== aiModel) {
+      await handleModelChange(opts.aiModel);
+    }
     const targetCount = customCount || (isCustomMode ? parseInt(customBatchInput) || 5 : selectedBatchSize);
     try {
       await startAutopilot({
@@ -235,11 +346,62 @@ export function AutopilotDashboard({ onNavigateTab }: AutopilotDashboardProps) {
         {/* Left: Primary Run Progress Card (~68% width on desktop) */}
         <div className="lg:col-span-8 relative overflow-hidden rounded-2xl border border-white/10 bg-[radial-gradient(circle_at_78%_18%,rgba(56,189,248,0.10),transparent_26%),radial-gradient(circle_at_18%_84%,rgba(99,102,241,0.08),transparent_28%),linear-gradient(to_bottom,#0e1622,#0a1019,#070b12)] p-6 shadow-[0_20px_60px_rgba(0,0,0,0.28)] backdrop-blur-2xl flex flex-col justify-between space-y-6">
           <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-cyan-300/70 to-violet-300/40" />
-          {/* Top Label & Status Pill */}
-          <div className="flex items-center justify-between">
-            <span className="text-[11px] font-black tracking-wider text-slate-400 uppercase">
-              RUN PROGRESS
-            </span>
+          {/* Top Label, AI Model Switcher & Status Pill */}
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <span className="text-[11px] font-black tracking-wider text-slate-400 uppercase">
+                RUN PROGRESS
+              </span>
+
+              {/* AI Model Dropdown Selector with Measured Benchmark Accuracy Badges */}
+              <div className="relative flex items-center bg-[#060a10] px-2.5 py-1.5 rounded-xl border border-white/10 shadow-inner">
+                <span className="text-[10px] font-bold text-slate-400 mr-2 flex items-center gap-1.5">
+                  <span
+                    className={`w-2 h-2 rounded-full ${
+                      aiModel === "mistral-small"
+                        ? "bg-emerald-400 shadow-[0_0_8px_rgba(16,185,129,0.8)]"
+                        : aiModel === "gemma3"
+                        ? "bg-violet-400 shadow-[0_0_8px_rgba(168,85,247,0.8)]"
+                        : aiModel === "qwen2.5"
+                        ? "bg-cyan-400 shadow-[0_0_8px_rgba(34,211,238,0.8)]"
+                        : aiModel === "gemini"
+                        ? "bg-amber-400 shadow-[0_0_8px_rgba(245,158,11,0.8)]"
+                        : "bg-blue-400 shadow-[0_0_8px_rgba(59,130,246,0.6)]"
+                    }`}
+                  />
+                  MODEL:
+                </span>
+                <select
+                  value={aiModel}
+                  disabled={modelSaving}
+                  onChange={(e) => handleModelChange(e.target.value)}
+                  className="bg-transparent text-xs font-black text-slate-200 outline-none cursor-pointer pr-1 focus:text-white"
+                >
+                  <option value="mistral-small" className="bg-[#0b121c] text-emerald-400 font-bold">
+                    mistral-small3.2:24b · 98% verified (🏆 Top Accuracy)
+                  </option>
+                  <option value="gemma3" className="bg-[#0b121c] text-violet-400 font-bold">
+                    gemma3:12b · 97% verified (🛡️ Recommended)
+                  </option>
+                  <option value="qwen2.5" className="bg-[#0b121c] text-cyan-300 font-bold">
+                    qwen2.5:3b · 87% verified (⚡ Fast · 1.3s)
+                  </option>
+                  <option value="gemini" className="bg-[#0b121c] text-amber-300 font-bold">
+                    gemini-3.6-flash · 57% verified (☁️ Cloud · 0.8s)
+                  </option>
+                  <option value="gpt-oss" className="bg-[#0b121c] text-slate-300 font-bold">
+                    gpt-oss:20b · 93% verified (Local)
+                  </option>
+                  <option value="chatgpt-mini" className="bg-[#0b121c] text-emerald-300 font-bold">
+                    ChatGPT 4o-mini · OpenAI Cloud
+                  </option>
+                  <option value="chatgpt-4o" className="bg-[#0b121c] text-emerald-400 font-bold">
+                    ChatGPT 4o · OpenAI Cloud
+                  </option>
+                </select>
+              </div>
+            </div>
+
             <span
               style={{
                 background: isCompleted ? "rgba(6, 182, 212, 0.15)" : isRunning ? "rgba(46, 232, 201, 0.15)" : "rgba(255, 255, 255, 0.05)",
@@ -493,6 +655,10 @@ export function AutopilotDashboard({ onNavigateTab }: AutopilotDashboardProps) {
             onNavigateTab?.("submitted");
           } else if (cat === "STAGED") {
             onNavigateTab?.("review");
+          } else if (cat === "FAILED") {
+            onNavigateTab?.("failed");
+          } else if (cat === "QUEUED" || cat === "SKIPPED") {
+            onNavigateTab?.("tracker");
           }
         }}
       />
@@ -585,9 +751,10 @@ export function AutopilotDashboard({ onNavigateTab }: AutopilotDashboardProps) {
         {/* Right: System Health Panel (4 cols) */}
         <div className="lg:col-span-4">
           <SystemHealthPanel
-            connected={Boolean(statusData && !error)}
+            connected={Boolean(statusData)}
             runnerStatus={statusData?.status || "READY"}
             repairCount={0}
+            aiModel={aiModel}
             lastRepairEvent={null}
           />
         </div>
@@ -597,10 +764,11 @@ export function AutopilotDashboard({ onNavigateTab }: AutopilotDashboardProps) {
       <BatchConfigModal
         isOpen={showConfigModal}
         onClose={() => setShowConfigModal(false)}
-        onStartRun={({ batchSize, concurrency, staggerDelay, selfHealing }) =>
-          handleStart(batchSize, { concurrency, staggerDelay, selfHealing })
+        onStartRun={({ batchSize, concurrency, staggerDelay, selfHealing, aiModel: chosenModel }) =>
+          handleStart(batchSize, { concurrency, staggerDelay, selfHealing, aiModel: chosenModel })
         }
         initialBatchSize={selectedBatchSize}
+        initialAiModel={aiModel}
         loading={loading}
       />
     </div>

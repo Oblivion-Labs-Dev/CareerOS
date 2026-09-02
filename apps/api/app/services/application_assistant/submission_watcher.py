@@ -206,7 +206,7 @@ def is_submission_confirmation_url(url: str) -> bool:
 
 
 def record_application_submission(app_id: str, trigger: str, url: str) -> bool:
-    """Mark an AA draft submitted after auto-detection from the review browser."""
+    """Mark an AA draft submitted after auto-detection from the review browser and sync autopilot job."""
     with session_scope() as db:
         draft = get_application_draft(db, app_id)
         if not draft:
@@ -227,6 +227,28 @@ def record_application_submission(app_id: str, trigger: str, url: str) -> bool:
                 "submissionUrl": url or draft.get("jobUrl", ""),
             },
         )
+
+        # ── Also sync corresponding Autopilot Job if linked ──
+        try:
+            from app.services.application_assistant.persistence import list_autopilot_jobs, save_autopilot_job
+            job_id = draft.get("jobId")
+            target_url = (draft.get("jobUrl") or "").strip().lower()
+
+            for apjob in list_autopilot_jobs(db):
+                ap_url = (apjob.get("applicationUrl") or apjob.get("listingUrl") or "").strip().lower()
+                if (job_id and (apjob.get("id") == job_id or apjob.get("jobId") == job_id)) or (target_url and ap_url == target_url):
+                    apjob["status"] = "SUBMITTED"
+                    apjob["submittedAt"] = now_iso()
+                    apjob["lastError"] = None
+                    apjob["submissionEvidence"] = {
+                        "confirmationUrl": url or ap_url,
+                        "confirmationText": f"Submitted via review browser ({trigger or 'manual'})",
+                        "submittedAt": now_iso(),
+                    }
+                    save_autopilot_job(db, apjob)
+        except Exception:
+            pass
+
         log_activity_event(
             event_type="application_submitted",
             summary=f"Application auto-marked submitted ({trigger or 'detected'})",
@@ -236,6 +258,7 @@ def record_application_submission(app_id: str, trigger: str, url: str) -> bool:
                 "url": url,
                 "source": "auto",
             },
+            db=db,
         )
         db.commit()
     return True

@@ -4,7 +4,6 @@ import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { BackendStatusDot } from "@/components/backend-status-dot";
-import { ThemeToggle } from "@/components/ui/theme-toggle";
 import { CareerIcon } from "@/components/ui/career-icon";
 import { useBackendStatus } from "@/hooks/use-backend-status";
 import { formatNavCount, sidebarCountForHref, useSidebarJobCounts } from "@/hooks/use-sidebar-job-counts";
@@ -175,15 +174,6 @@ export function AppSidebar() {
         </nav>
 
         <footer className="sidebar-footer">
-          <div className="sidebar-night-card">
-            <div className="sidebar-night-card-head">
-              <span><strong>Night Mode</strong><small>Active</small></span>
-              <span className="sidebar-night-icon"><CareerIcon name="moon" size={17} /></span>
-            </div>
-            <p>Autopilot performs best during night hours.</p>
-            <ThemeToggle />
-          </div>
-
           <div className="sidebar-profile-card">
             <div className="sidebar-profile-head">
               <span className="sidebar-avatar">C</span>

@@ -32,7 +32,7 @@ async function aaFetch<T>(path: string, init?: RequestInit, timeoutMs = 45000): 
     return res.json();
   } catch (err) {
     if (err instanceof DOMException && err.name === "AbortError") {
-      throw new Error("Save timed out — your answers may still have been saved. Refresh and check.");
+      throw new Error(`Request to ${path} timed out after ${Math.round(timeoutMs / 1000)}s. Please refresh or retry.`);
     }
     throw err;
   } finally {
@@ -564,7 +564,14 @@ export async function unarchiveApplication(appId: string) {
 }
 
 export async function getSettings() {
-  return aaFetch<{ success: boolean; settings: Record<string, unknown> }>("/settings");
+  return aaFetch<{ success: boolean; settings: Record<string, any> }>("/settings");
+}
+
+export async function updateSettings(settings: Record<string, any>) {
+  return aaFetch<{ success: boolean; settings: Record<string, any> }>("/settings", {
+    method: "POST",
+    body: JSON.stringify(settings),
+  });
 }
 
 export type PendingFieldItem = {

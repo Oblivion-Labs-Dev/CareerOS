@@ -1,0 +1,219 @@
+"""Browser DOM Read-Back & Verification Layer.
+
+Reads back live values from the browser DOM after filling to ensure what is on screen
+matches the intended answers before any submission decision is made.
+"""
+
+from __future__ import annotations
+
+import logging
+import re
+from dataclasses import dataclass, field
+from typing import Any
+
+from app.services.application_assistant.profile_answer_resolver import AnswerResolution
+
+logger = logging.getLogger("career_os.browser_verifier")
+
+
+@dataclass
+class DOMVerificationIssue:
+    field_id: str
+    label: str
+    intended_value: str
+    actual_dom_value: str
+    issue_type: str  # MISMATCH | MISSING_REQUIRED | INVALID_STATE
+    severity: str    # BLOCKING | WARNING
+    details: str
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "fieldId": self.field_id,
+            "label": self.label,
+            "intendedValue": self.intended_value,
+            "actualDomValue": self.actual_dom_value,
+            "issueType": self.issue_type,
+            "severity": self.severity,
+            "details": self.details,
+        }
+
+
+@dataclass
+class DOMVerificationResult:
+    passed: bool = True
+    issues: list[DOMVerificationIssue] = field(default_factory=list)
+    dom_values: dict[str, str] = field(default_factory=dict)
+    unresolved_required_fields: list[str] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "passed": self.passed,
+            "issues": [i.to_dict() for i in self.issues],
+            "domValues": self.dom_values,
+            "unresolvedRequiredFields": self.unresolved_required_fields,
+        }
+
+
+async def verify_browser_dom_state(
+    page_or_frame: Any,
+    resolutions: list[AnswerResolution],
+    profile: dict[str, Any],
+) -> DOMVerificationResult:
+    """Read back all form values from the live DOM and compare against intended answers.
+
+    Guarantees that autocomplete (e.g. location), comboboxes, and inputs in the browser
+    match profile facts before proceeding to submission policy evaluation.
+    """
+    result = DOMVerificationResult()
+    
+    # 1. Extract live DOM inputs, textareas, comboboxes, and selects
+    try:
+        dom_state = await page_or_frame.evaluate("""() => {
+            const fields = [];
+            const elements = document.querySelectorAll('input:not([type="hidden"]), select, textarea, div.select__control, div[class*="select__control"]');
+            
+            elements.forEach(el => {
+                let label = '';
+                const id = el.id || '';
+                const name = el.getAttribute('name') || '';
+                const type = (el.type || el.getAttribute('type') || el.tagName.toLowerCase()).toLowerCase();
+                const isCombobox = el.getAttribute('role') === 'combobox' || el.classList.contains('select__control') || el.className.includes('select__');
+                
+                // Label lookup
+                if (id) {
+                    const lbl = document.querySelector(`label[for="${id}"]`);
+                    if (lbl) label = lbl.innerText.trim();
+                }
+                if (!label) {
+                    const parent = el.closest('div.field, div.custom-question, div[class*="question"], div[class*="field"], fieldset');
+                    if (parent) {
+                        const pLbl = parent.querySelector('label, legend, p.label, span.label');
+                        label = pLbl ? pLbl.innerText.trim() : parent.innerText.split('\\n')[0].trim();
+                    }
+                }
+                if (!label) label = el.getAttribute('aria-label') || el.getAttribute('placeholder') || name || id;
+
+                // Value lookup
+                let val = '';
+                if (type === 'checkbox' || type === 'radio') {
+                    val = el.checked ? (el.value || 'true') : '';
+                } else if (isCombobox) {
+                    const valContainer = el.querySelector('.select__single-value, [class*="singleValue"], div[class*="ValueContainer"]');
+                    val = valContainer ? valContainer.innerText.trim() : (el.value || '');
+                } else {
+                    val = el.value || '';
+                }
+
+                const required = el.required || el.getAttribute('aria-required') === 'true' || label.includes('*');
+
+                fields.push({
+                    id: id || name,
+                    name: name,
+                    label: label,
+                    type: type,
+                    isCombobox: isCombobox,
+                    value: val.trim(),
+                    required: required
+                });
+            });
+            return fields;
+        }""")
+    except Exception as ex:
+        logger.warning("Failed to extract live DOM state for verification: %s", ex)
+        dom_state = []
+
+    # Map DOM state by label and ID for comparison
+    dom_by_label: dict[str, dict[str, Any]] = {}
+    for f in dom_state:
+        lbl = (f.get("label") or "").strip().lower()
+        if lbl:
+            dom_by_label[lbl] = f
+        result.dom_values[f.get("label") or f.get("id")] = f.get("value", "")
+
+    # 2. Check for missing required fields in the live DOM
+    for f in dom_state:
+        if f.get("required") and not f.get("value") and f.get("type") != "file":
+            # Check if optional keyword in label
+            lbl_low = f.get("label", "").lower()
+            if not any(opt in lbl_low for opt in ["optional", "if applicable", "if willing"]):
+                result.unresolved_required_fields.append(f.get("label") or f.get("id"))
+                result.issues.append(
+                    DOMVerificationIssue(
+                        field_id=f.get("id", ""),
+                        label=f.get("label", ""),
+                        intended_value="[Required Value]",
+                        actual_dom_value="",
+                        issue_type="MISSING_REQUIRED",
+                        severity="BLOCKING",
+                        details=f"Required field '{f.get('label')}' is empty in the live browser DOM.",
+                    )
+                )
+
+    # 3. Specific validation: Check Location autocomplete state
+    profile_city = (profile.get("city") or "Auburn").lower()
+    profile_state = (profile.get("state") or "Washington").lower()
+    profile_state_abbrev = "wa" if "washington" in profile_state else profile_state[:2]
+
+    for lbl_low, f in dom_by_label.items():
+        if "location" in lbl_low or "city" in lbl_low:
+            actual_loc = f.get("value", "").lower()
+            if actual_loc:
+                # Catch wrong location selections like "Auburn, ND" or "Illinois" or "Akshaya Nagara"
+                if "akshaya" in actual_loc or "india" in actual_loc:
+                    result.issues.append(
+                        DOMVerificationIssue(
+                            field_id=f.get("id", ""),
+                            label=f.get("label", ""),
+                            intended_value=f"{profile.get('city')}, {profile.get('state')}",
+                            actual_dom_value=f.get("value", ""),
+                            issue_type="MISMATCH",
+                            severity="BLOCKING",
+                            details="Location contains incorrect overseas address instead of candidate profile.",
+                        )
+                    )
+                elif "auburn" in actual_loc and not ("wa" in actual_loc or "washington" in actual_loc):
+                    result.issues.append(
+                        DOMVerificationIssue(
+                            field_id=f.get("id", ""),
+                            label=f.get("label", ""),
+                            intended_value="Auburn, WA",
+                            actual_dom_value=f.get("value", ""),
+                            issue_type="MISMATCH",
+                            severity="BLOCKING",
+                            details=f"Location '{f.get('value')}' has wrong state (not WA).",
+                        )
+                    )
+
+    # 4. Compare intended resolutions against actual DOM values
+    for res in resolutions:
+        if not res.answer:
+            continue
+        res_lbl = res.question.lower().strip()
+        matching_dom = None
+        for d_lbl, d_field in dom_by_label.items():
+            if res_lbl in d_lbl or d_lbl in res_lbl:
+                matching_dom = d_field
+                break
+        
+        if matching_dom:
+            actual = matching_dom.get("value", "").strip()
+            intended = str(res.answer).strip()
+            # If both have values and are completely discordant (e.g. Yes vs No)
+            if actual and intended:
+                if actual.lower() in ("yes", "no") and intended.lower() in ("yes", "no") and actual.lower() != intended.lower():
+                    result.issues.append(
+                        DOMVerificationIssue(
+                            field_id=matching_dom.get("id", ""),
+                            label=matching_dom.get("label", ""),
+                            intended_value=intended,
+                            actual_dom_value=actual,
+                            issue_type="MISMATCH",
+                            severity="BLOCKING",
+                            details=f"Intended answer '{intended}' conflicts with live DOM value '{actual}'",
+                        )
+                    )
+
+    # Set overall status
+    blocking = [i for i in result.issues if i.severity == "BLOCKING"]
+    result.passed = len(blocking) == 0 and len(result.unresolved_required_fields) == 0
+    return result

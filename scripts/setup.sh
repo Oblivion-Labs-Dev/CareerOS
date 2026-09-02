@@ -2,7 +2,7 @@
 # First-time CareerOS setup: dependencies, Python venv, Playwright, Ollama, and Qwen model.
 set -euo pipefail
 
-MODEL="qwen3:8b"
+MODEL="mistral-small3.2:24b"
 SKIP_OLLAMA=0
 SKIP_MODELS=0
 SKIP_EXTENSION=0
@@ -13,7 +13,7 @@ usage() {
 Usage: ./scripts/setup.sh [options]
 
 Options:
-  --model NAME         Ollama model to pull (default: qwen3:8b)
+  --model NAME         Ollama model to pull (default: mistral-small3.2:24b)
   --skip-ollama        Skip Ollama install/start
   --skip-models        Skip ollama pull
   --skip-extension     Skip extension build

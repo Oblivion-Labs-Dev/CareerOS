@@ -1,4 +1,5 @@
 import json
+import os
 from collections.abc import Generator
 from pathlib import Path
 from typing import Any
@@ -1223,4 +1224,85 @@ async def answer_question_route(
     result = await analyze_accomplishment(new_desc, acc)
     saved = upsert_entity(db, "accomplishment", result)
     return {"success": True, "accomplishment": saved}
+
+
+@router.get("/benchmarks")
+async def get_benchmarks_route() -> dict[str, Any]:
+    """Retrieve saved LLM benchmark results."""
+    bench_file = Path(__file__).resolve().parent.parent.parent / "data" / "benchmark_results.json"
+    if bench_file.exists():
+        try:
+            return json.loads(bench_file.read_text(encoding="utf-8"))
+        except Exception:
+            pass
+    return {"leaderboard": [], "recommendation": {}, "totalTestCases": 0}
+
+
+@router.post("/benchmarks/run")
+async def run_benchmarks_route() -> dict[str, Any]:
+    """Execute full sequential benchmark comparing Ollama local models and Gemini API."""
+    from app.services.application_assistant.benchmark_suite import run_full_sequential_benchmark
+    gemini_key = os.environ.get("GEMINI_API_KEY", settings.gemini_api_key)
+    results = await run_full_sequential_benchmark(
+        gemini_api_key=gemini_key,
+        output_path="data/benchmark_results.json",
+    )
+    return results
+
+
+class TestResolveRequest(BaseModel):
+    question: str
+    options: list[str] = Field(default_factory=list)
+    fieldId: str = "test_field"
+    profile: dict[str, Any] = Field(default_factory=dict)
+    model: str = "qwen2.5:3b"
+
+
+@router.post("/benchmarks/test-resolve")
+async def test_resolve_field_route(payload: TestResolveRequest) -> dict[str, Any]:
+    """Test resolution of a specific question variation with rule resolver and model resolution."""
+    import time
+    from app.services.application_assistant.benchmark_dataset import BENCHMARK_PROFILE, BENCHMARK_RESUME_TEXT
+    from app.services.application_assistant.profile_answer_resolver import resolve_profile_answer
+    from app.services.application_assistant.question_classifier import classify_question, QuestionType
+    from app.services.application_assistant.cross_field_validator import validate_answers
+    from app.services.application_assistant.submission_policy import SubmissionPolicy
+
+    active_profile = payload.profile if payload.profile else BENCHMARK_PROFILE
+    start_t = time.perf_counter()
+
+    # 1. Deterministic Rule Classifier & Resolver
+    qtype = classify_question(payload.question)
+    resolution = resolve_profile_answer(
+        field_id=payload.fieldId,
+        question_text=payload.question,
+        profile=active_profile,
+        options=payload.options,
+    )
+
+    # 2. Cross-field validation & risk-based policy check
+    val_report = validate_answers([resolution], active_profile)
+    policy_res = SubmissionPolicy.evaluate([resolution], val_report, profile=active_profile)
+
+    latency_ms = int((time.perf_counter() - start_t) * 1000)
+
+    return {
+        "success": True,
+        "question": payload.question,
+        "questionType": qtype.value,
+        "resolutionMethod": resolution.resolution_method,
+        "resolvedAnswer": resolution.answer,
+        "confidence": resolution.confidence,
+        "sourceKey": resolution.profile_key,
+        "sourceValue": resolution.source_value,
+        "validationStatus": val_report.status,
+        "policyDecision": policy_res.decision.value,
+        "riskTier": policy_res.risk_tier.value,
+        "canAutoSubmit": policy_res.can_auto_submit,
+        "blockingIssues": policy_res.blocking_issues,
+        "warnings": policy_res.warnings,
+        "latencyMs": latency_ms,
+    }
+
+
 

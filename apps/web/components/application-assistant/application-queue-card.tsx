@@ -9,6 +9,7 @@ import {
   type ResolvedReadiness,
 } from "./application-readiness";
 import "./application-queue-card.css";
+import { APPLICATION_CARD_STYLE_EVENT, readApplicationCardStyle, type ApplicationCardStyle } from "./application-card-preferences";
 
 export type QueueApplication = {
   id: string;
@@ -171,12 +172,50 @@ function getActionAlert(opts: {
 type StageId = "queued" | "prepare" | "review" | "apply" | "done";
 
 const PIPELINE_STAGES: { id: StageId; short: string }[] = [
-  { id: "queued", short: "Queue" },
-  { id: "prepare", short: "Prepare" },
-  { id: "review", short: "Review" },
-  { id: "apply", short: "Apply" },
-  { id: "done", short: "Done" },
+  { id: "queued", short: "Discovered" },
+  { id: "prepare", short: "Prepared" },
+  { id: "apply", short: "Applied" },
+  { id: "done", short: "Response" },
 ];
+
+const CARD_STATUS: Record<string, { label: string; tone: string }> = {
+  submitted_manually: { label: "Submitted", tone: "emerald" },
+  needs_review: { label: "Ready", tone: "blue" },
+  ready_for_final_review: { label: "In review", tone: "violet" },
+  ready_to_prepare: { label: "Queued", tone: "blue" },
+  in_progress: { label: "In review", tone: "violet" },
+  in_review: { label: "In review", tone: "amber" },
+  blocked: { label: "Needs action", tone: "amber" },
+  failed: { label: "Failed", tone: "rose" },
+  archived: { label: "Draft", tone: "slate" },
+};
+
+export function StatusBadge({ status, fallbackTone }: { status: string; fallbackTone: string }) {
+  const value = CARD_STATUS[status] ?? { label: STATUS_LABELS[status] ?? "Queued", tone: fallbackTone };
+  return <span className={`aac-status-badge aac-status-badge--${value.tone}`}><i aria-hidden />{value.label}</span>;
+}
+
+function formatTimelineDate(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "—";
+  return new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(date);
+}
+
+export function MatchRing({ score, tone }: { score?: number; tone: string }) {
+  if (score == null) return null;
+  const value = Math.max(0, Math.min(100, Math.round(score)));
+  return (
+    <span className={`aac-match-ring aac-match-ring--${tone}`} style={{ "--match-progress": `${value * 3.6}deg` } as React.CSSProperties} aria-label={`${value}% match`}>
+      <strong>{value}%</strong><small>Match</small>
+    </span>
+  );
+}
+
+export function ApplicationMeta({ location, workplace, provider }: { location?: string; workplace?: string; provider?: string }) {
+  const items = [location, workplace, provider].filter(Boolean);
+  if (!items.length) return null;
+  return <p className="aac-job-meta">{items.map((item, index) => <span key={`${item}-${index}`}>{index === 0 ? "⌖" : index === 1 ? "◷" : "◈"} {item}</span>)}</p>;
+}
 
 function formatTimelineLabel(
   stage: { index: number; label: string },
@@ -195,16 +234,18 @@ function formatTimelineLabel(
   return stage.label;
 }
 
-function ApplicationStageTimeline({
+export function ApplicationTimeline({
   stageIndex,
   stageLabel,
   accent,
+  completedDate,
   isPrepBusy = false,
   isApplying = false,
 }: {
   stageIndex: number;
   stageLabel: string;
   accent: string;
+  completedDate?: string;
   isPrepBusy?: boolean;
   isApplying?: boolean;
 }) {
@@ -216,7 +257,8 @@ function ApplicationStageTimeline({
     >
       <ol className="aac-timeline-track">
         {PIPELINE_STAGES.map((stage, index) => {
-          const state = index < stageIndex ? "done" : index === stageIndex ? "current" : "upcoming";
+          const normalizedStage = Math.min(stageIndex, PIPELINE_STAGES.length - 1);
+          const state = index < normalizedStage ? "done" : index === normalizedStage ? "current" : "upcoming";
           const showPrepSpinner = isPrepBusy && stage.id === "prepare" && index === stageIndex;
           const showApplySpinner = isApplying && stage.id === "apply" && index === stageIndex;
           const showSpinner = showPrepSpinner || showApplySpinner;
@@ -228,6 +270,7 @@ function ApplicationStageTimeline({
                 <span className="aac-timeline-node" aria-hidden />
               )}
               <span className="aac-timeline-label">{stage.short}</span>
+              <span className="aac-timeline-date">{state === "done" ? completedDate || "—" : state === "current" ? "Current" : "—"}</span>
             </li>
           );
         })}
@@ -274,6 +317,8 @@ export type ApplicationQueueCardProps = {
   gateSlot?: React.ReactNode;
   reviewBannerSlot?: React.ReactNode;
   errorSlot?: React.ReactNode;
+  intelligenceSlot?: React.ReactNode;
+  primaryActionOverride?: { label: string; onClick: () => void; disabled?: boolean };
 };
 
 export function ApplicationQueueCard({
@@ -307,9 +352,12 @@ export function ApplicationQueueCard({
   gateSlot,
   reviewBannerSlot,
   errorSlot,
+  intelligenceSlot,
+  primaryActionOverride,
 }: ApplicationQueueCardProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [cardStyle, setCardStyle] = useState<ApplicationCardStyle>("compact");
   const wrapRef = useRef<HTMLDivElement>(null);
 
   const updated = formatRelativeTime(app.updatedAt);
@@ -400,6 +448,13 @@ export function ApplicationQueueCard({
 
   const closeDrawer = () => setDrawerOpen(false);
 
+  useEffect(() => {
+    const syncStyle = () => setCardStyle(readApplicationCardStyle());
+    syncStyle();
+    window.addEventListener(APPLICATION_CARD_STYLE_EVENT, syncStyle);
+    return () => window.removeEventListener(APPLICATION_CARD_STYLE_EVENT, syncStyle);
+  }, []);
+
   return (
     <div
       ref={wrapRef}
@@ -407,7 +462,7 @@ export function ApplicationQueueCard({
     >
       {gateSlot}
       <article
-        className={`aac-card aac-card--${statusAccent}${isBrowserOpen ? " aac-card--live" : ""}${isAnalyzing ? " aac-card--busy" : ""}${cardBusy ? " aac-card--preparing" : ""}`}
+        className={`aac-card aac-card--${cardStyle} aac-card--${statusAccent}${isBrowserOpen ? " aac-card--live" : ""}${isAnalyzing ? " aac-card--busy" : ""}${cardBusy ? " aac-card--preparing" : ""}`}
         onClick={openDrawer}
         onKeyDown={(event) => {
           if (event.key === "Enter" || event.key === " ") {
@@ -429,26 +484,7 @@ export function ApplicationQueueCard({
             >
               {companyMonogram(app.companyName)}
             </span>
-            <div className="aac-head-text">
-              <div className="aac-title-row">
-                <h3 className="aac-company">{app.companyName}</h3>
-              </div>
-              <p className="aac-role">{app.roleTitle}</p>
-              <p className="aac-meta">{[providerLabel, location, workplace].filter(Boolean).join(" · ")}</p>
-              {quickApplyHint && (
-                <p
-                  className={`aac-quick-apply aac-quick-apply--${readiness.canQuickApply ? "ready" : readiness.profileBlocked ? "slow" : "none"}`}
-                >
-                  {quickApplyHint}
-                </p>
-              )}
-              {isSubmitted && (
-                <p className="aac-quick-apply aac-quick-apply--none">Submitted</p>
-              )}
-              {isArchived && (
-                <p className="aac-quick-apply aac-quick-apply--none">Archived</p>
-              )}
-            </div>
+            <StatusBadge status={app.status} fallbackTone={statusAccent} />
           </div>
           <div className="aac-menu-wrap" onClick={stopBubble}>
             <button
@@ -518,42 +554,39 @@ export function ApplicationQueueCard({
           </div>
         </header>
 
+        <section className="aac-primary-content">
+          <MatchRing score={app.aiAnalyzed ? app.matchScore : undefined} tone={statusAccent} />
+          <h3 className="aac-role">{app.roleTitle}</h3>
+          <p className="aac-company">{app.companyName}</p>
+          <ApplicationMeta provider={providerLabel} />
+        </section>
+
         {(app.aiAnalyzed && app.matchScore != null) || totalFields > 0 ? (
           <div className="aac-readiness">
-            {app.aiAnalyzed && app.matchScore != null && (
-              <span
-                className="aac-match"
-                title="Fit score from your profile, uploaded resume, and resume accomplishments when available"
-              >
-                {Math.round(app.matchScore)}% fit
-              </span>
-            )}
-            <ApplicationStageTimeline
+            <ApplicationTimeline
               stageIndex={stage.index}
               stageLabel={timelineLabel}
               accent={statusAccent}
+              completedDate={formatTimelineDate(app.updatedAt)}
               isPrepBusy={isPrepBusy}
               isApplying={isApplying}
             />
-            {totalFields > 0 && (
-              <p className="aac-fields-note">
-                {readyFields} of {totalFields} fields ready
-              </p>
-            )}
           </div>
         ) : (
           <div className="aac-readiness aac-readiness--timeline-only">
-            <ApplicationStageTimeline
+            <ApplicationTimeline
               stageIndex={stage.index}
               stageLabel={timelineLabel}
               accent={statusAccent}
+              completedDate={formatTimelineDate(app.updatedAt)}
               isPrepBusy={isPrepBusy}
               isApplying={isApplying}
             />
           </div>
         )}
 
-        {actionAlert && (
+        <div className="aac-intelligence">
+        {intelligenceSlot ?? (actionAlert ? (
           actionAlert.action === "answer" ? (
             <button
               type="button"
@@ -568,39 +601,11 @@ export function ApplicationQueueCard({
           ) : (
             <p className={`aac-alert aac-alert--${actionAlert.tone}`}>{actionAlert.text}</p>
           )
-        )}
+        ) : quickApplyHint ? <p className="aac-alert aac-alert--info">{quickApplyHint}</p> : totalFields > 0 ? <p className="aac-alert aac-alert--info">{readyFields} of {totalFields} fields ready</p> : null)}
         </div>
 
-        <footer className="aac-foot" onClick={stopBubble}>
-          {updated && <span className="aac-updated">Updated {updated}</span>}
-          {profileBlocked && pendingCount > 0 ? (
-            <div className="aac-dual-actions" style={{ display: "flex", gap: "8px", alignItems: "center" }}>
-              <button
-                type="button"
-                className="aac-cta aac-cta--secondary"
-                onClick={(e) => { e.stopPropagation(); onAnswerQuestions(); }}
-                disabled={isWizardLoading || isAnalyzing}
-                style={{ background: "rgba(255, 255, 255, 0.08)", color: "var(--color-text, #fff)", border: "1px solid rgba(255, 255, 255, 0.15)" }}
-              >
-                {isWizardLoading ? "Loading…" : `Answer ${pendingCount} question${pendingCount === 1 ? "" : "s"}`}
-              </button>
-              <button
-                type="button"
-                className="aac-cta"
-                onClick={(e) => { e.stopPropagation(); onOpenInBrowser(); }}
-                disabled={isOpening || isAnalyzing}
-              >
-                Apply →
-              </button>
-            </div>
-          ) : (
-            primary && (
-              <button type="button" className="aac-cta" onClick={handlePrimary} disabled={primary.disabled}>
-                {primary.label} →
-              </button>
-            )
-          )}
-        </footer>
+        </div>
+
       </article>
 
       <SidePanelPortal
@@ -625,13 +630,26 @@ export function ApplicationQueueCard({
           <div className="aa-wizard-body aac-drawer-body">
             <section className="aac-drawer-section">
               <h4>Pipeline</h4>
-              <ApplicationStageTimeline
+              <ApplicationTimeline
                 stageIndex={stage.index}
                 stageLabel={timelineLabel}
                 accent={statusAccent}
+                completedDate={formatTimelineDate(app.updatedAt)}
                 isPrepBusy={isPrepBusy}
                 isApplying={isApplying}
               />
+            </section>
+
+            <section className="aac-drawer-section">
+              <h4>Application details</h4>
+              <ul className="aac-drawer-stats aac-drawer-details">
+                <li>Source · {providerLabel}</li>
+                {location && <li>Location · {location}</li>}
+                {workplace && <li>Workplace · {workplace}</li>}
+                {app.resumeId && <li>Resume · {app.resumeId}</li>}
+                <li>{isSubmitted ? "Submitted" : "Last updated"} · {updated || "Recently"}</li>
+                {app.quickApplyAvailable && <li>Saved application state available</li>}
+              </ul>
             </section>
 
             <section className="aac-drawer-section">

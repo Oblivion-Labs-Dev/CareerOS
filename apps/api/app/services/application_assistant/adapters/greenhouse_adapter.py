@@ -15,6 +15,7 @@ from app.services.application_assistant.ats_plugin_reference import (
     classify_canonical_key,
     pick_best_matching_option,
 )
+from app.services.application_assistant.profile_answer_resolver import resolve_answer
 
 logger = logging.getLogger("career_os.greenhouse_adapter")
 
@@ -80,73 +81,72 @@ class GreenhouseAdapter(ApplicationAdapter):
             except Exception:
                 pass
 
-        # 2. LinkedIn & Portfolio
-        if resolved_answers.get("linkedin"):
+        # 2. LinkedIn, Current Company, Current Title, Portfolio / Website
+        text_inputs = await page.locator('input[type="text"], input[type="url"], input[type="search"], input:not([type])').all()
+        for inp in text_inputs:
             try:
-                l_inp = page.locator('input[id*="linkedin" i], input[name*="linkedin" i]').first
-                if await l_inp.count() > 0:
-                    await l_inp.fill(resolved_answers["linkedin"])
-                    filled["LinkedIn"] = resolved_answers["linkedin"]
-            except Exception:
-                pass
+                if not await inp.is_visible():
+                    continue
+                role = await inp.get_attribute("role") or ""
+                if role == "combobox":
+                    continue
+                curr_val = (await inp.input_value()).strip()
+                if curr_val:
+                    continue
 
-        if resolved_answers.get("portfolio") or resolved_answers.get("website"):
-            try:
-                w_inp = page.locator('input[type="text"][id="website"], input[type="text"][name*="website" i], input[type="url"]').first
-                if await w_inp.count() > 0 and await w_inp.get_attribute("role") != "combobox":
-                    w_val = resolved_answers.get("portfolio") or resolved_answers.get("website")
-                    await w_inp.fill(str(w_val))
-                    filled["Website"] = str(w_val)
+                inp_id = await inp.get_attribute("id") or ""
+                inp_lbl = ""
+                if inp_id:
+                    lbl_el = page.locator(f'label[for="{inp_id}"]').first
+                    if await lbl_el.count() > 0:
+                        inp_lbl = (await lbl_el.inner_text()).strip()
+                if not inp_lbl:
+                    parent = inp.locator('xpath=ancestor::div[contains(@class, "field") or contains(@class, "form-group") or contains(@class, "custom-question")][1]').first
+                    if await parent.count() > 0:
+                        inp_lbl = (await parent.inner_text()).strip()
+
+                inp_lbl_lower = inp_lbl.lower()
+                if not inp_lbl_lower:
+                    continue
+
+                val_to_fill = ""
+                if "linkedin" in inp_lbl_lower:
+                    val_to_fill = resolved_answers.get("linkedin") or "https://www.linkedin.com/in/amsborse/"
+                    filled["LinkedIn"] = val_to_fill
+                elif "current company" in inp_lbl_lower or "most recent company" in inp_lbl_lower or "your current company" in inp_lbl_lower or "employer" in inp_lbl_lower:
+                    val_to_fill = resolved_answers.get("currentCompany") or "Microsoft"
+                    filled["Current Company"] = val_to_fill
+                elif "current title" in inp_lbl_lower or "most recent title" in inp_lbl_lower or "your current title" in inp_lbl_lower or "job title" in inp_lbl_lower:
+                    val_to_fill = resolved_answers.get("currentTitle") or "Senior Software Engineer"
+                    filled["Current Title"] = val_to_fill
+                elif "portfolio" in inp_lbl_lower or "website" in inp_lbl_lower:
+                    val_to_fill = resolved_answers.get("portfolio") or resolved_answers.get("website") or "https://amsborse.github.io/resume"
+                    filled["Website"] = val_to_fill
+
+                if val_to_fill:
+                    await inp.fill(val_to_fill)
             except Exception:
                 pass
 
         # 3. Resolve all Greenhouse React Select Comboboxes
         cb_inputs = await page.locator('input[role="combobox"], input[id*="question_"], div[class*="select__control"] input').all()
         for cb in cb_inputs:
-            cb_id = await cb.get_attribute("id") or ""
-            if not cb_id or "iti" in cb_id:
-                continue
-
-            label = ""
-            lbl_el = page.locator(f'label[for="{cb_id}"]').first
-            if await lbl_el.count() > 0:
-                label = (await lbl_el.inner_text()).strip()
-            if not label:
-                label = await cb.evaluate("""el => {
-                    let p = el.closest('div.field, div.custom-question, div[class*="question"], div[class*="field"], fieldset');
-                    return p ? (p.querySelector('label, legend, p.label, span.label')?.innerText || p.innerText.split('\\n')[0]) : '';
-                }""")
-
-            lbl_lower = (label or cb_id).lower()
-            target_answer = "Yes"
-
-            if "transcript" in lbl_lower:
-                target_answer = "Yes"
-            elif "clearance eligibility" in lbl_lower or "obtain and maintain" in lbl_lower:
-                target_answer = "Yes, I am eligible"
-            elif "clearance level" in lbl_lower or "security clearance" in lbl_lower:
-                target_answer = "None"
-            elif "export control" in lbl_lower or "u.s. export" in lbl_lower:
-                target_answer = "U.S. Citizen"
-            elif "work authorization" in lbl_lower or "authorized to work" in lbl_lower:
-                target_answer = "Yes"
-            elif "sponsorship" in lbl_lower:
-                target_answer = "No"
-            elif "history with" in lbl_lower or "employed by" in lbl_lower or "conflict" in lbl_lower:
-                target_answer = "No"
-            elif "how did you hear" in lbl_lower or "source" in lbl_lower:
-                target_answer = "LinkedIn"
-            elif "gender" in lbl_lower:
-                target_answer = "Decline"
-            elif "hispanic" in lbl_lower:
-                target_answer = "No"
-            elif "veteran" in lbl_lower:
-                target_answer = "not a protected"
-            elif "disability" in lbl_lower:
-                target_answer = "do not have"
-
-            # Execute dropdown selection
             try:
+                cb_id = await cb.get_attribute("id") or ""
+                if not cb_id or "iti" in cb_id:
+                    continue
+
+                label = ""
+                lbl_el = page.locator(f'label[for="{cb_id}"]').first
+                if await lbl_el.count() > 0:
+                    label = (await lbl_el.inner_text()).strip()
+                if not label:
+                    label = await cb.evaluate("""el => {
+                        let p = el.closest('div.field, div.custom-question, div[class*="question"], div[class*="field"], fieldset');
+                        return p ? (p.querySelector('label, legend, p.label, span.label')?.innerText || p.innerText.split('\\n')[0]) : '';
+                    }""")
+
+                # Collect available options
                 wrapper = page.locator(f'div.select__control:has(#{cb_id}), div:has(> #{cb_id})').first
                 target_el = wrapper if await wrapper.count() > 0 else cb
                 await target_el.click(force=True)
@@ -154,13 +154,10 @@ class GreenhouseAdapter(ApplicationAdapter):
 
                 options_loc = page.locator('.select__option, div[class*="option"], [role="option"]')
                 opt_count = await options_loc.count()
+                available_options: list[str] = []
+                option_map: dict[str, Any] = {}
 
                 if opt_count > 0:
-                    clean_t = target_answer.strip().lower()
-                    matched_opt = None
-                    first_valid = None
-                    first_txt = ""
-
                     for i in range(opt_count):
                         opt = options_loc.nth(i)
                         if not await opt.is_visible():
@@ -168,20 +165,39 @@ class GreenhouseAdapter(ApplicationAdapter):
                         otxt = (await opt.inner_text()).strip()
                         if not otxt or otxt.lower() in ("select...", "select", "--", "choose"):
                             continue
-                        if not first_valid:
-                            first_valid = opt
-                            first_txt = otxt
-                        if clean_t in otxt.lower() or otxt.lower() in clean_t:
-                            matched_opt = opt
-                            break
+                        available_options.append(otxt)
+                        option_map[otxt.lower()] = opt
 
-                    click_target = matched_opt or first_valid
-                    if click_target:
-                        await click_target.click(force=True)
+                # ── Centralized resolution (replaces all if/elif heuristics) ──
+                resolution = resolve_answer(
+                    question_text=label or cb_id,
+                    profile=resolved_answers,
+                    options=available_options,
+                )
+
+                target_answer = resolution.answer
+                if not target_answer or resolution.blocking_errors:
+                    await page.keyboard.press("Escape")
+                    await asyncio.sleep(0.1)
+                    continue
+
+                # Click matching option
+                matched = False
+                target_lower = target_answer.strip().lower()
+                for otxt_lower, opt_el in option_map.items():
+                    if target_lower in otxt_lower or otxt_lower in target_lower:
+                        await opt_el.click(force=True)
                         filled[label or cb_id] = target_answer
+                        matched = True
                         await asyncio.sleep(0.1)
+                        break
+
+                if not matched:
+                    # SAFETY: No random fallback — close dropdown
+                    await page.keyboard.press("Escape")
+                    await asyncio.sleep(0.1)
             except Exception as ex:
-                logger.debug("Greenhouse combobox %s error: %s", cb_id, ex)
+                logger.debug("Greenhouse combobox %s error: %s", cb_id if 'cb_id' in locals() else 'unknown', ex)
 
         return {"filledCount": len(filled), "filled": filled}
 

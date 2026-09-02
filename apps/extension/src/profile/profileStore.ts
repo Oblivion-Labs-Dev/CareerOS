@@ -248,7 +248,7 @@ export function createEmptyProfile(): UserProfile {
     github: '',
     portfolio: '',
     workAuthorization: 'Yes',
-    sponsorship: 'No',
+    sponsorship: 'Yes',
     yearsExperience: '',
     currentTitle: '',
     targetRole: '',

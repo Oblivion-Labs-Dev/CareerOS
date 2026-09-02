@@ -25,9 +25,10 @@ class Settings(BaseSettings):
 
     # Application Assistant
     application_assistant_enabled: bool = True
-    application_assistant_llm_base_url: str = "http://localhost:1234/v1"
-    application_assistant_llm_model: str = ""
+    application_assistant_llm_base_url: str = "http://localhost:11434/v1"
+    application_assistant_llm_model: str = "mistral-small3.2:24b"
     application_assistant_llm_api_key: str = ""
+    gemini_api_key: str = ""
 
 
 settings = Settings()
