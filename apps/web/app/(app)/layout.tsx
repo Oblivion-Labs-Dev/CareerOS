@@ -20,4 +20,3 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     </div>
   );
 }
-import { Suspense } from "react";
