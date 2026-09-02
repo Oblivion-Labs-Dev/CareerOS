@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Workday Candidate Application - Acme Corp</title>
+</head>
+<body>
+  <div data-automation-id="workdayApplicationForm">
+    <div data-automation-id="activeProgressStep" aria-current="step">My Information</div>
+    
+    <fieldset data-automation-id="legalNameSection">
+      <legend data-automation-id="sectionHeader">Legal Name</legend>
+      <div data-automation-id="formField-firstName">
+        <label>First Name <span class="required">*</span></label>
+        <input data-automation-id="legalNameSection_firstName" id="firstName" name="firstName" required />
+      </div>
+      <div data-automation-id="formField-lastName">
+        <label>Last Name <span class="required">*</span></label>
+        <input data-automation-id="legalNameSection_lastName" id="lastName" name="lastName" required />
+      </div>
+    </fieldset>
+
+    <fieldset data-automation-id="addressSection">
+      <legend data-automation-id="sectionHeader">Address & Contact</legend>
+      <div data-automation-id="formField-email">
+        <label>Email Address <span class="required">*</span></label>
+        <input data-automation-id="email" id="email" type="email" required />
+      </div>
+      <div data-automation-id="formField-phoneNumber">
+        <label>Phone Number <span class="required">*</span></label>
+        <input data-automation-id="phoneNumber" id="phoneNumber" type="tel" required />
+      </div>
+      <div data-automation-id="formField-city">
+        <label>City</label>
+        <input data-automation-id="addressSection_city" id="city" />
+      </div>
+    </fieldset>
+
+    <div data-automation-id="file-upload-drop-zone">
+      <label>Resume / CV</label>
+      <input type="file" data-automation-id="file-upload-input" />
+    </div>
+
+    <button type="button" data-automation-id="bottom-navigation-next-button">Save and Continue</button>
+    <button type="submit" data-automation-id="submitButton">Submit</button>
+  </div>
+</body>
+</html>

@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Apply - Senior Frontend Engineer - TechCorp</title>
+</head>
+<body>
+  <div class="application-page">
+    <div class="posting-header">
+      <h2>Senior Frontend Engineer</h2>
+      <div class="posting-categories">
+        <div class="location">San Francisco, CA</div>
+        <div class="workplaceTypes">Remote</div>
+      </div>
+    </div>
+    <form id="application-form" class="application-form" action="/apply" method="POST">
+      <div class="section">
+        <h4>Submit your application</h4>
+        <div class="application-question required">
+          <label>Full Name <span class="required">*</span></label>
+          <input type="text" name="name" id="name" required />
+        </div>
+        <div class="application-question required">
+          <label>Email <span class="required">*</span></label>
+          <input type="email" name="email" id="email" required />
+        </div>
+        <div class="application-question required">
+          <label>Phone <span class="required">*</span></label>
+          <input type="tel" name="phone" id="phone" required />
+        </div>
+        <div class="application-question">
+          <label>Current Company</label>
+          <input type="text" name="org" id="org" />
+        </div>
+      </div>
+
+      <div class="section">
+        <h4>Links</h4>
+        <div class="application-question">
+          <label>LinkedIn URL</label>
+          <input type="url" name="urls[LinkedIn]" id="urls-linkedin" />
+        </div>
+        <div class="application-question">
+          <label>GitHub URL</label>
+          <input type="url" name="urls[GitHub]" id="urls-github" />
+        </div>
+        <div class="application-question">
+          <label>Portfolio URL</label>
+          <input type="url" name="urls[Portfolio]" id="urls-portfolio" />
+        </div>
+      </div>
+
+      <div class="section">
+        <h4>Resume/CV</h4>
+        <div class="application-question required">
+          <label>Resume/CV <span class="required">*</span></label>
+          <input type="file" name="resume" id="resume" required />
+        </div>
+      </div>
+
+      <div class="section">
+        <h4>Additional Questions</h4>
+        <div class="application-question">
+          <label>Are you legally authorized to work in the United States?</label>
+          <select name="work_authorization" id="work_auth">
+            <option value="">Select...</option>
+            <option value="yes">Yes</option>
+            <option value="no">No</option>
+          </select>
+        </div>
+        <div class="application-question">
+          <label>Desired Salary</label>
+          <input type="text" name="salary_expectation" id="salary" />
+        </div>
+      </div>
+
+      <div class="actions">
+        <button type="submit" id="btn-submit" class="template-btn-submit">Submit Application</button>
+      </div>
+    </form>
+  </div>
+</body>
+</html>

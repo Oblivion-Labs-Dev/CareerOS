@@ -8,6 +8,7 @@ interface DonutProgressRingProps {
   skipped: number;
   failed: number;
   isCompleted?: boolean;
+  onSelectSegment?: (key: "submitted" | "staged" | "skipped" | "failed") => void;
 }
 
 const LEGEND = [
@@ -25,6 +26,7 @@ export function DonutProgressRing({
   skipped,
   failed,
   isCompleted,
+  onSelectSegment,
 }: DonutProgressRingProps) {
   const safeTotal = Math.max(1, submitted + staged + skipped + failed);
   const radius = 54;
@@ -54,6 +56,8 @@ export function DonutProgressRing({
                 strokeDasharray={`${segment} ${circumference}`}
                 strokeDashoffset={offset}
                 strokeLinecap="butt"
+                style={{ cursor: onSelectSegment ? "pointer" : "default" }}
+                onClick={() => onSelectSegment?.(item.key)}
               />
             ) : null;
           })}
@@ -66,12 +70,18 @@ export function DonutProgressRing({
 
       <div className="autopilot-donut-legend">
         {LEGEND.map((item) => (
-          <div key={item.key}>
+          <button
+            key={item.key}
+            type="button"
+            onClick={() => onSelectSegment?.(item.key)}
+            className="autopilot-donut-legend-item text-left bg-transparent border-none p-0 cursor-pointer hover:opacity-80 transition-opacity"
+          >
             <span><i style={{ background: item.color }} />{item.label}</span>
             <strong>{values[item.key]}</strong>
-          </div>
+          </button>
         ))}
       </div>
     </div>
   );
 }
+
