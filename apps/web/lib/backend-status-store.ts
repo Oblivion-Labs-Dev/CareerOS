@@ -1,7 +1,6 @@
 "use client";
 
 import { useSyncExternalStore } from "react";
-import { getClientApiBaseUrl } from "@/lib/api";
 
 const POLL_MS = 15_000;
 const HEALTH_TIMEOUT_MS = 5_000;
@@ -23,8 +22,10 @@ async function checkHealth(): Promise<boolean> {
   const controller = new AbortController();
   const timer = window.setTimeout(() => controller.abort(), HEALTH_TIMEOUT_MS);
   try {
-    const baseUrl = getClientApiBaseUrl() || "http://localhost:8000";
-    const res = await fetch(`${baseUrl}/health`, {
+    // Health follows the same-origin proxy so a dashboard opened from another
+    // device (or a browser that resolves "localhost" to ::1) never fails to
+    // reach a backend that's actually up.
+    const res = await fetch("/api/backend/health", {
       cache: "no-store",
       signal: controller.signal,
     });

@@ -1,7 +1,7 @@
 "use client";
 
 import { useTheme } from "next-themes";
-import { LightDarkThemeToggle } from "@arsenal/ui";
+import { LightDarkThemeToggle } from "@career-os/ui";
 
 export function ThemeToggle() {
   const { theme, setTheme, resolvedTheme } = useTheme();

@@ -1,7 +1,8 @@
 "use client";
 
 import type { FeaturePriority, FeatureStatus } from "@career-os/core";
-import { Badge, GlassCard } from "@arsenal/ui";
+import { Badge } from "./badge";
+import { GlassCard } from "./glass-card";
 
 const statusVariant: Record<FeatureStatus, "planned" | "progress" | "done"> = {
   planned: "planned",
@@ -70,6 +71,3 @@ export function FeatureCard({
   );
 }
 
-export { PageHeader, StatCard } from "@arsenal/ui";
-export type { PageHeaderProps } from "@arsenal/ui";
-export type { StatCardProps } from "@arsenal/ui";

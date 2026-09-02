@@ -1,6 +1,6 @@
 "use client";
 
-import { SegmentedControl } from "@arsenal/ui";
+import { SegmentedControl } from "@career-os/ui";
 import { useMemo, useState } from "react";
 import { ConcernCard, CorpusEmptyState, FilterChip } from "@career-os/ui/corpus";
 import type { CorpusRecord } from "../corpus-model";

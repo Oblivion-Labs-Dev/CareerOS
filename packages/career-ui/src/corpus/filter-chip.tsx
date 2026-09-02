@@ -1,6 +1,6 @@
 "use client";
 
-import { cn } from "@arsenal/ui";
+import { cn } from "../lib/cn";
 
 export interface FilterChipProps {
   label: string;

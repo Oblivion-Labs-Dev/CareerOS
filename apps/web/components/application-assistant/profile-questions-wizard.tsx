@@ -177,7 +177,7 @@ function QuestionInput({
     const multi = /languages|fluent/i.test(`${field.label} ${field.displayTitle || ""}`);
     return (
       <textarea
-        ref={inputRef as React.RefObject<HTMLTextAreaElement | null>}
+        ref={inputRef as unknown as React.Ref<HTMLTextAreaElement>}
         className="aa-wizard-input aa-wizard-textarea"
         value={value}
         placeholder={multi ? "e.g. English, Spanish" : "e.g. Seattle, San Francisco, Remote"}
@@ -212,7 +212,7 @@ function QuestionInput({
   }
   return (
     <input
-      ref={inputRef as React.RefObject<HTMLInputElement | null>}
+      ref={inputRef as unknown as React.Ref<HTMLInputElement>}
       type="text"
       className="aa-wizard-input"
       value={value}

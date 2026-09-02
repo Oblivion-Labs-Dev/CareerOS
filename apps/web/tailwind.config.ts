@@ -1,4 +1,4 @@
-/** Tailwind preset inlined for PostCSS/Turbopack compatibility in CareerOS. */
+﻿/** Tailwind preset inlined for PostCSS/Turbopack compatibility in CareerOS. */
 const arsenalPreset = {
   theme: {
     extend: {
@@ -41,7 +41,6 @@ export default {
   content: [
     "./app/**/*.{ts,tsx}",
     "./components/**/*.{ts,tsx}",
-    "./node_modules/@arsenal/ui/dist/**/*.js",
     "../../packages/career-ui/src/**/*.{ts,tsx}",
   ],
   corePlugins: {

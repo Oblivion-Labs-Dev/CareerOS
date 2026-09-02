@@ -217,7 +217,7 @@ export function FailedJobsCenter({ onReprocessSuccess, onOpenPrep }: { onReproce
               disabled={reprocessing || loading}
               className="rounded-xl border border-rose-300/25 bg-rose-300/[0.08] px-3.5 py-2.5 text-xs font-medium text-rose-100 transition hover:bg-rose-300/[0.14] disabled:opacity-50"
             >
-              {reprocessing ? "Retrying all…" : "Retry all failed"}
+              {reprocessing ? "Requeuing all…" : "Requeue all failed"}
             </button>
           )}
           <button

@@ -1,6 +1,6 @@
 "use client";
 
-import { Badge } from "@arsenal/ui";
+import { Badge } from "../badge";
 import type { CorpusReadiness } from "./types";
 
 const READINESS_VARIANT: Record<CorpusReadiness, "planned" | "progress" | "done" | "p0"> = {

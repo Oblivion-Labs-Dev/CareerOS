@@ -1,1 +1,1 @@
-export { ScrollReveal } from "@arsenal/ui";
+export { ScrollReveal } from "@career-os/ui";

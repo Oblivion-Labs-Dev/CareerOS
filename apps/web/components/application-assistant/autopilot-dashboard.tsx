@@ -10,6 +10,7 @@ import {
   stopAutopilot,
   updateSettings,
 } from "@/lib/application-assistant-api";
+import { useBackendStatus } from "@/hooks/use-backend-status";
 import {
   IconActivity,
   IconBolt,
@@ -60,6 +61,7 @@ function formatEstRemaining(processed: number, target: number, startedAt?: strin
 }
 
 export function AutopilotDashboard({ onNavigateTab }: AutopilotDashboardProps) {
+  const backendOnline = useBackendStatus();
   const [statusData, setStatusData] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -778,7 +780,7 @@ export function AutopilotDashboard({ onNavigateTab }: AutopilotDashboardProps) {
         {/* Right: System Health Panel (4 cols) */}
         <div className="lg:col-span-4">
           <SystemHealthPanel
-            connected={Boolean(statusData)}
+            connected={backendOnline !== false || Boolean(statusData)}
             runnerStatus={statusData?.status || "READY"}
             repairCount={0}
             aiModel={aiModel}
@@ -786,6 +788,7 @@ export function AutopilotDashboard({ onNavigateTab }: AutopilotDashboardProps) {
           />
         </div>
       </div>
+
 
       {/* Batch Config Modal */}
       <BatchConfigModal

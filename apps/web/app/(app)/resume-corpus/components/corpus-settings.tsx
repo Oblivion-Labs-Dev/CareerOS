@@ -1,6 +1,6 @@
 "use client";
 
-import { DisclosureSection } from "@arsenal/ui";
+import { DisclosureSection } from "@career-os/ui";
 import { useState } from "react";
 import type { CorpusProfile } from "../corpus-model";
 import styles from "../resume-corpus.module.css";

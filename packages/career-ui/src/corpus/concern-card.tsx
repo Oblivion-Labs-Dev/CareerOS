@@ -1,6 +1,7 @@
 "use client";
 
-import { Badge, cn } from "@arsenal/ui";
+import { Badge } from "../badge";
+import { cn } from "../lib/cn";
 import type { ConcernCardData } from "./types";
 
 const SEVERITY_VARIANT = {

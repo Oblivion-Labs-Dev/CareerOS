@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Tooltip } from "@arsenal/ui";
+import { Tooltip } from "@career-os/ui";
 import { getClientApiBaseUrl } from "@/lib/api";
 interface OutreachResult {
   id: string;

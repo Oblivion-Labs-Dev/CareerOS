@@ -1,0 +1,32 @@
+﻿/** Tailwind preset for Arsenal design tokens used by @career-os/ui components. */
+const preset = {
+  theme: {
+    extend: {
+      colors: {
+        arsenal: {
+          background: "var(--arsenal-background)",
+          surface: "var(--arsenal-surface)",
+          elevated: "var(--arsenal-elevated)",
+          border: "var(--arsenal-border)",
+          primary: "var(--arsenal-text-primary)",
+          secondary: "var(--arsenal-text-secondary)",
+          muted: "var(--arsenal-muted)",
+          accent: "var(--arsenal-accent)",
+          danger: "var(--arsenal-danger)",
+          success: "var(--arsenal-success)",
+        },
+      },
+      borderRadius: {
+        arsenal: "var(--arsenal-radius)",
+        "arsenal-sm": "var(--arsenal-radius-sm)",
+        "arsenal-lg": "var(--arsenal-radius-lg)",
+      },
+      boxShadow: {
+        arsenal: "0 8px 32px rgba(0,0,0,0.35)",
+        "arsenal-glow": "0 0 48px color-mix(in srgb, var(--arsenal-accent) 35%, transparent)",
+      },
+    },
+  },
+};
+
+export default preset;

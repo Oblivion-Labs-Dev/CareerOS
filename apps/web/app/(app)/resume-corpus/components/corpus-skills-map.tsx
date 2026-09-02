@@ -1,6 +1,6 @@
 "use client";
 
-import { StatePanel } from "@arsenal/ui";
+import { StatePanel } from "@career-os/ui";
 import { useMemo, useState } from "react";
 import { CorpusEmptyState, FilterChip, SkillDepthIndicator, type SkillDepth, type SkillDepthData } from "@career-os/ui/corpus";
 import type { CorpusRecord } from "../corpus-model";

@@ -1,6 +1,6 @@
 "use client";
 
-import { InfoTooltip } from "@arsenal/ui";
+import { InfoTooltip } from "../tooltip";
 import type { ReactNode } from "react";
 
 export interface ScoreExplanationProps {

@@ -1,6 +1,6 @@
 "use client";
 
-import { DisclosureSection, ScoreGauge, StatePanel } from "@arsenal/ui";
+import { DisclosureSection, ScoreGauge, StatePanel } from "@career-os/ui";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { CorpusQuestionView, CorpusRecord } from "../corpus-model";
 import { gapCategoryField, mapReviewerConcern, summarizeBulletReadiness, type GapCategoryId, type GeneratedQuestion, type QualityStatus } from "../corpus-quality";

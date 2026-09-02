@@ -3,9 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev --port 3000",
-    "dev:clean": "node -e \"require('fs').rmSync('.next',{recursive:true,force:true})\" && next dev --port 3000",
-    "dev:turbopack": "next dev --port 3000 --turbopack",
+    "dev": "next dev --port 5000",
+    "dev:clean": "node -e \"require('fs').rmSync('.next',{recursive:true,force:true})\" && next dev --port 5000",
+    "dev:turbopack": "next dev --port 5000 --turbopack",
     "build": "next build",
     "start": "next start",
     "typecheck": "tsc --noEmit",
@@ -13,7 +13,6 @@
     "test:e2e:ui": "playwright test --ui"
   },
   "dependencies": {
-    "@arsenal/ui": "workspace:*",
     "@career-os/core": "workspace:*",
     "@career-os/ui": "workspace:*",
     "autoprefixer": "^10.4.20",

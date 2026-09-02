@@ -1,6 +1,6 @@
 "use client";
 
-import { MetricCard, ScoreGauge, SegmentedControl, StatePanel } from "@arsenal/ui";
+import { MetricCard, ScoreGauge, SegmentedControl, StatePanel } from "@career-os/ui";
 import { useMemo, useState } from "react";
 import { CorpusEmptyState } from "@career-os/ui/corpus";
 import type { CorpusRecord } from "../corpus-model";

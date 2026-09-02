@@ -1,7 +1,7 @@
-import { getClientApiBaseUrl } from "./api";
-
 function aaBaseUrl(): string {
-  return getClientApiBaseUrl();
+  // Keep application-assistant traffic on the dashboard origin. The route handler
+  // forwards it to the local API, avoiding browser CORS and localhost/IP mismatches.
+  return "/api/backend";
 }
 
 function parseApiError(text: string): string {

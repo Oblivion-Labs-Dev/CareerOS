@@ -1,6 +1,6 @@
 "use client";
 
-import { StatePanel } from "@arsenal/ui";
+import { StatePanel } from "@career-os/ui";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { fetchJson, postJson } from "@/lib/api";
 import { AccomplishmentExplorer } from "./components/accomplishment-explorer";

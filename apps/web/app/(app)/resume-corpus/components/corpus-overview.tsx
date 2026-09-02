@@ -1,6 +1,6 @@
 ﻿"use client";
 
-import { MetricCard, StatePanel } from "@arsenal/ui";
+import { MetricCard, StatePanel } from "@career-os/ui";
 import type { KeyboardEvent } from "react";
 import type { CorpusProfile, CorpusRecord, CorpusSummary } from "../corpus-model";
 import type { CorpusView } from "../corpus-navigation";

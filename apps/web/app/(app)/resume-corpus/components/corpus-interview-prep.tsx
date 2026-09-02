@@ -1,6 +1,6 @@
 "use client";
 
-import { SegmentedControl, StatePanel } from "@arsenal/ui";
+import { SegmentedControl, StatePanel } from "@career-os/ui";
 import { InterviewQuestionCard, type InterviewQuestionData } from "@career-os/ui/corpus";
 import { useEffect, useMemo, useState } from "react";
 import type { CorpusQuestionView, CorpusRecord } from "../corpus-model";

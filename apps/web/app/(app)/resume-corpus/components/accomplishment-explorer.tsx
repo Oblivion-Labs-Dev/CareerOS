@@ -1,6 +1,6 @@
 ﻿"use client";
 
-import { SegmentedControl, StatePanel } from "@arsenal/ui";
+import { SegmentedControl, StatePanel } from "@career-os/ui";
 import { useEffect, useMemo, useState } from "react";
 import type { CorpusRecord } from "../corpus-model";
 import { dimensionStatus, heatmapDimensionSection, QUALITY_FILTER_OPTIONS, recordMatchesQualityFilter, summarizeBulletReadiness } from "../corpus-quality";

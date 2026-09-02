@@ -1,6 +1,7 @@
 "use client";
 
-import { cn, InfoTooltip } from "@arsenal/ui";
+import { cn } from "../lib/cn";
+import { InfoTooltip } from "../tooltip";
 import type { SkillDepth, SkillDepthData } from "./types";
 
 const DEPTH_LABEL: Record<SkillDepth, string> = {

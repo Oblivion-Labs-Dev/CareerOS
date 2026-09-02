@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { GlassCard, ScrollReveal, cn, primaryLinkClassName, secondaryLinkClassName } from "@arsenal/ui";
+import { GlassCard, ScrollReveal, cn, primaryLinkClassName, secondaryLinkClassName } from "@career-os/ui";
 import { LandingFirefoxInstall } from "@/components/landing-firefox-install";
 import { LandingNav } from "@/components/landing-nav";
 

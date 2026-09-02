@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { primaryLinkClassName } from "@arsenal/ui";
+import { primaryLinkClassName } from "@career-os/ui";
 import { ThemeToggle } from "@/components/ui/theme-toggle";
 
 export function LandingNav() {

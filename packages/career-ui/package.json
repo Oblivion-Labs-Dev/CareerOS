@@ -20,7 +20,8 @@
   "scripts": {
     "build": "tsup",
     "clean": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\"",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
   },
   "peerDependencies": {
     "framer-motion": "^11.0.0",
@@ -29,13 +30,22 @@
     "react-intersection-observer": "^9.0.0"
   },
   "dependencies": {
-    "@arsenal/ui": "workspace:*",
-    "@career-os/core": "workspace:*"
+    "@career-os/core": "workspace:*",
+    "@radix-ui/react-accordion": "^1.2.2",
+    "@radix-ui/react-dialog": "^1.1.4",
+    "@radix-ui/react-slot": "^1.1.1",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "react-intersection-observer": "^9.16.0",
+    "tailwind-merge": "^2.6.0"
   },
   "devDependencies": {
     "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
     "react": "^19.2.4",
+    "react-dom": "^19.2.4",
     "tsup": "^8.5.0",
-    "typescript": "^5.7.2"
+    "typescript": "^5.7.2",
+    "vitest": "^4.1.9"
   }
 }

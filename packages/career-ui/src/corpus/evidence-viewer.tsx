@@ -1,6 +1,6 @@
 "use client";
 
-import { cn } from "@arsenal/ui";
+import { cn } from "../lib/cn";
 import type { EvidenceItem } from "./types";
 
 export interface EvidenceViewerProps {

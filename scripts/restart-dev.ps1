@@ -1,7 +1,7 @@
 #Requires -Version 5.1
 param(
-    [int]$ApiPort = 8000,
-    [int]$WebPort = 3000,
+    [int]$ApiPort = 4000,
+    [int]$WebPort = 5000,
     [switch]$Background,
     [switch]$SkipOllamaCheck
 )

@@ -1,6 +1,6 @@
 "use client";
 
-import { InfoTooltip, StatusMarker, type StatusMarkerTone } from "@arsenal/ui";
+import { InfoTooltip, StatusMarker, type StatusMarkerTone } from "@career-os/ui";
 import { useEffect, useMemo, useState } from "react";
 import type { CorpusRecord, CorpusQuestionView } from "../corpus-model";
 import {

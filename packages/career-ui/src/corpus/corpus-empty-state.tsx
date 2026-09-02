@@ -1,6 +1,7 @@
 "use client";
 
-import { PrimaryButton, SecondaryButton, StatePanel } from "@arsenal/ui";
+import { PrimaryButton, SecondaryButton } from "../section-header";
+import { StatePanel } from "../state-panel";
 
 export interface CorpusEmptyStateProps {
   title: string;
