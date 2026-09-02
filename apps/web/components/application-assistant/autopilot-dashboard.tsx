@@ -67,12 +67,8 @@ export function AutopilotDashboard({ onNavigateTab }: AutopilotDashboardProps) {
   const [customBatchInput, setCustomBatchInput] = useState<string>("");
   const [isCustomMode, setIsCustomMode] = useState<boolean>(false);
   const [showConfigModal, setShowConfigModal] = useState<boolean>(false);
-<<<<<<< HEAD
   const [aiModel, setAiModel] = useState<string>("mistral-small");
   const [modelSaving, setModelSaving] = useState<boolean>(false);
-=======
-  const [selectedModel, setSelectedModel] = useState<string>("mistral-small3.2:24b");
->>>>>>> main-restored
   const statusRefreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const fetchSettings = async () => {
@@ -438,7 +434,6 @@ export function AutopilotDashboard({ onNavigateTab }: AutopilotDashboardProps) {
                 <span>✓</span> {isCompleted ? "RUN COMPLETED" : isRunning ? "RUNNING" : "READY"}
               </span>
             </div>
-          </div>
           </div>
 
           {/* Center Graphic & Batch Controls */}
