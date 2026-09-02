@@ -1,16 +1,18 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { getDashboardStats } from "@/lib/application-assistant-api";
+import { getDashboardStats, getStagedApplications } from "@/lib/application-assistant-api";
 
 export type SidebarJobCounts = {
   jobScraper: number;
   applicationAssistant: number;
+  reviewCenter: number;
 };
 
 const EMPTY_COUNTS: SidebarJobCounts = {
   jobScraper: 0,
   applicationAssistant: 0,
+  reviewCenter: 0,
 };
 
 const INACTIVE_APP_STATUSES = new Set(["archived", "submitted_manually"]);
@@ -34,10 +36,14 @@ export function useSidebarJobCounts(pollMs = 30_000) {
 
   const refresh = useCallback(async () => {
     try {
-      const stats = await getDashboardStats();
+      const [stats, staged] = await Promise.all([
+        getDashboardStats(),
+        getStagedApplications().catch(() => ({ staged: [] })),
+      ]);
       setCounts({
         jobScraper: stats.scraper?.pendingSync ?? 0,
         applicationAssistant: activeApplicationCount(stats.statusCounts),
+        reviewCenter: Array.isArray(staged) ? staged.length : staged?.staged?.length ?? 0,
       });
     } catch {
       setCounts(null);
@@ -71,5 +77,6 @@ export function sidebarCountForHref(
 ): number | null {
   if (href === "/jobs/discover") return counts.jobScraper;
   if (href === "/application-assistant") return counts.applicationAssistant;
+  if (href === "/applications?tab=review") return counts.reviewCenter;
   return null;
 }
