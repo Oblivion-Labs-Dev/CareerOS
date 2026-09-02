@@ -1,9 +1,10 @@
 import asyncio
+import os
 import sys
 from pathlib import Path
 import httpx
 
-api_key = ""
+api_key = os.environ.get("GEMINI_API_KEY", "")
 
 async def test_gemini():
     print(f"Testing Gemini API Key with OpenAI compatibility endpoint...", flush=True)
