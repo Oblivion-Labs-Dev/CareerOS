@@ -45,6 +45,16 @@ export function CareerIcon({ name, size = 18, ...props }: CareerIconProps) {
       return <svg {...common}><path d="M4 5.5A3.5 3.5 0 0 1 7.5 2H20v16H7.5A3.5 3.5 0 0 0 4 21.5z"/><path d="M4 5.5V22M8 6h8M8 10h6"/></svg>;
     case "settings":
       return <svg {...common}><circle cx="12" cy="12" r="3"/><path d="M18.5 13.5v-3l-2-.6a7 7 0 0 0-.8-1.9l1-1.8-2.1-2.1-1.8 1a7 7 0 0 0-1.9-.8L9.3 2h-3l-.6 2.3a7 7 0 0 0-1.9.8l-1.8-1-.6.6M5.5 19.7l.2-1.2" transform="translate(2.2) scale(.82)"/></svg>;
+    case "review":
+      return <svg {...common}><rect x="5" y="3.5" width="14" height="17" rx="2"/><path d="M9 3.5v3h6v-3M9 11h6M9 15h4"/><path d="m15.5 16.5 1 1 2-2"/></svg>;
+    case "answers":
+      return <svg {...common}><path d="M5 4.5h14v12H9l-4 3z"/><path d="M9 9h6M9 12.5h4"/></svg>;
+    case "integrations":
+      return <svg {...common}><circle cx="7" cy="7" r="2.5"/><circle cx="17" cy="6" r="2.5"/><circle cx="12" cy="17" r="2.5"/><path d="m9 7 5.5-.6M8.3 9l2.4 5.6M15.7 8.2l-2.5 6.5"/></svg>;
+    case "bell":
+      return <svg {...common}><path d="M6 9a6 6 0 0 1 12 0c0 7 2.5 7 2.5 7h-17S6 16 6 9"/><path d="M10 20h4"/></svg>;
+    case "moon":
+      return <svg {...common}><path d="M20 15.2A8.5 8.5 0 1 1 8.8 4a7 7 0 0 0 11.2 11.2Z"/></svg>;
     case "roadmap":
       return <svg {...common}><circle cx="6" cy="18" r="2"/><circle cx="18" cy="6" r="2"/><path d="M8 18h2.5A3.5 3.5 0 0 0 14 14.5v-5A3.5 3.5 0 0 1 17.5 6M7.5 6H3v5M3 6l4 4"/></svg>;
     case "search":

@@ -43,10 +43,11 @@ app = FastAPI(
     version="0.1.0",
 )
 
-origins = [origin.strip() for origin in settings.career_os_cors_origins.split(",") if origin.strip()]
+origins = [origin.strip() for origin in settings.career_os_cors_origins.split(",") if origin.strip() and not origin.strip().endswith("*")]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins if origins != ["*"] else ["*"],
+    allow_origins=origins if origins else ["http://localhost:3000", "http://127.0.0.1:3000"],
+    allow_origin_regex=r"^(https?://(localhost|127\.0\.0\.1)(:\d+)?|chrome-extension://.*)$",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

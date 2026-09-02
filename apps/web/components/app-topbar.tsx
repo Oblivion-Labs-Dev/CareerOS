@@ -1,11 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { BackendStatusDot } from "@/components/backend-status-dot";
 import { NAV_GROUPS } from "@/lib/nav-config";
 import { CareerIcon } from "@/components/ui/career-icon";
+import { useBackendStatus } from "@/hooks/use-backend-status";
 
 const DIRECT_ACTIONS = [
   { label: "Open dashboard", href: "/dashboard", detail: "Dashboard" },
@@ -16,7 +17,9 @@ const DIRECT_ACTIONS = [
 
 export function AppTopbar() {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
   const router = useRouter();
+  const backendOnline = useBackendStatus();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [activeIndex, setActiveIndex] = useState(0);
@@ -41,8 +44,20 @@ export function AppTopbar() {
       : items;
   }, [items, query]);
 
-  const current = NAV_GROUPS.flatMap((group) => group.items)
-    .find((item) => pathname === item.href || pathname.startsWith(`${item.href}/`));
+  const current = NAV_GROUPS.flatMap((group) => group.items).find((item) => {
+    const target = new URL(item.href, "https://careeros.local");
+    if (pathname !== target.pathname && !pathname.startsWith(`${target.pathname}/`)) return false;
+    const tab = target.searchParams.get("tab");
+    const section = target.searchParams.get("section");
+    if (tab) return searchParams.get("tab") === tab;
+    if (section) return searchParams.get("section") === section;
+    if (target.pathname === "/applications") {
+      const activeTab = searchParams.get("tab");
+      return !activeTab || activeTab === "autopilot";
+    }
+    if (target.pathname === "/settings") return !searchParams.get("section");
+    return true;
+  });
 
   useEffect(() => {
     const handle = (event: KeyboardEvent) => {
@@ -103,26 +118,33 @@ export function AppTopbar() {
     <>
       <header className="app-topbar">
         <div className="app-topbar-context">
-          <Link href="/dashboard">CareerOS</Link>
+          <Link href={current?.href ?? "/dashboard"}>{current?.label ?? "CareerOS"}</Link>
           <span aria-hidden>/</span>
-          <strong className="app-topbar-page-title">
-            {current?.label ?? "Workspace"}
+          <strong className="app-topbar-page-title">Dashboard</strong>
+          <span className={`app-topbar-live-state${backendOnline === false ? " is-offline" : ""}`}>
             <BackendStatusDot />
-          </strong>
+            {backendOnline === false ? "Offline" : backendOnline === true ? "Running" : "Checking"}
+          </span>
         </div>
-        <button
-          ref={triggerRef}
-          type="button"
-          className="app-topbar-search"
-          aria-haspopup="dialog"
-          aria-expanded={open}
-          aria-controls="global-command-dialog"
-          onClick={() => setOpen(true)}
-        >
-          <CareerIcon name="search" size={16} />
-          <span>Search or jump to…</span>
-          <kbd>⌘ K</kbd>
-        </button>
+        <div className="app-topbar-actions">
+          <button
+            ref={triggerRef}
+            type="button"
+            className="app-topbar-search"
+            aria-haspopup="dialog"
+            aria-expanded={open}
+            aria-controls="global-command-dialog"
+            onClick={() => setOpen(true)}
+          >
+            <CareerIcon name="search" size={16} />
+            <span>Search jobs, companies, roles…</span>
+            <kbd>⌘ K</kbd>
+          </button>
+          <Link className="app-topbar-icon-button" href="/applications?tab=review" aria-label="Open Review Center">
+            <CareerIcon name="bell" size={18} />
+          </Link>
+          <Link className="app-topbar-avatar" href="/profile" aria-label="Open your profile">C</Link>
+        </div>
       </header>
 
       {open ? (

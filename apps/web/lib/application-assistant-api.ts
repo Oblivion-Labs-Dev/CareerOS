@@ -206,6 +206,20 @@ export async function enqueueJobForAutopilot(job: Record<string, any>) {
   });
 }
 
+export async function resetSubmittedAutopilotJobs(status?: string) {
+  return aaFetch<{ success: boolean; resetCount: number; message: string }>("/autopilot/reset-submitted", {
+    method: "POST",
+    body: JSON.stringify({ status: status || "ALL" }),
+  });
+}
+
+export async function resetSingleAutopilotJob(id: string) {
+  return aaFetch<{ success: boolean; id: string; message: string }>(`/autopilot/jobs/${id}/reset`, {
+    method: "POST",
+  });
+}
+
+
 export async function createApplication(jobId: string, resumeId?: string) {
   return aaFetch<{ success: boolean; application: Record<string, unknown> }>("/applications", {
     method: "POST",

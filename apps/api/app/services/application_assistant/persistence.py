@@ -529,6 +529,11 @@ def get_autopilot_job(db: Session, job_app_id: str) -> dict[str, Any] | None:
     return get_entity(db, ENTITY_AUTOPILOT_JOB, job_app_id)
 
 
+def delete_autopilot_job(db: Session, job_app_id: str) -> bool:
+    return delete_entity(db, ENTITY_AUTOPILOT_JOB, job_app_id)
+
+
+
 def list_autopilot_jobs(db: Session, status: str | None = None) -> list[dict[str, Any]]:
     jobs = list_entities(db, ENTITY_AUTOPILOT_JOB)
     if status:

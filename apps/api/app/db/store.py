@@ -247,6 +247,20 @@ def upsert_entity(db: Session, entity_type: str, payload: dict[str, Any]) -> dic
     return payload
 
 
+def delete_entity(db: Session, entity_type: str, entity_id: str) -> bool:
+    row = (
+        db.query(EntityStore)
+        .filter(EntityStore.entity_type == entity_type, EntityStore.id == entity_id)
+        .one_or_none()
+    )
+    if row:
+        db.delete(row)
+        db.flush()
+        return True
+    return False
+
+
+
 def seed_resume_corpus_if_needed(
     db: Session,
     seed_records: list[dict[str, Any]] | None = None,

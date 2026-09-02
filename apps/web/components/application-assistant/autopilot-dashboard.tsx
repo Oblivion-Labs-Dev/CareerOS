@@ -19,14 +19,13 @@ import {
 import { OrbitRadarGraphic } from "./autopilot/orbit-radar-graphic";
 import { ProgressPipeline } from "./autopilot/progress-pipeline";
 import { DonutProgressRing } from "./autopilot/donut-progress-ring";
-import { NightRunBanner } from "./autopilot/night-run-banner";
 import { MetricsRibbon } from "./autopilot/metrics-ribbon";
 import { SystemHealthPanel } from "./autopilot/system-health-panel";
 import { RecentActivityPanel } from "./autopilot/recent-activity-panel";
 import { BatchConfigModal } from "./autopilot/batch-config-modal";
 
 interface AutopilotDashboardProps {
-  onNavigateTab?: (tab: "autopilot" | "review" | "tracker") => void;
+  onNavigateTab?: (tab: "autopilot" | "submitted" | "review" | "tracker") => void;
 }
 
 const BATCH_PRESETS = [5, 10, 25, 50, 100];
@@ -137,6 +136,14 @@ export function AutopilotDashboard({ onNavigateTab }: AutopilotDashboardProps) {
   const skippedCount = run.skippedCount || 0;
   const failedCount = run.failedCount || 0;
   const queueSize = statusData?.queueSize || 0;
+
+  // Cumulative totals across all applications
+  const cumulative = statusData?.cumulative || {};
+  const totalSubmitted = cumulative.submitted ?? submittedCount;
+  const totalStaged = cumulative.staged ?? stagedCount;
+  const totalSkipped = cumulative.skipped ?? skippedCount;
+  const totalFailed = cumulative.failed ?? failedCount;
+  const totalProcessed = cumulative.processed ?? (totalSubmitted + totalStaged + totalSkipped + totalFailed);
 
   const progressPercent = Math.min(
     100,
@@ -386,29 +393,48 @@ export function AutopilotDashboard({ onNavigateTab }: AutopilotDashboardProps) {
               Stop
             </button>
           </div>
+
+          {/* Reset Processed Jobs Button */}
+          <button
+            onClick={async () => {
+              if (confirm("Reset all submitted and processed jobs back to UNAPPLIED so they can be re-applied?")) {
+                setLoading(true);
+                try {
+                  const { resetSubmittedAutopilotJobs } = await import("@/lib/application-assistant-api");
+                  await resetSubmittedAutopilotJobs("ALL");
+                  await fetchStatus();
+                } catch (err: any) {
+                  setError(err?.message || "Failed to reset jobs");
+                } finally {
+                  setLoading(false);
+                }
+              }
+            }}
+            disabled={loading || isRunning}
+            className="w-full py-1.5 rounded-xl border border-amber-500/20 bg-amber-500/5 hover:bg-amber-500/15 text-amber-300 font-semibold text-[11px] flex items-center justify-center gap-1.5 cursor-pointer transition-all disabled:opacity-40"
+            title="Reset processed jobs back to unapplied"
+          >
+            <span>↺</span>
+            <span>Reset Processed Jobs to Unapplied</span>
+          </button>
         </div>
       </div>
 
-      {/* ─── 2. Atmospheric Night Run Banner ─── */}
-      <NightRunBanner
-        isRunning={isRunning}
-        isCompleted={isCompleted}
-        processedCount={processedCount}
-        targetCount={targetCount}
-        stagedCount={stagedCount}
-        onViewActivity={() => {}}
-        onReviewStaged={() => onNavigateTab?.("review")}
-        onStartNext={() => handleStart()}
-      />
-
-      {/* ─── 3. Metrics Ribbon (5 Cards Row) ─── */}
+      {/* ─── 2. Metrics Ribbon (5 Cards Row) ─── */}
       <MetricsRibbon
-        submitted={submittedCount}
-        staged={stagedCount}
-        skipped={skippedCount}
-        failed={failedCount}
+        submitted={totalSubmitted}
+        staged={totalStaged}
+        skipped={totalSkipped}
+        failed={totalFailed}
         queueRemaining={queueSize}
-        processedCount={processedCount}
+        processedCount={totalProcessed}
+        onSelectCategory={(cat) => {
+          if (cat === "SUBMITTED") {
+            onNavigateTab?.("submitted");
+          } else if (cat === "STAGED") {
+            onNavigateTab?.("review");
+          }
+        }}
       />
 
       {/* ─── 4. Grid: Active Job / Timeline + System Health Panel ─── */}
