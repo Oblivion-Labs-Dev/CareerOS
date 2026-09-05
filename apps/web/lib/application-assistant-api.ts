@@ -221,6 +221,28 @@ export async function getAutopilotJobs(status?: string) {
   return aaFetch<{ success: boolean; jobs: any[]; count: number }>(`/autopilot/jobs${qs}`);
 }
 
+export interface AutopilotJobsPageParams {
+  status?: string; // comma-separated, e.g. "QUEUED,NEEDS_REVIEW,STAGED"
+  role?: string;
+  location?: string;
+  company?: string;
+  limit?: number;
+  offset?: number;
+}
+
+export async function getAutopilotJobsPage(params: AutopilotJobsPageParams) {
+  const qs = new URLSearchParams();
+  if (params.status) qs.set("status", params.status);
+  if (params.role) qs.set("role", params.role);
+  if (params.location) qs.set("location", params.location);
+  if (params.company) qs.set("company", params.company);
+  qs.set("limit", String(params.limit ?? 24));
+  qs.set("offset", String(params.offset ?? 0));
+  return aaFetch<{ success: boolean; jobs: any[]; count: number; total: number; hasMore: boolean }>(
+    `/autopilot/jobs?${qs.toString()}`
+  );
+}
+
 export async function deleteAutopilotJob(jobId: string) {
   return aaFetch<{ success: boolean; deletedId: string; message: string }>(`/autopilot/jobs/${jobId}`, {
     method: "DELETE",
@@ -243,6 +265,13 @@ export async function skipStagedApplication(id: string, reason?: string) {
     method: "POST",
     body: JSON.stringify({ reason: reason || "" }),
   });
+}
+
+export async function classifyPendingQuestions(id: string) {
+  return aaFetch<{ success: boolean; pendingQuestions: { question: string; category: string; fieldType?: string; options?: string[] }[] }>(
+    `/autopilot/jobs/${id}/classify-questions`,
+    { method: "POST" }
+  );
 }
 
 export async function enqueueJobForAutopilot(job: Record<string, any>) {
@@ -273,6 +302,12 @@ export async function reprocessFailedAutopilotJobs() {
 
 export async function reprocessStagedAutopilotJobs() {
   return aaFetch<{ success: boolean; reprocessedCount: number; message: string; run?: any }>("/autopilot/reprocess-staged", {
+    method: "POST",
+  });
+}
+
+export async function reprocessSkippedAutopilotJobs() {
+  return aaFetch<{ success: boolean; reprocessedCount: number; message: string; run?: any }>("/autopilot/reprocess-skipped", {
     method: "POST",
   });
 }
@@ -757,6 +792,9 @@ export interface SubmissionReceiptItem {
   confirmationScreenshot?: string;
   verificationStatus: string;
   certificateFingerprint: string;
+  tailoringMode?: "off" | "honest" | "aggressive" | null;
+  resumeFileUsed?: string | null;
+  matchScoreAtSubmission?: number | null;
 }
 
 export async function getJobTailorDiff(jobId: string, mode?: "off" | "honest" | "aggressive") {
@@ -764,10 +802,14 @@ export async function getJobTailorDiff(jobId: string, mode?: "off" | "honest" | 
   return aaFetch<{ success: boolean; diff: TailorDiffResponse }>(`/jobs/${jobId}/tailor-diff${query}`);
 }
 
-export async function approvePreflightSubmission(jobId: string, customAnswers?: Record<string, string>) {
+export async function approvePreflightSubmission(
+  jobId: string,
+  customAnswers?: Record<string, string>,
+  tailoringMode?: "off" | "honest" | "aggressive",
+) {
   return aaFetch<{ success: boolean; message: string; job: any; run: any }>(`/jobs/${jobId}/preflight-approve`, {
     method: "POST",
-    body: JSON.stringify({ customAnswers }),
+    body: JSON.stringify({ customAnswers, tailoringMode }),
   });
 }
 

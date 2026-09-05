@@ -395,6 +395,7 @@ async def _fill_all_greenhouse_comboboxes(
                 question_text=effective_q_text,
                 profile=profile,
                 options=available_options,
+                answer_lib=answer_lib,
             )
             all_resolutions.append(resolution)
 
@@ -633,6 +634,7 @@ async def _fill_standard_and_react_fields(
                 question_text=sel_lbl,
                 profile=profile,
                 options=available,
+                answer_lib=answer_lib,
             )
             if resolution.answer and not resolution.blocking_errors:
                 for opt_t in available:
@@ -726,7 +728,7 @@ async def _fill_standard_and_react_fields(
             if not group_lbl:
                 continue
 
-            resolution = resolve_answer(question_text=group_lbl, profile=profile, options=options)
+            resolution = resolve_answer(question_text=group_lbl, profile=profile, options=options, answer_lib=answer_lib)
             if not resolution.answer or resolution.blocking_errors:
                 continue
 
@@ -946,7 +948,29 @@ async def _execute_live_playwright_submission_impl(
 
             # Check if job was closed / unlisted by company and redirected to generic job search / open roles
             current_url_lower = page.url.lower()
-            if ("/open-roles" in current_url_lower or "/careers/search" in current_url_lower or "/jobs/search" in current_url_lower) and not any(term in current_url_lower for term in ["/jobs/", "gh_jid="]) or ("404" in await page.title()):
+            page_title_lower = (await page.title()).lower()
+            url_says_expired = ("/open-roles" in current_url_lower or "/careers/search" in current_url_lower or "/jobs/search" in current_url_lower) and not any(term in current_url_lower for term in ["/jobs/", "gh_jid="]) or ("404" in page_title_lower or "not found" in page_title_lower)
+
+            # Some ATS pages (e.g. Greenhouse) keep the original job URL but render an inline
+            # banner saying the posting closed, instead of redirecting — catch that by text too.
+            EXPIRED_TEXT_PATTERNS = (
+                "is no longer open",
+                "no longer accepting applications",
+                "no longer active",
+                "position has been filled",
+                "posting has expired",
+                "this job is closed",
+                "page not found",
+            )
+            page_text_lower = ""
+            if not url_says_expired:
+                try:
+                    page_text_lower = (await page.locator("body").inner_text(timeout=3000)).lower()
+                except Exception:
+                    page_text_lower = ""
+            text_says_expired = any(p in page_text_lower for p in EXPIRED_TEXT_PATTERNS)
+
+            if url_says_expired or text_says_expired:
                 return {
                     "submitted": False,
                     "expired": True,
@@ -1098,6 +1122,7 @@ async def _execute_live_playwright_submission_impl(
                         heal_resolution = resolve_answer(
                             question_text=f_label,
                             profile=profile,
+                            answer_lib=answer_lib,
                         )
                         fix_val = heal_resolution.answer
                     if f_id:
@@ -1174,7 +1199,7 @@ async def _execute_live_playwright_submission_impl(
             form_resolutions: list[AnswerResolution] = []
             for lbl, ans in filled_fields.items():
                 form_resolutions.append(
-                    resolve_answer(question_text=lbl, profile=profile)
+                    resolve_answer(question_text=lbl, profile=profile, answer_lib=answer_lib)
                 )
 
             # 2. Run cross-field deterministic validation
@@ -1215,7 +1240,7 @@ async def _execute_live_playwright_submission_impl(
                     "submitted": False,
                     "stagedForReview": True,
                     "status": "NEEDS_REVIEW",
-                    "error": f"Staged for human review: {reasons_str}",
+                    "error": reasons_str,
                     "evidence": {
                         "policyEvaluation": policy_result.to_dict(),
                         "domVerification": dom_verification.to_dict(),
@@ -1369,6 +1394,9 @@ async def _execute_live_playwright_submission_impl(
                 presubmit_screenshot_path=str(pre_screenshot_path.resolve()) if pre_screenshot_path.exists() else "",
                 confirmation_screenshot_path=str(post_screenshot_path.resolve()) if post_screenshot_path.exists() else "",
                 qwen_review=qwen_confirmation,
+                tailoring_mode=job_item.get("tailoringMode"),
+                resume_file_used=job_item.get("resumeFileUsed"),
+                match_score_at_submission=job_item.get("matchScoreAtSubmission"),
             )
 
             return {

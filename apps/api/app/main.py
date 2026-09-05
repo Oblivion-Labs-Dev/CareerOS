@@ -15,9 +15,11 @@ from fastapi.staticfiles import StaticFiles
 
 from app.config import settings
 from app.db.store import init_db
+from app.middleware.auth import AuthGateMiddleware
 from app.middleware.metrics import MetricsMiddleware
 from app.routers.api import router
 from app.routers.application_assistant import router as application_assistant_router
+from app.routers.auth import router as auth_router
 from app.routers.intelligence import router as intelligence_router
 from app.routers.job_search import router as job_search_router
 from app.routers.networking import router as networking_router
@@ -46,6 +48,14 @@ app = FastAPI(
 )
 
 origins = [origin.strip() for origin in settings.career_os_cors_origins.split(",") if origin.strip() and not origin.strip().endswith("*")]
+
+# AuthGateMiddleware is registered before CORSMiddleware so that CORS ends up as the
+# OUTER layer (Starlette wraps in reverse registration order — last added = outermost).
+# That matters here specifically: when the auth gate short-circuits with a 401, that
+# response must still pass back out through CORSMiddleware's header-adding logic, or
+# the browser's fetch() blocks it as a CORS failure and the frontend never sees the 401
+# to redirect to /login — it would just look like every request silently broke.
+app.add_middleware(AuthGateMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins if origins else ["http://localhost:3000", "http://127.0.0.1:3000"],
@@ -59,6 +69,7 @@ app.add_middleware(MetricsMiddleware)
 static_dir = Path(__file__).resolve().parent / "static"
 app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 
+app.include_router(auth_router)
 app.include_router(router)
 app.include_router(intelligence_router)
 app.include_router(repair_demo_router)

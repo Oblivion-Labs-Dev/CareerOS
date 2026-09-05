@@ -74,6 +74,21 @@ export function SubmissionReceiptModal({ receipt, onClose }: SubmissionReceiptMo
                 {receipt.certificateFingerprint?.slice(0, 10)}...
               </span>
             </div>
+            {receipt.tailoringMode && (
+              <div className="p-3 rounded-xl bg-white/5 border border-white/5">
+                <span className="text-slate-400 block text-[10px] uppercase font-semibold">Resume Used</span>
+                <span className="text-amber-300 font-bold text-sm">{receipt.tailoringMode.toUpperCase()}</span>
+                {receipt.resumeFileUsed && (
+                  <span className="text-slate-500 font-mono text-[10px] truncate block">{receipt.resumeFileUsed}</span>
+                )}
+              </div>
+            )}
+            {receipt.matchScoreAtSubmission != null && (
+              <div className="p-3 rounded-xl bg-white/5 border border-white/5">
+                <span className="text-slate-400 block text-[10px] uppercase font-semibold">Match Score</span>
+                <span className="text-emerald-300 font-bold text-sm">{Math.round(receipt.matchScoreAtSubmission)}%</span>
+              </div>
+            )}
           </div>
 
           {/* Confirmation Message */}

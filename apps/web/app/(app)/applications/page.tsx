@@ -3,10 +3,11 @@
 import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { ApplicationAssistantDashboard } from "@/components/application-assistant/application-assistant-dashboard";
-import { AutopilotDashboard } from "@/components/application-assistant/autopilot-dashboard";
+import { ApplyBoard } from "@/components/application-assistant/autopilot/apply-board";
 import { FailedJobsCenter } from "@/components/application-assistant/failed-jobs-center";
 import { ReviewCenter } from "@/components/application-assistant/review-center";
 import { SubmittedJobsCenter } from "@/components/application-assistant/submitted-jobs-center";
+import { SkippedJobsCenter } from "@/components/application-assistant/skipped-jobs-center";
 import { LatencyDiagnosticsCenter } from "@/components/application-assistant/latency-diagnostics-center";
 import { RecruiterInbox } from "@/components/tracker/recruiter-inbox";
 import { PipelineKanban } from "@/components/tracker/pipeline-kanban";
@@ -28,13 +29,14 @@ function ApplicationQueueLoading() {
   );
 }
 
-type ApplicationsTab = "autopilot" | "submitted" | "review" | "failed" | "tracker" | "inbox" | "pipeline" | "diagnostics";
+type ApplicationsTab = "autopilot" | "submitted" | "review" | "failed" | "skipped" | "tracker" | "inbox" | "pipeline" | "diagnostics";
 
 const VALID_TABS: ApplicationsTab[] = [
   "autopilot",
   "submitted",
   "review",
   "failed",
+  "skipped",
   "tracker",
   "inbox",
   "pipeline",
@@ -59,15 +61,17 @@ function ApplicationsPageInner() {
   const [reviewCount, setReviewCount] = useState<number>(0);
   const [submittedCount, setSubmittedCount] = useState<number>(0);
   const [failedCount, setFailedCount] = useState<number>(0);
+  const [skippedCount, setSkippedCount] = useState<number>(0);
   const [isRunning, setIsRunning] = useState<boolean>(false);
 
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const [stagedRes, submittedRes, failedRes, statusRes] = await Promise.all([
+        const [stagedRes, submittedRes, failedRes, skippedRes, statusRes] = await Promise.all([
           getStagedApplications().catch(() => []),
           getAutopilotJobs("SUBMITTED").catch(() => ({ jobs: [] })),
           getAutopilotJobs("FAILED").catch(() => ({ jobs: [] })),
+          getAutopilotJobs("SKIPPED").catch(() => ({ jobs: [] })),
           getAutopilotStatus().catch(() => null),
         ]);
 
@@ -82,6 +86,9 @@ function ApplicationsPageInner() {
         }
         if (failedRes?.jobs && Array.isArray(failedRes.jobs)) {
           setFailedCount(failedRes.jobs.length);
+        }
+        if (skippedRes?.jobs && Array.isArray(skippedRes.jobs)) {
+          setSkippedCount(skippedRes.jobs.length);
         }
 
         if (statusRes?.running || statusRes?.status === "RUNNING" || statusRes?.status === "RECOVERING") {
@@ -203,6 +210,26 @@ function ApplicationsPageInner() {
             )}
           </button>
 
+          {/* 4b. Skipped Button (Amber / muted) */}
+          <button
+            onClick={() => setActiveTab("skipped")}
+            style={{
+              background: activeTab === "skipped" ? "#241d0a" : "#161206",
+              borderColor: activeTab === "skipped" ? "#d97706" : "rgba(217, 119, 6, 0.4)",
+              color: "#fbbf24",
+              boxShadow: activeTab === "skipped" ? "0 0 20px rgba(217, 119, 6, 0.4)" : "none",
+            }}
+            className="px-3.5 py-2 text-xs font-black rounded-xl border transition-all duration-300 flex items-center gap-2 cursor-pointer hover:scale-[1.02] active:scale-[0.98]"
+          >
+            <IconClock className="w-4 h-4 text-[#fbbf24]" />
+            <span>Skipped</span>
+            {skippedCount > 0 && (
+              <span className="px-1.5 py-0.5 rounded-full text-[10px] font-black bg-amber-500/30 text-amber-300 border border-amber-500/40 shadow-sm">
+                {skippedCount}
+              </span>
+            )}
+          </button>
+
           {/* 5. All Applications Button (Amber / Gold) */}
           <button
             onClick={() => setActiveTab("tracker")}
@@ -268,7 +295,7 @@ function ApplicationsPageInner() {
       {/* ─── Main Content ─── */}
       {activeTab === "autopilot" && (
         <Suspense fallback={<ApplicationQueueLoading />}>
-          <AutopilotDashboard onNavigateTab={(t) => setActiveTab(t)} />
+          <ApplyBoard />
         </Suspense>
       )}
 
@@ -290,6 +317,12 @@ function ApplicationsPageInner() {
             onReprocessSuccess={() => setActiveTab("autopilot")}
             onOpenPrep={() => setActiveTab("tracker")}
           />
+        </Suspense>
+      )}
+
+      {activeTab === "skipped" && (
+        <Suspense fallback={<ApplicationQueueLoading />}>
+          <SkippedJobsCenter />
         </Suspense>
       )}
 

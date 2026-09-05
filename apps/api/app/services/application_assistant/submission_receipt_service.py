@@ -29,6 +29,9 @@ def create_submission_receipt(
     presubmit_screenshot_path: str = "",
     confirmation_screenshot_path: str = "",
     qwen_review: dict[str, Any] | None = None,
+    tailoring_mode: str | None = None,
+    resume_file_used: str | None = None,
+    match_score_at_submission: float | None = None,
 ) -> dict[str, Any]:
     """Compile and archive an immutable submission receipt."""
     timestamp = datetime.now(UTC).isoformat()
@@ -53,6 +56,9 @@ def create_submission_receipt(
         "verificationStatus": "VERIFIED",
         "qwenReview": qwen_review or {"submissionConfirmed": True, "confidence": 0.99},
         "certificateFingerprint": receipt_hash.upper(),
+        "tailoringMode": tailoring_mode,
+        "resumeFileUsed": resume_file_used,
+        "matchScoreAtSubmission": match_score_at_submission,
     }
 
     try:
@@ -81,6 +87,9 @@ def create_submission_receipt(
                 "fieldsFilled": fields_filled,
                 "presubmitScreenshot": presubmit_screenshot_path,
                 "confirmationScreenshot": confirmation_screenshot_path,
+                "tailoringMode": tailoring_mode,
+                "resumeFileUsed": resume_file_used,
+                "matchScoreAtSubmission": match_score_at_submission,
                 # A submit click succeeding is NOT the success criterion — a real
                 # confirmation email landing at this application's tracking
                 # address is. Don't claim verified here; a confirmation email

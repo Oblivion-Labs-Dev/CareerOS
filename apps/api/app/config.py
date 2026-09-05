@@ -30,5 +30,10 @@ class Settings(BaseSettings):
     application_assistant_llm_api_key: str = ""
     gemini_api_key: str = ""
 
+    # Lightweight single-user login gate (not multi-tenant auth — see docs/auth.md)
+    career_os_admin_username: str = "admin"
+    career_os_admin_password: str = ""
+    career_os_session_secret: str = ""
+
 
 settings = Settings()

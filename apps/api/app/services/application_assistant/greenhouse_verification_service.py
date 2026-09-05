@@ -175,13 +175,31 @@ async def handle_greenhouse_verification_flow(
     log_callback: Callable[[str, str], None] | None = None,
 ) -> bool:
     """Detect if Greenhouse 8-character verification modal is active, fetch code via Gmail IMAP, and submit."""
-    # Check if page has verification code prompt
-    page_text = await page.inner_text("body")
-    has_verification_prompt = (
-        "verification code was sent to" in page_text.lower()
-        or "enter the 8-character code" in page_text.lower()
-        or "security code" in page_text.lower()
-    )
+    # Check if page has verification code prompt. Greenhouse's application form
+    # (and this modal) usually render inside an embedded iframe rather than the
+    # top-level document, so the top-level page body alone won't contain the
+    # prompt text — check target_frame first, falling back to the page.
+    def _has_prompt(text: str) -> bool:
+        low = text.lower()
+        return (
+            "verification code was sent to" in low
+            or "enter the 8-character code" in low
+            or "security code" in low
+        )
+
+    page_text = ""
+    has_verification_prompt = False
+    for scope_candidate in (target_frame, page):
+        if scope_candidate is None:
+            continue
+        try:
+            candidate_text = await scope_candidate.inner_text("body")
+        except Exception:
+            continue
+        if _has_prompt(candidate_text):
+            page_text = candidate_text
+            has_verification_prompt = True
+            break
 
     if not has_verification_prompt:
         return False

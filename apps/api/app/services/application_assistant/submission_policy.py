@@ -163,6 +163,9 @@ class SubmissionPolicy:
                             "label": issue.label,
                             "reason": issue.details,
                             "risk": "HIGH_RISK",
+                            "issueType": issue.issue_type,
+                            "fieldType": issue.field_type,
+                            "options": issue.options,
                         })
 
             if dom_verification.unresolved_required_fields:
@@ -185,6 +188,25 @@ class SubmissionPolicy:
                     "reason": msg,
                     "risk": "HIGH_RISK",
                 })
+
+        # ── Dedupe: the same question (e.g. a Yes/No radio pair) resolves to one
+        # AnswerResolution per option, so an unresolved question can otherwise
+        # produce the same reason/blocking-issue 2-3x over. Collapse by message
+        # text, preserving first-seen order, so a human reviewer sees each
+        # distinct problem exactly once.
+        def _dedupe_by(items: list[Any], key: Any) -> list[Any]:
+            seen: set[str] = set()
+            out: list[Any] = []
+            for item in items:
+                k = key(item)
+                if k and k not in seen:
+                    seen.add(k)
+                    out.append(item)
+            return out
+
+        reasons = _dedupe_by(reasons, lambda r: r)
+        blocking_issues = _dedupe_by(blocking_issues, lambda b: b.get("reason") or b.get("question") or "")
+        warnings = _dedupe_by(warnings, lambda w: w)
 
         # ── Determine Risk Tier and Decision ────────────────────────────────
         if blocking_issues:

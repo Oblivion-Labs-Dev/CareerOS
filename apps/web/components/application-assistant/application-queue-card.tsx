@@ -655,6 +655,15 @@ export function ApplicationQueueCard({
               </ul>
             </section>
 
+            {app.errors?.length > 0 && (
+              <section className="aac-drawer-section">
+                <h4>Why</h4>
+                <p style={{ margin: 0, fontSize: "12px", lineHeight: 1.5, color: "var(--text-secondary, #cbd5e1)" }}>
+                  {formatAppError(app.errors[0])}
+                </p>
+              </section>
+            )}
+
             <section className="aac-drawer-section">
               <h4>Fields</h4>
               <ul className="aac-drawer-stats">

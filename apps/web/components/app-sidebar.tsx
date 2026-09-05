@@ -8,6 +8,7 @@ import { CareerIcon } from "@/components/ui/career-icon";
 import { useBackendStatus } from "@/hooks/use-backend-status";
 import { formatNavCount, sidebarCountForHref, useSidebarJobCounts } from "@/hooks/use-sidebar-job-counts";
 import { NAV_GROUPS } from "@/lib/nav-config";
+import { getAuthStatus, logout } from "@/lib/auth-api";
 
 function isItemActive(pathname: string, searchParams: URLSearchParams, href: string) {
   const target = new URL(href, "https://careeros.local");
@@ -38,6 +39,16 @@ export function AppSidebar() {
   const drawerRef = useRef<HTMLElement>(null);
   const openButtonRef = useRef<HTMLButtonElement>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const [authRequired, setAuthRequired] = useState(false);
+
+  useEffect(() => {
+    getAuthStatus().then((status) => setAuthRequired(status.authRequired));
+  }, []);
+
+  const handleLogout = async () => {
+    await logout();
+    window.location.href = "/login";
+  };
 
   useEffect(() => {
     const query = window.matchMedia("(max-width: 900px)");
@@ -204,6 +215,26 @@ export function AppSidebar() {
               <BackendStatusDot />
               <span>{backendText}</span>
             </p>
+            {authRequired && (
+              <button
+                type="button"
+                onClick={() => void handleLogout()}
+                style={{
+                  marginTop: 8,
+                  width: "100%",
+                  padding: "6px 10px",
+                  fontSize: 11,
+                  fontWeight: 700,
+                  borderRadius: 8,
+                  border: "1px solid rgba(255,255,255,0.1)",
+                  background: "rgba(255,255,255,0.04)",
+                  color: "rgba(226,232,240,0.75)",
+                  cursor: "pointer",
+                }}
+              >
+                Sign out
+              </button>
+            )}
           </div>
         </footer>
       </aside>

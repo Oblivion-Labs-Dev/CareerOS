@@ -15,6 +15,7 @@ import traceback
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 from sqlalchemy.orm import Session
@@ -33,6 +34,7 @@ from app.services.application_assistant.persistence import (
     get_active_autopilot_run,
     get_autopilot_job,
     get_autopilot_run,
+    get_settings,
     list_autopilot_jobs,
     list_discovered_jobs,
     release_job_lock,
@@ -46,6 +48,12 @@ logger = logging.getLogger("career_os.autopilot_runner")
 
 MAX_JOB_ATTEMPTS = 3
 DEFAULT_CONCURRENCY = 5
+# An application is only submitted once its resume's match score reaches this
+# bar. If the job's chosen tailoring mode doesn't clear it, tailoring is
+# escalated (off -> honest -> aggressive) and the score rechecked before
+# giving up and skipping the job — we never submit a poorly-matched resume.
+MIN_MATCH_SCORE_TO_SUBMIT = 80.0
+TAILORING_ESCALATION_ORDER = ["off", "honest", "aggressive"]
 # Launches are staggered just enough to avoid a burst of browser startups.  The
 # former three-second default left most worker slots idle at the start of every
 # batch without improving form reliability.
@@ -537,6 +545,7 @@ class AutopilotRunner:
                                 "status": AutopilotJobStatus.QUEUED.value,
                                 "matchScore": r.get("matchScore", 85.0),
                                 "matchReasons": r.get("matchReasons", []),
+                                "location": r.get("location", ""),
                                 "discoveredAt": now_iso(),
                                 "queuedAt": now_iso(),
                             })
@@ -906,9 +915,12 @@ class AutopilotRunner:
         from app.services.application_assistant.persistence import list_answer_library
         profile: dict[str, Any] = {}
         answer_lib: list[dict[str, Any]] = []
+        master_resume: dict[str, Any] = {}
         with session_scope() as db:
             profile = get_kv(db, "profile") or {}
             answer_lib = list_answer_library(db)
+            master_resume = get_kv(db, "resume_corpus_master") or {}
+            tailoring_mode = job_item.get("tailoringMode") or get_settings(db).get("tailoringMode", "honest")
 
         self.log_event(
             f"{w_prefix}Launching Playwright live Chromium session for {company}...",
@@ -942,9 +954,80 @@ class AutopilotRunner:
                 metadata={"slot": slot_idx, "company": company},
             )
 
+        # Generate a resume tailored to this job's mode (Off/Honest/Aggressive), escalating
+        # the mode if the match score doesn't clear the submission bar, and attach the
+        # winning PDF for this submission only — never mutate the shared profile record.
+        submission_profile = dict(profile)
+        from app.services.application_assistant.resume_diff_service import (
+            generate_role_tailoring_diff,
+            render_tailored_resume_pdf,
+        )
+
+        start_idx = TAILORING_ESCALATION_ORDER.index(tailoring_mode) if tailoring_mode in TAILORING_ESCALATION_ORDER else 1
+        modes_to_try = TAILORING_ESCALATION_ORDER[start_idx:]
+
+        diff_data: dict[str, Any] | None = None
+        winning_mode: str | None = None
+        best_score = 0.0
+        try:
+            for candidate_mode in modes_to_try:
+                candidate_diff = await generate_role_tailoring_diff(job_item, profile, master_resume, mode=candidate_mode)
+                score = float(candidate_diff.get("matchScore") or 0)
+                best_score = max(best_score, score)
+                if score >= MIN_MATCH_SCORE_TO_SUBMIT:
+                    diff_data = candidate_diff
+                    winning_mode = candidate_mode
+                    break
+                _granular_log(f"Match score {score:.0f}% below {MIN_MATCH_SCORE_TO_SUBMIT:.0f}% at mode={candidate_mode}; escalating tailoring")
+        except Exception as e:
+            logger.warning("Resume tailoring/match-scoring failed for %s (mode=%s): %s", company, tailoring_mode, e)
+
+        if winning_mode is None or diff_data is None:
+            skip_reason = f"Match score stayed below {MIN_MATCH_SCORE_TO_SUBMIT:.0f}% even after tailoring (best {best_score:.0f}%)"
+            self.log_event(
+                f"{w_prefix}Skipped {company} — {title}: {skip_reason}",
+                level="warning",
+                metadata={"slot": slot_idx, "company": company, "title": title, "reason": skip_reason},
+            )
+            job_item["status"] = AutopilotJobStatus.SKIPPED.value
+            job_item["skipReason"] = skip_reason
+            job_item["aiExplanation"] = skip_reason
+            job_item["tailoringMode"] = tailoring_mode
+            self._record_checkpoint(job_item, CheckpointStep.SKIPPED, skip_reason)
+            with self._run_update_lock:
+                with session_scope() as db:
+                    save_autopilot_job(db, job_item)
+                    r = get_autopilot_run(db, run_id)
+                    if r:
+                        r["skippedCount"] = (r.get("skippedCount") or 0) + 1
+                        save_autopilot_run(db, r)
+            return
+
+        tailoring_mode = winning_mode
+        job_item["tailoringMode"] = tailoring_mode
+        job_item["matchScoreAtSubmission"] = diff_data.get("matchScore")
+        try:
+            pdf_bytes = render_tailored_resume_pdf(diff_data, profile)
+            tailored_dir = Path(__file__).resolve().parents[3] / "data" / "application_assistant" / "tailored_resumes"
+            tailored_dir.mkdir(parents=True, exist_ok=True)
+            resume_path = tailored_dir / f"{job_item.get('id', 'job')}_{tailoring_mode}.pdf"
+            resume_path.write_bytes(pdf_bytes)
+            submission_profile["resumePath"] = str(resume_path)
+            job_item["resumeFileUsed"] = resume_path.name
+            _granular_log(f"Tailored resume generated (mode={tailoring_mode}, match={diff_data.get('matchScore')}%)")
+        except Exception as e:
+            logger.warning(
+                "Resume PDF render failed for %s (mode=%s): %s — falling back to default resume",
+                company, tailoring_mode, e,
+            )
+            job_item["resumeFileUsed"] = None
+
+        with session_scope() as db:
+            save_autopilot_job(db, job_item)
+
         result = await execute_live_playwright_submission(
             job_item=job_item,
-            profile=profile,
+            profile=submission_profile,
             answer_lib=answer_lib,
             headless=headless_mode,
             timeout_sec=60.0,
@@ -957,7 +1040,11 @@ class AutopilotRunner:
                 worker_state.current_step = "SUBMITTED"
             job_item["status"] = AutopilotJobStatus.SUBMITTED.value
             job_item["submittedAt"] = now_iso()
-            job_item["submissionEvidence"] = result.get("evidence", {})
+            evidence = dict(result.get("evidence", {}) or {})
+            evidence["tailoringMode"] = job_item.get("tailoringMode")
+            evidence["resumeFileUsed"] = job_item.get("resumeFileUsed")
+            evidence["matchScoreAtSubmission"] = job_item.get("matchScoreAtSubmission")
+            job_item["submissionEvidence"] = evidence
             job_item["answers"] = result.get("fieldsFilled", {})
             self._record_checkpoint(job_item, CheckpointStep.SUBMITTED, "Real browser submission confirmed")
             with self._run_update_lock:
@@ -996,11 +1083,23 @@ class AutopilotRunner:
             # ─── VERIFIED AUTONOMY: STAGE TO NEEDS_REVIEW (NOT FAILED) ───
             review_reason = result.get("error") or "Requires human review before submission"
             job_item["status"] = AutopilotJobStatus.NEEDS_REVIEW.value
-            job_item["lastError"] = review_reason
+            job_item["lastError"] = f"Staged for human review: {review_reason}"
             job_item["lastErrorType"] = ApplicationErrorType.VALIDATION_ERROR.value
             job_item["submissionEvidence"] = result.get("evidence", {}) or {}
             job_item["answers"] = result.get("fieldsFilled", {})
-            job_item["aiExplanation"] = f"Staged for human review: {review_reason}"
+            job_item["aiExplanation"] = job_item["lastError"]
+
+            # Structured, answerable questions for the Apply-board popup. Browser-automation
+            # errors are inherently non-deterministic (wording varies per ATS, per field type,
+            # per employer) — rather than hand-coding an ever-growing set of string patterns,
+            # each blocking reason is classified by a local model into a fixed enum, which
+            # decides both whether it's something a candidate can answer at all and, if so,
+            # phrases it as one clean question. See error_normalizer.build_pending_questions —
+            # shared with the on-demand re-classification endpoint for pre-existing jobs.
+            from app.services.application_assistant.error_normalizer import build_pending_questions
+
+            blocking_issues = ((result.get("evidence") or {}).get("policyEvaluation") or {}).get("blockingIssues", [])
+            job_item["pendingQuestions"] = await build_pending_questions(blocking_issues)
             self._record_checkpoint(job_item, CheckpointStep.STAGED, f"Staged for Review: {review_reason}")
             
             if worker_state:

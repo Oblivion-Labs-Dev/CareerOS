@@ -30,7 +30,7 @@ import { RecentActivityPanel } from "./autopilot/recent-activity-panel";
 import { BatchConfigModal } from "./autopilot/batch-config-modal";
 
 interface AutopilotDashboardProps {
-  onNavigateTab?: (tab: "autopilot" | "submitted" | "review" | "failed" | "tracker") => void;
+  onNavigateTab?: (tab: "autopilot" | "submitted" | "review" | "failed" | "skipped" | "tracker") => void;
 }
 
 const BATCH_PRESETS = [1, 5, 10, 15, 30, 50];
@@ -576,7 +576,7 @@ export function AutopilotDashboard({ onNavigateTab }: AutopilotDashboardProps) {
               if (seg === "submitted") onNavigateTab?.("submitted");
               else if (seg === "staged") onNavigateTab?.("review");
               else if (seg === "failed") onNavigateTab?.("failed");
-              else if (seg === "skipped") onNavigateTab?.("tracker");
+              else if (seg === "skipped") onNavigateTab?.("skipped");
             }}
           />
 
@@ -686,7 +686,9 @@ export function AutopilotDashboard({ onNavigateTab }: AutopilotDashboardProps) {
             onNavigateTab?.("review");
           } else if (cat === "FAILED") {
             onNavigateTab?.("failed");
-          } else if (cat === "QUEUED" || cat === "SKIPPED") {
+          } else if (cat === "SKIPPED") {
+            onNavigateTab?.("skipped");
+          } else if (cat === "QUEUED") {
             onNavigateTab?.("tracker");
           }
         }}

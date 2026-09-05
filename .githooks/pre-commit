@@ -1,5 +1,14 @@
 #!/bin/sh
-# Run full CI (matches GitHub Actions) before every commit.
+# Fast local gate only: typecheck + extension unit tests (seconds, low memory).
+# The full suite (api pytest ~13min, web-e2e Next build + Playwright) proved too
+# heavy to run on every commit on this machine (repeatedly OOM-killed partway
+# through) and isn't worth gating every commit on regardless of environment —
+# run it on demand instead: `pnpm ci` (everything, or `-SkipWebE2E` for just
+# typecheck/extension-unit/api) or `pnpm ci:web-e2e` for e2e alone.
+#
+# NOTE: web-e2e is NOT part of the GitHub Actions workflow (.github/workflows/ci.yml
+# only runs typecheck, extension-unit, api) — it only ever ran here. Skipping it
+# locally means e2e regressions won't be caught until someone runs it by hand.
 if [ "$SKIP_CI" = "1" ]; then
   exit 0
 fi
@@ -7,11 +16,10 @@ fi
 ROOT="$(git rev-parse --show-toplevel)" || exit 1
 cd "$ROOT" || exit 1
 
-echo "pre-commit: running CareerOS CI (typecheck, extension-unit, api, web-e2e)..."
-echo "  Skip with: SKIP_CI=1 git commit ...  or  git commit --no-verify"
+echo "pre-commit: running fast CI (typecheck, extension-unit)..."
+echo "  Full suite (api, web-e2e): pnpm ci"
+echo "  Skip entirely: SKIP_CI=1 git commit ...  or  git commit --no-verify"
 
-if command -v node >/dev/null 2>&1; then
-  node scripts/ci-run.mjs
-else
-  pnpm ci
-fi
+pnpm --filter @career-os/core build \
+  && pnpm typecheck \
+  && pnpm --filter @career-os/extension test

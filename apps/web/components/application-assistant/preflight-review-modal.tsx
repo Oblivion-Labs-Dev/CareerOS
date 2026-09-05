@@ -96,7 +96,7 @@ export function PreflightReviewModal({
     setSubmitting(true);
     setError(null);
     try {
-      const res = await approvePreflightSubmission(diffData.jobId, answers);
+      const res = await approvePreflightSubmission(diffData.jobId, answers, currentMode);
       setSuccessMsg(res.message || "Submission approved and running in background!");
       setTimeout(() => {
         if (onSubmitted) onSubmitted();

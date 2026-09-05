@@ -25,6 +25,8 @@ class DOMVerificationIssue:
     issue_type: str  # MISMATCH | MISSING_REQUIRED | INVALID_STATE
     severity: str    # BLOCKING | WARNING
     details: str
+    field_type: str = ""
+    options: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -35,6 +37,8 @@ class DOMVerificationIssue:
             "issueType": self.issue_type,
             "severity": self.severity,
             "details": self.details,
+            "fieldType": self.field_type,
+            "options": self.options,
         }
 
 
@@ -52,6 +56,17 @@ class DOMVerificationResult:
             "domValues": self.dom_values,
             "unresolvedRequiredFields": self.unresolved_required_fields,
         }
+
+
+def _state_confirmed_in_sibling_field(dom_by_label: dict[str, dict[str, Any]]) -> bool:
+    """True if some other field on the page (a separate State dropdown/input,
+    distinct from the City field being checked) already holds Washington/WA."""
+    for lbl_low, f in dom_by_label.items():
+        if "state" in lbl_low:
+            val = (f.get("value") or "").lower()
+            if "washington" in val or val == "wa":
+                return True
+    return False
 
 
 async def verify_browser_dom_state(
@@ -133,6 +148,13 @@ async def verify_browser_dom_state(
                     required = el.required || el.getAttribute('aria-required') === 'true' || label.includes('*');
                 }
 
+                let options = [];
+                if (type === 'select-one' || type === 'select-multiple') {
+                    options = Array.from(el.options || [])
+                        .map(o => o.text.trim())
+                        .filter(t => t && !/^(select|choose|--)/i.test(t));
+                }
+
                 fields.push({
                     id: id || name,
                     name: name,
@@ -141,7 +163,8 @@ async def verify_browser_dom_state(
                     type: type,
                     isCombobox: isCombobox,
                     value: (val || '').trim(),
-                    required: required
+                    required: required,
+                    options: options
                 });
             });
             return fields;
@@ -186,7 +209,8 @@ async def verify_browser_dom_state(
                 continue
             # Check if optional keyword in label or group
             if not any(opt in lbl_low or opt in grp_low for opt in ["optional", "if applicable", "if willing"]):
-                result.unresolved_required_fields.append(f.get("label") or f.get("id"))
+                display_name = f.get("label") or f.get("group") or f.get("name") or f.get("id") or "an unlabeled field"
+                result.unresolved_required_fields.append(display_name)
                 result.issues.append(
                     DOMVerificationIssue(
                         field_id=f.get("id", ""),
@@ -195,7 +219,9 @@ async def verify_browser_dom_state(
                         actual_dom_value="",
                         issue_type="MISSING_REQUIRED",
                         severity="BLOCKING",
-                        details=f"Required field '{f.get('label')}' is empty in the live browser DOM.",
+                        details=f"Required field '{display_name}' is empty in the live browser DOM.",
+                        field_type=f_type,
+                        options=f.get("options") or [],
                     )
                 )
 
@@ -221,7 +247,15 @@ async def verify_browser_dom_state(
                             details="Location contains incorrect overseas address instead of candidate profile.",
                         )
                     )
-                elif "auburn" in actual_loc and not ("wa" in actual_loc or "washington" in actual_loc):
+                elif "auburn" in actual_loc and not ("wa" in actual_loc or "washington" in actual_loc) and not _state_confirmed_in_sibling_field(dom_by_label):
+                    # Only a real mismatch when this field IS the combined location (no
+                    # separate state field elsewhere confirms WA/Washington already).
+                    # Many ATS forms split City and State into two separate fields — a
+                    # bare "City" field legitimately contains just "Auburn" with no state
+                    # substring at all, which isn't wrong, just incomplete information in
+                    # THIS field. Checking only this field's own text previously flagged
+                    # every such form as a location mismatch even when City=Auburn and
+                    # State=Washington were both filled correctly in their own fields.
                     result.issues.append(
                         DOMVerificationIssue(
                             field_id=f.get("id", ""),

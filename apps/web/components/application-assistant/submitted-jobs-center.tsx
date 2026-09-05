@@ -126,6 +126,9 @@ export function SubmittedJobsCenter() {
         fieldsCount: Object.keys(fields).length || 5,
         verificationStatus: "VERIFIED",
         certificateFingerprint: job.certificateFingerprint || job.id.toUpperCase(),
+        tailoringMode: job.tailoringMode || job.submissionEvidence?.tailoringMode || null,
+        resumeFileUsed: job.resumeFileUsed || job.submissionEvidence?.resumeFileUsed || null,
+        matchScoreAtSubmission: job.matchScoreAtSubmission ?? job.submissionEvidence?.matchScoreAtSubmission ?? null,
       };
       setSelectedReceipt(fallback);
     } finally {
@@ -251,11 +254,19 @@ export function SubmittedJobsCenter() {
                 onToggleSubmitted={() => undefined}
                 onArchive={() => void handleResetSingle(job.id, job.title || "Job")}
                 intelligenceSlot={
-                  <p className="aac-alert aac-alert--info">
-                    {typeof evidence === "object" && evidence.confirmationText
-                      ? evidence.confirmationText
-                      : job.confirmationText || "ATS confirmed submission"}
-                  </p>
+                  <>
+                    <p className="aac-alert aac-alert--info">
+                      {typeof evidence === "object" && evidence.confirmationText
+                        ? evidence.confirmationText
+                        : job.confirmationText || "ATS confirmed submission"}
+                    </p>
+                    {(job.tailoringMode || evidence.tailoringMode) && (
+                      <p className="aac-alert aac-alert--info" style={{ marginTop: 4 }}>
+                        Resume: {String(job.tailoringMode || evidence.tailoringMode).toUpperCase()}
+                        {(job.resumeFileUsed || evidence.resumeFileUsed) && ` — ${job.resumeFileUsed || evidence.resumeFileUsed}`}
+                      </p>
+                    )}
+                  </>
                 }
                 primaryActionOverride={{
                   label: "View receipt",

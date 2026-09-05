@@ -1539,7 +1539,10 @@ export function JobDiscoverDashboard() {
     }
   }, [scraping, freshness]);
 
-  const isFormValid = Boolean(q.trim() && selectedLocations.length > 0);
+  // Job Discovery is meant to pull broadly — filtering down to what you actually
+  // want to apply to happens on the Autopilot "Ready to Apply" board instead.
+  // Title/location are optional refinements here, not gates on fetching at all.
+  const isFormValid = true;
 
   function applyLocationFilter(pick: string) {
     let nextLocs: string[];
@@ -1633,7 +1636,6 @@ export function JobDiscoverDashboard() {
               onChange={(val) => setQ(val)}
               options={titleComboboxOptions}
               placeholder="e.g. Senior Software Engineer"
-              required
             />
           </label>
           <label>
@@ -1650,7 +1652,6 @@ export function JobDiscoverDashboard() {
               }}
               options={locationComboboxOptions}
               placeholder="e.g. Remote, California, Seattle"
-              required
             />
           </label>
           <label>

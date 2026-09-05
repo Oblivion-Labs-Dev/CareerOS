@@ -15,7 +15,7 @@ function fetchOptions(options?: FetchOptions): RequestInit {
 }
 
 export async function fetchHealth(options?: FetchOptions): Promise<{ status: string; service?: string }> {
-  const res = await fetch(`${API_BASE}/health`, fetchOptions({ revalidate: options?.revalidate ?? 5 }));
+  const res = await fetch(`${API_BASE}/health`, { ...fetchOptions({ revalidate: options?.revalidate ?? 5 }), credentials: "include" });
   if (!res.ok) throw new Error("API unavailable");
   return res.json();
 }
@@ -32,7 +32,7 @@ async function errorMessageFor(res: Response, path: string): Promise<string> {
 }
 
 export async function fetchJson<T>(path: string, options?: FetchOptions): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, fetchOptions(options));
+  const res = await fetch(`${API_BASE}${path}`, { ...fetchOptions(options), credentials: "include" });
   if (!res.ok) throw new Error(await errorMessageFor(res, path));
   return res.json();
 }
@@ -50,6 +50,7 @@ export async function postJson<T>(path: string, body: unknown, method: "POST" | 
     method,
     headers: method === "DELETE" ? undefined : { "Content-Type": "application/json" },
     body: method === "DELETE" ? undefined : JSON.stringify(body),
+    credentials: "include",
   });
   if (!res.ok) throw new Error(await errorMessageFor(res, path));
   return res.json();

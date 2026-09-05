@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from typing import Any
 
@@ -1328,8 +1329,12 @@ async def generate_answer_route(
 @router.post("/autopilot/start")
 async def start_autopilot(
     options: dict[str, Any] = Body(default_factory=dict),
-    db: Session = Depends(db_session),
 ) -> dict[str, Any]:
+    # No Depends(db_session) here on purpose: a batch run can take many minutes,
+    # and holding a pooled connection open for the whole request (unused — the
+    # runner opens its own short-lived sessions internally) is what previously
+    # exhausted the connection pool. See approve_preflight_submission for the
+    # same fix applied to the single-job apply path.
     from app.services.application_assistant.autopilot_runner import AutopilotRunner
     runner = AutopilotRunner.get_instance()
     run = await runner.start(options=options)
@@ -1490,12 +1495,52 @@ def get_self_healing_log() -> dict[str, Any]:
 
 @router.get("/autopilot/jobs")
 def get_autopilot_jobs_list(
-    status: str | None = Query(default=None),
+    status: str | None = Query(default=None, description="Single status, or comma-separated list (e.g. QUEUED,NEEDS_REVIEW,STAGED)"),
+    role: str | None = Query(default=None, description="Case-insensitive substring match against job title"),
+    location: str | None = Query(default=None, description="Case-insensitive substring match against job location"),
+    company: str | None = Query(default=None, description="Case-insensitive substring match against company name"),
+    limit: int = Query(default=24, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
     db: Session = Depends(db_session),
 ) -> dict[str, Any]:
+    """List autopilot jobs, filtered and paginated server-side.
+
+    The entity store isn't indexed for this (see list_entities in db/store.py —
+    it loads every row of the type and filters in Python), so this doesn't scale
+    to a huge table yet. But moving filtering here, out of the frontend, means
+    the client only ever receives one page of results instead of the whole
+    queue — the actual thing worth fixing today. Real scale later means giving
+    autopilot jobs real indexed columns (status/company/title/location) instead
+    of an opaque JSON payload blob.
+    """
     from app.services.application_assistant.persistence import list_autopilot_jobs
-    jobs = list_autopilot_jobs(db, status=status)
-    return {"success": True, "jobs": jobs, "count": len(jobs)}
+
+    statuses = [s.strip() for s in status.split(",")] if status else [None]
+    jobs: list[dict[str, Any]] = []
+    for s in statuses:
+        jobs.extend(list_autopilot_jobs(db, status=s))
+
+    role_q = (role or "").strip().lower()
+    location_q = (location or "").strip().lower()
+    company_q = (company or "").strip().lower()
+    if role_q:
+        jobs = [j for j in jobs if role_q in str(j.get("title") or "").lower()]
+    if location_q:
+        jobs = [j for j in jobs if location_q in str(j.get("location") or "").lower()]
+    if company_q:
+        jobs = [j for j in jobs if company_q in str(j.get("company") or "").lower()]
+
+    jobs.sort(key=lambda j: j.get("matchScore") or 0, reverse=True)
+
+    total = len(jobs)
+    page = jobs[offset:offset + limit]
+    return {
+        "success": True,
+        "jobs": page,
+        "count": len(page),
+        "total": total,
+        "hasMore": offset + limit < total,
+    }
 
 
 @router.delete("/autopilot/jobs/{job_id}")
@@ -1575,6 +1620,51 @@ def skip_staged_application(
     return {"success": True, "job": job}
 
 
+@router.post("/autopilot/jobs/{id}/classify-questions")
+async def classify_pending_questions(id: str) -> dict[str, Any]:
+    """On-demand model classification of a NEEDS_REVIEW/STAGED job's outstanding
+    questions, for jobs that were staged before pendingQuestions existed (or whose
+    original DOM field metadata wasn't captured). Re-running the whole live browser
+    submission just to get cleaner question text would be wasteful — this reruns
+    only the cheap classification step against whatever evidence is already on file.
+    Idempotent: if the job already has pendingQuestions, they're returned as-is.
+
+    Deliberately avoids `Depends(db_session)` — classification runs several
+    45-second-class model calls, and holding a pooled connection open for that
+    whole span (per request, and worse per accidental duplicate) is what exhausted
+    the connection pool previously. See approve_preflight_submission for the same fix.
+    """
+    from app.services.application_assistant.persistence import get_autopilot_job, save_autopilot_job
+    from app.services.application_assistant.error_normalizer import build_pending_questions
+    from app.db.store import session_scope
+
+    with session_scope() as db:
+        job = get_autopilot_job(db, id)
+        if not job:
+            raise HTTPException(status_code=404, detail="Job not found")
+
+        if job.get("pendingQuestions"):
+            return {"success": True, "pendingQuestions": job["pendingQuestions"]}
+
+        blocking_issues = (
+            ((job.get("submissionEvidence") or {}).get("policyEvaluation") or {}).get("blockingIssues", [])
+        )
+
+        if not blocking_issues:
+            # No structured evidence on file (job predates the policy engine) — fall back to
+            # splitting the raw error text itself; the model still has enough to work with.
+            raw = (job.get("lastError") or job.get("aiExplanation") or "")
+            raw = raw.split(":", 1)[-1] if raw.lower().startswith("staged for human review:") else raw
+            blocking_issues = [{"reason": part.strip()} for part in raw.split(";") if part.strip()]
+
+    pending_questions = await build_pending_questions(blocking_issues)
+
+    job["pendingQuestions"] = pending_questions
+    with session_scope() as db:
+        save_autopilot_job(db, job)
+    return {"success": True, "pendingQuestions": pending_questions}
+
+
 @router.post("/autopilot/enqueue")
 def enqueue_job_for_autopilot(
     payload: dict[str, Any] = Body(default_factory=dict),
@@ -1618,9 +1708,12 @@ def enqueue_job_for_autopilot(
         "applicationUrl": app_url,
         "status": "QUEUED",
         "matchScore": float(payload.get("matchScore") or 85.0),
+        "location": payload.get("location", ""),
         "discoveredAt": now_iso(),
         "queuedAt": now_iso(),
     }
+    if payload.get("tailoringMode") in ("off", "honest", "aggressive"):
+        job_item["tailoringMode"] = payload["tailoringMode"]
     saved = save_autopilot_job(db, job_item)
     return {"success": True, "deduplicated": False, "job": saved}
 
@@ -1692,6 +1785,18 @@ async def reprocess_staged_autopilot_jobs() -> dict[str, Any]:
     return _requeue_autopilot_jobs_by_status(("STAGED", "NEEDS_REVIEW"))
 
 
+@router.post("/autopilot/reprocess-skipped")
+async def reprocess_skipped_autopilot_jobs() -> dict[str, Any]:
+    """Return all SKIPPED applications to the queue without starting Autopilot.
+
+    Jobs the executor found to be genuinely expired/removed are deleted outright
+    (see the `expired` branch in autopilot_runner), never marked SKIPPED, so
+    everything this touches was skipped by a hard filter that may no longer
+    apply (e.g. sponsorship policy or profile changes) — safe to retry.
+    """
+    return _requeue_autopilot_jobs_by_status(("SKIPPED",))
+
+
 @router.post("/autopilot/jobs/{id}/reprocess")
 async def reprocess_single_autopilot_job(id: str) -> dict[str, Any]:
     """Return one failed job to the queue without starting Autopilot."""
@@ -1745,64 +1850,66 @@ def reset_single_autopilot_job_endpoint(id: str) -> dict[str, Any]:
 # ─── TSENTA SUITE: VISUAL DIFFS, PRE-FLIGHT APPROVAL, RECEIPTS & EMAIL SYNC ───
 
 @router.get("/jobs/{id}/tailor-diff")
-async def get_job_tailor_diff(
-    id: str,
-    mode: str | None = None,
-    db: Session = Depends(db_session),
-) -> dict[str, Any]:
-    """Generate or retrieve role-tailored materials with full visual diff chunks."""
+async def get_job_tailor_diff(id: str, mode: str | None = None) -> dict[str, Any]:
+    """Generate or retrieve role-tailored materials with full visual diff chunks.
+
+    No Depends(db_session): generate_role_tailoring_diff is an LLM call that can take
+    tens of seconds, and holding a pooled connection for that span is unnecessary
+    (see approve_preflight_submission for the pool-exhaustion this pattern caused).
+    """
     from app.services.application_assistant.persistence import get_autopilot_job, get_settings
     from app.services.application_assistant.resume_diff_service import generate_role_tailoring_diff
-    from app.db.store import get_kv
+    from app.db.store import get_kv, session_scope
 
-    active_mode = mode or get_settings(db).get("tailoringMode", "honest")
-    job = get_autopilot_job(db, id)
-    if not job:
-        # Fallback: check job search table or mock job item
-        queue = get_kv(db, "autopilot_job_queue") or []
-        for q in queue:
-            if isinstance(q, dict) and q.get("id") == id:
-                job = q
-                break
+    with session_scope() as db:
+        active_mode = mode or get_settings(db).get("tailoringMode", "honest")
+        job = get_autopilot_job(db, id)
+        if not job:
+            # Fallback: check job search table or mock job item
+            queue = get_kv(db, "autopilot_job_queue") or []
+            for q in queue:
+                if isinstance(q, dict) and q.get("id") == id:
+                    job = q
+                    break
 
-    if not job:
-        job = {"id": id, "title": "Software Engineer", "company": "Target Company"}
+        if not job:
+            job = {"id": id, "title": "Software Engineer", "company": "Target Company"}
 
-    profile = get_kv(db, "profile") or {}
-    master_resume = get_kv(db, "resume_corpus_master") or {}
+        profile = get_kv(db, "profile") or {}
+        master_resume = get_kv(db, "resume_corpus_master") or {}
 
     diff_data = await generate_role_tailoring_diff(job, profile, master_resume, mode=active_mode)
     return {"success": True, "diff": diff_data}
 
 
 @router.get("/jobs/{id}/tailor-resume-pdf")
-async def get_job_tailor_resume_pdf(
-    id: str,
-    mode: str | None = None,
-    db: Session = Depends(db_session),
-) -> Response:
-    """Export the tailored resume for a job as a formatted 1-page PDF document."""
+async def get_job_tailor_resume_pdf(id: str, mode: str | None = None) -> Response:
+    """Export the tailored resume for a job as a formatted 1-page PDF document.
+
+    No Depends(db_session) — see get_job_tailor_diff just above.
+    """
     from app.services.application_assistant.persistence import get_autopilot_job, get_settings
     from app.services.application_assistant.resume_diff_service import (
         generate_role_tailoring_diff,
         render_tailored_resume_pdf,
     )
-    from app.db.store import get_kv
+    from app.db.store import get_kv, session_scope
 
-    active_mode = mode or get_settings(db).get("tailoringMode", "honest")
-    job = get_autopilot_job(db, id)
-    if not job:
-        queue = get_kv(db, "autopilot_job_queue") or []
-        for q in queue:
-            if isinstance(q, dict) and q.get("id") == id:
-                job = q
-                break
+    with session_scope() as db:
+        active_mode = mode or get_settings(db).get("tailoringMode", "honest")
+        job = get_autopilot_job(db, id)
+        if not job:
+            queue = get_kv(db, "autopilot_job_queue") or []
+            for q in queue:
+                if isinstance(q, dict) and q.get("id") == id:
+                    job = q
+                    break
 
-    if not job:
-        job = {"id": id, "title": "Software Engineer", "company": "Target Company"}
+        if not job:
+            job = {"id": id, "title": "Software Engineer", "company": "Target Company"}
 
-    profile = get_kv(db, "profile") or {}
-    master_resume = get_kv(db, "resume_corpus_master") or {}
+        profile = get_kv(db, "profile") or {}
+        master_resume = get_kv(db, "resume_corpus_master") or {}
 
     diff_data = await generate_role_tailoring_diff(job, profile, master_resume, mode=active_mode)
     pdf_bytes = render_tailored_resume_pdf(diff_data, profile)
@@ -1821,23 +1928,46 @@ async def get_job_tailor_resume_pdf(
 async def approve_preflight_submission(
     id: str,
     payload: dict[str, Any] = Body(default_factory=dict),
-    db: Session = Depends(db_session),
 ) -> dict[str, Any]:
-    """Approve pre-flight tailored materials and enqueue job for cloud submission."""
-    from app.services.application_assistant.persistence import get_autopilot_job, save_autopilot_job
+    """Approve pre-flight tailored materials and enqueue job for cloud submission.
+
+    Deliberately does NOT depend on the shared per-request DB session: the actual
+    submission (runner.start, below) is a 45-150+ second live-browser-plus-model
+    operation, and FastAPI holds a `Depends(db_session)` connection checked out of
+    the pool for a request's entire lifetime. Doing that here — worse, once per
+    duplicate/racing click — is what previously exhausted the SQLAlchemy connection
+    pool and took the whole API down. The DB is only touched for the two quick
+    reads/writes below, each in its own short-lived session.
+    """
+    from app.services.application_assistant.persistence import (
+        claim_job_lock,
+        get_autopilot_job,
+        save_autopilot_job,
+    )
     from app.services.application_assistant.autopilot_runner import AutopilotRunner
-    from app.db.store import now_iso
+    from app.db.store import now_iso, session_scope
 
-    job = get_autopilot_job(db, id)
-    if not job:
-        raise HTTPException(status_code=404, detail="Application not found")
+    with session_scope() as db:
+        job = get_autopilot_job(db, id)
+        if not job:
+            raise HTTPException(status_code=404, detail="Application not found")
 
-    job["status"] = "QUEUED"
-    job["preflightApproved"] = True
-    job["preflightApprovedAt"] = now_iso()
-    if payload.get("customAnswers"):
-        job["customAnswers"] = payload["customAnswers"]
-    save_autopilot_job(db, job)
+        if job.get("status") == "APPLYING" or not claim_job_lock(db, id, worker_id="preflight-approve"):
+            return {
+                "success": True,
+                "message": f"{job.get('company')} is already being applied to — sit tight.",
+                "job": job,
+                "run": None,
+            }
+
+        job["status"] = "QUEUED"
+        job["preflightApproved"] = True
+        job["preflightApprovedAt"] = now_iso()
+        if payload.get("customAnswers"):
+            job["customAnswers"] = payload["customAnswers"]
+        if payload.get("tailoringMode") in ("off", "honest", "aggressive"):
+            job["tailoringMode"] = payload["tailoringMode"]
+        save_autopilot_job(db, job)
 
     runner = AutopilotRunner.get_instance()
     run = await runner.start(options={"targetProcessCount": 1})

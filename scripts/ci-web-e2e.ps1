@@ -45,6 +45,11 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 Write-Step "CI / web-e2e (servers + tests)"
 Invoke-ApiPython @("-m", "pip", "install", "-q", "-r", (Join-Path $ApiDir "requirements.txt"))
 
+# e2e tests navigate straight to feature pages without logging in first, so
+# the login gate must stay off for these spawned servers regardless of what a
+# developer's local apps/api/.env has configured for their own instance.
+$env:CAREER_OS_ADMIN_PASSWORD = ""
+
 $serverLogDir = Join-Path ([IO.Path]::GetTempPath()) ("careeros-ci-e2e-" + [Guid]::NewGuid().ToString("N"))
 $null = New-Item -ItemType Directory -Path $serverLogDir
 $apiStdout = Join-Path $serverLogDir "api.stdout.log"

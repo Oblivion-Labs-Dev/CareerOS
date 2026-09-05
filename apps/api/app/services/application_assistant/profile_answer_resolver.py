@@ -150,6 +150,57 @@ def _find_decline_option(options: list[str]) -> str | None:
     return None
 
 
+_STOPWORDS = frozenset({
+    "a", "an", "the", "is", "are", "you", "your", "do", "does", "did", "have",
+    "has", "had", "will", "would", "can", "could", "to", "for", "of", "in",
+    "on", "at", "this", "that", "and", "or", "if", "please", "select",
+})
+
+
+def _significant_words(text: str) -> set[str]:
+    words = re.findall(r"[a-z0-9]+", text.lower())
+    return {w for w in words if w not in _STOPWORDS and len(w) > 2}
+
+
+def _find_user_approved_answer(question_text: str, answer_lib: list[dict[str, Any]]) -> str | None:
+    """Look up a previously user-approved answer for a question that may be
+    phrased slightly differently than when it was saved.
+
+    Questions reaching here were classified/rephrased by an LLM (see
+    error_normalizer.py), which isn't perfectly deterministic — the same
+    underlying field can come back worded differently attempt to attempt.
+    Exact string matching would silently miss the vast majority of repeat
+    answers, defeating the entire point of saving one. Word-overlap matching
+    is intentionally forgiving: a false-positive reuse of a similar-but-wrong
+    saved answer is a much cheaper mistake than asking the candidate the same
+    question forever and never actually applying self-healing to it.
+    """
+    if not answer_lib:
+        return None
+    target_words = _significant_words(question_text)
+    if not target_words:
+        return None
+
+    best_entry = None
+    best_score = 0.0
+    for entry in answer_lib:
+        if entry.get("verificationStatus") not in (None, "verified"):
+            continue
+        candidates = entry.get("questionVariants") or ([entry["normalizedKey"]] if entry.get("normalizedKey") else [])
+        for variant in candidates:
+            variant_words = _significant_words(str(variant))
+            if not variant_words:
+                continue
+            overlap = len(target_words & variant_words) / max(len(target_words | variant_words), 1)
+            if overlap > best_score:
+                best_score = overlap
+                best_entry = entry
+
+    if best_entry is not None and best_score >= 0.5:
+        return best_entry.get("value")
+    return None
+
+
 # ── Core resolver ────────────────────────────────────────────────────────────
 
 def resolve_answer(
@@ -157,6 +208,7 @@ def resolve_answer(
     profile: dict[str, Any],
     options: list[str] | None = None,
     field_id: str = "",
+    answer_lib: list[dict[str, Any]] | None = None,
     question_type: QuestionType | None = None,
 ) -> AnswerResolution:
     """Resolve an application field answer using the canonical profile.
@@ -173,6 +225,19 @@ def resolve_answer(
         question_type=qtype.value,
         resolved_at=now_iso(),
     )
+
+    # A candidate's own prior approval outranks a fresh guess — but never for
+    # sensitive factual fields (visa, citizenship, clearance, etc.), which must
+    # always come from the authoritative profile, never a fuzzy-matched library
+    # entry that could in principle have been saved against a differently-worded
+    # (and differently-scoped) question.
+    if not is_sensitive_factual(qtype) and answer_lib:
+        approved = _find_user_approved_answer(question_text, answer_lib)
+        if approved:
+            resolution.answer = approved
+            resolution.resolution_method = USER_OVERRIDE
+            resolution.confidence = 0.9
+            return resolution
 
     # Dispatch to type-specific resolver
     resolver = _RESOLVERS.get(qtype)
