@@ -2,42 +2,164 @@
 
 Computes fine-grained additions, deletions, and semantic alignments between
 a candidate's master resume and job-tailored application materials.
+Renders pixel-perfect, watermark-free tailored PDFs preserving authentic formatting and bold headers
+across both Microsoft and Amazon experiences.
 """
 
 from __future__ import annotations
 
 import difflib
+import json
 import logging
+import re
 from typing import Any
 
 logger = logging.getLogger("career_os.resume_diff_service")
 
+# Canonical 17 bullets from the authentic resume (7 Microsoft + 10 Amazon)
+CANONICAL_MASTER_BULLETS: list[dict[str, str]] = [
+    {
+        "company": "Microsoft",
+        "boldPrefix": "Built the historical risk foundation for AI Agent Risk Detection",
+        "fullText": "<b>Built the historical risk foundation for AI Agent Risk Detection</b>, reconstructing 90 days of activity across 40+ environments to eliminate onboarding blind spots and enable day-one risk evaluation for 237K+ agents across 13K organizations.",
+    },
+    {
+        "company": "Microsoft",
+        "boldPrefix": "Drove architecture across Purview IRM, Entra, and DLP",
+        "fullText": "<b>Drove architecture across Purview IRM, Entra, and DLP</b> for Microsoft’s AI-agent Adaptive Protection pipeline, owning design, implementation, and launch from risk scoring through Conditional Access enforcement and shipped the capability with Microsoft 365 E7.",
+    },
+    {
+        "company": "Microsoft",
+        "boldPrefix": "Led the redesign of AI-agent ingestion for independent scale and fault isolation",
+        "fullText": "<b>Led the redesign of AI-agent ingestion for independent scale and fault isolation</b>, separating agent and human workloads across 28 deployments processing 135K+ security signals/day and protecting existing Insider Risk Management pipelines as agent traffic grew.",
+    },
+    {
+        "company": "Microsoft",
+        "boldPrefix": "Led AI Risk Detection's sovereign-cloud architecture and rollout across GCC, GCCH and DoD",
+        "fullText": "<b>Led AI Risk Detection's sovereign-cloud architecture and rollout across GCC, GCCH and DoD</b>, engineering deployment and disaster-recovery infrastructure across 53 resource groups and 51 deployments and establishing the first Gov-cloud Kusto monitoring infrastructure.",
+    },
+    {
+        "company": "Microsoft",
+        "boldPrefix": "Connected investigations across Microsoft's security ecosystem",
+        "fullText": "<b>Connected investigations across Microsoft's security ecosystem</b>, linking related risk across Entra, Defender, Sentinel, Microsoft Graph, and Insider Risk Management and increasing customer engagement with related cross-product investigations 16%.",
+    },
+    {
+        "company": "Microsoft",
+        "boldPrefix": "Designed an AI-assisted testing workflow",
+        "fullText": "<b>Designed an AI-assisted testing workflow</b> using agent skills and Playwright to provision test tenants, configure Copilot Studio agents with tools/policies, trigger controlled security risks and alerts, and validate end-to-end behavior.",
+    },
+    {
+        "company": "Microsoft",
+        "boldPrefix": "Designed an AI-assisted debugging workflow spanning three repositories",
+        "fullText": "<b>Designed an AI-assisted debugging workflow spanning three repositories</b>, combining historical incident analysis with Playwright to reproduce issues, implement and validate fixes, capture evidence, and create pull requests.",
+    },
+    {
+        "company": "Amazon",
+        "boldPrefix": "Built a 0→1 developer platform for 60+ microservices",
+        "fullText": "<b>Built a 0→1 developer platform for 60+ microservices</b>, creating a one-click CDK-based workflow that standardized infrastructure, authentication, observability, dependencies, CI/CD, and deployment into a production-ready service; cut setup from 2 weeks to under 1 hour, consolidated 9 pipelines, and saved 40–50 engineering weeks across ~40 engineers and 3 teams.",
+    },
+    {
+        "company": "Amazon",
+        "boldPrefix": "Led a monolith-to-microservices transformation at 100K+ TPS",
+        "fullText": "<b>Led a monolith-to-microservices transformation at 100K+ TPS</b>, building and launching 15+ services and establishing shared REST/gRPC orchestration supporting 10M+ daily transactions while maintaining behavioral parity throughout migration.",
+    },
+    {
+        "company": "Amazon",
+        "boldPrefix": "Designed and owned the service powering ML-predicted delivery ranges",
+        "fullText": "<b>Designed and owned the service powering ML-predicted delivery ranges</b>, integrating a quantile-regression model and coordinating changes across inventory planning and fulfillment optimization systems to replace single-date promises; delivered $28M in annualized impact.",
+    },
+    {
+        "company": "Amazon",
+        "boldPrefix": "Replaced static delivery-risk rules with ML-driven decisioning",
+        "fullText": "<b>Replaced static delivery-risk rules with ML-driven decisioning</b>, using XGBoost on SageMaker to identify at-risk orders and trigger recovery, customer notifications, and alternate-seller recommendations, reducing cancellations and contributing to a 7% increase in sales.",
+    },
+    {
+        "company": "Amazon",
+        "boldPrefix": "Launched inventory decisioning systems processing 200K+ events/day",
+        "fullText": "<b>Launched inventory decisioning systems processing 200K+ events/day</b>, launching Just-In-Stock and Restock Alerting with 30-day order replay and real-time inventory signals; increased restocked-item sales 13% and early deliveries 16%.",
+    },
+    {
+        "company": "Amazon",
+        "boldPrefix": "Architected built a RAG-based product recommendation system for out-of-stock items",
+        "fullText": "<b>Architected built a RAG-based product recommendation system for out-of-stock items</b>, to surface relevant alternatives grounded in real-time inventory and delivery constraints, keeping availability and fulfillment validation deterministic. Increased eligible product sales by 23%",
+    },
+    {
+        "company": "Amazon",
+        "boldPrefix": "Led design and cross-functional adoption of an LLM-powered localization platform",
+        "fullText": "<b>Led design and cross-functional adoption of an LLM-powered localization platform</b>, using Bedrock with vocabulary-constrained generation and deterministic validation to personalize 37 email templates across 28 locales, with pre-approved template fallbacks on validation failure to address hallucination and compliance risks.",
+    },
+    {
+        "company": "Amazon",
+        "boldPrefix": "Owned the annual operational improvement roadmap across 60+ services",
+        "fullText": "<b>Owned the annual operational improvement roadmap across 60+ services</b>, driving planning and execution across 15+ engineers and reducing Sev2 incidents 40% in two months; led readiness across 90 services for Prime Day and Black Friday with zero major incidents.",
+    },
+    {
+        "company": "Amazon",
+        "boldPrefix": "Turned synchronized delivery for large Amazon Business orders into a first-class fulfillment capability",
+        "fullText": "<b>Turned synchronized delivery for large Amazon Business orders into a first-class fulfillment capability</b>, driving changes across planning, inventory, and fulfillment systems to honor coordinated delivery dates; replaced manual engineering workflows with self-service tooling, eliminated 100–300 engineering hours/year, and improved GCCP 11%.",
+    },
+    {
+        "company": "Amazon",
+        "boldPrefix": "Standardized observability and container infrastructure across 60+ services",
+        "fullText": "<b>Standardized observability and container infrastructure across 60+ services</b>, introducing shared logging and Docker libraries that cut CloudWatch spend $250K+/month, container size 83%, and build time 50%, with container standards adopted across teams.",
+    },
+]
+
+
+def strip_html_tags(text: str) -> str:
+    """Remove HTML tags like <b> and </b> for text comparison."""
+    return re.sub(r"<[^>]+>", "", text)
+
+
+def ensure_bold_lead(text: str, fallback_prefix: str = "") -> str:
+    """Ensure bullet text starts with a bold lead action phrase formatted as <b>...</b>."""
+    text = text.strip()
+    # Convert markdown **bold** to <b>bold</b>
+    if "**" in text:
+        text = re.sub(r"\*\*(.*?)\*\*", r"<b>\1</b>", text)
+    
+    if text.startswith("<b>") and "</b>" in text:
+        return text
+
+    # If no bold tags present, wrap the first phrase (up to comma or first 6-8 words) in <b></b>
+    if fallback_prefix and fallback_prefix in text:
+        return text.replace(fallback_prefix, f"<b>{fallback_prefix}</b>", 1)
+
+    if "," in text:
+        parts = text.split(",", 1)
+        return f"<b>{parts[0].strip()}</b>, {parts[1].strip()}"
+
+    words = text.split()
+    lead = " ".join(words[:5])
+    rest = " ".join(words[5:])
+    return f"<b>{lead}</b> {rest}".strip()
+
 
 def compute_text_diff_chunks(original: str, modified: str) -> list[dict[str, str]]:
-    """Compute word/token-level diff chunks between original and modified text.
-    
-    Returns list of dicts: [{"type": "eq" | "add" | "del", "text": "..."}]
-    """
-    if not original and not modified:
-        return []
-    if not original:
-        return [{"type": "add", "text": modified}]
-    if not modified:
-        return [{"type": "del", "text": original}]
+    """Compute word/token-level diff chunks between original and modified text."""
+    orig_clean = strip_html_tags(original)
+    mod_clean = strip_html_tags(modified)
 
-    matcher = difflib.SequenceMatcher(None, original.split(" "), modified.split(" "))
+    if not orig_clean and not mod_clean:
+        return []
+    if not orig_clean:
+        return [{"type": "add", "text": mod_clean}]
+    if not mod_clean:
+        return [{"type": "del", "text": orig_clean}]
+
+    matcher = difflib.SequenceMatcher(None, orig_clean.split(" "), mod_clean.split(" "))
     chunks: list[dict[str, str]] = []
 
     for tag, i1, i2, j1, j2 in matcher.get_opcodes():
         if tag == "equal":
-            chunks.append({"type": "eq", "text": " ".join(original.split(" ")[i1:i2])})
+            chunks.append({"type": "eq", "text": " ".join(orig_clean.split(" ")[i1:i2])})
         elif tag == "delete":
-            chunks.append({"type": "del", "text": " ".join(original.split(" ")[i1:i2])})
+            chunks.append({"type": "del", "text": " ".join(orig_clean.split(" ")[i1:i2])})
         elif tag == "insert":
-            chunks.append({"type": "add", "text": " ".join(modified.split(" ")[j1:j2])})
+            chunks.append({"type": "add", "text": " ".join(mod_clean.split(" ")[j1:j2])})
         elif tag == "replace":
-            chunks.append({"type": "del", "text": " ".join(original.split(" ")[i1:i2])})
-            chunks.append({"type": "add", "text": " ".join(modified.split(" ")[j1:j2])})
+            chunks.append({"type": "del", "text": " ".join(orig_clean.split(" ")[i1:i2])})
+            chunks.append({"type": "add", "text": " ".join(mod_clean.split(" ")[j1:j2])})
 
     return chunks
 
@@ -78,33 +200,16 @@ async def generate_role_tailoring_diff(
     - 'off': no change, resume bullets remain identical to original.
     - 'honest': precision rewriting/reorganizing strictly aligned with job description and verified experience.
     - 'aggressive': inflates phrasing, senior impact, and metrics to aggressively match JD requirements for maximum callback rates.
+    
+    Tailors BOTH Microsoft (7 bullets) and Amazon (10 bullets) maintaining clean formatting and bold lead action phrases.
     """
     valid_mode = mode if mode in ("off", "honest", "aggressive") else "honest"
     company = job.get("company") or "Target Company"
     title = job.get("title") or "Target Role"
     description = job.get("description") or job.get("snippet") or ""
 
-    # Extract sample master bullets or summary
-    experiences = profile.get("experience") or []
-    master_bullets: list[str] = []
-    for exp in experiences:
-        if isinstance(exp, dict) and exp.get("highlights"):
-            highlights = exp.get("highlights")
-            if isinstance(highlights, list):
-                master_bullets.extend([str(h) for h in highlights[:4]])
-            elif isinstance(highlights, str):
-                master_bullets.extend([b.strip() for b in highlights.split("\n") if b.strip()][:3])
-
-    if not master_bullets:
-        master_bullets = [
-            "Built the historical risk foundation for AI Agent Risk Detection, reconstructing 90 days of activity across 40+ environments to eliminate onboarding blind spots and enable day-one risk evaluation for 237K+ agents across 13K organizations.",
-            "Drove architecture across Purview IRM, Entra, and DLP for Microsoft’s AI-agent Adaptive Protection pipeline, owning design, implementation, and launch from risk scoring through Conditional Access enforcement and shipped the capability with Microsoft 365 E7.",
-            "Led the redesign of AI-agent ingestion for independent scale and fault isolation, separating agent and human workloads across 28 deployments processing 135K+ security signals/day and protecting existing Insider Risk Management pipelines as agent traffic grew.",
-            "Led AI Risk Detection's sovereign-cloud architecture and rollout across GCC, GCCH and DoD, engineering deployment and disaster-recovery infrastructure across 53 resource groups and 51 deployments and establishing the first Gov-cloud Kusto monitoring infrastructure.",
-            "Connected investigations across Microsoft's security ecosystem, linking related risk across Entra, Defender, Sentinel, Microsoft Graph, and Insider Risk Management and increasing customer engagement with related cross-product investigations 16%.",
-            "Designed an AI-assisted testing workflow using agent skills and Playwright to provision test tenants, configure Copilot Studio agents with tools/policies, trigger controlled security risks and alerts, and validate end-to-end behavior.",
-            "Designed an AI-assisted debugging workflow spanning three repositories, combining historical incident analysis with Playwright to reproduce issues, implement and validate fixes, capture evidence, and create pull requests.",
-        ]
+    # Master bullets across both Microsoft (0..6) and Amazon (7..16)
+    master_bullets = [b["fullText"] for b in CANONICAL_MASTER_BULLETS]
 
     tailored_bullets: list[str] = []
 
@@ -114,7 +219,6 @@ async def generate_role_tailoring_diff(
     else:
         # Generate bullets via LLM: Mistral primary (via Ollama) with automatic fallback to Gemini Flash
         from app.services.application_assistant.llm_client import create_llm_client
-        import json
 
         llm_settings = {
             "llm": {
@@ -130,19 +234,20 @@ async def generate_role_tailoring_diff(
 
         prompt = (
             f"You are an expert resume tailoring assistant.\n"
-            f"Candidate experience bullets to tailor:\n"
-            + "\n".join(f"- {b}" for b in master_bullets)
+            f"Candidate authentic experience bullets across Microsoft (bullets 1-7) and Amazon (bullets 8-17):\n"
+            + "\n".join(f"{i+1}. {b}" for i, b in enumerate(master_bullets))
             + f"\n\nTarget Role: {title} at {company}\n"
             f"Job Context / Snippet: {description[:800]}\n"
             f"Tailoring Mode: {valid_mode.upper()}\n"
             f"Instructions:\n"
             + (
-                "- Mode HONEST: Strictly preserve candidate's factual achievements, tech stack, and scope. Reorganize, rephrase, and highlight keywords and competencies matching the target job description while remaining 100% truthful.\n"
+                "- Mode HONEST: Strictly preserve candidate's factual achievements, tech stack, and verified scope. Reorganize, rephrase, and highlight keywords and competencies matching the target job description while remaining 100% truthful across BOTH Microsoft and Amazon roles.\n"
                 if valid_mode == "honest" else
-                "- Mode AGGRESSIVE: Elevate executive presence, amplify leadership impact, emphasize scale and high-impact metrics (e.g., enterprise SLAs, latency, cross-team influence) to aggressively align with the job description and maximize callback rates.\n"
+                "- Mode AGGRESSIVE: Elevate executive presence, amplify leadership impact, emphasize scale and high-impact metrics (e.g., enterprise SLAs, latency, multi-agent workflows, cross-team influence) to aggressively align with the job description and maximize callback rates across BOTH Microsoft and Amazon roles.\n"
             )
-            + f"- Return exactly {len(master_bullets)} bullets corresponding 1-to-1 in order with the original bullets.\n"
-            f"- Return ONLY a JSON array of strings, e.g. [\"bullet 1\", \"bullet 2\", ...]\n"
+            + "- Each bullet MUST begin with a bold lead action phrase formatted as <b>Lead Action Phrase</b>, followed by the description.\n"
+            + f"- Return exactly {len(master_bullets)} bullets corresponding 1-to-1 in order with the original bullets (7 Microsoft, 10 Amazon).\n"
+            f"- Return ONLY a JSON array of strings, e.g. [\"<b>Lead 1</b>, text...\", ...]\n"
         )
 
         try:
@@ -155,55 +260,84 @@ async def generate_role_tailoring_diff(
                     raw = raw[:-3]
                 parsed = json.loads(raw.strip())
                 if isinstance(parsed, list) and len(parsed) == len(master_bullets):
-                    tailored_bullets = [str(p) for p in parsed]
+                    tailored_bullets = [
+                        ensure_bold_lead(str(p), CANONICAL_MASTER_BULLETS[idx]["boldPrefix"])
+                        for idx, p in enumerate(parsed)
+                    ]
                     logger.info(f"Resume tailored successfully with model: {res.get('usedFallbackModel') or client.model}")
         except Exception as e:
             logger.warning(f"LLM resume tailoring failed, using template fallback: {e}")
 
         if not tailored_bullets:
-            # High quality template fallbacks tailored specifically to title & company
+            # High quality template fallbacks tailored specifically to title & company across all 17 bullets
             title_lower = title.lower()
             if valid_mode == "honest":
                 if "ai" in title_lower or "ml" in title_lower or "agent" in title_lower:
                     tailored_bullets = [
-                        f"Built the historical risk foundation for AI Agent Risk Detection, reconstructing 90 days of multi-tenant activity to enable day-one evaluation for 237K+ autonomous agents across 13K organizations, directly applicable to {company}'s AI roadmap.",
-                        f"Drove cross-service architecture across Purview IRM, Entra, and DLP for Microsoft's AI-agent Adaptive Protection pipeline, owning end-to-end launch through Conditional Access enforcement shipped with Microsoft 365 E7.",
-                        f"Led the redesign of AI-agent ingestion for independent scale and fault isolation, separating agent and human workloads across 28 deployments processing 135K+ security signals/day.",
-                        f"Designed an AI-assisted testing workflow using agent skills and Playwright to provision test tenants, configure Copilot Studio agents with tools/policies, and validate end-to-end behavior for high-reliability systems.",
-                        f"Designed an AI-assisted debugging workflow spanning three repositories, combining historical incident analysis with Playwright to reproduce issues, implement fixes, and create automated pull requests.",
-                        f"Connected cross-product investigations across Entra, Defender, Sentinel, Microsoft Graph, and Insider Risk Management, elevating customer investigation engagement by 16%.",
-                        f"Led sovereign-cloud architecture and rollout across GCC, GCCH and DoD across 53 resource groups and 51 deployments, establishing the first Gov-cloud Kusto monitoring infrastructure.",
-                    ]
-                elif "cloud" in title_lower or "infra" in title_lower or "platform" in title_lower:
-                    tailored_bullets = [
-                        f"Led cloud platform infrastructure and sovereign-cloud rollout across GCC, GCCH, and DoD across 53 resource groups and 51 deployments, establishing high-scale Kusto monitoring and disaster-recovery pipelines aligned with {company}'s cloud architecture.",
-                        f"Architected AI-agent ingestion infrastructure for independent scale and fault isolation, decoupling workloads across 28 deployments processing 135K+ high-frequency events/day.",
-                        f"Engineered historical risk pipeline reconstructing 90 days of high-throughput telemetry across 40+ cloud environments for 237K+ instances across 13K customer organizations.",
-                        f"Drove multi-service architecture spanning Purview IRM, Entra, and DLP, designing risk scoring through Conditional Access enforcement shipped at global enterprise scale.",
-                        f"Orchestrated cross-system security telemetry across Entra, Defender, Sentinel, and Graph, increasing cross-service investigation engagement 16%.",
-                        f"Built automated cloud testing and synthetic tenant orchestration using Playwright and agent automation for continuous integration and fault injection.",
-                        f"Created telemetry-driven incident reproduction and automated remediation workflows across multiple repositories, accelerating fix delivery and reliability.",
+                        # Microsoft (7)
+                        f"<b>Built the historical risk foundation for AI Agent Risk Detection</b>, reconstructing 90 days of multi-tenant activity to enable day-one evaluation for 237K+ autonomous agents across 13K organizations, directly applicable to {company}'s AI roadmap.",
+                        f"<b>Drove cross-service architecture across Purview IRM, Entra, and DLP</b> for Microsoft's AI-agent Adaptive Protection pipeline, owning end-to-end launch through Conditional Access enforcement shipped with Microsoft 365 E7.",
+                        f"<b>Led the redesign of AI-agent ingestion for independent scale and fault isolation</b>, separating agent and human workloads across 28 deployments processing 135K+ security signals/day.",
+                        f"<b>Led AI Risk Detection's sovereign-cloud architecture and rollout across GCC, GCCH and DoD</b>, engineering deployment infrastructure across 53 resource groups and establishing Gov-cloud Kusto telemetry.",
+                        f"<b>Connected cross-product investigations across Microsoft's security ecosystem</b>, linking risk across Entra, Defender, Sentinel, and Graph, elevating customer investigation engagement 16%.",
+                        f"<b>Designed an AI-assisted testing workflow</b> using agent skills and Playwright to provision test tenants, configure Copilot Studio agents with tools/policies, and validate end-to-end behavior.",
+                        f"<b>Designed an AI-assisted debugging workflow spanning three repositories</b>, combining historical incident analysis with Playwright to reproduce issues, implement fixes, and create automated pull requests.",
+                        # Amazon (10)
+                        f"<b>Built a 0→1 developer platform for 60+ microservices</b>, creating a CDK-based workflow that standardized infrastructure, authentication, observability, and CI/CD; cut service setup from 2 weeks to under 1 hour.",
+                        f"<b>Led a monolith-to-microservices transformation at 100K+ TPS</b>, building 15+ services with shared REST/gRPC orchestration supporting 10M+ daily transactions while maintaining behavioral parity.",
+                        f"<b>Designed and owned the service powering ML-predicted delivery ranges</b>, integrating quantile-regression models and fulfillment optimization systems to deliver $28M in annualized business impact.",
+                        f"<b>Replaced static delivery-risk rules with ML-driven decisioning</b>, deploying XGBoost on SageMaker to identify at-risk orders and trigger recovery workflows, contributing to a 7% increase in sales.",
+                        f"<b>Launched inventory decisioning systems processing 200K+ events/day</b>, launching Just-In-Stock and Restock Alerting with 30-day order replay; increased restocked-item sales 13%.",
+                        f"<b>Architected built a RAG-based product recommendation system for out-of-stock items</b>, surfacing relevant alternatives grounded in real-time inventory and delivery constraints, increasing sales 23%.",
+                        f"<b>Led design and cross-functional adoption of an LLM-powered localization platform</b>, using Bedrock with vocabulary-constrained generation and deterministic validation across 37 email templates and 28 locales.",
+                        f"<b>Owned the annual operational improvement roadmap across 60+ services</b>, driving execution across 15+ engineers and reducing Sev2 incidents 40%; led Prime Day and Black Friday readiness with zero major incidents.",
+                        f"<b>Turned synchronized delivery for large Amazon Business orders into a first-class fulfillment capability</b>, driving changes across planning and fulfillment systems, eliminating 100–300 engineering hours/year.",
+                        f"<b>Standardized observability and container infrastructure across 60+ services</b>, introducing shared logging and Docker libraries that cut CloudWatch spend $250K+/month and container size 83%.",
                     ]
                 else:
                     tailored_bullets = [
-                        f"Architected and delivered core platform capabilities for AI Agent Risk Detection, processing 90 days of activity across 40+ environments to enable zero-day evaluation for 237K+ agents across 13K organizations.",
-                        f"Spearheaded distributed system architecture across Purview IRM, Entra, and DLP for adaptive security pipelines, driving design from risk scoring to policy enforcement at Microsoft scale.",
-                        f"Led decoupled ingestion architecture across 28 distributed deployments handling 135K+ security signals/day, ensuring fault isolation and high system availability.",
-                        f"Directed sovereign-cloud rollout across GCC, GCCH, and DoD across 53 resource groups, implementing robust disaster recovery and distributed telemetry monitoring.",
-                        f"Integrated complex multi-service workflows across Defender, Sentinel, Entra, and Microsoft Graph, driving a 16% increase in cross-product customer adoption.",
-                        f"Architected automated testing and verification workflows using Playwright to dynamically configure services, simulate risk workloads, and validate end-to-end resilience.",
-                        f"Built multi-repository debugging automation combining incident telemetry and automated testing to accelerate root-cause analysis and code fixes.",
+                        # Microsoft (7)
+                        f"<b>Built the historical risk foundation for AI Agent Risk Detection</b>, reconstructing 90 days of activity across 40+ environments to eliminate blind spots and enable day-one evaluation for 237K+ agents across 13K organizations.",
+                        f"<b>Drove architecture across Purview IRM, Entra, and DLP</b> for Microsoft’s AI-agent Adaptive Protection pipeline, owning design and launch from risk scoring through Conditional Access enforcement with Microsoft 365 E7.",
+                        f"<b>Led the redesign of AI-agent ingestion for independent scale and fault isolation</b>, separating agent and human workloads across 28 deployments processing 135K+ security signals/day.",
+                        f"<b>Led AI Risk Detection's sovereign-cloud architecture and rollout across GCC, GCCH and DoD</b>, engineering deployment across 53 resource groups and 51 deployments with Gov-cloud Kusto monitoring.",
+                        f"<b>Connected investigations across Microsoft's security ecosystem</b>, linking related risk across Entra, Defender, Sentinel, and Graph and increasing cross-product investigation adoption 16%.",
+                        f"<b>Designed an AI-assisted testing workflow</b> using agent skills and Playwright to provision test tenants, configure Copilot Studio agents with policies, and validate end-to-end behavior.",
+                        f"<b>Designed an AI-assisted debugging workflow spanning three repositories</b>, combining historical incident analysis with Playwright to reproduce issues, validate fixes, and create pull requests.",
+                        # Amazon (10)
+                        f"<b>Built a 0→1 developer platform for 60+ microservices</b>, creating a one-click CDK-based workflow that standardized infrastructure, observability, and CI/CD; saved 40–50 engineering weeks.",
+                        f"<b>Led a monolith-to-microservices transformation at 100K+ TPS</b>, building 15+ services and establishing shared REST/gRPC orchestration supporting 10M+ daily transactions.",
+                        f"<b>Designed and owned the service powering ML-predicted delivery ranges</b>, integrating quantile-regression models and fulfillment optimization systems to deliver $28M in annualized impact.",
+                        f"<b>Replaced static delivery-risk rules with ML-driven decisioning</b>, using XGBoost on SageMaker to identify at-risk orders and trigger recovery notifications, boosting sales 7%.",
+                        f"<b>Launched inventory decisioning systems processing 200K+ events/day</b>, deploying Just-In-Stock and Restock Alerting with 30-day order replay; increased early deliveries 16%.",
+                        f"<b>Architected built a RAG-based product recommendation system for out-of-stock items</b>, surfacing alternatives grounded in real-time inventory and delivery constraints; increased sales 23%.",
+                        f"<b>Led design and cross-functional adoption of an LLM-powered localization platform</b>, using Bedrock with vocabulary-constrained generation and deterministic validation across 28 locales.",
+                        f"<b>Owned the annual operational improvement roadmap across 60+ services</b>, driving execution across 15+ engineers and reducing Sev2 incidents 40% in two months.",
+                        f"<b>Turned synchronized delivery for large Amazon Business orders into a first-class fulfillment capability</b>, driving changes across planning and fulfillment systems, improving GCCP 11%.",
+                        f"<b>Standardized observability and container infrastructure across 60+ services</b>, introducing shared logging and Docker libraries that cut CloudWatch spend $250K+/month and container size 83%.",
                     ]
             else:
                 # Aggressive
                 tailored_bullets = [
-                    f"Spearheaded Microsoft's flagship enterprise AI Agent Risk Detection platform as lead architect, orchestrating 90-day activity reconstruction across 40+ global environments to unlock instant day-one risk governance for 237,000+ AI agents across 13,000 enterprise customers.",
-                    f"Directed principal-level architecture across Purview IRM, Entra, and DLP for Microsoft's flagship AI Adaptive Protection pipeline; authored the end-to-end technical spec and shipped core conditional access enforcement powering Microsoft 365 E7.",
-                    f"Pioneered hyper-scale distributed ingestion infrastructure with zero-latency fault isolation, partitioning agent and human traffic across 28 worldwide deployments processing 150K+ critical security signals/day at 99.999% SLA.",
-                    f"Championed sovereign-cloud infrastructure expansion across US GCC, GCCH, and DoD high-security enclaves, orchestrating 53 Azure resource groups and 51 deployments with automated disaster recovery and real-time Kusto telemetry.",
-                    f"Orchestrated unified investigation graphs across Entra, Defender, Sentinel, and Graph, delivering unified threat intelligence that boosted customer security operation engagement by 28%.",
-                    f"Architected autonomous AI-agent synthetic validation and end-to-end test harnesses using Playwright, simulating advanced attack vectors and policy violations across dynamic enterprise environments.",
-                    f"Pioneered closed-loop AI debugging and self-healing pipelines across 3 major codebases, integrating telemetry pattern recognition with Playwright to automatically reproduce issues, generate code fixes, and submit PRs.",
+                    # Microsoft (7)
+                    f"<b>Spearheaded Microsoft's flagship enterprise AI Agent Risk Detection platform</b>, orchestrating 90-day activity reconstruction across 40+ global environments to unlock instant day-one risk governance for 237,000+ AI agents across 13,000 enterprise customers.",
+                    f"<b>Directed principal-level architecture across Purview IRM, Entra, and DLP</b> for Microsoft's flagship AI Adaptive Protection pipeline; authored the end-to-end technical spec and shipped core conditional access enforcement powering Microsoft 365 E7.",
+                    f"<b>Pioneered hyper-scale distributed ingestion infrastructure with zero-latency fault isolation</b>, partitioning agent and human traffic across 28 worldwide deployments processing 150K+ critical security signals/day at 99.999% SLA.",
+                    f"<b>Championed sovereign-cloud infrastructure expansion across US GCC, GCCH, and DoD high-security enclaves</b>, orchestrating 53 Azure resource groups and 51 deployments with automated disaster recovery and real-time Kusto telemetry.",
+                    f"<b>Orchestrated unified investigation graphs across Entra, Defender, Sentinel, and Graph</b>, delivering unified threat intelligence that boosted customer security operation engagement by 28%.",
+                    f"<b>Architected autonomous AI-agent synthetic validation and end-to-end test harnesses using Playwright</b>, simulating advanced attack vectors and policy violations across dynamic enterprise environments.",
+                    f"<b>Pioneered closed-loop AI debugging and self-healing pipelines across 3 major codebases</b>, integrating telemetry pattern recognition with Playwright to automatically reproduce issues, generate code fixes, and submit PRs.",
+                    # Amazon (10)
+                    f"<b>Architected enterprise 0→1 developer platform for 60+ Tier-1 microservices</b>, establishing standardized CDK-based infrastructure, zero-trust authentication, and CI/CD pipelines that reduced onboarding from 2 weeks to under 1 hour, saving 50+ engineering weeks.",
+                    f"<b>Engineered monolith-to-microservices transformation at 100K+ peak TPS</b>, launching 15+ mission-critical microservices with high-performance gRPC orchestration handling 10M+ daily transactions at sub-10ms latency.",
+                    f"<b>Directed ML-predicted delivery promise service powering global fulfillment</b>, integrating high-throughput quantile-regression models across planning and fulfillment systems delivering $28M+ in annual bottom-line impact.",
+                    f"<b>Transformed fulfillment risk operations with real-time ML decisioning on SageMaker</b>, deploying automated XGBoost risk scoring that prevented thousands of order cancellations and generated a 7% sales lift.",
+                    f"<b>Architected real-time inventory intelligence platforms processing 200K+ events/day</b>, engineering Just-In-Stock and Restock alerting with distributed replay that increased restocked sales by 13% and expedited delivery 16%.",
+                    f"<b>Pioneered production RAG-based product recommendation architecture for out-of-stock items</b>, combining embedding vector search with deterministic inventory constraints to deliver a 23% increase in conversion sales.",
+                    f"<b>Spearheaded generative AI localization platform using AWS Bedrock</b>, implementing constrained vocabulary decoding and deterministic guardrails across 37 global notification templates across 28 locales with zero compliance errors.",
+                    f"<b>Spearheaded operational excellence and resilience roadmap across 60+ distributed services</b>, mentoring 15+ engineers, cutting Sev2 incidents 40% in 60 days, and maintaining 100% uptime through Prime Day and Black Friday.",
+                    f"<b>Architected synchronized fulfillment capabilities for high-volume enterprise Amazon Business orders</b>, eliminating manual workflows, freeing 300+ engineering hours/year, and boosting GCCP efficiency by 11%.",
+                    f"<b>Championed container modernization and distributed observability across 60+ microservices</b>, designing shared container standards and optimized telemetry that reduced CloudWatch spend $250K+/month and cut image size 83%.",
                 ]
 
     bullet_diffs = compute_bullet_diffs(master_bullets, tailored_bullets)
@@ -275,10 +409,11 @@ def render_tailored_resume_pdf(diff_data: dict[str, Any], candidate_info: dict[s
     """Render the tailored resume PDF using the candidate's authentic original resume PDF as base.
     
     Modes:
-    - 'off': Returns the exact, byte-for-byte authentic original resume PDF.
+    - 'off': Returns the exact, byte-for-byte authentic original resume PDF with zero modifications.
     - 'honest' / 'aggressive': Preserves 100% of the candidate's authentic resume layout, styling,
-      hyperlinks, Amazon experience, Liquiron, Persistent Systems, Education, and Skills, applying
-      a pixel-perfect overlay only to the Microsoft experience section to reflect the tailored bullets.
+      hyperlinks, Liquiron, Persistent Systems, Education, and Skills.
+      Applies pixel-perfect, completely watermark-free overlays to BOTH Microsoft (7 bullets)
+      and Amazon (10 bullets) sections, preserving clean typography and bold lead action phrases.
     """
     import io
     from pathlib import Path
@@ -291,7 +426,7 @@ def render_tailored_resume_pdf(diff_data: dict[str, Any], candidate_info: dict[s
 
     mode = diff_data.get("mode", "honest").lower()
 
-    # Locate the original resume PDF
+    # Locate the authentic original resume PDF
     possible_paths = [
         Path("apps/api/data/Akshay_Borse_Resume_Original.pdf"),
         Path("d:/3 - Resources/Docs/Interview/Resume/Akshay_Borse_Resume.pdf"),
@@ -310,7 +445,7 @@ def render_tailored_resume_pdf(diff_data: dict[str, Any], candidate_info: dict[s
     if mode == "off":
         return orig_path.read_bytes()
 
-    # In 'honest' or 'aggressive' mode: overlay tailored Microsoft bullets onto original PDF
+    # In 'honest' or 'aggressive' mode: overlay tailored bullets onto original PDF
     reader = PdfReader(str(orig_path))
     page = reader.pages[0]
 
@@ -318,53 +453,68 @@ def render_tailored_resume_pdf(diff_data: dict[str, Any], candidate_info: dict[s
     packet = io.BytesIO()
     can = canvas.Canvas(packet, pagesize=letter)
 
-    # 1. Mask the original Microsoft bullets with exact white bounding box
-    # Coordinates derived from original PDF: x=48 to 580, y=550 to 684
+    # 1. Mask original bullets with exact white bounding boxes
+    # Microsoft bullets: x=48 to 580, y=550 to 684 (protects company title at y=686.7 & divider at y=544.8)
     can.setFillColor(colors.white)
     can.rect(48, 550, 532, 134, fill=1, stroke=0)
 
-    # 2. Add subtle mode indicator badge on the top right
-    badge_colors = {
-        "honest": colors.HexColor("#0d9488"),
-        "aggressive": colors.HexColor("#e11d48"),
-    }
-    mode_text = f"TSENTA {mode.upper()}"
-    can.setFillColor(badge_colors.get(mode, colors.HexColor("#0284c7")))
-    can.setFont("Helvetica-Bold", 7.0)
-    can.drawRightString(576, 772, mode_text)
+    # Amazon bullets: x=48 to 580, y=314 to 532 (protects company title at y=534.4 & divider at y=308.2)
+    can.rect(48, 314, 532, 218, fill=1, stroke=0)
 
-    # 3. Render the tailored bullets inside the Microsoft block
+    # NOTE: NO watermark or badge is drawn. The output PDF remains 100% clean and authentic.
+
+    # 2. Typography styling matching authentic resume (Helvetica 8.04pt, 9.24 leading, black)
     bullet_style = ParagraphStyle(
         "OverlayBullet",
         fontName="Helvetica",
-        fontSize=7.8,
-        leading=9.2,
+        fontSize=8.04,
+        leading=9.24,
         textColor=colors.HexColor("#000000"),
     )
 
-    bullets = [b.get("tailored") or b.get("original") for b in diff_data.get("bulletDiffs", []) if (b.get("tailored") or b.get("original"))]
-    if not bullets:
-        bullets = [
-            "Built the historical risk foundation for AI Agent Risk Detection, reconstructing 90 days of activity across 40+ environments to eliminate onboarding blind spots and enable day-one risk evaluation for 237K+ agents across 13K organizations.",
-            "Drove architecture across Purview IRM, Entra, and DLP for Microsoft’s AI-agent Adaptive Protection pipeline, owning design, implementation, and launch from risk scoring through Conditional Access enforcement and shipped the capability with Microsoft 365 E7.",
-            "Led the redesign of AI-agent ingestion for independent scale and fault isolation, separating agent and human workloads across 28 deployments processing 135K+ security signals/day and protecting existing Insider Risk Management pipelines as agent traffic grew.",
-            "Led AI Risk Detection's sovereign-cloud architecture and rollout across GCC, GCCH and DoD, engineering deployment and disaster-recovery infrastructure across 53 resource groups and 51 deployments and establishing the first Gov-cloud Kusto monitoring infrastructure.",
-            "Connected investigations across Microsoft's security ecosystem, linking related risk across Entra, Defender, Sentinel, Microsoft Graph, and Insider Risk Management and increasing customer engagement with related cross-product investigations 16%.",
-            "Designed an AI-assisted testing workflow using agent skills and Playwright to provision test tenants, configure Copilot Studio agents with tools/policies, trigger controlled security risks and alerts, and validate end-to-end behavior.",
-            "Designed an AI-assisted debugging workflow spanning three repositories, combining historical incident analysis with Playwright to reproduce issues, implement and validate fixes, capture evidence, and create pull requests.",
-        ]
+    all_bullets = [
+        b.get("tailored") or b.get("original")
+        for b in diff_data.get("bulletDiffs", [])
+        if (b.get("tailored") or b.get("original"))
+    ]
+    if not all_bullets:
+        all_bullets = [b["fullText"] for b in CANONICAL_MASTER_BULLETS]
 
-    y_curr = 684.0
-    for b in bullets:
-        # Draw clean bullet dot at original X=54
+    # Partition into Microsoft (first 7) and Amazon (remaining up to 10)
+    ms_bullets = all_bullets[:7]
+    amz_bullets = all_bullets[7:17] if len(all_bullets) > 7 else []
+
+    # 3. Render Microsoft bullets
+    ms_dot_positions = [677.02, 658.06, 639.1, 620.26, 601.3, 582.34, 563.38]
+    for i, b_text in enumerate(ms_bullets):
+        dot_y = ms_dot_positions[i] if i < len(ms_dot_positions) else 684.0 - (i * 19.0)
         can.setFillColor(colors.HexColor("#000000"))
-        can.setFont("Helvetica", 7.8)
-        can.drawString(54.0, y_curr - 7.5, chr(8226))
-        # Draw wrapped bullet text starting at X=72 with width 504
-        p = Paragraph(b, bullet_style)
-        w, h = p.wrap(504, 120)
-        p.drawOn(can, 72.0, y_curr - h)
-        y_curr -= (h + 1.2)
+        can.setFont("Helvetica", 8.04)
+        can.drawString(54.0, dot_y, chr(8226))
+
+        formatted_text = ensure_bold_lead(b_text, CANONICAL_MASTER_BULLETS[i]["boldPrefix"])
+        p = Paragraph(formatted_text, bullet_style)
+        w, h = p.wrap(508, 150)
+        # Position top of paragraph 7.0pt above the bullet dot baseline
+        top_y = dot_y + 7.0
+        p.drawOn(can, 72.0, top_y - h)
+
+    # 4. Render Amazon bullets
+    amz_dot_positions = [524.71, 496.51, 477.67, 458.71, 439.75, 420.79, 401.83, 373.73, 354.77, 326.69]
+    for j, b_text in enumerate(amz_bullets):
+        dot_y = amz_dot_positions[j] if j < len(amz_dot_positions) else 525.0 - (j * 20.0)
+        can.setFillColor(colors.HexColor("#000000"))
+        can.setFont("Helvetica", 8.04)
+        can.drawString(54.0, dot_y, chr(8226))
+
+        master_idx = 7 + j
+        fallback_lead = CANONICAL_MASTER_BULLETS[master_idx]["boldPrefix"] if master_idx < len(CANONICAL_MASTER_BULLETS) else ""
+        formatted_text = ensure_bold_lead(b_text, fallback_lead)
+        p = Paragraph(formatted_text, bullet_style)
+        w, h = p.wrap(508, 150)
+        # Position top of paragraph 7.0pt above the bullet dot baseline
+        top_y = dot_y + 7.0
+        p.drawOn(can, 72.0, top_y - h)
 
     can.save()
     packet.seek(0)
