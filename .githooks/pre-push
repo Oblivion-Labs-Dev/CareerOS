@@ -1,5 +1,8 @@
 #!/bin/sh
-# Run full CI (matches GitHub Actions) before every push.
+# Fast local gate only — see .githooks/pre-commit for why (api pytest and
+# web-e2e repeatedly OOM-killed this machine partway through; GitHub Actions
+# still runs typecheck/extension-unit/api on push, so this isn't the only net
+# for those — web-e2e is, and now only runs on demand via `pnpm ci`).
 if [ "$SKIP_CI" = "1" ]; then
   exit 0
 fi
@@ -7,11 +10,10 @@ fi
 ROOT="$(git rev-parse --show-toplevel)" || exit 1
 cd "$ROOT" || exit 1
 
-echo "pre-push: running CareerOS CI (typecheck, extension-unit, api, web-e2e)..."
-echo "  Skip with: SKIP_CI=1 git push ...  or  git push --no-verify"
+echo "pre-push: running fast CI (typecheck, extension-unit)..."
+echo "  Full suite (api, web-e2e): pnpm ci"
+echo "  Skip entirely: SKIP_CI=1 git push ...  or  git push --no-verify"
 
-if command -v node >/dev/null 2>&1; then
-  node scripts/ci-run.mjs
-else
-  pnpm ci
-fi
+pnpm --filter @career-os/core build \
+  && pnpm typecheck \
+  && pnpm --filter @career-os/extension test
