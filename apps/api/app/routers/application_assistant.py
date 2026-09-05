@@ -38,6 +38,7 @@ from app.services.application_assistant.persistence import (
     update_application_draft,
     update_browser_run,
     upsert_answer,
+    upsert_discovered_job,
 )
 from app.services.application_assistant.providers import list_providers
 from app.services.application_assistant.url_validation import validate_url
@@ -69,6 +70,15 @@ class DiscoveryStartPayload(BaseModel):
 
 class ApplicationCreatePayload(BaseModel):
     jobId: str
+    resumeId: str = ""
+
+
+class QuickAddApplicationPayload(BaseModel):
+    url: str
+    title: str | None = None
+    company: str | None = None
+    location: str | None = None
+    description: str | None = None
     resumeId: str = ""
 
 
@@ -122,6 +132,7 @@ class AnswerPayload(BaseModel):
 
 class SettingsPayload(BaseModel):
     enabled: bool | None = None
+    tailoringMode: str | None = None
     allowInferredAnswers: bool | None = None
     llm: dict[str, Any] | None = None
     browser: dict[str, Any] | None = None
@@ -469,6 +480,56 @@ def create_application(payload: ApplicationCreatePayload, db: Session = Depends(
         "matchScore": match.get("overallScore", 0) if match else 0,
     })
     return {"success": True, "application": draft}
+
+
+@router.post("/applications/quick-add")
+def quick_add_application(payload: QuickAddApplicationPayload, db: Session = Depends(db_session)) -> dict[str, Any]:
+    """Paste any job posting URL (+ optional JD text) straight into the pipeline.
+
+    Mirrors the scraper-import path (`upsert_discovered_job` -> `create_application_draft`)
+    but for a single link the crawler never found, instead of a discovery run.
+    """
+    from app.services.job_discover.url_import import autoextract_job_from_url
+
+    valid, reason = validate_url(payload.url)
+    if not valid:
+        raise HTTPException(status_code=400, detail=reason)
+
+    auto: dict[str, Any] | None = None
+    if not payload.description:
+        auto = autoextract_job_from_url(payload.url)
+
+    title = payload.title or (auto or {}).get("title") or ""
+    company = payload.company or (auto or {}).get("company") or ""
+    location = payload.location or (auto or {}).get("location") or ""
+    description = payload.description or (auto or {}).get("description") or ""
+    if not title or not company:
+        raise HTTPException(
+            status_code=422,
+            detail="Could not read a title/company from that link — add them manually.",
+        )
+
+    job = upsert_discovered_job(db, {
+        "title": title,
+        "company": company,
+        "location": location,
+        "description": description,
+        "applicationUrl": payload.url,
+        "listingUrl": payload.url,
+        "sourceProvider": "manual_link",
+        "active": True,
+    })
+
+    draft = create_application_draft(db, {
+        "jobId": job["id"],
+        "jobUrl": payload.url,
+        "companyName": company,
+        "roleTitle": title,
+        "provider": "manual_link",
+        "resumeId": payload.resumeId,
+        "matchScore": 0,
+    })
+    return {"success": True, "job": job, "application": draft, "autoExtracted": bool(auto)}
 
 
 @router.get("/applications/{app_id}")
@@ -848,6 +909,16 @@ async def stop_browser(app_id: str, db: Session = Depends(db_session)) -> dict[s
     if draft and draft.get("status") == "in_progress":
         update_application_draft(db, app_id, {"status": "needs_review"})
     return {"success": True, "browserOpen": False, "status": "ready"}
+
+
+@router.get("/applications/{app_id}/submission-confirmed")
+def check_submission_confirmed_route(app_id: str, db: Session = Depends(db_session)) -> dict[str, Any]:
+    """Real success check: has a confirmation email actually arrived for this
+    application's tracking address? A submit that returns 'ok' but never gets
+    a real ATS confirmation shouldn't be reported as a successful application."""
+    from app.services.tracker.confirmation import check_submission_confirmed
+
+    return check_submission_confirmed(db, app_id)
 
 
 @router.get("/applications/{app_id}/review-status")
@@ -1285,6 +1356,24 @@ async def stop_autopilot(
     return {"success": True, "run": run}
 
 
+@router.get("/llm-metrics")
+def get_llm_metrics() -> dict[str, Any]:
+    """Which model actually answered each LLM call since the backend last restarted,
+    across every flow (form-field self-healing, code-patch self-healing, answer
+    resolution, etc.) — counts are process-wide, not per-run."""
+    from app.services.application_assistant.llm_client import llm_call_metrics
+
+    return {"success": True, "metrics": llm_call_metrics.to_dict()}
+
+
+@router.post("/llm-metrics/reset")
+def reset_llm_metrics() -> dict[str, Any]:
+    from app.services.application_assistant.llm_client import llm_call_metrics
+
+    llm_call_metrics.reset()
+    return {"success": True}
+
+
 @router.get("/autopilot/status")
 def get_autopilot_status(
     db: Session = Depends(db_session),
@@ -1491,22 +1580,49 @@ def enqueue_job_for_autopilot(
     payload: dict[str, Any] = Body(default_factory=dict),
     db: Session = Depends(db_session),
 ) -> dict[str, Any]:
-    from app.services.application_assistant.persistence import save_autopilot_job
+    from app.services.application_assistant.persistence import save_autopilot_job, is_duplicate_application
     from app.db.store import new_id, now_iso
+
+    company = payload.get("company") or "Unknown Company"
+    title = payload.get("title") or "Unknown Role"
+    app_url = payload.get("applicationUrl") or ""
+
+    # ── Idempotent duplicate guard ──
+    is_dup, existing = is_duplicate_application(db, company, title, app_url)
+    if is_dup and existing:
+        return {
+            "success": True,
+            "deduplicated": True,
+            "message": f"Already exists as {existing.get('status', 'UNKNOWN')} (id={existing.get('id')})",
+            "job": existing,
+        }
+
+    # ── Hard filter pre-check (US citizenship & sponsorship / SWE role / location) ──
+    from app.services.application_assistant.job_filter_ranker import evaluate_hard_filters
+    from app.db.store import get_kv
+    profile = get_kv(db, "profile") or {}
+    passed, skip_reason = evaluate_hard_filters(payload, profile, [])
+    if not passed:
+        return {
+            "success": False,
+            "filtered": True,
+            "message": f"Application not enqueued: {skip_reason}",
+            "reason": skip_reason,
+        }
 
     job_item = {
         "id": new_id("apjob_"),
         "jobId": payload.get("jobId") or new_id("job_"),
-        "company": payload.get("company") or "Unknown Company",
-        "title": payload.get("title") or "Unknown Role",
-        "applicationUrl": payload.get("applicationUrl") or "",
+        "company": company,
+        "title": title,
+        "applicationUrl": app_url,
         "status": "QUEUED",
         "matchScore": float(payload.get("matchScore") or 85.0),
         "discoveredAt": now_iso(),
         "queuedAt": now_iso(),
     }
     saved = save_autopilot_job(db, job_item)
-    return {"success": True, "job": saved}
+    return {"success": True, "deduplicated": False, "job": saved}
 
 
 @router.post("/autopilot/reset-submitted")
@@ -1537,9 +1653,7 @@ def reset_submitted_autopilot_jobs(
     return {"success": True, "resetCount": reset_count, "message": f"Successfully reset {reset_count} job(s) to unapplied"}
 
 
-@router.post("/autopilot/reprocess-failed")
-async def reprocess_failed_autopilot_jobs() -> dict[str, Any]:
-    """Return failed/staged applications to the queue without starting Autopilot."""
+def _requeue_autopilot_jobs_by_status(statuses: tuple[str, ...]) -> dict[str, Any]:
     from app.services.application_assistant.persistence import list_autopilot_jobs, save_autopilot_job
     from app.db.store import session_scope, now_iso
 
@@ -1547,7 +1661,7 @@ async def reprocess_failed_autopilot_jobs() -> dict[str, Any]:
     with session_scope() as db:
         jobs = list_autopilot_jobs(db)
         for j in jobs:
-            if j.get("status") in ("FAILED", "ERROR", "STAGED", "NEEDS_REVIEW", "VALIDATION_FAILED"):
+            if j.get("status") in statuses:
                 j["status"] = "QUEUED"
                 j["lastError"] = None
                 j["lastErrorType"] = None
@@ -1564,6 +1678,18 @@ async def reprocess_failed_autopilot_jobs() -> dict[str, Any]:
         "reprocessedCount": reprocessed_count,
         "message": f"Queued {reprocessed_count} application(s). Choose a batch size and press Start Run when you are ready.",
     }
+
+
+@router.post("/autopilot/reprocess-failed")
+async def reprocess_failed_autopilot_jobs() -> dict[str, Any]:
+    """Return only FAILED/ERROR applications to the queue without starting Autopilot."""
+    return _requeue_autopilot_jobs_by_status(("FAILED", "ERROR", "VALIDATION_FAILED"))
+
+
+@router.post("/autopilot/reprocess-staged")
+async def reprocess_staged_autopilot_jobs() -> dict[str, Any]:
+    """Return only STAGED/NEEDS_REVIEW applications to the queue without starting Autopilot."""
+    return _requeue_autopilot_jobs_by_status(("STAGED", "NEEDS_REVIEW"))
 
 
 @router.post("/autopilot/jobs/{id}/reprocess")
@@ -1621,13 +1747,15 @@ def reset_single_autopilot_job_endpoint(id: str) -> dict[str, Any]:
 @router.get("/jobs/{id}/tailor-diff")
 async def get_job_tailor_diff(
     id: str,
+    mode: str | None = None,
     db: Session = Depends(db_session),
 ) -> dict[str, Any]:
     """Generate or retrieve role-tailored materials with full visual diff chunks."""
-    from app.services.application_assistant.persistence import get_autopilot_job
+    from app.services.application_assistant.persistence import get_autopilot_job, get_settings
     from app.services.application_assistant.resume_diff_service import generate_role_tailoring_diff
     from app.db.store import get_kv
 
+    active_mode = mode or get_settings(db).get("tailoringMode", "honest")
     job = get_autopilot_job(db, id)
     if not job:
         # Fallback: check job search table or mock job item
@@ -1643,7 +1771,7 @@ async def get_job_tailor_diff(
     profile = get_kv(db, "profile") or {}
     master_resume = get_kv(db, "resume_corpus_master") or {}
 
-    diff_data = await generate_role_tailoring_diff(job, profile, master_resume)
+    diff_data = await generate_role_tailoring_diff(job, profile, master_resume, mode=active_mode)
     return {"success": True, "diff": diff_data}
 
 
@@ -1713,6 +1841,47 @@ def email_sync_webhook(
 
     record = process_inbound_email(sender, subject, body, received_at)
     return {"success": True, "record": record}
+
+
+@router.post("/autopilot/audit-sponsorship")
+def audit_sponsorship_endpoint(
+    db: Session = Depends(db_session),
+) -> dict[str, Any]:
+    """Audit all queued and staged applications against US citizenship & sponsorship criteria."""
+    from app.services.application_assistant.persistence import list_autopilot_jobs, save_autopilot_job, delete_autopilot_job
+    from app.services.application_assistant.job_filter_ranker import evaluate_hard_filters
+    from app.db.store import get_kv
+
+    profile = get_kv(db, "profile") or {}
+    jobs = list_autopilot_jobs(db)
+    
+    skipped_count = 0
+    skipped_jobs: list[dict[str, Any]] = []
+
+    for job in jobs:
+        # Check jobs not yet submitted
+        if job.get("status") in ("QUEUED", "STAGED", "NEEDS_REVIEW", "FAILED"):
+            passed, reason = evaluate_hard_filters(job, profile, [])
+            if not passed and ("citizenship" in reason.lower() or "sponsorship" in reason.lower() or "itar" in reason.lower()):
+                job["status"] = "SKIPPED"
+                job["skipReason"] = reason
+                job["aiExplanation"] = f"Filtered: {reason}"
+                save_autopilot_job(db, job)
+                skipped_count += 1
+                skipped_jobs.append({
+                    "id": job.get("id"),
+                    "company": job.get("company"),
+                    "title": job.get("title"),
+                    "reason": reason,
+                })
+
+    return {
+        "success": True,
+        "auditedTotal": len(jobs),
+        "skippedCount": skipped_count,
+        "skippedJobs": skipped_jobs,
+        "message": f"Audited {len(jobs)} jobs. Flagged/Skipped {skipped_count} jobs requiring US Citizenship or lacking sponsorship.",
+    }
 
 
 

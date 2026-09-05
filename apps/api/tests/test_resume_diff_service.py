@@ -32,9 +32,25 @@ async def test_generate_role_tailoring_diff():
         "experience": [{"highlights": ["Designed AI pipelines in PyTorch."]}],
     }
     
-    res = await generate_role_tailoring_diff(job, profile)
+    # Test honest mode
+    res = await generate_role_tailoring_diff(job, profile, mode="honest")
     assert res["company"] == "Vercel"
     assert res["title"] == "Staff AI Engineer"
+    assert res["mode"] == "honest"
     assert len(res["bulletDiffs"]) > 0
     assert "Vercel" in res["tailoredCoverLetter"]
     assert len(res["screeningQAs"]) >= 2
+
+    # Test off mode (no changes)
+    res_off = await generate_role_tailoring_diff(job, profile, mode="off")
+    assert res_off["mode"] == "off"
+    assert res_off["totalChanges"] == 0
+    for b in res_off["bulletDiffs"]:
+        assert b["isModified"] is False
+        assert b["original"] == b["tailored"]
+
+    # Test aggressive mode (inflated impact & high match score)
+    res_agg = await generate_role_tailoring_diff(job, profile, mode="aggressive")
+    assert res_agg["mode"] == "aggressive"
+    assert res_agg["matchScore"] >= 95
+    assert any("multi-agent" in b["tailored"] or "Spearheaded" in b["tailored"] or "Orchestrated" in b["tailored"] for b in res_agg["bulletDiffs"])

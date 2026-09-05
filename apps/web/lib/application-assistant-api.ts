@@ -271,6 +271,12 @@ export async function reprocessFailedAutopilotJobs() {
   });
 }
 
+export async function reprocessStagedAutopilotJobs() {
+  return aaFetch<{ success: boolean; reprocessedCount: number; message: string; run?: any }>("/autopilot/reprocess-staged", {
+    method: "POST",
+  });
+}
+
 export async function reprocessSingleAutopilotJob(id: string) {
   return aaFetch<{ success: boolean; id: string; message: string; run?: any }>(`/autopilot/jobs/${id}/reprocess`, {
     method: "POST",
@@ -328,6 +334,27 @@ export async function createApplication(jobId: string, resumeId?: string) {
   return aaFetch<{ success: boolean; application: Record<string, unknown> }>("/applications", {
     method: "POST",
     body: JSON.stringify({ jobId, resumeId }),
+  });
+}
+
+export type QuickAddJobInput = {
+  url: string;
+  title?: string;
+  company?: string;
+  location?: string;
+  description?: string;
+  resumeId?: string;
+};
+
+export async function quickAddApplication(input: QuickAddJobInput) {
+  return aaFetch<{
+    success: boolean;
+    job: Record<string, unknown>;
+    application: Record<string, unknown>;
+    autoExtracted: boolean;
+  }>("/applications/quick-add", {
+    method: "POST",
+    body: JSON.stringify(input),
   });
 }
 
@@ -705,6 +732,7 @@ export interface TailorDiffResponse {
   jobId: string;
   company: string;
   title: string;
+  mode?: "off" | "honest" | "aggressive";
   matchScore: number;
   salaryRange: string;
   visaStatus: string;
@@ -731,8 +759,9 @@ export interface SubmissionReceiptItem {
   certificateFingerprint: string;
 }
 
-export async function getJobTailorDiff(jobId: string) {
-  return aaFetch<{ success: boolean; diff: TailorDiffResponse }>(`/jobs/${jobId}/tailor-diff`);
+export async function getJobTailorDiff(jobId: string, mode?: "off" | "honest" | "aggressive") {
+  const query = mode ? `?mode=${encodeURIComponent(mode)}` : "";
+  return aaFetch<{ success: boolean; diff: TailorDiffResponse }>(`/jobs/${jobId}/tailor-diff${query}`);
 }
 
 export async function approvePreflightSubmission(jobId: string, customAnswers?: Record<string, string>) {
@@ -757,10 +786,24 @@ export async function syncInboundEmail(payload: { sender: string; subject: strin
   });
 }
 
-export async function resetAutopilotQueue() {
-  return aaFetch<{ success: boolean; resetJobsCount: number; resetDraftsCount: number }>("/autopilot/reset", {
+export async function auditSponsorshipApplications() {
+  return aaFetch<{
+    success: boolean;
+    auditedTotal: number;
+    skippedCount: number;
+    skippedJobs: { id: string; company: string; title: string; reason: string }[];
+    message: string;
+  }>("/autopilot/audit-sponsorship", {
     method: "POST",
   });
 }
+
+export async function resetAutopilotQueue() {
+  return aaFetch<{ success: boolean; resetCount: number; resetJobsCount?: number; message: string }>("/autopilot/reset-submitted", {
+    method: "POST",
+    body: JSON.stringify({ status: "ALL" }),
+  });
+}
+
 
 

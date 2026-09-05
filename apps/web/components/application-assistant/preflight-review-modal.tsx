@@ -4,6 +4,7 @@ import React, { useState } from "react";
 import {
   TailorDiffResponse,
   approvePreflightSubmission,
+  getJobTailorDiff,
 } from "@/lib/application-assistant-api";
 import { ResumeDiffViewer } from "./resume-diff-viewer";
 import { IconCheckCircle } from "./autopilot/icons";
@@ -14,23 +15,81 @@ interface PreflightReviewModalProps {
   onSubmitted?: () => void;
 }
 
+const TSENTA_MODES: Array<{
+  key: "off" | "honest" | "aggressive";
+  label: string;
+  icon: string;
+  badge: string;
+  description: string;
+}> = [
+  {
+    key: "off",
+    label: "Off",
+    icon: "⏹️",
+    badge: "No Change",
+    description: "Original resume bullets sent as-is. No rewriting or reorganizing.",
+  },
+  {
+    key: "honest",
+    label: "Honest",
+    icon: "🎯",
+    badge: "JD Reorganized",
+    description: "Rewriting & reorganizing to match the job description as best as possible from verified experience.",
+  },
+  {
+    key: "aggressive",
+    label: "Aggressive",
+    icon: "🔥",
+    badge: "Inflate & Maximize",
+    description: "Inflate scope, metrics, and senior keywords to aggressively match the job description and maximize callback calls.",
+  },
+];
+
 export function PreflightReviewModal({
-  diffData,
+  diffData: initialDiffData,
   onClose,
   onSubmitted,
 }: PreflightReviewModalProps) {
+  const [diffData, setDiffData] = useState<TailorDiffResponse>(initialDiffData);
+  const [currentMode, setCurrentMode] = useState<"off" | "honest" | "aggressive">(
+    initialDiffData.mode || "honest"
+  );
+  const [switchingMode, setSwitchingMode] = useState(false);
   const [activeTab, setActiveTab] = useState<"diff" | "cover_letter" | "screening">("diff");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
-  const [coverLetter, setCoverLetter] = useState(diffData.tailoredCoverLetter);
+  const [coverLetter, setCoverLetter] = useState(initialDiffData.tailoredCoverLetter);
   const [answers, setAnswers] = useState<Record<string, string>>(() => {
     const map: Record<string, string> = {};
-    diffData.screeningQAs.forEach((qa, idx) => {
+    initialDiffData.screeningQAs.forEach((qa, idx) => {
       map[qa.question] = qa.suggestedAnswer;
     });
     return map;
   });
+
+  const handleModeChange = async (nextMode: "off" | "honest" | "aggressive") => {
+    if (nextMode === currentMode || switchingMode) return;
+    setCurrentMode(nextMode);
+    setSwitchingMode(true);
+    setError(null);
+    try {
+      const res = await getJobTailorDiff(diffData.jobId, nextMode);
+      if (res && res.diff) {
+        setDiffData(res.diff);
+        setCoverLetter(res.diff.tailoredCoverLetter);
+        const updatedAnswers: Record<string, string> = {};
+        res.diff.screeningQAs.forEach((qa: { question: string; suggestedAnswer: string }) => {
+          updatedAnswers[qa.question] = qa.suggestedAnswer;
+        });
+        setAnswers(updatedAnswers);
+      }
+    } catch (err: any) {
+      setError(err?.message || "Failed to switch tailoring mode");
+    } finally {
+      setSwitchingMode(false);
+    }
+  };
 
   const handleApprove = async () => {
     setSubmitting(true);
@@ -49,15 +108,17 @@ export function PreflightReviewModal({
     }
   };
 
+  const activeModeMeta = TSENTA_MODES.find((m) => m.key === currentMode) || TSENTA_MODES[1];
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-200">
       <div className="relative w-full max-w-4xl max-h-[90vh] flex flex-col rounded-2xl bg-[#090d12] border border-cyan-500/30 shadow-[0_0_50px_rgba(0,180,216,0.15)] text-slate-100 overflow-hidden">
         {/* Header Ribbon */}
         <div className="p-6 border-b border-white/10 bg-gradient-to-r from-[#0d1620] to-[#0a1118] flex flex-wrap items-center justify-between gap-4">
           <div>
-            <div className="flex items-center gap-2 mb-1">
+            <div className="flex items-center gap-2 mb-1 flex-wrap">
               <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-cyan-500/15 border border-cyan-500/40 text-cyan-300">
-                HITL Pre-Flight Checkpoint
+                Tsenta Pre-Flight Checkpoint
               </span>
               <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-500/15 border border-emerald-500/30 text-emerald-400">
                 {diffData.matchScore}% Match
@@ -65,6 +126,11 @@ export function PreflightReviewModal({
               <span className="px-2.5 py-0.5 rounded-full text-xs font-medium bg-purple-500/15 border border-purple-500/30 text-purple-300">
                 {diffData.visaStatus}
               </span>
+              {switchingMode && (
+                <span className="text-xs text-amber-400 animate-pulse font-medium">
+                  Reorganizing resume…
+                </span>
+              )}
             </div>
             <h2 className="text-xl font-bold text-white flex items-center gap-2">
               <span>{diffData.title}</span>
@@ -82,6 +148,44 @@ export function PreflightReviewModal({
           >
             ✕
           </button>
+        </div>
+
+        {/* 3-Way Tsenta Restructure Dial Bar */}
+        <div className="px-6 py-3 border-b border-white/10 bg-[#060a0f] flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
+              <span>🛠️</span> Restructure Mode:
+            </span>
+            <div className="inline-flex rounded-xl bg-slate-900/90 p-1 border border-white/10 shadow-inner">
+              {TSENTA_MODES.map((mode) => {
+                const isActive = currentMode === mode.key;
+                return (
+                  <button
+                    key={mode.key}
+                    type="button"
+                    onClick={() => void handleModeChange(mode.key)}
+                    disabled={switchingMode}
+                    className={`px-3 py-1 text-xs font-bold rounded-lg transition-all cursor-pointer flex items-center gap-1.5 ${
+                      isActive
+                        ? mode.key === "aggressive"
+                          ? "bg-gradient-to-r from-amber-500 to-rose-500 text-slate-950 shadow-[0_0_12px_rgba(245,158,11,0.4)] font-extrabold"
+                          : mode.key === "honest"
+                          ? "bg-gradient-to-r from-cyan-400 to-teal-400 text-slate-950 shadow-[0_0_12px_rgba(46,232,201,0.35)] font-extrabold"
+                          : "bg-slate-700 text-white font-bold"
+                        : "text-slate-400 hover:text-slate-200"
+                    }`}
+                  >
+                    <span>{mode.icon}</span>
+                    <span>{mode.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+          <p className="text-[11px] text-slate-400 max-w-md hidden sm:block">
+            <strong className="text-slate-200 font-semibold">{activeModeMeta.label}: </strong>
+            {activeModeMeta.description}
+          </p>
         </div>
 
         {/* Tab Navigation */}
@@ -134,7 +238,7 @@ export function PreflightReviewModal({
           )}
 
           {activeTab === "diff" && (
-            <ResumeDiffViewer bullets={diffData.bulletDiffs} />
+            <ResumeDiffViewer bullets={diffData.bulletDiffs} mode={currentMode} />
           )}
 
           {activeTab === "cover_letter" && (

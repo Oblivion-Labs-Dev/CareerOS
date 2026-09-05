@@ -1,15 +1,17 @@
 import json
+import time
 import uuid
 from typing import Any
 
 import httpx
 
 from app.config import settings
+from app.services.model_usage_tracker import log_model_usage
 
 DEFAULT_MODEL = "google/gemini-2.5-flash"
 
 
-async def call_openrouter_json(prompt: str, system_instruction: str = "") -> dict[str, Any] | None:
+async def call_openrouter_json(prompt: str, system_instruction: str = "", *, task: str = "unspecified") -> dict[str, Any] | None:
     if not settings.openrouter_api_key:
         return None
 
@@ -28,6 +30,7 @@ async def call_openrouter_json(prompt: str, system_instruction: str = "") -> dic
         "response_format": {"type": "json_object"},
     }
 
+    started_at = time.monotonic()
     try:
         async with httpx.AsyncClient(timeout=45.0) as client:
             response = await client.post(
@@ -38,9 +41,25 @@ async def call_openrouter_json(prompt: str, system_instruction: str = "") -> dic
             response.raise_for_status()
             data = response.json()
             content = data["choices"][0]["message"]["content"]
-            return json.loads(content)
+            result = json.loads(content)
+            log_model_usage(
+                provider="openrouter",
+                model=DEFAULT_MODEL,
+                task=task,
+                success=True,
+                latency_ms=(time.monotonic() - started_at) * 1000,
+            )
+            return result
     except Exception as e:
         print(f"OpenRouter API call failed: {e}")
+        log_model_usage(
+            provider="openrouter",
+            model=DEFAULT_MODEL,
+            task=task,
+            success=False,
+            latency_ms=(time.monotonic() - started_at) * 1000,
+            metadata={"error": str(e)[:200]},
+        )
         return None
 
 
@@ -484,7 +503,7 @@ async def analyze_accomplishment(description: str, current_data: dict[str, Any] 
     }}
     """
 
-    res = await call_openrouter_json(prompt, system_prompt)
+    res = await call_openrouter_json(prompt, system_prompt, task="analyze_accomplishment")
     if res:
         if current_data:
             # Preserve Q&A answers
@@ -1026,18 +1045,40 @@ async def generate_resume_bullets_for_job(
     tone: str,
     max_pages: int,
     target_ats: int,
+    extra_instructions: str = "",
 ) -> dict[str, Any] | None:
     """
     Leverages LLM semantic tailoring to compile and optimize accomplishments into
     customized, professional resume bullet lists.
+
+    `extra_instructions` carries the user's own saved preferences (see
+    "What the assistant remembers" in Settings) — e.g. "always keep my resume
+    to one page". These are style/format guidance only: they are appended
+    below the truth-safety rules and can never relax them.
     """
-    system_prompt = (
-        "You are a careful resume editor working only from supplied evidence. "
-        "Never invent or amplify a company, role, project, technology, metric, scope, "
-        "outcome, or responsibility. Omit a claim when the supplied accomplishments do "
-        "not support it. Keep every resume item linked to its source accomplishment ID. "
-        "Return ONLY a JSON object and do not include markdown wrappers."
-    )
+    is_aggressive = "confident" in tone.lower() or "aggressive" in tone.lower()
+    if is_aggressive:
+        system_prompt = (
+            "You are an expert resume optimizer and executive career coach. Your objective is to aggressively "
+            "reorganize, restructure, and maximize resume impact to closely match the job description and earn recruiter callbacks. "
+            "Highlight high-level ownership, maximize ATS keyword alignment, and state achievements with confident, authoritative, "
+            "and achievement-forward impact framing. Keep every resume item linked to its source accomplishment ID. "
+            "Return ONLY a JSON object and do not include markdown wrappers."
+        )
+    else:
+        system_prompt = (
+            "You are a careful resume editor working only from supplied evidence. "
+            "Never invent or amplify a company, role, project, technology, metric, scope, "
+            "outcome, or responsibility. Omit a claim when the supplied accomplishments do "
+            "not support it. Keep every resume item linked to its source accomplishment ID. "
+            "Return ONLY a JSON object and do not include markdown wrappers."
+        )
+    if extra_instructions.strip():
+        system_prompt += (
+            "\n\nThe user has saved these standing preferences — follow them only "
+            "where they don't conflict with the rules above:\n"
+            f"{extra_instructions.strip()}"
+        )
 
     prompt = f"""
     Target Company: {target_company}
@@ -1071,7 +1112,7 @@ async def generate_resume_bullets_for_job(
     }}
     """
 
-    res = await call_openrouter_json(prompt, system_prompt)
+    res = await call_openrouter_json(prompt, system_prompt, task="resume_bullets")
     if not isinstance(res, dict):
         # Truth-safe failure: callers must surface an unavailable state rather than
         # presenting fabricated fallback bullets, scores, skills, or critiques.

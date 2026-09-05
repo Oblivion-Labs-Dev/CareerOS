@@ -5,10 +5,12 @@ import { BulletDiffItem } from "@/lib/application-assistant-api";
 
 interface ResumeDiffViewerProps {
   bullets: BulletDiffItem[];
+  mode?: "off" | "honest" | "aggressive";
 }
 
-export function ResumeDiffViewer({ bullets }: ResumeDiffViewerProps) {
+export function ResumeDiffViewer({ bullets, mode = "honest" }: ResumeDiffViewerProps) {
   const [viewMode, setViewMode] = useState<"side-by-side" | "inline">("inline");
+  const modifiedCount = bullets.filter((b) => b.isModified).length;
 
   return (
     <div className="space-y-4 font-sans text-sm">
@@ -17,9 +19,19 @@ export function ResumeDiffViewer({ bullets }: ResumeDiffViewerProps) {
           <span className="text-xs font-bold uppercase tracking-wider text-slate-400">
             Résumé Bullet Tailoring
           </span>
-          <span className="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-cyan-500/10 border border-cyan-500/30 text-cyan-400">
-            {bullets.filter((b) => b.isModified).length} Tailored Adjustments
-          </span>
+          {mode === "off" ? (
+            <span className="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-slate-800 border border-slate-700 text-slate-300">
+              Off — Unmodified
+            </span>
+          ) : mode === "aggressive" ? (
+            <span className="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-amber-500/15 border border-amber-500/40 text-amber-300 shadow-[0_0_10px_rgba(245,158,11,0.2)]">
+              ⚡ Aggressive Restructure ({modifiedCount} Inflated)
+            </span>
+          ) : (
+            <span className="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-cyan-500/10 border border-cyan-500/30 text-cyan-400">
+              Honest Restructure ({modifiedCount} Aligned)
+            </span>
+          )}
         </div>
         <div className="flex items-center gap-1 bg-white/5 p-1 rounded-xl border border-white/10">
           <button
