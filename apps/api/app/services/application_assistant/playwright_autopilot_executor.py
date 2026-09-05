@@ -39,6 +39,7 @@ from app.services.application_assistant.form_field_persistence import (
 )
 from app.services.application_assistant.browser_verifier import verify_browser_dom_state
 from app.services.application_assistant.submission_policy import SubmissionPolicy, SubmissionDecision
+from app.services.tracking_email import derive_contact_email
 
 logger = logging.getLogger("career_os.playwright_autopilot")
 
@@ -490,7 +491,7 @@ async def _fill_standard_and_react_fields(
     ):
         filled["Last Name"] = last
 
-    email = profile.get("email", "amsborse+careeros@gmail.com")
+    email = derive_contact_email(profile.get("email") or "") or "amsborse+career@gmail.com"
     if await _fill_first_visible(
         page,
         ["#email", "input[name='job_application[email]']", "#job_application_email", "input[name*='email' i]", "form input[type='email']"],
@@ -1308,7 +1309,7 @@ async def _execute_live_playwright_submission_impl(
 
             # ─── GREENHOUSE EMAIL VERIFICATION FLOW ─────────────────────────────
             from app.services.application_assistant.greenhouse_verification_service import handle_greenhouse_verification_flow
-            candidate_email = profile.get("email", "amsborse+careeros@gmail.com")
+            candidate_email = derive_contact_email(profile.get("email") or "") or "amsborse+career@gmail.com"
             try:
                 verification_handled = await handle_greenhouse_verification_flow(
                     page=page,

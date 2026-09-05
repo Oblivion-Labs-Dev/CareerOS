@@ -44,6 +44,32 @@ def build_tracking_email(company_name: str | None, stable_id: str) -> str | None
     return f"{local_part}+{tag}@{domain}"
 
 
+def derive_contact_email(base_email: str, tag: str = "career") -> str:
+    """Return `local+tag@domain` for a plain `local@domain` address.
+
+    This is what actually gets typed into a job application's own email
+    field, so confirmation mail and any recruiter replies are addressed to a
+    taggable variant of the candidate's real email rather than the bare
+    address — same Gmail plus-addressing trick as `build_tracking_email`,
+    just a single fixed tag derived directly from the candidate's own email
+    (their "login") instead of a per-application company+hash. Delivery is
+    unaffected: Gmail (and most other providers) route `local+tag@domain`
+    straight to `local@domain`.
+
+    Idempotent — an address that already carries a `+tag` is returned
+    unchanged rather than double-tagging. Returns `base_email` unchanged if
+    it isn't a plain `local@domain` address (e.g. empty, or already
+    malformed) rather than raising, since this sits in a form-fill path that
+    should degrade to "use whatever we have" rather than fail the fill.
+    """
+    if not base_email or "@" not in base_email:
+        return base_email
+    local_part, _, domain = base_email.partition("@")
+    if not local_part or not domain or "+" in local_part:
+        return base_email
+    return f"{local_part}+{tag}@{domain}"
+
+
 def extract_tag_from_address(address: str) -> str | None:
     """Pull the `+tag` out of a `local+tag@domain` address, else None."""
     local_part = address.split("@", 1)[0]

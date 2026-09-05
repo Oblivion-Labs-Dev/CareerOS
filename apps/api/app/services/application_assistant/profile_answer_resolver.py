@@ -18,6 +18,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from app.db.store import now_iso
+from app.services.tracking_email import derive_contact_email
 from app.services.application_assistant.ats_plugin_reference import (
     pick_best_matching_option,
     APPLICATION_FIELD_DEFAULTS,
@@ -301,7 +302,12 @@ def _resolve_full_name(res: AnswerResolution, profile: dict, opts: list[str]) ->
         res.confidence = 1.0
 
 def _resolve_email(res: AnswerResolution, profile: dict, opts: list[str]) -> None:
-    _resolve_from_profile(res, profile, opts, "email")
+    # Submit a taggable +career variant of the candidate's own email as the
+    # form's contact address rather than the bare profile email, so
+    # confirmations and replies are filterable without changing delivery.
+    raw_email = profile.get("email")
+    tagged_profile = profile if not raw_email else {**profile, "email": derive_contact_email(raw_email)}
+    _resolve_from_profile(res, tagged_profile, opts, "email")
 
 def _resolve_phone(res: AnswerResolution, profile: dict, opts: list[str]) -> None:
     _resolve_from_profile(res, profile, opts, "phone")

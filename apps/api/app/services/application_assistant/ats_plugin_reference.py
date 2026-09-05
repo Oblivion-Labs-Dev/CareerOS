@@ -324,7 +324,10 @@ def extract_canonical_value(
         return val, "Profile preferred name"
 
     if key == "email":
-        return profile.get("email"), "Profile email"
+        from app.services.tracking_email import derive_contact_email
+
+        raw_email = profile.get("email")
+        return (derive_contact_email(raw_email) if raw_email else raw_email), "Profile email"
 
     if key == "phone":
         return profile.get("phone"), "Profile phone"
