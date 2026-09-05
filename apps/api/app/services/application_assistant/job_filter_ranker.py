@@ -168,6 +168,56 @@ def evaluate_hard_filters(
     if remote_pref and "remote" not in job_wp and "remote" not in job_loc:
         return False, "Job is not Remote, candidate requires Remote Only"
 
+    # 6. US Citizenship & Visa Sponsorship / ITAR Defense Filter
+    needs_sponsorship = (
+        str(profile.get("sponsorship", "")).strip().lower() in ("yes", "true", "1")
+        or str(profile.get("requiresSponsorship", "")).strip().lower() in ("yes", "true", "1")
+    )
+    is_us_citizen = str(profile.get("usCitizen", "")).strip().lower() in ("yes", "true", "1")
+
+    if needs_sponsorship and not is_us_citizen:
+        norm_c = normalize_company(company)
+        # Defense / aerospace contractors known to strictly require US citizenship under ITAR / EAR
+        known_itar_defense_companies = {
+            "anduril",
+            "anduril industries",
+            "spacex",
+            "lockheed",
+            "lockheed martin",
+            "northrop",
+            "northrop grumman",
+            "raytheon",
+            "rtx",
+            "general dynamics",
+            "boeing defense",
+            "l3harris",
+            "bae systems",
+            "sierra nevada",
+            "palantir defense",
+        }
+        if any(c in norm_c for c in known_itar_defense_companies):
+            return False, f"Company '{company}' requires U.S. Citizenship / ITAR clearance (no visa sponsorship provided)"
+
+        # Check job description and title text for ITAR and citizenship restrictions
+        full_text = f"{title} {job.get('description', '')} {job.get('requirements', '')}".lower()
+        itar_patterns = [
+            r"\b(?:itar|ear)\b",
+            r"\bu\.?s\.?\s+citizenship\s+required\b",
+            r"\bu\.?s\.?\s+citizens?\s+only\b",
+            r"\bsecurity clearance\b",
+            r"\bclearance eligibility\b",
+            r"\bu\.?s\.?\s+person\s+(?:status\s+)?required\b",
+            r"\bmust be a (?:u\.s\.\s+)?person\b",
+            r"\bexport control(?:led)?\b",
+            r"\bno (?:visa )?sponsorship\b",
+            r"\bnot (?:able to )?sponsor\b",
+            r"\bunable to sponsor\b",
+            r"\bwithout (?:visa )?sponsorship\b",
+        ]
+        for pat in itar_patterns:
+            if re.search(pat, full_text, flags=re.I):
+                return False, f"Position requires U.S. Citizenship / clearance or does not sponsor visas ({pat})"
+
     return True, ""
 
 

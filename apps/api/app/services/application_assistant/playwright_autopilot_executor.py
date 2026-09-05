@@ -199,7 +199,7 @@ async def _select_react_combobox(page: Any, cb_id: str, search_text: str) -> str
     """Safely and reliably select an option from a React Select combobox or custom dropdown."""
     try:
         # Find input or wrapper
-        cb_el = page.locator(f"#{cb_id}").first
+        cb_el = page.locator(f'[id="{cb_id}"]').first
         if await cb_el.count() == 0:
             cb_el = page.locator(f'[id*="{cb_id}"]').first
         if await cb_el.count() == 0:
@@ -208,7 +208,7 @@ async def _select_react_combobox(page: Any, cb_id: str, search_text: str) -> str
         await cb_el.scroll_into_view_if_needed()
 
         # Locate the surrounding control or wrapper
-        wrapper = page.locator(f'div.select__control:has(#{cb_id}), div[class*="control"]:has(#{cb_id}), div:has(> div > #{cb_id}), div:has(> #{cb_id})').first
+        wrapper = page.locator(f'div.select__control:has([id="{cb_id}"]), div[class*="control"]:has([id="{cb_id}"]), div:has(> div > [id="{cb_id}"]), div:has(> [id="{cb_id}"])').first
         target = wrapper if await wrapper.count() > 0 else cb_el
 
         # Click to open the dropdown menu
@@ -320,57 +320,79 @@ async def _fill_all_greenhouse_comboboxes(
     profile: dict[str, Any],
     answer_lib: list[dict[str, Any]] | None = None,
 ) -> dict[str, str]:
-    """Fill all Greenhouse dropdowns & React Select controls using the centralized resolver.
-
-    REPLACES the previous 100+ line if/elif heuristic chain.
-    Every answer now comes from profile_answer_resolver with full provenance.
-    """
+    """Fill all Greenhouse dropdowns & React Select controls using the centralized resolver."""
     filled: dict[str, str] = {}
     all_resolutions: list[AnswerResolution] = []
 
-    cb_elements = await page.locator('input[role="combobox"], div.select__control, div[class*="select__control"]').all()
+    cb_elements = await page.locator('input[role="combobox"]').all()
 
     for el in cb_elements:
         try:
+            cid = await el.get_attribute("id") or ""
+            if cid == "iti-0__search-input":
+                continue
+
             if not await el.is_visible():
                 continue
 
             # Determine field label
             lbl_text = await el.evaluate("""el => {
-                var p = el.closest('div.field, div.custom-question, div[class*="question"], div[class*="field"], fieldset');
-                if (p) {
-                    var l = p.querySelector('label, legend, p.label, span.label');
-                    if (l) return l.innerText.trim();
-                    return p.innerText.split('\\n')[0].trim();
+                var id = el.id;
+                if (id) {
+                    try {
+                        var l = document.querySelector('label[for="' + id + '"]');
+                        if (l && l.innerText && l.innerText.trim()) return l.innerText.trim();
+                    } catch(e) {}
                 }
-                return el.getAttribute('aria-label') || el.id || '';
+                var cur = el.parentElement;
+                while (cur && cur.tagName !== 'FORM' && cur.tagName !== 'BODY') {
+                    var l = cur.querySelector('label, legend, .label, [class*="label"], p');
+                    if (l && l.innerText && l.innerText.trim() && l.innerText.trim().length > 3) {
+                        return l.innerText.trim();
+                    }
+                    cur = cur.parentElement;
+                }
+                return el.getAttribute('aria-label') || el.name || el.id || '';
             }""")
             if not (lbl_text or "").strip():
                 continue
 
+            # Locate surrounding React-Select container or the input itself
+            wrapper = page.locator(f'div.select__control:has([id="{cid}"]), div[class*="control"]:has([id="{cid}"])').first
+            target_to_open = wrapper if await wrapper.count() > 0 else el
+
             # Collect available options by opening the dropdown
-            await el.scroll_into_view_if_needed()
-            await el.click(force=True)
+            await target_to_open.scroll_into_view_if_needed()
+            await target_to_open.click(force=True)
             await asyncio.sleep(0.2)
 
-            options_loc = page.locator('.select__option, div[class*="option"], [role="option"]')
-            opt_count = await options_loc.count()
-            available_options: list[str] = []
-            option_elements: dict[str, Any] = {}
+            # Fast evaluate to get all option texts in 1 ms without slow per-element Playwright RPCs
+            opt_data: list[str] = await page.evaluate("""() => {
+                var opts = document.querySelectorAll('.select__menu .select__option, div[class*="-menu"] div[class*="-option"], .select__option, [role="option"]');
+                var res = [];
+                for (var i = 0; i < opts.length; i++) {
+                    var t = (opts[i].innerText || '').trim();
+                    if (t && opts[i].offsetParent !== null && t.toLowerCase().indexOf('select...') === -1 && t.toLowerCase().indexOf('choose') === -1) {
+                        res.push(t);
+                    }
+                }
+                return res;
+            }""")
 
-            for i in range(opt_count):
-                opt = options_loc.nth(i)
-                if not await opt.is_visible():
-                    continue
-                otxt = (await opt.inner_text()).strip()
-                if not otxt or otxt.lower() in ("select...", "select", "--", "choose"):
-                    continue
-                available_options.append(otxt)
-                option_elements[otxt.lower()] = opt
+            available_options: list[str] = opt_data or []
+
+            if not available_options:
+                await page.keyboard.press("Escape")
+                await asyncio.sleep(0.05)
+                continue
+
+            # ── Check if this is a country code dropdown (over 100 country options) ──
+            is_country_code = len(available_options) > 100 and any("+1" in o or "united states" in o.lower() for o in available_options)
+            effective_q_text = "Country Code" if is_country_code else lbl_text
 
             # ── Centralized resolution (replaces all if/elif heuristics) ──
             resolution = resolve_answer(
-                question_text=lbl_text,
+                question_text=effective_q_text,
                 profile=profile,
                 options=available_options,
             )
@@ -378,40 +400,59 @@ async def _fill_all_greenhouse_comboboxes(
 
             target_text = resolution.answer
             if not target_text:
-                # Unresolved — skip rather than guess
                 logger.info("Combobox '%s' unresolved (type=%s), skipping", lbl_text[:50], resolution.question_type)
-                # Close dropdown
                 await page.keyboard.press("Escape")
-                await asyncio.sleep(0.1)
+                await asyncio.sleep(0.05)
                 continue
 
             if resolution.blocking_errors:
                 logger.warning("Combobox '%s' blocked: %s", lbl_text[:50], resolution.blocking_errors)
                 await page.keyboard.press("Escape")
-                await asyncio.sleep(0.1)
+                await asyncio.sleep(0.05)
                 continue
 
-            # Find and click the matching option
+            # Find and click the matching option by text
             matched = False
             target_lower = target_text.strip().lower()
 
-            for otxt, opt_el in option_elements.items():
-                if target_lower in otxt or otxt in target_lower:
-                    await opt_el.click(force=True)
-                    filled[lbl_text[:50]] = target_text
-                    matched = True
-                    await asyncio.sleep(0.1)
-                    break
+            # 1. Exact or partial match click via fast locator
+            for opt_str in available_options:
+                if target_lower == opt_str.lower() or target_lower in opt_str.lower() or opt_str.lower() in target_lower:
+                    if target_lower == "male" and "female" in opt_str.lower():
+                        continue
+                    opt_to_click = page.locator(f'.select__option, [role="option"]').filter(has_text=opt_str).first
+                    if await opt_to_click.count() > 0:
+                        await opt_to_click.click(force=True)
+                        filled[lbl_text[:50]] = opt_str
+                        matched = True
+                        await asyncio.sleep(0.1)
+                        break
+
+            # 2. Dynamic typing pass for searchable/async comboboxes (e.g. School, Major)
+            if not matched and target_text:
+                try:
+                    await el.click(force=True)
+                    await page.keyboard.type(target_text, delay=20)
+                    await asyncio.sleep(0.3)
+
+                    first_opt = page.locator('.select__menu .select__option, div[class*="-menu"] div[class*="-option"], .select__option').first
+                    if await first_opt.count() > 0 and await first_opt.is_visible():
+                        f_txt = (await first_opt.inner_text()).strip()
+                        if f_txt and f_txt.lower() not in ("no options", "select..."):
+                            await first_opt.click(force=True)
+                            filled[lbl_text[:50]] = f_txt
+                            matched = True
+                            await asyncio.sleep(0.1)
+                except Exception as dyn_err:
+                    logger.debug("Combobox dynamic search error: %s", dyn_err)
 
             if not matched:
-                # SAFETY: Do NOT fall back to clicking the first option.
-                # Instead, log and close.
                 logger.warning(
                     "Combobox '%s': target '%s' not found in %d options, skipping (NO random fallback)",
                     lbl_text[:50], target_text, len(available_options),
                 )
                 await page.keyboard.press("Escape")
-                await asyncio.sleep(0.1)
+                await asyncio.sleep(0.05)
 
         except Exception as ex:
             logger.debug("Combobox error: %s", ex)
@@ -448,7 +489,7 @@ async def _fill_standard_and_react_fields(
     ):
         filled["Last Name"] = last
 
-    email = profile.get("email", "amsborse@gmail.com")
+    email = profile.get("email", "amsborse+careeros@gmail.com")
     if await _fill_first_visible(
         page,
         ["#email", "input[name='job_application[email]']", "#job_application_email", "input[name*='email' i]", "form input[type='email']"],
@@ -457,7 +498,7 @@ async def _fill_standard_and_react_fields(
         filled["Email"] = email
 
     # Handle Greenhouse/Custom Phone Country Code selector
-    country_dropdown = page.locator('button[aria-label*="Country" i], div.select__control:has(input[id*="country" i]), [aria-label="Country Code"], div.phone-input__country').first
+    country_dropdown = page.locator('.phone-input button[aria-label*="Country" i], [aria-label="Phone Country Code"], div.phone-input__country').first
     if await country_dropdown.count() > 0 and await country_dropdown.is_visible():
         try:
             await country_dropdown.click(force=True)
@@ -484,58 +525,76 @@ async def _fill_standard_and_react_fields(
         filled["Phone"] = phone_formatted
 
     # Fill Location (City) if requested
-    loc_inputs = page.locator('input[id*="location" i], input[name*="location" i], input[placeholder*="location" i], input[id*="candidate_location" i]')
-    if await loc_inputs.count() > 0:
+    loc_input = page.locator('input[id*="candidate_location" i], input[id*="location" i], input[name*="location" i]').first
+    if await loc_input.count() > 0 and await loc_input.is_visible():
         city_val = profile.get("location") or "Auburn, WA"
         if city_val.strip().lower() in ("akshay", "akshay borse", "none", ""):
             city_val = "Auburn, WA"
-        for i in range(await loc_inputs.count()):
-            loc_el = loc_inputs.nth(i)
-            if await loc_el.is_visible():
+        try:
+            await loc_input.fill(city_val)
+            filled["Location"] = city_val
+            await asyncio.sleep(0.3)
+            # Many ATS location fields are a Google-Places-style autocomplete: typed
+            # text alone doesn't satisfy the required field until a suggestion is
+            # actually clicked (or the highlighted one confirmed). Match generically
+            # against the parts of city_val — a hardcoded "Auburn, WA"-only match
+            # left every other city (i.e. real production usage) unfillable.
+            suggestions = page.locator('.location-suggestion, [role="option"], .pac-item, li[class*="suggestion"]')
+            sug_count = await suggestions.count()
+            city_parts = [p.strip().lower() for p in city_val.split(",") if p.strip()]
+            clicked = False
+            if sug_count > 0:
+                # Prefer a suggestion matching ALL parts (city AND state) over one
+                # matching only the city name — "Auburn, WA" was previously matched
+                # with a plain `any()`, so the first "Auburn, <wrong state>" in the
+                # list (there are several real US cities named Auburn) won over the
+                # correct one further down. Fall back to a partial/first-visible
+                # match only when no full match exists, so the field still gets
+                # something rather than being left uncommitted.
+                first_visible_el = None
+                partial_match_el = None
+                full_match_el = None
+                for s_idx in range(min(sug_count, 8)):
+                    s_el = suggestions.nth(s_idx)
+                    if not await s_el.is_visible():
+                        continue
+                    s_text = (await s_el.inner_text()).lower()
+                    if first_visible_el is None:
+                        first_visible_el = s_el
+                    if partial_match_el is None and any(part and part in s_text for part in city_parts):
+                        partial_match_el = s_el
+                    if full_match_el is None and city_parts and all(part in s_text for part in city_parts):
+                        full_match_el = s_el
+                        break
+                best_el = full_match_el or partial_match_el or first_visible_el
+                if best_el is not None:
+                    await best_el.click(force=True)
+                    clicked = True
+            if not clicked and sug_count > 0:
+                # A suggestion list rendered but nothing matched by text — the
+                # highlighted/first option is still far better than leaving the
+                # required field uncommitted.
                 try:
-                    await loc_el.fill(city_val)
-                    filled["Location"] = city_val
-                    await asyncio.sleep(0.3)
-                    # If auto-suggest popup appears, prioritize matching Auburn or Washington
-                    suggestions = page.locator('.location-suggestion, [role="option"], .pac-item, li[class*="suggestion"]')
-                    sug_count = await suggestions.count()
-                    matched_sug = None
-                    if sug_count > 0:
-                        profile_state_full = (profile.get("state") or "Washington").lower()
-                        profile_state_abbrev = "wa" if "washington" in profile_state_full else profile_state_full[:2]
-                        profile_city_lc = (profile.get("city") or "Auburn").lower()
-                        first_name_lc = (profile.get("firstName") or "").lower()
-
-                        for s_idx in range(sug_count):
-                            s_el = suggestions.nth(s_idx)
-                            s_text = (await s_el.inner_text()).lower()
-                            # SAFETY: Never accept suggestion matching candidate's first name
-                            if first_name_lc and s_text.strip() == first_name_lc:
-                                continue
-                            # Require BOTH city AND state match to prevent Auburn, ND
-                            has_city = profile_city_lc in s_text
-                            has_state = profile_state_full in s_text or profile_state_abbrev in s_text
-                            if has_city and has_state:
-                                matched_sug = s_el
-                                break
-                    if matched_sug:
-                        if await matched_sug.is_visible():
-                            await matched_sug.click(force=True)
-                    else:
-                        # No safe suggestion found — close without selecting a wrong location
-                        await page.keyboard.press("Escape")
-                        logger.warning("Location autocomplete: no suggestion matched both city and state from profile")
+                    await page.keyboard.press("ArrowDown")
+                    await page.keyboard.press("Enter")
                 except Exception:
                     pass
+        except Exception:
+            pass
 
     if log_cb and (filled.get("First Name") or filled.get("Email")):
         log_cb(f"Filled contact info ({first} {last}, {email})")
 
     # 2. Resume File
-    file_inputs = await page.locator('input[type="file"]').all()
-    if file_inputs and resume_file and os.path.exists(resume_file):
+    file_input = page.locator('input[type="file"][name*="resume" i], input[type="file"][id*="resume" i], input[type="file"]').first
+    if await file_input.count() > 0 and resume_file and os.path.exists(resume_file):
         try:
-            await file_inputs[0].set_input_files(resume_file)
+            await file_input.set_input_files(resume_file, timeout=5000)
+            try:
+                await file_input.dispatch_event("change")
+                await file_input.dispatch_event("input")
+            except Exception:
+                pass
             filled["Resume"] = os.path.basename(resume_file)
             if log_cb:
                 log_cb(f"Attached resume ({os.path.basename(resume_file)})")
@@ -543,11 +602,140 @@ async def _fill_standard_and_react_fields(
         except Exception as e:
             logger.warning("Resume attach error: %s", e)
 
-    # 3. React Comboboxes
+    # 3. React Comboboxes & Native Selects
     if log_cb:
         log_cb("Resolving dropdowns & comboboxes (EEOC / Custom)...")
     cb_filled = await _fill_all_greenhouse_comboboxes(page, profile, answer_lib)
     filled.update(cb_filled)
+
+    # Native Select dropdowns (EEOC, custom questions)
+    select_elements = await page.locator('select:visible').all()
+    for sel_el in select_elements:
+        try:
+            sel_id = await sel_el.get_attribute("id") or ""
+            sel_name = await sel_el.get_attribute("name") or ""
+            sel_lbl = ""
+            if sel_id:
+                lbl_el = page.locator(f'label[for="{sel_id}"]').first
+                if await lbl_el.count() > 0:
+                    sel_lbl = await lbl_el.inner_text()
+            if not sel_lbl:
+                parent = sel_el.locator('xpath=ancestor::div[contains(@class, "field") or contains(@class, "custom-question") or contains(@class, "form-group")][1]').first
+                if await parent.count() > 0:
+                    sel_lbl = (await parent.inner_text()).split('\n')[0]
+            if not sel_lbl:
+                sel_lbl = await sel_el.get_attribute("aria-label") or sel_name or sel_id
+
+            opt_texts = await sel_el.locator('option').all_inner_texts()
+            available = [o.strip() for o in opt_texts if o.strip() and o.strip().lower() not in ("select...", "select", "--", "choose")]
+
+            resolution = resolve_answer(
+                question_text=sel_lbl,
+                profile=profile,
+                options=available,
+            )
+            if resolution.answer and not resolution.blocking_errors:
+                for opt_t in available:
+                    if resolution.answer.lower() in opt_t.lower() or opt_t.lower() in resolution.answer.lower():
+                        await sel_el.select_option(label=opt_t)
+                        filled[sel_lbl[:50]] = opt_t
+                        break
+        except Exception:
+            pass
+
+    # Checkboxes (Consent / Demographic / Terms)
+    checkbox_elements = await page.locator('input[type="checkbox"]:visible').all()
+    for chk in checkbox_elements:
+        try:
+            chk_id = await chk.get_attribute("id") or ""
+            chk_lbl = ""
+            if chk_id:
+                lbl_el = page.locator(f'label[for="{chk_id}"]').first
+                if await lbl_el.count() > 0:
+                    chk_lbl = await lbl_el.inner_text()
+            if not chk_lbl:
+                parent = chk.locator('xpath=ancestor::div[contains(@class, "field") or contains(@class, "form-group") or contains(@class, "checkbox")][1]').first
+                if await parent.count() > 0:
+                    chk_lbl = await parent.inner_text()
+
+            chk_lbl_low = (chk_lbl or "").lower()
+            if any(k in chk_lbl_low for k in ["consent", "agree", "acknowledge", "terms", "privacy", "survey", "certify", "understand"]):
+                await chk.check()
+                filled[chk_lbl[:50] or "Consent Checkbox"] = "checked"
+        except Exception:
+            pass
+
+    # Radio button groups (Yes/No and other single-choice questions rendered
+    # as radio inputs rather than <select>/combobox). Previously these were
+    # only ever filled during a self-healing retry *after* a failure was
+    # already detected — never on the first pass — which is why required
+    # Yes/No questions like "willing to relocate?" consistently landed empty
+    # at DOM-verification time even though an answer had already been
+    # resolved and marked verified.
+    radio_elements = await page.locator('input[type="radio"]:visible').all()
+    seen_radio_names: set[str] = set()
+    for radio in radio_elements:
+        name = ""
+        try:
+            name = await radio.get_attribute("name") or ""
+            if not name or name in seen_radio_names:
+                continue
+            seen_radio_names.add(name)
+
+            group = page.locator(f'input[type="radio"][name="{name}"]')
+            group_count = await group.count()
+            if group_count == 0:
+                continue
+
+            options: list[str] = []
+            option_ids: list[str] = []
+            for idx in range(group_count):
+                opt = group.nth(idx)
+                opt_id = await opt.get_attribute("id") or ""
+                opt_label = (await opt.get_attribute("value") or "").strip()
+                if opt_id:
+                    lbl_el = page.locator(f'label[for="{opt_id}"]').first
+                    if await lbl_el.count() > 0:
+                        text = (await lbl_el.inner_text()).strip()
+                        if text:
+                            opt_label = text
+                if opt_label:
+                    options.append(opt_label)
+                    option_ids.append(opt_id)
+
+            if not options or not option_ids:
+                continue
+
+            # Group label: fieldset/legend first, else the nearest ancestor
+            # field container's leading text (mirrors the checkbox lookup above).
+            group_lbl = ""
+            first_radio_id = option_ids[0]
+            if first_radio_id:
+                fieldset = page.locator(f'fieldset:has(#{first_radio_id})').first
+                if await fieldset.count() > 0:
+                    legend = fieldset.locator("legend").first
+                    if await legend.count() > 0:
+                        group_lbl = (await legend.inner_text()).strip()
+            if not group_lbl:
+                parent = radio.locator(
+                    'xpath=ancestor::div[contains(@class, "field") or contains(@class, "form-group") or contains(@class, "custom-question")][1]'
+                ).first
+                if await parent.count() > 0:
+                    full_text = (await parent.inner_text()).strip()
+                    group_lbl = full_text.split("\n")[0].strip() if full_text else ""
+            if not group_lbl:
+                continue
+
+            resolution = resolve_answer(question_text=group_lbl, profile=profile, options=options)
+            if not resolution.answer or resolution.blocking_errors:
+                continue
+
+            if await _select_radio_option(page, first_radio_id, resolution.answer):
+                filled[group_lbl[:50]] = resolution.answer
+        except Exception as exc:
+            logger.debug("Radio group fill error on name=%s: %s", name or "?", exc)
+            continue
+
     if log_cb and cb_filled:
         log_cb(f"Selected {len(cb_filled)} combobox & dropdown options")
 
@@ -653,11 +841,68 @@ async def execute_live_playwright_submission(
     timeout_sec: float = 75.0,
     log_callback: Any = None,
 ) -> dict[str, Any]:
+    """Run the submission on the dedicated Proactor-loop thread (see browser_runner._ensure_playwright_loop).
+
+    Playwright's browser launch spawns a subprocess via asyncio, which raises a bare
+    NotImplementedError on Windows if it runs on the ambient (non-Proactor) event loop —
+    e.g. uvicorn's own request-handling loop. Routing through browser_runner's dedicated
+    Proactor thread avoids that, matching the workaround already used elsewhere for
+    manual (non-autopilot) applications.
+    """
+    try:
+        # Check if already running on a valid event loop with Playwright capability
+        return await _execute_live_playwright_submission_impl(
+            job_item=job_item,
+            profile=profile,
+            answer_lib=answer_lib,
+            headless=headless,
+            timeout_sec=timeout_sec,
+            log_callback=log_callback,
+        )
+    except NotImplementedError:
+        # On Windows non-Proactor loops (e.g. standard thread), route via dedicated Proactor loop
+        from app.services.application_assistant.browser_runner import run_playwright_async
+        return await run_playwright_async(
+            _execute_live_playwright_submission_impl(
+                job_item=job_item,
+                profile=profile,
+                answer_lib=answer_lib,
+                headless=headless,
+                timeout_sec=timeout_sec,
+                log_callback=log_callback,
+            ),
+            timeout=timeout_sec + 30,
+        )
+
+
+async def _execute_live_playwright_submission_impl(
+    job_item: dict[str, Any],
+    profile: dict[str, Any],
+    answer_lib: list[dict[str, Any]] | None = None,
+    headless: bool = True,
+    timeout_sec: float = 75.0,
+    log_callback: Any = None,
+) -> dict[str, Any]:
     """Execute autonomous browser submission with strict pre-submit and post-submit verification."""
     app_url = job_item.get("applicationUrl") or job_item.get("listingUrl") or ""
     company = job_item.get("company") or "Target Company"
     title = job_item.get("title") or "Target Role"
     job_id = job_item.get("id") or "job"
+
+    # Per-application Gmail plus-addressing (deterministic reply tracking) —
+    # read-only lookup; falls back to the real profile email on any failure
+    # or if the draft predates this field, never blocks submission.
+    try:
+        from app.db.store import session_scope
+        from app.services.application_assistant.persistence import application_id_for_job, get_application_draft
+
+        with session_scope() as _tracking_db:
+            _draft = get_application_draft(_tracking_db, application_id_for_job(job_id))
+        _tracking_email = (_draft or {}).get("trackingEmail")
+    except Exception:
+        _tracking_email = None
+    if _tracking_email:
+        profile = {**profile, "email": _tracking_email}
 
     if not app_url:
         return {"submitted": False, "error": "Missing application URL", "evidence": {}}
@@ -856,7 +1101,7 @@ async def execute_live_playwright_submission(
                         )
                         fix_val = heal_resolution.answer
                     if f_id:
-                        elem = target_frame.locator(f"#{f_id}").first
+                        elem = target_frame.locator(f'[id="{f_id}"]').first
                         if await elem.count() > 0:
                             try:
                                 el_type = (await elem.evaluate("el => (el.type || el.getAttribute('type') || '').toLowerCase()")) or ""
@@ -872,19 +1117,47 @@ async def execute_live_playwright_submission(
                                         except Exception as f_err:
                                             logger.warning("File attachment error on %s: %s", f_id, f_err)
                                 elif is_cb:
-                                    await _select_react_combobox(target_frame, f_id, str(fix_val))
-                                    filled_fields[f_label or f_id] = str(fix_val)
-                                    if log_callback:
-                                        log_callback(f"Self-healed [{f_label or f_id}] -> '{fix_val}'")
-                                elif el_type == "radio":
-                                    if fix_val and await _select_radio_option(target_frame, f_id, str(fix_val)):
+                                    if fix_val and str(fix_val).lower() not in ("none", "null", "undefined", ""):
+                                        await _select_react_combobox(target_frame, f_id, str(fix_val))
                                         filled_fields[f_label or f_id] = str(fix_val)
                                         if log_callback:
                                             log_callback(f"Self-healed [{f_label or f_id}] -> '{fix_val}'")
+                                elif el_type == "radio":
+                                    if fix_val and str(fix_val).lower() not in ("none", "null", "undefined", "") and await _select_radio_option(target_frame, f_id, str(fix_val)):
+                                        filled_fields[f_label or f_id] = str(fix_val)
+                                        if log_callback:
+                                            log_callback(f"Self-healed [{f_label or f_id}] -> '{fix_val}'")
+                                elif el_type == "checkbox":
+                                    if fix_val and str(fix_val).lower() not in ("no", "false", "0", "unchecked", "none", "null"):
+                                        await elem.check()
+                                        filled_fields[f_label or f_id] = "checked"
+                                        if log_callback:
+                                            log_callback(f"Self-healed checkbox [{f_label or f_id}] -> checked")
+                                elif el_type in ("select-one", "select-multiple"):
+                                    # Native <select> elements don't support .fill() — Playwright raises on
+                                    # them, which the broad except below was silently swallowing, leaving
+                                    # the field empty despite a resolved fix_val (e.g. Country, Yes/No drops).
+                                    if fix_val and str(fix_val).lower() not in ("none", "null", "undefined", ""):
+                                        opt_texts = await elem.locator("option").all_inner_texts()
+                                        wanted = str(fix_val).strip().lower()
+                                        matched_opt = None
+                                        for opt_t in opt_texts:
+                                            clean = opt_t.strip()
+                                            if not clean or clean.lower() in ("select...", "select", "--", "choose"):
+                                                continue
+                                            if wanted == clean.lower() or wanted in clean.lower() or clean.lower() in wanted:
+                                                matched_opt = clean
+                                                break
+                                        if matched_opt:
+                                            await elem.select_option(label=matched_opt)
+                                            filled_fields[f_label or f_id] = matched_opt
+                                            if log_callback:
+                                                log_callback(f"Self-healed [{f_label or f_id}] -> '{matched_opt}'")
+                                        elif log_callback:
+                                            log_callback(f"Self-heal: no matching option for [{f_label or f_id}] wanting '{fix_val}'", lvl="warning")
                                 else:
-                                    # Never coerce an unknown field to the literal string
-                                    # "None". Leaving it unresolved prevents a bad submit.
-                                    if fix_val:
+                                    # Never coerce an unknown field to the literal string "None"
+                                    if fix_val and str(fix_val).lower() not in ("none", "null", "undefined", ""):
                                         await elem.fill(str(fix_val))
                                         filled_fields[f_label or f_id] = str(fix_val)
                                         if log_callback:
@@ -1006,7 +1279,24 @@ async def execute_live_playwright_submission(
                 log_callback(f"Clicking final Submit button on {company}...")
             await submit_button.scroll_into_view_if_needed()
             await submit_button.click()
-            await asyncio.sleep(5.0)
+            await asyncio.sleep(4.0)
+
+            # ─── GREENHOUSE EMAIL VERIFICATION FLOW ─────────────────────────────
+            from app.services.application_assistant.greenhouse_verification_service import handle_greenhouse_verification_flow
+            candidate_email = profile.get("email", "amsborse+careeros@gmail.com")
+            try:
+                verification_handled = await handle_greenhouse_verification_flow(
+                    page=page,
+                    target_frame=target_frame,
+                    company=company,
+                    candidate_email=candidate_email,
+                    timeout_sec=45.0,
+                    log_callback=log_callback,
+                )
+                if verification_handled:
+                    logger.info("Greenhouse verification flow executed successfully.")
+            except Exception as v_ex:
+                logger.warning("Greenhouse verification flow check encountered: %s", v_ex)
 
             try:
                 await page.wait_for_load_state("networkidle", timeout=15000)
@@ -1097,7 +1387,10 @@ async def execute_live_playwright_submission(
             }
 
         except Exception as e:
-            logger.error("Playwright submission failed: %s", e)
+            # exc_info=True so a bare exception (e.g. NotImplementedError with no
+            # message) still leaves a full traceback in the logs instead of just
+            # an unhelpful empty string.
+            logger.error("Playwright submission failed: %s", e, exc_info=True)
             err_screenshot = SCREENSHOTS_DIR / f"{job_id}_error.png"
             try:
                 await page.screenshot(path=str(err_screenshot), full_page=True)

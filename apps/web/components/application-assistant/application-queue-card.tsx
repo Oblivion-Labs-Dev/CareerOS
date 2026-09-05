@@ -47,6 +47,7 @@ export type QueueApplication = {
   lastPrepError?: string;
   lastPrepAnalysis?: string;
   fields?: { label?: string; normalizedKey?: string; fieldType?: string; classification?: string }[];
+  answers?: Record<string, any>;
 };
 
 type ReviewSessionStatus = {
@@ -319,6 +320,7 @@ export type ApplicationQueueCardProps = {
   errorSlot?: React.ReactNode;
   intelligenceSlot?: React.ReactNode;
   primaryActionOverride?: { label: string; onClick: () => void; disabled?: boolean };
+  drawerContentSlot?: React.ReactNode;
 };
 
 export function ApplicationQueueCard({
@@ -354,6 +356,7 @@ export function ApplicationQueueCard({
   errorSlot,
   intelligenceSlot,
   primaryActionOverride,
+  drawerContentSlot,
 }: ApplicationQueueCardProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -363,7 +366,7 @@ export function ApplicationQueueCard({
   const updated = formatRelativeTime(app.updatedAt);
   const location = app.jobLocation?.trim();
   const workplace = app.workplaceType?.trim();
-  const providerLabel = app.provider.charAt(0).toUpperCase() + app.provider.slice(1);
+  const providerLabel = app.provider ? app.provider.charAt(0).toUpperCase() + app.provider.slice(1) : "Unknown";
   const totalFields = fieldTotal(app);
   const readyFields = app.verifiedCount;
   const stage = resolveApplicationStage({
@@ -682,7 +685,39 @@ export function ApplicationQueueCard({
                   <li className="aac-drawer-stat aac-drawer-stat--warn">Conflicts · {app.conflictingCount}</li>
                 )}
               </ul>
+
+              {app.answers && Object.keys(app.answers).length > 0 && (
+                <div style={{ marginTop: "1rem" }}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.5rem" }}>
+                    <h5 style={{ margin: 0, fontSize: "11px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", color: "var(--text-secondary, #94a3b8)" }}>
+                      Submitted Answers ({Object.keys(app.answers).length})
+                    </h5>
+                  </div>
+                  <div style={{ maxHeight: "320px", overflowY: "auto", display: "flex", flexDirection: "column", gap: "0.5rem", paddingRight: "4px" }}>
+                    {Object.entries(app.answers).map(([key, val], idx) => (
+                      <div
+                        key={idx}
+                        style={{
+                          padding: "0.6rem 0.75rem",
+                          borderRadius: "0.5rem",
+                          background: "rgba(255, 255, 255, 0.03)",
+                          border: "1px solid rgba(255, 255, 255, 0.07)",
+                        }}
+                      >
+                        <div style={{ fontSize: "11px", fontWeight: 600, color: "var(--text, #e2e8f0)", marginBottom: "0.25rem" }}>
+                          {key}
+                        </div>
+                        <div style={{ fontSize: "11px", fontFamily: "monospace", color: "#2ee8c9", wordBreak: "break-word" }}>
+                          {String(val || "—")}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </section>
+
+            {drawerContentSlot}
 
             {(actionAlert || errorSlot) && (
               <section className="aac-drawer-section">

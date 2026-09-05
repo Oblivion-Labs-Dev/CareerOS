@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.db.store import session_scope
 from app.services.answer_engine import generate_answer, load_custom_answers
-from app.services.intelligence import auto_apply, night_shift, signals, tasks
+from app.services.intelligence import auto_apply, auto_apply_lanes, night_shift, signals, tasks
 
 router = APIRouter(prefix="/intelligence", tags=["intelligence"])
 
@@ -137,6 +137,90 @@ def auto_apply_run(dry_run: bool = True, db: Session = Depends(db_session)) -> d
 @router.get("/auto-apply/log")
 def auto_apply_log(db: Session = Depends(db_session), limit: int = Query(default=50, ge=1, le=100)) -> dict[str, Any]:
     return {"success": True, "log": auto_apply.get_log(db, limit=limit)}
+
+
+# ── Auto Apply Lanes ────────────────────────────────────────────────────────
+
+class LaneFiltersPayload(BaseModel):
+    includeKeywords: str = ""
+    excludeKeywords: str = ""
+    location: str = ""
+    company: str = ""
+    freshness: str = "all"
+
+
+class LaneCreatePayload(BaseModel):
+    name: str
+    filters: LaneFiltersPayload = LaneFiltersPayload()
+    matchBar: int = 60
+    dailyCap: int = 5
+    reviewBeforeSubmit: bool = True
+    enabled: bool = True
+
+
+class LanePatchPayload(BaseModel):
+    name: str | None = None
+    filters: LaneFiltersPayload | None = None
+    matchBar: int | None = None
+    dailyCap: int | None = None
+    reviewBeforeSubmit: bool | None = None
+    enabled: bool | None = None
+
+
+class SharedCapPayload(BaseModel):
+    dailyCap: int
+
+
+@router.get("/auto-apply/status")
+def auto_apply_lanes_status(db: Session = Depends(db_session)) -> dict[str, Any]:
+    return {"success": True, **auto_apply_lanes.get_status(db)}
+
+
+@router.get("/auto-apply/lanes")
+def auto_apply_lanes_list(db: Session = Depends(db_session)) -> dict[str, Any]:
+    return {"success": True, "lanes": auto_apply_lanes.list_lanes(db)}
+
+
+@router.post("/auto-apply/lanes")
+def auto_apply_lanes_create(payload: LaneCreatePayload, db: Session = Depends(db_session)) -> dict[str, Any]:
+    try:
+        lane = auto_apply_lanes.create_lane(db, payload.model_dump())
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"success": True, "lane": lane}
+
+
+@router.patch("/auto-apply/lanes/{lane_id}")
+def auto_apply_lanes_update(lane_id: str, payload: LanePatchPayload, db: Session = Depends(db_session)) -> dict[str, Any]:
+    try:
+        lane = auto_apply_lanes.update_lane(db, lane_id, payload.model_dump(exclude_unset=True))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if not lane:
+        raise HTTPException(status_code=404, detail="Lane not found")
+    return {"success": True, "lane": lane}
+
+
+@router.delete("/auto-apply/lanes/{lane_id}")
+def auto_apply_lanes_delete(lane_id: str, db: Session = Depends(db_session)) -> dict[str, Any]:
+    if not auto_apply_lanes.delete_lane(db, lane_id):
+        raise HTTPException(status_code=404, detail="Lane not found")
+    return {"success": True}
+
+
+@router.put("/auto-apply/cap")
+def auto_apply_lanes_set_cap(payload: SharedCapPayload, db: Session = Depends(db_session)) -> dict[str, Any]:
+    return {"success": True, **auto_apply_lanes.set_shared_cap(db, payload.dailyCap)}
+
+
+@router.post("/auto-apply/lanes/run")
+async def auto_apply_lanes_run(dry_run: bool = True, db: Session = Depends(db_session)) -> dict[str, Any]:
+    return await auto_apply_lanes.evaluate_lanes(db, dry_run=dry_run)
+
+
+@router.get("/auto-apply/lanes/log")
+def auto_apply_lanes_log(db: Session = Depends(db_session), limit: int = Query(default=20, ge=1, le=50)) -> dict[str, Any]:
+    return {"success": True, "log": auto_apply_lanes.get_run_log(db, limit=limit)}
 
 
 # ── Answer Bank ─────────────────────────────────────────────────────────────

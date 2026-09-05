@@ -8,7 +8,7 @@ import {
   resetSubmittedAutopilotJobs,
   SubmissionReceiptItem,
 } from "@/lib/application-assistant-api";
-import { IconCheckCircle, IconDownload, IconExternalLink, IconSend } from "@/components/application-assistant/autopilot/icons";
+import { IconCheckCircle, IconDownload, IconSend } from "@/components/application-assistant/autopilot/icons";
 import { SubmissionReceiptModal } from "@/components/application-assistant/submission-receipt-modal";
 import { ApplicationQueueCard, type QueueApplication } from "@/components/application-assistant/application-queue-card";
 import { resolveApplicationReadiness } from "@/components/application-assistant/application-readiness";
@@ -35,7 +35,7 @@ export function SubmittedJobsCenter() {
         applicationUrl: job.applicationUrl || job.listingUrl,
         status: job.status,
         submittedAt: job.submittedAt || job.updatedAt,
-        answers: job.answers || {},
+        answers: job.fieldsFilled || job.answers || {},
         submissionEvidence: job.submissionEvidence || {},
         verificationStatus: job.verificationStatus || "VERIFIED",
         matchScore: job.matchScore,
@@ -112,19 +112,20 @@ export function SubmittedJobsCenter() {
       setSelectedReceipt(res.receipt);
     } catch {
       // Create fallback receipt from job model
+      const fields = job.fieldsFilled || job.answers || {};
       const fallback: SubmissionReceiptItem = {
-        receiptId: `rcpt_${job.id.slice(0, 12)}`,
+        receiptId: job.receiptId || `rcpt_${job.id.slice(0, 12)}`,
         jobId: job.id,
         company: job.company || "Company",
         title: job.title || "Role",
         applicationUrl: job.applicationUrl || job.listingUrl || "",
         confirmationUrl: job.submissionEvidence?.confirmationUrl || "",
-        confirmationText: job.submissionEvidence?.confirmationText || "Application confirmed by ATS",
+        confirmationText: job.confirmationText || job.submissionEvidence?.confirmationText || "Application confirmed by ATS",
         submittedAt: job.submittedAt || job.updatedAt || new Date().toISOString(),
-        fieldsFilled: job.answers || {},
-        fieldsCount: Object.keys(job.answers || {}).length || 5,
+        fieldsFilled: fields,
+        fieldsCount: Object.keys(fields).length || 5,
         verificationStatus: "VERIFIED",
-        certificateFingerprint: job.id.toUpperCase(),
+        certificateFingerprint: job.certificateFingerprint || job.id.toUpperCase(),
       };
       setSelectedReceipt(fallback);
     } finally {
@@ -142,7 +143,7 @@ export function SubmittedJobsCenter() {
             <span>Submitted Applications</span>
           </h2>
           <p className="text-xs text-slate-300 mt-1">
-            All applications processed by Autopilot. You can review them, inspect verified receipts, or reset them back to unapplied.
+            All applications processed by Autopilot. Click any application card to open its side panel to inspect all filled form fields and answers.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
@@ -201,8 +202,68 @@ export function SubmittedJobsCenter() {
         <div className="aa-queue-grid">
           {submittedList.map((job) => {
             const evidence = job.submissionEvidence || {};
-            const app: QueueApplication = { id: job.id, jobId: job.jobId || job.id, companyName: job.company || "Unknown company", roleTitle: job.title || "Unknown role", provider: job.provider || job.sourceProvider || "Autopilot", status: "submitted_manually", progress: 1, verifiedCount: Object.keys(job.answers || {}).length, reviewCount: 0, missingCount: 0, conflictingCount: 0, matchScore: job.matchScore, aiAnalyzed: job.matchScore != null, updatedAt: job.submittedAt || job.updatedAt || new Date().toISOString(), errors: [] };
-            return <ApplicationQueueCard key={job.id} app={app} statusAccent="emerald" isOpening={false} isBrowserOpen={false} isAnalyzing={false} isWizardLoading={false} gateLoading={false} profileBlocked={false} readiness={resolveApplicationReadiness(app)} needsAiAnalysis={false} pendingCount={0} isPreparing={false} isActivePrep={false} openingElapsedSec={0} analyzeElapsedSec={0} closingBrowser={false} onFocusBrowser={() => undefined} onResume={() => undefined} onAnswerQuestions={() => undefined} onOpenInBrowser={() => undefined} onToggleSubmitted={() => undefined} onArchive={() => void handleResetSingle(job.id, job.title || "Job")} intelligenceSlot={<p className="aac-alert aac-alert--info">{typeof evidence === "object" ? evidence.confirmationText || "ATS confirmed submission" : "ATS confirmed submission"}</p>} primaryActionOverride={{ label: "View receipt", onClick: () => void handleViewReceipt(job), disabled: receiptLoading }} />;
+            const fields = job.fieldsFilled || job.answers || {};
+            const fieldCount = Object.keys(fields).length;
+
+            const app: QueueApplication = {
+              id: job.id,
+              jobId: job.jobId || job.id,
+              companyName: job.company || "Unknown company",
+              roleTitle: job.title || "Unknown role",
+              provider: job.provider || job.sourceProvider || "Autopilot",
+              status: "submitted_manually",
+              progress: 1,
+              verifiedCount: fieldCount,
+              reviewCount: 0,
+              missingCount: 0,
+              conflictingCount: 0,
+              matchScore: job.matchScore,
+              aiAnalyzed: job.matchScore != null,
+              updatedAt: job.submittedAt || job.updatedAt || new Date().toISOString(),
+              errors: [],
+              fields: Object.keys(fields).map((label) => ({ label, classification: "verified" })),
+              answers: fields,
+            };
+
+            return (
+              <ApplicationQueueCard
+                key={job.id}
+                app={app}
+                statusAccent="emerald"
+                isOpening={false}
+                isBrowserOpen={false}
+                isAnalyzing={false}
+                isWizardLoading={false}
+                gateLoading={false}
+                profileBlocked={false}
+                readiness={resolveApplicationReadiness(app)}
+                needsAiAnalysis={false}
+                pendingCount={0}
+                isPreparing={false}
+                isActivePrep={false}
+                openingElapsedSec={0}
+                analyzeElapsedSec={0}
+                closingBrowser={false}
+                onFocusBrowser={() => undefined}
+                onResume={() => undefined}
+                onAnswerQuestions={() => undefined}
+                onOpenInBrowser={() => undefined}
+                onToggleSubmitted={() => undefined}
+                onArchive={() => void handleResetSingle(job.id, job.title || "Job")}
+                intelligenceSlot={
+                  <p className="aac-alert aac-alert--info">
+                    {typeof evidence === "object" && evidence.confirmationText
+                      ? evidence.confirmationText
+                      : job.confirmationText || "ATS confirmed submission"}
+                  </p>
+                }
+                primaryActionOverride={{
+                  label: "View receipt",
+                  onClick: () => void handleViewReceipt(job),
+                  disabled: receiptLoading,
+                }}
+              />
+            );
           })}
         </div>
       )}

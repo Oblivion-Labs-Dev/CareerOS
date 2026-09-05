@@ -45,7 +45,7 @@ export const ALL_NAV_GROUPS: NavGroup[] = [
       { href: "/dev/dummy-job", label: "Dummy Job Test Bed", icon: "evidence", emoji: "🧪", requiresBackend: true, enabled: true },
       { href: "/intelligence/signals", label: "Signals", icon: "insights", requiresBackend: true, enabled: false },
       { href: "/intelligence/night-shift", label: "Night Shift", icon: "applypilot", requiresBackend: true, enabled: false },
-      { href: "/intelligence/auto-apply", label: "Auto Apply", icon: "applypilot", requiresBackend: true, enabled: false },
+      { href: "/intelligence/auto-apply", label: "Auto Apply", icon: "applypilot", emoji: "🛫", requiresBackend: true, enabled: false },
       { href: "/intelligence/tasks", label: "Daily Tasks", icon: "today", requiresBackend: true, enabled: false },
     ],
   },
@@ -71,7 +71,7 @@ export const ALL_NAV_GROUPS: NavGroup[] = [
     items: [
       { href: "/referrals", label: "Referrals", icon: "relationships", requiresBackend: true, enabled: false },
       { href: "/recruiters", label: "Recruiter Outreach", icon: "relationships", requiresBackend: true, enabled: false },
-      { href: "/networking", label: "Relationships", icon: "relationships", requiresBackend: true, enabled: false },
+      { href: "/networking", label: "Relationships", icon: "relationships", requiresBackend: true, enabled: true },
       { href: "/interviews", label: "Interviews", icon: "interviews", requiresBackend: true, enabled: false },
     ],
   },
@@ -96,29 +96,35 @@ export const ALL_NAV_GROUPS: NavGroup[] = [
   },
 ];
 
-/** Navigation used by the CareerOS mission-control shell. */
+/** Navigation used by the CareerOS mission-control shell.
+ * `enabled: false` items still render (so it's visible what exists in the
+ * repo) but are unclickable — see `app-sidebar.tsx`'s handling of this flag. */
 export const NAV_GROUPS: NavGroup[] = [
   {
     label: "Main",
     items: [
-      { href: "/dashboard", label: "Dashboard", icon: "today", requiresBackend: true },
-      { href: "/applications", label: "Autopilot", icon: "applypilot", requiresBackend: true },
-      { href: "/applications?tab=review", label: "Review Center", icon: "review", requiresBackend: true },
-      { href: "/applications?tab=tracker", label: "All Applications", icon: "applications", requiresBackend: true },
-      { href: "/jobs/discover", label: "Job Discovery", icon: "search", requiresBackend: true },
-      { href: "/analytics", label: "Analytics", icon: "insights", requiresBackend: true },
+      { href: "/dashboard", label: "Dashboard", icon: "today", requiresBackend: true, enabled: true },
+      { href: "/applications", label: "Autopilot", icon: "applypilot", requiresBackend: true, enabled: true },
+      { href: "/applications?tab=inbox", label: "Inbox", icon: "applications", requiresBackend: true, enabled: true },
+      { href: "/applications?tab=pipeline", label: "Pipeline", icon: "applications", requiresBackend: true, enabled: true },
+      { href: "/jobs/discover", label: "Job Discovery", icon: "search", requiresBackend: true, enabled: true },
+      { href: "/intelligence/auto-apply", label: "Auto Apply", icon: "applypilot", requiresBackend: true, enabled: true },
+      { href: "/applications?tab=tracker", label: "All Applications", icon: "applications", requiresBackend: true, enabled: false },
+      { href: "/applications?tab=review", label: "Review Center", icon: "review", requiresBackend: true, enabled: false },
+      { href: "/analytics", label: "Analytics", icon: "insights", requiresBackend: true, enabled: false },
     ],
   },
   {
     label: "Tools",
     items: [
-      { href: "/benchmarks", label: "LLM Benchmarks", icon: "evidence", requiresBackend: true },
-      { href: "/dev/dummy-job", label: "Dummy Job Test Bed", icon: "evidence", requiresBackend: true },
-      { href: "/resume-corpus", label: "Resume Intelligence", icon: "evidence", requiresBackend: true },
-      { href: "/profile", label: "Resume & Profile", icon: "profile", requiresBackend: true },
-      { href: "/intelligence/answers", label: "AI Answers", icon: "answers", requiresBackend: true },
-      { href: "/settings?section=integrations", label: "Integrations", icon: "integrations" },
-      { href: "/settings", label: "Settings", icon: "settings" },
+      { href: "/profile", label: "Resume & Profile", icon: "profile", requiresBackend: true, enabled: true },
+      { href: "/settings", label: "Settings", icon: "settings", enabled: true },
+      { href: "/resume-corpus", label: "Resume Intelligence", icon: "evidence", requiresBackend: true, enabled: false },
+      { href: "/intelligence/answers", label: "AI Answers", icon: "answers", requiresBackend: true, enabled: false },
+      { href: "/networking", label: "Networking", icon: "relationships", requiresBackend: true, enabled: false },
+      { href: "/benchmarks", label: "LLM Benchmarks", icon: "evidence", requiresBackend: true, enabled: false },
+      { href: "/dev/dummy-job", label: "Dummy Job Test Bed", icon: "evidence", requiresBackend: true, enabled: false },
+      { href: "/settings?section=integrations", label: "Integrations", icon: "integrations", enabled: false },
     ],
   },
 ];

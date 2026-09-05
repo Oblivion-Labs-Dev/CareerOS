@@ -261,7 +261,14 @@ def _resolve_location(res: AnswerResolution, profile: dict, opts: list[str]) -> 
         res.confidence = 1.0
 
 def _resolve_city(res: AnswerResolution, profile: dict, opts: list[str]) -> None:
-    _resolve_from_profile(res, profile, opts, "city")
+    # Profiles store one combined "location" string (e.g. "Auburn, WA") rather
+    # than a separate "city" field, so a plain profile_key="city" lookup always
+    # missed — this question type resolved to nothing on every real profile.
+    city_fallback = None
+    location = str(profile.get("location") or "").strip()
+    if location:
+        city_fallback = location.split(",")[0].strip() or None
+    _resolve_from_profile(res, profile, opts, "city", fallback=city_fallback)
 
 def _resolve_state(res: AnswerResolution, profile: dict, opts: list[str]) -> None:
     _resolve_from_profile(res, profile, opts, "state", fallback="Washington")
@@ -297,21 +304,64 @@ def _resolve_website(res: AnswerResolution, profile: dict, opts: list[str]) -> N
         res.confidence = 1.0
 
 def _resolve_years_experience(res: AnswerResolution, profile: dict, opts: list[str]) -> None:
-    _resolve_from_profile(res, profile, opts, "yearsExperience", fallback="5")
+    yoe = profile.get("yearsExperience", 8)
+    try:
+        yoe_int = int(yoe)
+    except (ValueError, TypeError):
+        yoe_int = 8
+
+    if opts:
+        for opt in opts:
+            nums = [int(n) for n in re.findall(r"\d+", opt)]
+            if len(nums) == 1:
+                if "+" in opt or "more" in opt or "over" in opt or "greater" in opt:
+                    if yoe_int >= nums[0]:
+                        res.answer = opt
+                        res.confidence = 1.0
+                        res.resolution_method = PROFILE_OPTION_MAPPING
+                        return
+                elif nums[0] == yoe_int:
+                    res.answer = opt
+                    res.confidence = 1.0
+                    res.resolution_method = PROFILE_OPTION_MAPPING
+                    return
+            elif len(nums) >= 2:
+                if nums[0] <= yoe_int <= nums[1]:
+                    res.answer = opt
+                    res.confidence = 1.0
+                    res.resolution_method = PROFILE_OPTION_MAPPING
+                    return
+        matched = _match_option(opts, str(yoe_int))
+        res.answer = matched or opts[-1]
+        res.confidence = 0.95
+        res.resolution_method = PROFILE_OPTION_MAPPING
+    else:
+        res.answer = str(yoe_int)
+        res.confidence = 1.0
+        res.resolution_method = PROFILE_EXACT
 
 
 # ── Work Authorization resolvers (the critical fixes) ────────────────────────
 
 def _resolve_work_authorized(res: AnswerResolution, profile: dict, opts: list[str]) -> None:
-    """Q: Are you authorized to work in the US? → Yes (for H1B holders)."""
     wa = _get_work_auth(profile)
-    answer = "Yes" if wa["authorizedToWorkInUS"] else "No"
+    auth = wa["authorizedToWorkInUS"]
     if opts:
-        matched = _match_option(opts, answer)
-        res.answer = matched or answer
-        res.resolution_method = PROFILE_OPTION_MAPPING if matched else PROFILE_EXACT
+        if auth:
+            yes_opt = None
+            for opt in opts:
+                opt_l = opt.lower()
+                if opt_l.startswith("yes") or ("authorized" in opt_l and "not" not in opt_l and "unauthorized" not in opt_l) or "visa" in opt_l or "h-1b" in opt_l or "work authorization" in opt_l or "eligible" in opt_l or "source of right" in opt_l:
+                    yes_opt = opt
+                    break
+            matched = yes_opt or _match_option(opts, "Yes")
+            res.answer = matched or opts[0]
+        else:
+            matched = _match_option(opts, "No")
+            res.answer = matched or "No"
+        res.resolution_method = PROFILE_OPTION_MAPPING
     else:
-        res.answer = answer
+        res.answer = "Yes" if auth else "No"
         res.resolution_method = PROFILE_EXACT
     res.profile_key = "workAuth.authorizedToWorkInUS"
     res.source_value = wa["authorizedToWorkInUS"]
@@ -319,20 +369,28 @@ def _resolve_work_authorized(res: AnswerResolution, profile: dict, opts: list[st
 
 
 def _resolve_sponsorship_required(res: AnswerResolution, profile: dict, opts: list[str]) -> None:
-    """Q: Will you require sponsorship? → Yes (for H1B).
-
-    BUG FIX: This was previously returning "No" because the heuristic
-    confused work authorization with sponsorship. They are separate facts:
-    authorized=Yes AND requires_sponsorship=Yes can both be true.
-    """
     wa = _get_work_auth(profile)
-    answer = "Yes" if wa["requiresSponsorshipNowOrFuture"] else "No"
+    requires = wa["requiresSponsorshipNowOrFuture"]
     if opts:
-        matched = _match_option(opts, answer)
-        res.answer = matched or answer
-        res.resolution_method = PROFILE_OPTION_MAPPING if matched else PROFILE_EXACT
+        if requires:
+            # Check for US-specific visa options first if located in US
+            us_match = None
+            for opt in opts:
+                opt_lower = opt.lower()
+                if "yes" in opt_lower and any(w in opt_lower for w in ["us", "u.s.", "united states", "h-1b", "h1b"]):
+                    us_match = opt
+                    break
+            if us_match:
+                res.answer = us_match
+            else:
+                matched = _match_option(opts, "Yes")
+                res.answer = matched or "Yes"
+        else:
+            matched = _match_option(opts, "No")
+            res.answer = matched or "No"
+        res.resolution_method = PROFILE_OPTION_MAPPING
     else:
-        res.answer = answer
+        res.answer = "Yes" if requires else "No"
         res.resolution_method = PROFILE_EXACT
     res.profile_key = "workAuth.requiresSponsorshipNowOrFuture"
     res.source_value = wa["requiresSponsorshipNowOrFuture"]
@@ -452,6 +510,18 @@ def _resolve_clearance_level(res: AnswerResolution, profile: dict, opts: list[st
     else:
         answer = "None"
     if opts:
+        # Check all possible negative / none options
+        for opt in opts:
+            opt_lower = opt.lower()
+            if any(phrase in opt_lower for phrase in [
+                "not hold", "do not hold", "no active", "do not have", "no clearance", "none", "not applicable", "n/a", "no", "inactive"
+            ]):
+                res.answer = opt
+                res.resolution_method = PROFILE_OPTION_MAPPING
+                res.confidence = 1.0
+                res.profile_key = "security.hasHeldUSSecurityClearance"
+                res.source_value = sec["hasHeldUSSecurityClearance"]
+                return
         matched = _match_option(opts, answer) or _match_option(opts, "N/A") or \
                   _match_option(opts, "No clearance held") or _match_option(opts, "None")
         res.answer = matched or answer
@@ -641,10 +711,11 @@ def _resolve_english_proficiency(res: AnswerResolution, profile: dict, opts: lis
     res.confidence = 0.95
 
 def _resolve_privacy_consent(res: AnswerResolution, profile: dict, opts: list[str]) -> None:
+    target = "I agree"
     if opts:
-        res.answer = _match_option(opts, "Yes") or _match_option(opts, "I acknowledge") or "Yes"
+        res.answer = _match_option(opts, "I agree") or _match_option(opts, "Agree") or _match_option(opts, "Yes") or _match_option(opts, "I acknowledge") or _match_option(opts, "Accept") or opts[0]
     else:
-        res.answer = "Yes"
+        res.answer = target
     res.resolution_method = DETERMINISTIC_RULE
     res.confidence = 0.95
 
@@ -688,6 +759,75 @@ def _resolve_transcript(res: AnswerResolution, profile: dict, opts: list[str]) -
         res.answer = "Yes"
     res.resolution_method = DETERMINISTIC_RULE
     res.confidence = 0.9
+
+def _resolve_test_score(res: AnswerResolution, profile: dict, opts: list[str]) -> None:
+    if opts:
+        for opt in opts:
+            opt_l = opt.lower()
+            if any(k in opt_l for k in ["n/a", "not applicable", "did not take", "none", "no", "not taken", "i did not take", "i do not have", "0"]):
+                res.answer = opt
+                res.confidence = 1.0
+                res.resolution_method = PROFILE_OPTION_MAPPING
+                return
+        res.answer = opts[0]
+        res.confidence = 0.9
+        res.resolution_method = PROFILE_OPTION_MAPPING
+    else:
+        res.answer = "N/A"
+        res.confidence = 1.0
+        res.resolution_method = PROFILE_EXACT
+
+def _resolve_location_confirmation(res: AnswerResolution, profile: dict, opts: list[str]) -> None:
+    q_low = (res.question or "").lower()
+    profile_state = (profile.get("state") or "Washington").lower()
+    profile_city = (profile.get("city") or "Auburn").lower()
+
+    # Check if question is asking about living in US / candidate's region
+    is_asking_us = any(k in q_low for k in ["united states", "u.s.", "usa", "in the us", "within the us", "north america"])
+    has_candidate_state = profile_state in q_low or " wa " in q_low or "(wa)" in q_low
+
+    if opts:
+        # If options are country/state names
+        for opt in opts:
+            opt_l = opt.lower()
+            if "united states" in opt_l or "usa" in opt_l or "u.s." in opt_l or profile_state in opt_l or profile_city in opt_l:
+                res.answer = opt
+                res.confidence = 1.0
+                res.resolution_method = PROFILE_OPTION_MAPPING
+                return
+
+        # If options are Yes/No
+        if is_asking_us and not has_candidate_state and "following states" not in q_low and "these states" not in q_low:
+            res.answer = _match_option(opts, "Yes") or "Yes"
+        elif has_candidate_state:
+            res.answer = _match_option(opts, "Yes") or "Yes"
+        else:
+            # Question asks if living in a list of states that does NOT include Washington
+            res.answer = _match_option(opts, "No") or "No"
+
+        res.confidence = 1.0
+        res.resolution_method = PROFILE_OPTION_MAPPING
+    else:
+        res.answer = "No" if not (is_asking_us or has_candidate_state) else "Yes"
+        res.confidence = 1.0
+        res.resolution_method = PROFILE_EXACT
+
+def _resolve_tech_stack_experience(res: AnswerResolution, profile: dict, opts: list[str]) -> None:
+    if opts:
+        for opt in opts:
+            opt_l = opt.lower()
+            if any(s in opt_l for s in ["both", "all of the above", "python", "golang", "go", "ruby", "distributed"]):
+                res.answer = opt
+                res.confidence = 1.0
+                res.resolution_method = PROFILE_OPTION_MAPPING
+                return
+        res.answer = opts[0]
+        res.confidence = 0.9
+        res.resolution_method = PROFILE_OPTION_MAPPING
+    else:
+        res.answer = "Python, Go, TypeScript, React"
+        res.confidence = 1.0
+        res.resolution_method = PROFILE_EXACT
 
 def _resolve_unknown(res: AnswerResolution, profile: dict, opts: list[str]) -> None:
     """Unknown question type — leave unresolved for review or LLM."""
@@ -747,5 +887,8 @@ _RESOLVERS: dict[QuestionType, Any] = {
     QuestionType.DEGREE: _resolve_degree,
     QuestionType.DISCIPLINE: lambda r, p, o: _resolve_from_profile(r, p, o, "discipline"),
     QuestionType.GPA: _resolve_gpa,
+    QuestionType.TEST_SCORE: _resolve_test_score,
+    QuestionType.LOCATION_CONFIRMATION: _resolve_location_confirmation,
+    QuestionType.TECH_STACK_EXPERIENCE: _resolve_tech_stack_experience,
     QuestionType.TRANSCRIPT: _resolve_transcript,
 }

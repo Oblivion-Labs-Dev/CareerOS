@@ -5,6 +5,7 @@ import {
   TailorDiffResponse,
   approvePreflightSubmission,
   getJobTailorDiff,
+  getTailoredResumePdfUrl,
 } from "@/lib/application-assistant-api";
 import { ResumeDiffViewer } from "./resume-diff-viewer";
 import { IconCheckCircle } from "./autopilot/icons";
@@ -291,6 +292,16 @@ export function PreflightReviewModal({
             Approving triggers cloud stealth submission across ATS fields.
           </p>
           <div className="flex items-center gap-3">
+            <a
+              href={getTailoredResumePdfUrl(diffData.jobId, currentMode)}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="px-3 py-2 text-xs font-semibold text-cyan-300 hover:text-white rounded-xl bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/30 transition-all cursor-pointer flex items-center gap-1.5"
+              title="Open and download the final rendered 1-page PDF for this mode"
+            >
+              <span>📄</span>
+              <span>View / Download PDF ({currentMode.toUpperCase()})</span>
+            </a>
             <button
               onClick={onClose}
               disabled={submitting}

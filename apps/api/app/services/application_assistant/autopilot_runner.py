@@ -7,6 +7,7 @@ concurrency metrics, and a batch-end self-healing cycle powered by Qwen.
 from __future__ import annotations
 
 import asyncio
+import threading
 import logging
 import os
 import time
@@ -137,6 +138,11 @@ class AutopilotRunner:
         self._loop_task: asyncio.Task | None = None
         self.activity_log: list[dict[str, Any]] = []
         self._subscribers: set[asyncio.Queue[dict[str, Any]]] = set()
+        # Serializes read-modify-write updates to the shared run record so
+        # concurrent workers don't lose each other's counter increments.
+        # A plain threading.Lock (not asyncio.Lock) so it works from both the
+        # async worker paths and the sync exception-boundary handler.
+        self._run_update_lock = threading.Lock()
 
         # ── Concurrency state ──
         self.concurrency: int = DEFAULT_CONCURRENCY
@@ -451,6 +457,16 @@ class AutopilotRunner:
                 run = (get_autopilot_run(db, self.active_run_id) if self.active_run_id else None) or get_active_autopilot_run(db)
 
             if not run or run.get("status") not in (AutopilotRunStatus.RUNNING.value, AutopilotRunStatus.RECOVERING.value):
+                # The run this loop was tracking finished (e.g. self-healing just
+                # wrapped up). Before exiting, check for a *different* run that was
+                # started while we were busy — otherwise a Start Run click that lands
+                # in this exact window leaves the new run stuck at RUNNING with no
+                # worker actually processing it until the next manual start/reload.
+                with session_scope() as db:
+                    fresh_active = get_active_autopilot_run(db)
+                if fresh_active and fresh_active.get("status") in (AutopilotRunStatus.RUNNING.value, AutopilotRunStatus.RECOVERING.value):
+                    self.active_run_id = fresh_active["id"]
+                    continue
                 self.log_event(f"Batch worker idle — active run status is '{run.get('status') if run else 'NONE'}'", level="info")
                 break
 
@@ -499,19 +515,37 @@ class AutopilotRunner:
                 if ranked:
                     self.log_event(f"Selected {len(ranked)} eligible job postings matching target criteria", level="info")
                     with session_scope() as db:
+                        from app.services.application_assistant.persistence import is_duplicate_application
+                        enqueued_count = 0
                         for r in ranked:
+                            r_company = r.get("company") or ""
+                            r_title = r.get("title") or ""
+                            r_url = r.get("applicationUrl") or r.get("listingUrl") or ""
+                            is_dup, _ = is_duplicate_application(db, r_company, r_title, r_url)
+                            if is_dup:
+                                self.log_event(
+                                    f"Skipping duplicate: {r_company} — {r_title}",
+                                    level="info",
+                                )
+                                continue
                             save_autopilot_job(db, {
                                 "id": new_id("apjob_"),
                                 "jobId": r.get("id") or new_id("job_"),
-                                "company": r.get("company"),
-                                "title": r.get("title"),
-                                "applicationUrl": r.get("applicationUrl") or r.get("listingUrl") or "",
+                                "company": r_company,
+                                "title": r_title,
+                                "applicationUrl": r_url,
                                 "status": AutopilotJobStatus.QUEUED.value,
                                 "matchScore": r.get("matchScore", 85.0),
                                 "matchReasons": r.get("matchReasons", []),
                                 "discoveredAt": now_iso(),
                                 "queuedAt": now_iso(),
                             })
+                            enqueued_count += 1
+                        if enqueued_count < len(ranked):
+                            self.log_event(
+                                f"Deduplicated {len(ranked) - enqueued_count} already-applied jobs",
+                                level="info",
+                            )
                         jobs = list_autopilot_jobs(db)
                         queued = [j for j in jobs if j.get("status") in (AutopilotJobStatus.QUEUED.value, AutopilotJobStatus.APPLYING.value)]
                 else:
@@ -529,11 +563,14 @@ class AutopilotRunner:
                 await self._trigger_post_batch_self_healing(run["id"])
                 break
 
-            # 3. Claim up to N jobs concurrently
+            # 3. Claim up to N jobs concurrently, but never more than the
+            # batch still needs — concurrency is a parallelism cap, not a target override.
+            remaining_budget = max(0, target_count - processed_count)
+            claim_limit = min(self.concurrency, remaining_budget)
             claimed_jobs: list[dict[str, Any]] = []
             with session_scope() as db:
                 for cand in queued:
-                    if len(claimed_jobs) >= self.concurrency:
+                    if len(claimed_jobs) >= claim_limit:
                         break
                     if claim_job_lock(db, cand["id"], self.worker_id):
                         claimed_jobs.append(cand)
@@ -624,13 +661,14 @@ class AutopilotRunner:
                 worker_state.error = str(unhandled_job_error)
                 worker_state.jobs_failed += 1
             finally:
-                with session_scope() as db:
-                    release_job_lock(db, job_id, self.worker_id)
-                    r = get_autopilot_run(db, run_id)
-                    if r:
-                        r["processedCount"] = (r.get("processedCount") or 0) + 1
-                        r["currentJobId"] = None
-                        save_autopilot_run(db, r)
+                with self._run_update_lock:
+                    with session_scope() as db:
+                        release_job_lock(db, job_id, self.worker_id)
+                        r = get_autopilot_run(db, run_id)
+                        if r:
+                            r["processedCount"] = (r.get("processedCount") or 0) + 1
+                            r["currentJobId"] = None
+                            save_autopilot_run(db, r)
 
                 job_elapsed = time.time() - job_start
                 self.metrics.total_jobs_finished += 1
@@ -734,12 +772,13 @@ class AutopilotRunner:
             job_item["lastErrorType"] = err_type
             job_item["aiExplanation"] = f"Failed due to error: {err_type} ({exc_detail})"
             self._record_checkpoint(job_item, CheckpointStep.FAILED, f"Failed on error: {err_type}")
-            with session_scope() as db:
-                save_autopilot_job(db, job_item)
-                r = get_autopilot_run(db, run_id)
-                if r:
-                    r["failedCount"] = (r.get("failedCount") or 0) + 1
-                    save_autopilot_run(db, r)
+            with self._run_update_lock:
+                with session_scope() as db:
+                    save_autopilot_job(db, job_item)
+                    r = get_autopilot_run(db, run_id)
+                    if r:
+                        r["failedCount"] = (r.get("failedCount") or 0) + 1
+                        save_autopilot_run(db, r)
 
             # This is best-effort bookkeeping only. Never allow creating a
             # preparation draft to mask the original browser failure or crash
@@ -762,23 +801,24 @@ class AutopilotRunner:
                     for label, value in captured_answers.items()
                     if value not in (None, "")
                 ]
-                create_application_draft(db, {
-                    "jobId": job_item.get("jobId") or job_item.get("id"),
-                    "jobUrl": job_item.get("applicationUrl") or job_item.get("listingUrl") or "",
-                    "companyName": job_item.get("company") or "",
-                    "roleTitle": job_item.get("title") or "",
-                    "provider": job_item.get("provider") or job_item.get("sourceProvider") or "unknown",
-                    "matchScore": job_item.get("matchScore") or 0,
-                    "status": "ready_to_prepare",
-                    "fields": prepared_fields,
-                    "autopilotFailure": {
-                        "jobId": job_item.get("id"),
-                        "error": exc_detail,
-                        "errorType": job_item.get("lastErrorType"),
-                        "evidence": job_item.get("submissionEvidence") or {},
-                        "capturedAnswers": captured_answers,
-                    },
-                })
+                with session_scope() as draft_db:
+                    create_application_draft(draft_db, {
+                        "jobId": job_item.get("jobId") or job_item.get("id"),
+                        "jobUrl": job_item.get("applicationUrl") or job_item.get("listingUrl") or "",
+                        "companyName": job_item.get("company") or "",
+                        "roleTitle": job_item.get("title") or "",
+                        "provider": job_item.get("provider") or job_item.get("sourceProvider") or "unknown",
+                        "matchScore": job_item.get("matchScore") or 0,
+                        "status": "ready_to_prepare",
+                        "fields": prepared_fields,
+                        "autopilotFailure": {
+                            "jobId": job_item.get("id"),
+                            "error": exc_detail,
+                            "errorType": job_item.get("lastErrorType"),
+                            "evidence": job_item.get("submissionEvidence") or {},
+                            "capturedAnswers": captured_answers,
+                        },
+                    })
             except Exception:
                 logger.exception("Could not preserve failed job %s as a preparation draft", job_item.get("id"))
 
@@ -810,6 +850,31 @@ class AutopilotRunner:
         app_url = job_item.get("applicationUrl") or ""
         slot_idx = worker_state.slot if worker_state is not None else None
         w_prefix = f"[Worker {slot_idx}] " if slot_idx is not None else ""
+
+        # Pre-check US citizenship & visa sponsorship / ITAR restrictions before opening browser
+        from app.services.application_assistant.job_filter_ranker import evaluate_hard_filters
+        from app.db.store import get_kv
+        with session_scope() as filter_db:
+            prof = get_kv(filter_db, "profile") or {}
+        passed, skip_reason = evaluate_hard_filters(job_item, prof, [])
+        if not passed and ("citizenship" in skip_reason.lower() or "sponsorship" in skip_reason.lower() or "itar" in skip_reason.lower()):
+            self.log_event(
+                f"{w_prefix}Skipped {company} — {title}: {skip_reason}",
+                level="warning",
+                metadata={"slot": slot_idx, "company": company, "title": title, "reason": skip_reason},
+            )
+            job_item["status"] = AutopilotJobStatus.SKIPPED.value
+            job_item["skipReason"] = skip_reason
+            job_item["aiExplanation"] = skip_reason
+            self._record_checkpoint(job_item, CheckpointStep.SKIPPED, skip_reason)
+            with self._run_update_lock:
+                with session_scope() as db:
+                    save_autopilot_job(db, job_item)
+                    r = get_autopilot_run(db, run_id)
+                    if r:
+                        r["skippedCount"] = (r.get("skippedCount") or 0) + 1
+                        save_autopilot_run(db, r)
+            return
 
         self.log_event(
             f"{w_prefix}Processing: {company} — {title} (Match Score: {job_item.get('matchScore', 85)}%)",
@@ -895,12 +960,13 @@ class AutopilotRunner:
             job_item["submissionEvidence"] = result.get("evidence", {})
             job_item["answers"] = result.get("fieldsFilled", {})
             self._record_checkpoint(job_item, CheckpointStep.SUBMITTED, "Real browser submission confirmed")
-            with session_scope() as db:
-                save_autopilot_job(db, job_item)
-                r = get_autopilot_run(db, run_id)
-                if r:
-                    r["submittedCount"] = (r.get("submittedCount") or 0) + 1
-                    save_autopilot_run(db, r)
+            with self._run_update_lock:
+                with session_scope() as db:
+                    save_autopilot_job(db, job_item)
+                    r = get_autopilot_run(db, run_id)
+                    if r:
+                        r["submittedCount"] = (r.get("submittedCount") or 0) + 1
+                        save_autopilot_run(db, r)
             self.log_event(
                 f"{w_prefix}Successfully submitted real application for {company} — {title} 🎉 (Proof captured)",
                 level="info",
@@ -966,12 +1032,13 @@ class AutopilotRunner:
             if worker_state:
                 worker_state.status = "error"
                 worker_state.error = err_msg
-            with session_scope() as db:
-                save_autopilot_job(db, job_item)
-                r = get_autopilot_run(db, run_id)
-                if r:
-                    r["failedCount"] = (r.get("failedCount") or 0) + 1
-                    save_autopilot_run(db, r)
+            with self._run_update_lock:
+                with session_scope() as db:
+                    save_autopilot_job(db, job_item)
+                    r = get_autopilot_run(db, run_id)
+                    if r:
+                        r["failedCount"] = (r.get("failedCount") or 0) + 1
+                        save_autopilot_run(db, r)
             self.log_event(
                 f"{w_prefix}Application failed ({company}): {err_msg}",
                 level="error",
@@ -990,7 +1057,7 @@ class AutopilotRunner:
         job_item["lastErrorType"] = ApplicationErrorType.UNKNOWN_ERROR.value
         job_item["aiExplanation"] = f"Automation error: {exc}"
         self._record_checkpoint(job_item, CheckpointStep.FAILED, f"Unhandled exception: {exc}")
-        with session_scope() as db:
+        with self._run_update_lock, session_scope() as db:
             save_autopilot_job(db, job_item)
             r = get_autopilot_run(db, run_id)
             if r:

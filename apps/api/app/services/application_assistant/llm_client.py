@@ -3,9 +3,59 @@
 from __future__ import annotations
 
 import json
+import threading
 from typing import Any
 
 import httpx
+
+
+class LLMCallMetrics:
+    """Process-wide, in-memory counters for which model actually answered each
+    LLM call across the app (including both self-healing flows). Resets on
+    backend restart — good enough for a first pass; move to persistent storage
+    later if trend-over-time matters more than "since last restart"."""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        # per-model: {"success": int, "failure": int}
+        self._by_model: dict[str, dict[str, int]] = {}
+        self.fallback_rescues = 0  # primary failed, fallback succeeded
+        self.total_calls = 0
+
+    def record(self, model: str, succeeded: bool, *, is_fallback: bool = False, task: str = "unspecified") -> None:
+        with self._lock:
+            self.total_calls += 1
+            bucket = self._by_model.setdefault(model, {"success": 0, "failure": 0})
+            bucket["success" if succeeded else "failure"] += 1
+            if is_fallback and succeeded:
+                self.fallback_rescues += 1
+
+        # Durable copy (this in-memory tracker resets on restart) — a fallback
+        # call still reports its own model, not the primary's, so provider
+        # comparisons stay accurate.
+        from app.services.model_usage_tracker import log_model_usage
+
+        provider = "openrouter" if is_fallback else "ollama"
+        log_model_usage(provider=provider, model=model, task=task, success=succeeded)
+
+    def to_dict(self) -> dict[str, Any]:
+        with self._lock:
+            return {
+                "totalCalls": self.total_calls,
+                "fallbackRescues": self.fallback_rescues,
+                "byModel": {
+                    model: dict(counts) for model, counts in self._by_model.items()
+                },
+            }
+
+    def reset(self) -> None:
+        with self._lock:
+            self._by_model.clear()
+            self.fallback_rescues = 0
+            self.total_calls = 0
+
+
+llm_call_metrics = LLMCallMetrics()
 
 
 class LLMClient:
@@ -20,6 +70,7 @@ class LLMClient:
         timeout: int = 30,
         max_retries: int = 2,
         confidence_threshold: float = 0.7,
+        fallback: "LLMClient | None" = None,
     ):
         self.base_url = base_url.rstrip("/")
         self.model = model
@@ -27,6 +78,8 @@ class LLMClient:
         self.timeout = timeout
         self.max_retries = max_retries
         self.confidence_threshold = confidence_threshold
+        # Secondary client tried when this one is unavailable or every retry fails.
+        self.fallback = fallback
 
     @property
     def enabled(self) -> bool:
@@ -52,10 +105,27 @@ class LLMClient:
         *,
         system: str = "",
     ) -> dict[str, Any]:
-        """Multi-turn chat completion."""
-        if not self.enabled:
-            return {"success": False, "error": "LLM not configured"}
+        """Multi-turn chat completion, falling back to `self.fallback` if this client fails."""
+        result = await self._chat_once(messages, system=system) if self.enabled else {
+            "success": False,
+            "error": "LLM not configured",
+        }
+        if self.enabled:
+            llm_call_metrics.record(self.model, bool(result.get("success")))
+        if not result.get("success") and self.fallback is not None and self.fallback.enabled:
+            fallback_result = await self.fallback._chat_once(messages, system=system)
+            llm_call_metrics.record(self.fallback.model, bool(fallback_result.get("success")), is_fallback=True)
+            if fallback_result.get("success"):
+                fallback_result["usedFallbackModel"] = self.fallback.model
+                return fallback_result
+        return result
 
+    async def _chat_once(
+        self,
+        messages: list[dict[str, str]],
+        *,
+        system: str = "",
+    ) -> dict[str, Any]:
         payload_messages: list[dict[str, str]] = []
         if system:
             payload_messages.append({"role": "system", "content": system})
@@ -114,13 +184,33 @@ class LLMClient:
         system: str = "",
         response_schema: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
+        """Structured completion, falling back to `self.fallback` if this client fails."""
+        result = (
+            await self._complete_once(prompt, system=system, response_schema=response_schema)
+            if self.enabled
+            else {"success": False, "error": "LLM not configured"}
+        )
+        if self.enabled:
+            llm_call_metrics.record(self.model, bool(result.get("success")))
+        if not result.get("success") and self.fallback is not None and self.fallback.enabled:
+            fallback_result = await self.fallback._complete_once(prompt, system=system, response_schema=response_schema)
+            llm_call_metrics.record(self.fallback.model, bool(fallback_result.get("success")), is_fallback=True)
+            if fallback_result.get("success"):
+                fallback_result["usedFallbackModel"] = self.fallback.model
+                return fallback_result
+        return result
+
+    async def _complete_once(
+        self,
+        prompt: str,
+        *,
+        system: str = "",
+        response_schema: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         """
         Send a completion request with structured JSON output validation.
         Never used for Playwright control or sensitive answers.
         """
-        if not self.enabled:
-            return {"success": False, "error": "LLM not configured"}
-
         messages = []
         if system:
             messages.append({"role": "system", "content": system})
@@ -317,14 +407,14 @@ def _resolve_llm_config(llm_config: dict[str, Any], default_model: str = "qwen3:
         api_key = api_key or os.environ.get("OPENAI_API_KEY", "")
     elif provider in ("gemini", "google") or (not provider and "gemini" in model.lower()):
         base_url = base_url or "https://generativelanguage.googleapis.com/v1beta/openai"
-        model = model or "gemini-2.5-flash"
+        model = model or "gemini-3-flash-preview"
         api_key = api_key or os.environ.get("GEMINI_API_KEY", "")
     elif provider in ("openrouter",) or (not provider and "openrouter" in base_url.lower()):
         base_url = base_url or os.environ.get("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
         model = model or "openai/gpt-4o-mini"
         api_key = api_key or os.environ.get("OPENROUTER_API_KEY", "")
     else:
-        # Default Ollama / Local Qwen
+        # Default Ollama / Local Mistral
         base_url = base_url or "http://localhost:11434/v1"
         model = model or default_model
         api_key = api_key
@@ -332,38 +422,75 @@ def _resolve_llm_config(llm_config: dict[str, Any], default_model: str = "qwen3:
     return base_url, model, api_key
 
 
+def _build_gemini_fallback(*, timeout: int, max_retries: int, confidence_threshold: float) -> LLMClient | None:
+    """Gemini Flash client used as the automatic fallback when the primary model fails.
+
+    Returns None when GEMINI_API_KEY isn't configured, so callers that never
+    set that key see identical behavior to before (no fallback attempted).
+    """
+    gemini_key = os.environ.get("GEMINI_API_KEY", "")
+    if not gemini_key:
+        return None
+    return LLMClient(
+        base_url="https://generativelanguage.googleapis.com/v1beta/openai",
+        model="gemini-3-flash-preview",
+        api_key=gemini_key,
+        timeout=timeout,
+        max_retries=max_retries,
+        confidence_threshold=confidence_threshold,
+    )
+
+
 def create_llm_client(settings: dict[str, Any]) -> LLMClient:
-    """Create default LLM client from application assistant settings."""
+    """Create default LLM client from application assistant settings.
+
+    Defaults to local Mistral via Ollama, automatically falling back to
+    Gemini Flash when Mistral is unreachable or every retry fails.
+    """
     llm_config = settings.get("llm", {})
     base_url, model, api_key = _resolve_llm_config(llm_config, default_model="mistral-small3.2:24b")
+    timeout = llm_config.get("timeout", 60)
+    max_retries = llm_config.get("maxRetries", 2)
+    confidence_threshold = llm_config.get("confidenceThreshold", 0.7)
+    fallback = None if "gemini" in model.lower() else _build_gemini_fallback(
+        timeout=timeout, max_retries=max_retries, confidence_threshold=confidence_threshold
+    )
     return LLMClient(
         base_url=base_url,
         model=model,
         api_key=api_key,
-        timeout=llm_config.get("timeout", 60),
-        max_retries=llm_config.get("maxRetries", 2),
-        confidence_threshold=llm_config.get("confidenceThreshold", 0.7),
+        timeout=timeout,
+        max_retries=max_retries,
+        confidence_threshold=confidence_threshold,
+        fallback=fallback,
     )
 
 
 def create_mapping_client(settings: dict[str, Any]) -> LLMClient:
-    """Text mapping model (field interpretation planner)."""
+    """Text mapping model (field interpretation planner). Mistral primary, Gemini fallback."""
     llm_config = settings.get("llm", {})
     field_mapping = settings.get("fieldMapping") or {}
     model_override = field_mapping.get("mappingModel") or llm_config.get("mappingModel")
-    
+
     cfg = dict(llm_config)
     if model_override:
         cfg["model"] = model_override
-        
+
     base_url, model, api_key = _resolve_llm_config(cfg, default_model="mistral-small3.2:24b")
+    timeout = llm_config.get("timeout", 90)
+    max_retries = llm_config.get("maxRetries", 2)
+    confidence_threshold = llm_config.get("confidenceThreshold", 0.7)
+    fallback = None if "gemini" in model.lower() else _build_gemini_fallback(
+        timeout=timeout, max_retries=max_retries, confidence_threshold=confidence_threshold
+    )
     return LLMClient(
         base_url=base_url,
         model=model,
         api_key=api_key,
-        timeout=llm_config.get("timeout", 90),
-        max_retries=llm_config.get("maxRetries", 2),
-        confidence_threshold=llm_config.get("confidenceThreshold", 0.7),
+        timeout=timeout,
+        max_retries=max_retries,
+        confidence_threshold=confidence_threshold,
+        fallback=fallback,
     )
 
 

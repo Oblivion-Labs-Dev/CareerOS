@@ -6,15 +6,28 @@ import {
   getJobTailorDiff,
   getStagedApplications,
   openApplicationReview,
-  reprocessFailedAutopilotJobs,
+  reprocessStagedAutopilotJobs,
   reprocessSingleAutopilotJob,
   resetSingleAutopilotJob,
   skipStagedApplication,
+  auditSponsorshipApplications,
   TailorDiffResponse,
 } from "@/lib/application-assistant-api";
 import { PreflightReviewModal } from "@/components/application-assistant/preflight-review-modal";
 import { ApplicationQueueCard, type QueueApplication } from "@/components/application-assistant/application-queue-card";
 import { resolveApplicationReadiness } from "@/components/application-assistant/application-readiness";
+
+function fullReviewReason(job: any): { summary: string; blockingIssues: any[]; warnings: string[] } {
+  const policy = job?.submissionEvidence?.policyEvaluation;
+  const raw = String(job?.aiExplanation || job?.failureReason || "").replace(/^(Staged for human review:\s*)+/gi, "");
+  const primaryQ = (job?.unresolvedQuestions || [])[0];
+  const summary = raw || primaryQ?.question || "Review the prepared application before approval.";
+  return {
+    summary,
+    blockingIssues: policy?.blockingIssues || [],
+    warnings: policy?.warnings || [],
+  };
+}
 
 export function ReviewCenter() {
   const [stagedList, setStagedList] = useState<any[]>([]);
@@ -22,13 +35,17 @@ export function ReviewCenter() {
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [editingAnswers, setEditingAnswers] = useState<Record<string, string>>({});
+  const [answeringId, setAnsweringId] = useState<string | null>(null);
   const [diffModalData, setDiffModalData] = useState<TailorDiffResponse | null>(null);
   const [diffLoading, setDiffLoading] = useState(false);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const fetchStaged = async () => {
     try {
       const res = await getStagedApplications();
-      setStagedList(res.staged || []);
+      const list = res.staged || [];
+      setStagedList(list);
+      setSelectedId((prev) => (prev && list.some((j: any) => j.id === prev) ? prev : list[0]?.id ?? null));
       setError(null);
     } catch (err: any) {
       setError(err?.message || "Could not fetch review applications");
@@ -40,10 +57,22 @@ export function ReviewCenter() {
   }, []);
 
   const handleApprove = async (jobId: string, questionText: string) => {
+    const answerToSubmit = editingAnswers[jobId]?.trim() || "";
+    if (!answerToSubmit) {
+      setError("Type an answer before saving — an empty answer won't be added to your answer library.");
+      return;
+    }
     setLoading(true);
-    const answerToSubmit = editingAnswers[jobId] || "";
     try {
       await approveStagedAnswer(jobId, questionText, answerToSubmit);
+      setMessage(`Saved your answer for "${questionText}" — it'll be reused automatically next time this question comes up.`);
+      setTimeout(() => setMessage(null), 4000);
+      setAnsweringId(null);
+      setEditingAnswers((prev) => {
+        const next = { ...prev };
+        delete next[jobId];
+        return next;
+      });
       await fetchStaged();
     } catch (err: any) {
       setError(err?.message || "Failed to approve answer");
@@ -81,7 +110,7 @@ export function ReviewCenter() {
   const handleRequeueAllStaged = async () => {
     setLoading(true);
     try {
-      const res = await reprocessFailedAutopilotJobs();
+      const res = await reprocessStagedAutopilotJobs();
       setMessage(res?.message || "Moved applications back to queue!");
       setTimeout(() => setMessage(null), 4000);
       await fetchStaged();
@@ -89,6 +118,46 @@ export function ReviewCenter() {
       setError(err?.message || "Failed to requeue applications");
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleAuditSponsorship = async () => {
+    setLoading(true);
+    try {
+      const res = await auditSponsorshipApplications();
+      setMessage(res?.message || `Audited applications: flagged ${res?.skippedCount ?? 0} jobs requiring US Citizenship`);
+      setTimeout(() => setMessage(null), 5000);
+      await fetchStaged();
+    } catch (err: any) {
+      setError(err?.message || "Failed to audit applications for US Citizenship & Sponsorship");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleCopyAllInReview = async () => {
+    const prompt = [
+      "Investigate and propose a safe fix for these CareerOS applications that are stuck in review.",
+      "Do not submit any application. Diagnose why each one needed human review from the supplied evidence.",
+      "",
+      ...stagedList.map((job, index) => {
+        const primaryQ = (job.unresolvedQuestions || [])[0] || {};
+        return [
+          `${index + 1}. ${job.company || "Unknown company"} — ${job.title || "Unknown role"}`,
+          `Job URL: ${job.applicationUrl || job.listingUrl || "Not recorded"}`,
+          `Job ID: ${job.id || job.jobId || "Not recorded"}`,
+          `Blocking question: ${primaryQ.question || "Not recorded"}`,
+          `Reason staged: ${job.failureReason || job.aiExplanation || "Not recorded"}`,
+        ].join("\n");
+      }),
+    ].join("\n\n");
+
+    try {
+      await navigator.clipboard.writeText(prompt);
+      setMessage(`Copied ${stagedList.length} in-review application${stagedList.length === 1 ? "" : "s"} as an AI-ready prompt.`);
+      setTimeout(() => setMessage(null), 3000);
+    } catch {
+      setError("Could not copy the troubleshooting prompt. Please try again.");
     }
   };
 
@@ -153,6 +222,24 @@ export function ReviewCenter() {
           <span className="px-3.5 py-1 text-xs font-bold rounded-full bg-amber-500/15 border border-amber-500/40 text-amber-300 shadow-[0_0_12px_rgba(245,158,11,0.25)]">
             {stagedList.length} In Review
           </span>
+          {stagedList.length > 0 && (
+            <button
+              onClick={handleCopyAllInReview}
+              disabled={loading}
+              className="px-3.5 py-1 text-xs font-bold text-violet-300 hover:text-violet-200 bg-violet-500/15 hover:bg-violet-500/25 rounded-xl border border-violet-500/30 transition-all cursor-pointer flex items-center gap-1.5 shadow-sm"
+              title="Copy every in-review question/reason as an AI-ready prompt"
+            >
+              📋 Copy all for LLM
+            </button>
+          )}
+          <button
+            onClick={handleAuditSponsorship}
+            disabled={loading}
+            className="px-3.5 py-1 text-xs font-bold text-amber-300 hover:text-amber-200 bg-amber-500/15 hover:bg-amber-500/25 rounded-xl border border-amber-500/30 transition-all cursor-pointer flex items-center gap-1.5 shadow-sm"
+            title="Audit and remove/skip applications requiring US Citizenship or ITAR clearance"
+          >
+            <span>🛡️</span> Filter Citizenship / ITAR
+          </button>
           {stagedList.length > 0 && (
             <button
               onClick={handleRequeueAllStaged}
@@ -225,9 +312,15 @@ export function ReviewCenter() {
             };
             const readiness = resolveApplicationReadiness(queueApp);
 
+            const reviewDetails = fullReviewReason(job);
+
             return (
-              <ApplicationQueueCard
+              <div
                 key={job.id}
+                onClick={() => setSelectedId(job.id)}
+                className="cursor-pointer rounded-2xl transition"
+              >
+              <ApplicationQueueCard
                 app={queueApp}
                 statusAccent="amber"
                 isOpening={false}
@@ -273,53 +366,129 @@ export function ReviewCenter() {
                     </button>
                   </div>
                 }
-                errorSlot={
-                  <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-300/15 bg-amber-300/[0.06] px-3.5 py-2.5 text-xs text-amber-100">
-                    <span className="line-clamp-1 truncate max-w-[200px]" title={job.aiExplanation || explanationSummary}>
-                      {explanationSummary}
-                    </span>
-                    <div className="flex shrink-0 items-center gap-2">
+                drawerContentSlot={
+                  <div className="flex flex-col gap-4 mt-2">
+                    <section className="aac-drawer-section">
+                      <div className="flex items-center justify-between mb-2">
+                        <h4 className="text-amber-300 font-semibold" style={{ margin: 0 }}>Why This Needs Review</h4>
+                        <span className="px-2 py-0.5 text-[10px] font-bold rounded-full bg-amber-500/20 border border-amber-500/40 text-amber-300">
+                          Pre-Flight Check
+                        </span>
+                      </div>
+                      <p className="whitespace-pre-wrap leading-relaxed text-xs text-slate-200 bg-amber-500/[0.05] p-3 rounded-xl border border-amber-500/20">
+                        {reviewDetails.summary}
+                      </p>
+                    </section>
+
+                    {reviewDetails.blockingIssues.length > 0 && (
+                      <section className="aac-drawer-section">
+                        <h4 className="text-rose-300 font-semibold mb-2">
+                          Blocking Issue{reviewDetails.blockingIssues.length === 1 ? "" : "s"} ({reviewDetails.blockingIssues.length})
+                        </h4>
+                        <ul className="flex flex-col gap-2">
+                          {reviewDetails.blockingIssues.map((issue: any, i: number) => (
+                            <li key={i} className="rounded-xl border border-rose-400/25 bg-rose-400/[0.08] p-3 text-xs">
+                              <div className="font-semibold text-rose-200">{issue.question || issue.label || issue.gate}</div>
+                              <div className="mt-1 text-slate-300">{issue.reason}</div>
+                            </li>
+                          ))}
+                        </ul>
+                      </section>
+                    )}
+
+                    {reviewDetails.warnings.length > 0 && (
+                      <section className="aac-drawer-section">
+                        <h4 className="text-slate-400 font-semibold mb-1">Warnings</h4>
+                        <ul className="flex flex-col gap-1 text-xs text-slate-400">
+                          {reviewDetails.warnings.map((w: string, i: number) => (
+                            <li key={i} className="flex items-start gap-1.5">
+                              <span className="text-amber-400">·</span> {w}
+                            </li>
+                          ))}
+                        </ul>
+                      </section>
+                    )}
+
+                    {primaryQ.question && (
+                      <section className="aac-drawer-section">
+                        <h4 className="text-emerald-300 font-semibold mb-2">Answer & Learn for Future</h4>
+                        <div className="flex flex-col gap-2 rounded-xl border border-emerald-400/25 bg-emerald-400/[0.06] p-3 text-xs">
+                          <span className="font-medium text-emerald-100">
+                            {primaryQ.question}
+                          </span>
+                          <div className="flex gap-2">
+                            <input
+                              type="text"
+                              value={editingAnswers[job.id] || ""}
+                              onChange={(e) => setEditingAnswers((prev) => ({ ...prev, [job.id]: e.target.value }))}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") void handleApprove(job.id, primaryQ.question || "");
+                              }}
+                              placeholder="Type the answer to save and reuse next time..."
+                              className="flex-1 rounded-lg border border-white/15 bg-black/40 px-3 py-2 text-slate-100 placeholder:text-slate-500 outline-none focus:border-emerald-400/50"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => void handleApprove(job.id, primaryQ.question || "")}
+                              disabled={loading || !(editingAnswers[job.id] || "").trim()}
+                              className="rounded-lg bg-emerald-500/30 text-emerald-100 border border-emerald-500/50 hover:bg-emerald-500/45 px-3 py-2 font-semibold transition disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                            >
+                              Save & Requeue
+                            </button>
+                          </div>
+                        </div>
+                      </section>
+                    )}
+
+                    <section className="aac-drawer-section flex flex-wrap gap-2 pt-2 border-t border-white/10">
+                      <button
+                        type="button"
+                        onClick={() => void handleOpenDiff(job)}
+                        disabled={loading || diffLoading}
+                        className="rounded-xl bg-gradient-to-r from-cyan-500/20 to-teal-500/20 text-cyan-200 border border-cyan-400/40 hover:bg-cyan-500/30 px-4 py-2 font-bold transition flex items-center gap-1.5 shadow-sm disabled:opacity-50 cursor-pointer"
+                        title="Open Tsenta 3-Way Resume Tailoring & Pre-flight Inspection"
+                      >
+                        🛠️ Pre-Flight Review (Tsenta Tailoring)
+                      </button>
                       <button
                         type="button"
                         onClick={() => void handleQuickApply(job)}
                         disabled={loading}
-                        className="rounded-lg bg-gradient-to-r from-amber-500/30 to-teal-500/30 text-amber-200 border border-amber-500/50 hover:bg-amber-500/40 px-3 py-1 font-bold transition flex items-center gap-1.5 shadow-sm disabled:opacity-50 cursor-pointer"
-                        title="Open Chrome window with saved autofill state to review and submit"
+                        className="rounded-xl bg-gradient-to-r from-amber-500/30 to-teal-500/30 text-amber-200 border border-amber-500/50 hover:bg-amber-500/40 px-4 py-2 font-bold transition flex items-center gap-1.5 shadow-sm disabled:opacity-50 cursor-pointer"
                       >
-                        <span>⚡ Quick Apply</span>
+                        ⚡ Quick Apply in New Window
                       </button>
                       {(job.applicationUrl || job.listingUrl) && (
                         <a
                           href={job.applicationUrl || job.listingUrl}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="rounded-lg border border-white/10 bg-white/[0.05] px-2.5 py-1 font-medium text-slate-200 transition hover:bg-white/[0.10]"
+                          className="rounded-xl border border-white/15 bg-white/[0.08] px-3.5 py-2 font-medium text-slate-200 transition hover:bg-white/[0.15]"
                         >
-                          View link
+                          View Job Post ↗
                         </a>
                       )}
                       <button
                         type="button"
                         onClick={() => void reprocessSingleAutopilotJob(job.id).then(fetchStaged)}
                         disabled={loading}
-                        className="rounded-lg bg-cyan-400/20 text-cyan-200 border border-cyan-400/30 px-2.5 py-1 font-medium transition hover:bg-cyan-400/30 disabled:opacity-50"
-                        title="Move this job back to the Autopilot queue"
+                        className="rounded-xl bg-cyan-400/20 text-cyan-200 border border-cyan-400/30 px-3.5 py-2 font-medium transition hover:bg-cyan-400/30 disabled:opacity-50 cursor-pointer"
                       >
-                        Queue
+                        Move to Queue
                       </button>
                       <button
                         type="button"
-                        onClick={() => void handleApprove(job.id, primaryQ.question || "")}
+                        onClick={() => void handleSkip(job.id)}
                         disabled={loading}
-                        className="rounded-lg bg-emerald-500/25 text-emerald-200 border border-emerald-500/40 px-2.5 py-1 font-semibold transition hover:bg-emerald-500/40 hover:text-white flex items-center gap-1 disabled:opacity-50"
-                        title="Approve and submit application"
+                        className="rounded-xl bg-rose-500/20 text-rose-300 border border-rose-500/30 px-3.5 py-2 font-medium transition hover:bg-rose-500/30 disabled:opacity-50 cursor-pointer"
                       >
-                        Approve
+                        Skip
                       </button>
-                    </div>
+                    </section>
                   </div>
                 }
               />
+              </div>
             );
           })}
         </div>

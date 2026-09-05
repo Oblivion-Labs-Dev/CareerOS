@@ -5,6 +5,8 @@ import { Suspense, useCallback, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { CareerWorkspaceStrip } from "@/components/career-workspace-strip";
 import { ProfileDocumentsSection } from "@/components/profile/profile-documents-section";
+import { ResumeProfileSwitcher } from "@/components/profile/resume-profile-switcher";
+import { ResumeTailoringPanel } from "@/components/profile/resume-tailoring-panel";
 import { ResumeScannerDashboard } from "@/components/resume-scanner/resume-scanner-dashboard";
 import { WorkflowPage } from "@/components/scaffold-page";
 import { useCareerWorkspace } from "@/hooks/use-career-workspace";
@@ -12,6 +14,7 @@ import { getClientApiBaseUrl } from "@/lib/api";
 import { dashboardHref, discoverHref } from "@/lib/career-workspace";
 import { fetchCachedJson, getCachedStale, invalidateCached } from "@/lib/client-fetch-cache";
 import { PROFILE_KEY_LABELS } from "@/lib/profile-form-options";
+import type { ResumeProfile } from "@/lib/resume-profiles-api";
 import type { UserProfile } from "@career-os/core";
 type ApplyPilotProfile = Partial<UserProfile>;
 
@@ -114,6 +117,7 @@ function ProfileDataGrid({ profile }: { profile: ApplyPilotProfile }) {
 
 export default function ProfilePage() {
   const { snapshot, prefs, targetLabel } = useCareerWorkspace();
+  const [activeResumeProfile, setActiveResumeProfile] = useState<ResumeProfile | null>(null);
   const profileUrl = `${getClientApiBaseUrl()}/profile`;
   const cached = getCachedStale<{ profile: ApplyPilotProfile | null }>(profileUrl);
   const [profile, setProfile] = useState<ApplyPilotProfile>(() => cached?.profile ?? {});
@@ -216,7 +220,22 @@ export default function ProfilePage() {
               <ProfileDataGrid profile={profile} />
             </Suspense>
 
+            <section className="workflow-panel dashboard-panel--wide" aria-label="Resume profiles">
+              <div className="dashboard-panel-header">
+                <div>
+                  <span className="toc-card-kicker">Resume profiles</span>
+                  <h2>Switch between tailored versions</h2>
+                  <p className="muted" style={{ marginTop: "0.35rem" }}>
+                    Keep a named resume per target (e.g. &ldquo;Default&rdquo;, &ldquo;Fintech&rdquo;) — one is marked default and feeds job matching and autofill.
+                  </p>
+                </div>
+              </div>
+              <ResumeProfileSwitcher activeProfileId={activeResumeProfile?.id ?? null} onSelect={setActiveResumeProfile} />
+            </section>
+
             <ProfileDocumentsSection onProfileSynced={reloadProfile} />
+
+            <ResumeTailoringPanel profileId={activeResumeProfile?.id ?? null} />
 
             <section className="workflow-panel dashboard-panel--wide profile-resume-scanner-section" id="resume" aria-label="Resume scanner">
               <div className="dashboard-panel-header">

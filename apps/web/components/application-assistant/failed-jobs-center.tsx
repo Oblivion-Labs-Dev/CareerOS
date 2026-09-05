@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState } from "react";
 import {
+  approveStagedAnswer,
   deleteAutopilotJob,
   getAutopilotJobs,
   reprocessFailedAutopilotJobs,
@@ -20,18 +21,40 @@ import { ApplicationQueueCard, type QueueApplication } from "@/components/applic
 import { resolveApplicationReadiness } from "@/components/application-assistant/application-readiness";
 import { openApplicationReview } from "@/lib/application-assistant-api";
 
+const ERROR_TYPE_LABELS: Record<string, string> = {
+  VALIDATION_ERROR: "A required field couldn't be verified",
+  ELEMENT_NOT_FOUND: "Couldn't find the submit control on the page",
+  SUBMISSION_UNCERTAIN: "Submission outcome couldn't be confirmed",
+};
+
+function fullFailureDetail(job: any): { typeLabel: string; message: string; confirmationUrl?: string; screenshotPath?: string } {
+  const evidence = job?.submissionEvidence || {};
+  return {
+    typeLabel: ERROR_TYPE_LABELS[job?.lastErrorType] || job?.lastErrorType || "Unclassified error",
+    message: job?.lastError || job?.failureReason || job?.aiExplanation || "No error details were recorded for this attempt.",
+    confirmationUrl: evidence.confirmationUrl,
+    screenshotPath: evidence.screenshotPath || evidence.preScreenshotPath,
+  };
+}
+
 export function FailedJobsCenter({ onReprocessSuccess, onOpenPrep }: { onReprocessSuccess?: () => void; onOpenPrep?: () => void }) {
   const [failedList, setFailedList] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [reprocessing, setReprocessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
+  const [answeringId, setAnsweringId] = useState<string | null>(null);
+  const [draftQuestion, setDraftQuestion] = useState("");
+  const [draftAnswer, setDraftAnswer] = useState("");
+  const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const fetchFailed = async () => {
     setLoading(true);
     try {
       const res = await getAutopilotJobs("FAILED");
-      setFailedList(res.jobs || []);
+      const list = res.jobs || [];
+      setFailedList(list);
+      setSelectedId((prev) => (prev && list.some((j: any) => j.id === prev) ? prev : list[0]?.id ?? null));
       setError(null);
     } catch (err: any) {
       setError(err?.message || "Could not fetch failed applications");
@@ -82,6 +105,39 @@ export function FailedJobsCenter({ onReprocessSuccess, onOpenPrep }: { onReproce
       setTimeout(() => setSuccessMsg(null), 3000);
     } catch (err: any) {
       setError(err?.message || "Failed to reset application");
+    } finally {
+      setReprocessing(false);
+    }
+  };
+
+  const openAnswerBox = (job: any) => {
+    if (answeringId === job.id) {
+      setAnsweringId(null);
+      return;
+    }
+    setAnsweringId(job.id);
+    setDraftQuestion(job.lastErrorType === "VALIDATION_ERROR" ? job.lastError || "" : "");
+    setDraftAnswer("");
+  };
+
+  const handleSaveAnswer = async (job: any) => {
+    const question = draftQuestion.trim();
+    const answer = draftAnswer.trim();
+    if (!question || !answer) {
+      setError("Enter both the question text and the answer before saving.");
+      return;
+    }
+    setReprocessing(true);
+    setError(null);
+    try {
+      await approveStagedAnswer(job.id, question, answer);
+      setSuccessMsg(`Saved your answer for "${question}" — it'll be reused automatically next time this question comes up, and the job was requeued.`);
+      setTimeout(() => setSuccessMsg(null), 4000);
+      setAnsweringId(null);
+      await fetchFailed();
+      if (onReprocessSuccess) onReprocessSuccess();
+    } catch (err: any) {
+      setError(err?.message || "Failed to save answer");
     } finally {
       setReprocessing(false);
     }
@@ -255,7 +311,8 @@ export function FailedJobsCenter({ onReprocessSuccess, onOpenPrep }: { onReproce
           No failed applications! Everything is either successfully submitted, queued, or running.
         </div>
       ) : (
-        <div className="aa-queue-grid">
+        <div className="flex items-start gap-4">
+        <div className="aa-queue-grid flex-1 min-w-0">
           {failedList.map((job) => {
             const queueApp: QueueApplication = {
               id: job.id,
@@ -283,8 +340,13 @@ export function FailedJobsCenter({ onReprocessSuccess, onOpenPrep }: { onReproce
             const readiness = resolveApplicationReadiness(queueApp);
 
             return (
-              <ApplicationQueueCard
+              <div
                 key={job.id}
+                onClick={() => setSelectedId(job.id)}
+                className="cursor-pointer rounded-2xl transition"
+                style={selectedId === job.id ? { boxShadow: "0 0 0 2px var(--accent)" } : undefined}
+              >
+              <ApplicationQueueCard
                 app={queueApp}
                 statusAccent="rose"
                 isOpening={false}
@@ -331,56 +393,170 @@ export function FailedJobsCenter({ onReprocessSuccess, onOpenPrep }: { onReproce
                   </div>
                 }
                 errorSlot={
-                  <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-rose-300/15 bg-rose-300/[0.06] px-3.5 py-2.5 text-xs text-rose-100">
-                    <span className="line-clamp-2">{job.lastError || job.failureReason || "Application link expired or needs review"}</span>
-                    <div className="flex shrink-0 items-center gap-2">
-                      <button type="button" onClick={() => handleCopyError(job)} className="text-rose-200 underline underline-offset-2 px-1 text-xs">
-                        Copy error
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => void handleQuickApply(job)}
-                        disabled={reprocessing}
-                        className="rounded-lg bg-gradient-to-r from-emerald-500/30 to-teal-500/30 text-emerald-200 border border-emerald-500/50 hover:bg-emerald-500/40 px-3 py-1 font-bold transition flex items-center gap-1.5 shadow-sm disabled:opacity-50 cursor-pointer"
-                        title="Open window with saved autofill state to review and submit"
-                      >
-                        <span>⚡ Quick Apply</span>
-                      </button>
-                      {(job.applicationUrl || job.listingUrl) && (
-                        <a
-                          href={job.applicationUrl || job.listingUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="rounded-lg border border-white/10 bg-white/[0.05] px-2.5 py-1 font-medium text-slate-200 transition hover:bg-white/[0.10]"
+                  <div className="mt-3 flex flex-col gap-2.5 rounded-xl border border-rose-300/15 bg-rose-300/[0.06] px-3.5 py-2.5 text-xs text-rose-100">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <span className="line-clamp-2">{job.lastError || job.failureReason || "Application link expired or needs review"}</span>
+                      <div className="flex shrink-0 items-center gap-2">
+                        <button type="button" onClick={() => handleCopyError(job)} className="text-rose-200 underline underline-offset-2 px-1 text-xs">
+                          Copy error
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void handleQuickApply(job)}
+                          disabled={reprocessing}
+                          className="rounded-lg bg-gradient-to-r from-emerald-500/30 to-teal-500/30 text-emerald-200 border border-emerald-500/50 hover:bg-emerald-500/40 px-3 py-1 font-bold transition flex items-center gap-1.5 shadow-sm disabled:opacity-50 cursor-pointer"
+                          title="Open window with saved autofill state to review and submit"
                         >
-                          View link
-                        </a>
-                      )}
-                      <button
-                        type="button"
-                        onClick={() => void handleReprocessSingle(job.id, job.title || "Job")}
-                        disabled={reprocessing}
-                        className="rounded-lg bg-cyan-400/20 text-cyan-200 border border-cyan-400/30 px-2.5 py-1 font-medium transition hover:bg-cyan-400/30 disabled:opacity-50"
-                        title="Retry processing this application"
-                      >
-                        Retry
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => void handleDeleteSingle(job.id, job.title || "Job")}
-                        disabled={reprocessing}
-                        className="rounded-lg bg-rose-500/25 text-rose-200 border border-rose-500/40 px-2.5 py-1 font-semibold transition hover:bg-rose-500/40 hover:text-white flex items-center gap-1 disabled:opacity-50"
-                        title="Permanently remove expired or dead link from all queues"
-                      >
-                        <IconTrash className="w-3.5 h-3.5" />
-                        <span>Expire / Remove</span>
-                      </button>
+                          <span>⚡ Quick Apply</span>
+                        </button>
+                        {(job.applicationUrl || job.listingUrl) && (
+                          <a
+                            href={job.applicationUrl || job.listingUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="rounded-lg border border-white/10 bg-white/[0.05] px-2.5 py-1 font-medium text-slate-200 transition hover:bg-white/[0.10]"
+                          >
+                            View link
+                          </a>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => void handleReprocessSingle(job.id, job.title || "Job")}
+                          disabled={reprocessing}
+                          className="rounded-lg bg-cyan-400/20 text-cyan-200 border border-cyan-400/30 px-2.5 py-1 font-medium transition hover:bg-cyan-400/30 disabled:opacity-50"
+                          title="Retry processing this application"
+                        >
+                          Retry
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => openAnswerBox(job)}
+                          disabled={reprocessing}
+                          className="rounded-lg bg-emerald-500/25 text-emerald-200 border border-emerald-500/40 px-2.5 py-1 font-semibold transition hover:bg-emerald-500/40 hover:text-white disabled:opacity-50"
+                          title="Answer the question that blocked this application and save it to your answer library for future applications"
+                        >
+                          {answeringId === job.id ? "Cancel" : "Answer & Save"}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void handleDeleteSingle(job.id, job.title || "Job")}
+                          disabled={reprocessing}
+                          className="rounded-lg bg-rose-500/25 text-rose-200 border border-rose-500/40 px-2.5 py-1 font-semibold transition hover:bg-rose-500/40 hover:text-white flex items-center gap-1 disabled:opacity-50"
+                          title="Permanently remove expired or dead link from all queues"
+                        >
+                          <IconTrash className="w-3.5 h-3.5" />
+                          <span>Expire / Remove</span>
+                        </button>
+                      </div>
                     </div>
+                    {answeringId === job.id && (
+                      <div className="flex flex-col gap-1.5 rounded-lg border border-emerald-400/25 bg-emerald-400/[0.06] p-2.5">
+                        <input
+                          type="text"
+                          value={draftQuestion}
+                          onChange={(e) => setDraftQuestion(e.target.value)}
+                          placeholder="Question text as it appears on the form (e.g. What is your desired salary?)"
+                          className="rounded-lg border border-white/10 bg-black/30 px-2.5 py-1.5 text-slate-100 placeholder:text-slate-500 outline-none focus:border-emerald-400/50"
+                        />
+                        <div className="flex gap-2">
+                          <input
+                            type="text"
+                            autoFocus
+                            value={draftAnswer}
+                            onChange={(e) => setDraftAnswer(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") void handleSaveAnswer(job);
+                            }}
+                            placeholder="The answer to save and reuse next time..."
+                            className="flex-1 rounded-lg border border-white/10 bg-black/30 px-2.5 py-1.5 text-slate-100 placeholder:text-slate-500 outline-none focus:border-emerald-400/50"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => void handleSaveAnswer(job)}
+                            disabled={reprocessing || !draftQuestion.trim() || !draftAnswer.trim()}
+                            className="rounded-lg bg-emerald-500/30 text-emerald-100 border border-emerald-500/50 hover:bg-emerald-500/45 px-3 py-1.5 font-semibold transition disabled:opacity-40 disabled:cursor-not-allowed"
+                          >
+                            Save & Requeue
+                          </button>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 }
               />
+              </div>
             );
           })}
+        </div>
+
+        {/* Right detail panel — full, untruncated error for the selected application */}
+        <aside
+          className="w-[380px] shrink-0 rounded-2xl border border-rose-400/20 bg-[#0a101b] p-5 text-xs text-slate-200"
+          style={{ position: "sticky", top: "1rem" }}
+        >
+          {(() => {
+            const job = failedList.find((j) => j.id === selectedId);
+            if (!job) {
+              return <p className="text-slate-500">Select an application to see the full error detail.</p>;
+            }
+            const detail = fullFailureDetail(job);
+            return (
+              <div className="flex flex-col gap-4">
+                <div>
+                  <h3 className="text-sm font-semibold text-rose-200">{job.company || "Unknown company"}</h3>
+                  <p className="text-slate-400">{job.title || "Unknown role"}</p>
+                </div>
+                <div>
+                  <p className="mb-1.5 font-semibold text-rose-300">{detail.typeLabel}</p>
+                  <p className="whitespace-pre-wrap leading-relaxed text-slate-200">{detail.message}</p>
+                </div>
+                {detail.confirmationUrl && (
+                  <div>
+                    <p className="mb-1 font-semibold text-slate-400">Confirmation URL</p>
+                    <p className="break-all text-slate-300">{detail.confirmationUrl}</p>
+                  </div>
+                )}
+                {detail.screenshotPath && (
+                  <div>
+                    <p className="mb-1 font-semibold text-slate-400">Screenshot saved at</p>
+                    <p className="break-all text-slate-500">{detail.screenshotPath}</p>
+                  </div>
+                )}
+                <div className="flex flex-wrap gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => void handleQuickApply(job)}
+                    disabled={reprocessing}
+                    className="rounded-lg bg-emerald-500/25 text-emerald-200 border border-emerald-500/40 px-3 py-1.5 font-semibold transition hover:bg-emerald-500/40 disabled:opacity-50"
+                  >
+                    ⚡ Quick Apply
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void handleReprocessSingle(job.id, job.title || "Job")}
+                    disabled={reprocessing}
+                    className="rounded-lg bg-cyan-400/20 text-cyan-200 border border-cyan-400/30 px-3 py-1.5 font-medium transition hover:bg-cyan-400/30 disabled:opacity-50"
+                  >
+                    Retry
+                  </button>
+                  <button type="button" onClick={() => handleCopyError(job)} className="rounded-lg border border-white/10 bg-white/[0.05] px-3 py-1.5 font-medium text-slate-200 transition hover:bg-white/[0.10]">
+                    Copy error
+                  </button>
+                  {(job.applicationUrl || job.listingUrl) && (
+                    <a
+                      href={job.applicationUrl || job.listingUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="rounded-lg border border-white/10 bg-white/[0.05] px-3 py-1.5 font-medium text-slate-200 transition hover:bg-white/[0.10]"
+                    >
+                      View link
+                    </a>
+                  )}
+                </div>
+              </div>
+            );
+          })()}
+        </aside>
         </div>
       )}
     </div>

@@ -32,6 +32,7 @@ import {
   openApplicationReview,
   unmarkSubmitted,
   qwenPrepareApplication,
+  quickAddApplication,
   type PrepQueueStatus,
 } from "@/lib/application-assistant-api";
 
@@ -715,6 +716,14 @@ export function ApplicationAssistantDashboard() {
   const [reviewSessions, setReviewSessions] = useState<Record<string, ReviewSessionStatus>>({});
   const [profileGate, setProfileGate] = useState<Record<string, ProfileGateEntry>>({});
   const [bootstrapping, setBootstrapping] = useState(true);
+  const [quickAddOpen, setQuickAddOpen] = useState(false);
+  const [quickAddUrl, setQuickAddUrl] = useState("");
+  const [quickAddTitle, setQuickAddTitle] = useState("");
+  const [quickAddCompany, setQuickAddCompany] = useState("");
+  const [quickAddDescription, setQuickAddDescription] = useState("");
+  const [quickAddBusy, setQuickAddBusy] = useState(false);
+  const [quickAddError, setQuickAddError] = useState<string | null>(null);
+  const [quickAddNote, setQuickAddNote] = useState<string | null>(null);
   const unifiedGateRef = useRef<QuestionsGateHandle>(null);
   const gateRefs = useRef<Record<string, QuestionsGateHandle | null>>({});
   const queueAnalyzeRef = useRef<HTMLDivElement>(null);
@@ -981,6 +990,41 @@ export function ApplicationAssistantDashboard() {
   const refreshAll = useCallback(async () => {
     await Promise.all([loadApplications(), loadStats()]);
   }, [loadApplications, loadStats]);
+
+  const handleQuickAdd = useCallback(async () => {
+    const url = quickAddUrl.trim();
+    if (!url) {
+      setQuickAddError("Paste a job posting link first.");
+      return;
+    }
+    setQuickAddBusy(true);
+    setQuickAddError(null);
+    setQuickAddNote(null);
+    try {
+      const result = await quickAddApplication({
+        url,
+        title: quickAddTitle.trim() || undefined,
+        company: quickAddCompany.trim() || undefined,
+        description: quickAddDescription.trim() || undefined,
+      });
+      const role = String(result.application?.roleTitle ?? "this role");
+      const company = String(result.application?.companyName ?? "");
+      setQuickAddNote(
+        result.autoExtracted
+          ? `Added ${role}${company ? ` at ${company}` : ""} — read straight from the link.`
+          : `Added ${role}${company ? ` at ${company}` : ""} from your pasted details.`,
+      );
+      setQuickAddUrl("");
+      setQuickAddTitle("");
+      setQuickAddCompany("");
+      setQuickAddDescription("");
+      await refreshAll();
+    } catch (err) {
+      setQuickAddError(err instanceof Error ? err.message : "Could not add that link.");
+    } finally {
+      setQuickAddBusy(false);
+    }
+  }, [quickAddUrl, quickAddTitle, quickAddCompany, quickAddDescription, refreshAll]);
 
   useEffect(() => {
     const onPrepStarted = () => {
@@ -1893,8 +1937,148 @@ export function ApplicationAssistantDashboard() {
         </div>
         <p className="aa-queue-hint muted">
           Add jobs from <a href="/jobs/discover">Job Scraper</a> — prep starts automatically in the background. When ready, use{" "}
-          <strong>Quick apply</strong> to open the form with your saved answers.
+          <strong>Quick apply</strong> to open the form with your saved answers.{" "}
+          <button
+            type="button"
+            className="btn-secondary btn-sm"
+            style={{ marginLeft: "var(--cos-space-3, 0.75rem)" }}
+            onClick={() => setQuickAddOpen((open) => !open)}
+          >
+            {quickAddOpen ? "Close" : "Paste a job link"}
+          </button>
         </p>
+
+        {quickAddOpen ? (
+          <div
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              gap: "var(--cos-space-3, 0.75rem)",
+              padding: "var(--cos-space-4, 1rem)",
+              marginBottom: "var(--cos-space-4, 1rem)",
+              background: "var(--card)",
+              border: "1px solid var(--border)",
+              borderRadius: "var(--radius-md, 14px)",
+            }}
+          >
+            <div>
+              <label
+                htmlFor="quick-add-url"
+                style={{ display: "block", fontSize: "var(--cos-text-xs, 0.72rem)", color: "var(--text-secondary)", marginBottom: "4px" }}
+              >
+                Job posting URL
+              </label>
+              <input
+                id="quick-add-url"
+                type="url"
+                inputMode="url"
+                placeholder="https://boards.greenhouse.io/company/jobs/12345"
+                value={quickAddUrl}
+                onChange={(event) => setQuickAddUrl(event.target.value)}
+                style={{
+                  width: "100%",
+                  padding: "10px 12px",
+                  background: "var(--bg)",
+                  border: "1px solid var(--border)",
+                  borderRadius: "var(--radius-sm, 10px)",
+                  color: "var(--text)",
+                  font: "inherit",
+                }}
+              />
+            </div>
+            <div style={{ display: "flex", gap: "var(--cos-space-3, 0.75rem)" }}>
+              <div style={{ flex: 1 }}>
+                <label
+                  htmlFor="quick-add-title"
+                  style={{ display: "block", fontSize: "var(--cos-text-xs, 0.72rem)", color: "var(--text-secondary)", marginBottom: "4px" }}
+                >
+                  Job title (only needed if we can&apos;t read the link)
+                </label>
+                <input
+                  id="quick-add-title"
+                  type="text"
+                  placeholder="e.g. Senior Platform Engineer"
+                  value={quickAddTitle}
+                  onChange={(event) => setQuickAddTitle(event.target.value)}
+                  style={{
+                    width: "100%",
+                    padding: "10px 12px",
+                    background: "var(--bg)",
+                    border: "1px solid var(--border)",
+                    borderRadius: "var(--radius-sm, 10px)",
+                    color: "var(--text)",
+                    font: "inherit",
+                  }}
+                />
+              </div>
+              <div style={{ flex: 1 }}>
+                <label
+                  htmlFor="quick-add-company"
+                  style={{ display: "block", fontSize: "var(--cos-text-xs, 0.72rem)", color: "var(--text-secondary)", marginBottom: "4px" }}
+                >
+                  Company (only needed if we can&apos;t read the link)
+                </label>
+                <input
+                  id="quick-add-company"
+                  type="text"
+                  placeholder="e.g. Acme Corp"
+                  value={quickAddCompany}
+                  onChange={(event) => setQuickAddCompany(event.target.value)}
+                  style={{
+                    width: "100%",
+                    padding: "10px 12px",
+                    background: "var(--bg)",
+                    border: "1px solid var(--border)",
+                    borderRadius: "var(--radius-sm, 10px)",
+                    color: "var(--text)",
+                    font: "inherit",
+                  }}
+                />
+              </div>
+            </div>
+            <div>
+              <label
+                htmlFor="quick-add-description"
+                style={{ display: "block", fontSize: "var(--cos-text-xs, 0.72rem)", color: "var(--text-secondary)", marginBottom: "4px" }}
+              >
+                Job description (optional — paste it if the link won&apos;t auto-read, e.g. a login-gated posting)
+              </label>
+              <textarea
+                id="quick-add-description"
+                rows={3}
+                placeholder="Paste the job description here if we can't fetch it automatically…"
+                value={quickAddDescription}
+                onChange={(event) => setQuickAddDescription(event.target.value)}
+                style={{
+                  width: "100%",
+                  padding: "10px 12px",
+                  background: "var(--bg)",
+                  border: "1px solid var(--border)",
+                  borderRadius: "var(--radius-sm, 10px)",
+                  color: "var(--text)",
+                  font: "inherit",
+                  resize: "vertical",
+                }}
+              />
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: "var(--cos-space-3, 0.75rem)" }}>
+              <button
+                type="button"
+                className="btn-primary btn-sm"
+                onClick={() => void handleQuickAdd()}
+                disabled={quickAddBusy || !quickAddUrl.trim()}
+              >
+                {quickAddBusy ? "Adding…" : "Add to pipeline"}
+              </button>
+              {quickAddError ? (
+                <span style={{ color: "var(--risk, #e6897c)", fontSize: "var(--cos-text-xs, 0.72rem)" }}>{quickAddError}</span>
+              ) : null}
+              {quickAddNote ? (
+                <span style={{ color: "var(--accent)", fontSize: "var(--cos-text-xs, 0.72rem)" }}>{quickAddNote}</span>
+              ) : null}
+            </div>
+          </div>
+        ) : null}
         <div ref={queueAnalyzeRef} />
         {useUnifiedWizard && (
           <UnifiedQuestionsGate

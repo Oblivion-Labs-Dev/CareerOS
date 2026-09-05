@@ -1,12 +1,15 @@
 "use client";
 
 import { Suspense, useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { ApplicationAssistantDashboard } from "@/components/application-assistant/application-assistant-dashboard";
 import { AutopilotDashboard } from "@/components/application-assistant/autopilot-dashboard";
 import { FailedJobsCenter } from "@/components/application-assistant/failed-jobs-center";
 import { ReviewCenter } from "@/components/application-assistant/review-center";
 import { SubmittedJobsCenter } from "@/components/application-assistant/submitted-jobs-center";
 import { LatencyDiagnosticsCenter } from "@/components/application-assistant/latency-diagnostics-center";
+import { RecruiterInbox } from "@/components/tracker/recruiter-inbox";
+import { PipelineKanban } from "@/components/tracker/pipeline-kanban";
 import { getAutopilotJobs, getAutopilotStatus, getStagedApplications } from "@/lib/application-assistant-api";
 import { IconActivity, IconAlertCircle, IconBolt, IconClock, IconInbox, IconSend } from "@/components/application-assistant/autopilot/icons";
 
@@ -25,8 +28,34 @@ function ApplicationQueueLoading() {
   );
 }
 
+type ApplicationsTab = "autopilot" | "submitted" | "review" | "failed" | "tracker" | "inbox" | "pipeline" | "diagnostics";
+
+const VALID_TABS: ApplicationsTab[] = [
+  "autopilot",
+  "submitted",
+  "review",
+  "failed",
+  "tracker",
+  "inbox",
+  "pipeline",
+  "diagnostics",
+];
+
 export default function ApplicationsPage() {
-  const [activeTab, setActiveTab] = useState<"autopilot" | "submitted" | "review" | "failed" | "tracker" | "diagnostics">("autopilot");
+  return (
+    <Suspense fallback={<ApplicationQueueLoading />}>
+      <ApplicationsPageInner />
+    </Suspense>
+  );
+}
+
+function ApplicationsPageInner() {
+  const searchParams = useSearchParams();
+  const initialTab = (() => {
+    const requested = searchParams.get("tab");
+    return requested && (VALID_TABS as string[]).includes(requested) ? (requested as ApplicationsTab) : "autopilot";
+  })();
+  const [activeTab, setActiveTab] = useState<ApplicationsTab>(initialTab);
   const [reviewCount, setReviewCount] = useState<number>(0);
   const [submittedCount, setSubmittedCount] = useState<number>(0);
   const [failedCount, setFailedCount] = useState<number>(0);
@@ -189,7 +218,37 @@ export default function ApplicationsPage() {
             <span>All Applications</span>
           </button>
 
-          {/* 6. Diagnostics Button (Cyan / Blue) */}
+          {/* 6. Inbox Button (Indigo) */}
+          <button
+            onClick={() => setActiveTab("inbox")}
+            style={{
+              background: activeTab === "inbox" ? "#181d3c" : "#0e1122",
+              borderColor: activeTab === "inbox" ? "#818cf8" : "rgba(129, 140, 248, 0.4)",
+              color: "#a5b4fc",
+              boxShadow: activeTab === "inbox" ? "0 0 20px rgba(129, 140, 248, 0.4)" : "none",
+            }}
+            className="px-3.5 py-2 text-xs font-black rounded-xl border transition-all duration-300 flex items-center gap-2 cursor-pointer hover:scale-[1.02] active:scale-[0.98]"
+          >
+            <IconInbox className="w-4 h-4 text-[#a5b4fc]" />
+            <span>Inbox</span>
+          </button>
+
+          {/* 7. Pipeline Button (Lime) */}
+          <button
+            onClick={() => setActiveTab("pipeline")}
+            style={{
+              background: activeTab === "pipeline" ? "#1c2410" : "#12160a",
+              borderColor: activeTab === "pipeline" ? "#a3e635" : "rgba(163, 230, 53, 0.4)",
+              color: "#bef264",
+              boxShadow: activeTab === "pipeline" ? "0 0 20px rgba(163, 230, 53, 0.4)" : "none",
+            }}
+            className="px-3.5 py-2 text-xs font-black rounded-xl border transition-all duration-300 flex items-center gap-2 cursor-pointer hover:scale-[1.02] active:scale-[0.98]"
+          >
+            <IconActivity className="w-4 h-4 text-[#bef264]" />
+            <span>Pipeline</span>
+          </button>
+
+          {/* 8. Diagnostics Button (Cyan / Blue) */}
           <button
             onClick={() => setActiveTab("diagnostics")}
             style={{
@@ -237,6 +296,18 @@ export default function ApplicationsPage() {
       {activeTab === "tracker" && (
         <Suspense fallback={<ApplicationQueueLoading />}>
           <ApplicationAssistantDashboard />
+        </Suspense>
+      )}
+
+      {activeTab === "inbox" && (
+        <Suspense fallback={<ApplicationQueueLoading />}>
+          <RecruiterInbox />
+        </Suspense>
+      )}
+
+      {activeTab === "pipeline" && (
+        <Suspense fallback={<ApplicationQueueLoading />}>
+          <PipelineKanban />
         </Suspense>
       )}
 

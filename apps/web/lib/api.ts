@@ -20,9 +20,20 @@ export async function fetchHealth(options?: FetchOptions): Promise<{ status: str
   return res.json();
 }
 
+async function errorMessageFor(res: Response, path: string): Promise<string> {
+  try {
+    const body = await res.clone().json();
+    if (typeof body?.detail === "string" && body.detail) return body.detail;
+    if (typeof body?.message === "string" && body.message) return body.message;
+  } catch {
+    // Response wasn't JSON (or already consumed) — fall through to the generic message.
+  }
+  return `Request failed: ${path}`;
+}
+
 export async function fetchJson<T>(path: string, options?: FetchOptions): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, fetchOptions(options));
-  if (!res.ok) throw new Error(`Request failed: ${path}`);
+  if (!res.ok) throw new Error(await errorMessageFor(res, path));
   return res.json();
 }
 
@@ -40,6 +51,6 @@ export async function postJson<T>(path: string, body: unknown, method: "POST" | 
     headers: method === "DELETE" ? undefined : { "Content-Type": "application/json" },
     body: method === "DELETE" ? undefined : JSON.stringify(body),
   });
-  if (!res.ok) throw new Error(`Request failed: ${path}`);
+  if (!res.ok) throw new Error(await errorMessageFor(res, path));
   return res.json();
 }

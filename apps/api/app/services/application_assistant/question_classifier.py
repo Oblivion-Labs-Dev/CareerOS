@@ -49,6 +49,7 @@ class QuestionType(str, Enum):
     DEGREE = "DEGREE"
     DISCIPLINE = "DISCIPLINE"
     GPA = "GPA"
+    TEST_SCORE = "TEST_SCORE"
 
     # ── Work Authorization (each is a DISTINCT concept) ──
     WORK_AUTHORIZED = "WORK_AUTHORIZED"
@@ -86,6 +87,8 @@ class QuestionType(str, Enum):
     # ── Miscellaneous ──
     HOW_HEARD = "HOW_HEARD"
     ENGLISH_PROFICIENCY = "ENGLISH_PROFICIENCY"
+    LOCATION_CONFIRMATION = "LOCATION_CONFIRMATION"
+    TECH_STACK_EXPERIENCE = "TECH_STACK_EXPERIENCE"
 
     # ── Free Text (sub-classified by intent) ──
     FREE_TEXT_EXPERIENCE = "FREE_TEXT_EXPERIENCE"
@@ -242,6 +245,17 @@ _CLASSIFICATION_RULES: list[tuple[QuestionType, list[str]]] = [
     (QuestionType.ZIP, [r"\bzip\b", r"postal\s*code", r"postcode"]),
     (QuestionType.COUNTRY, [r"\bcountry\b(?!.*code)"]),
     (QuestionType.ADDRESS, [r"address", r"street"]),
+    (QuestionType.LOCATION_CONFIRMATION, [
+        r"is\s+your\s+current\s+location",
+        r"currently\s+located\s+in",
+        r"are\s+you\s+(currently\s+)?based\s+in",
+        r"current\s+country\s+of\s+residence",
+        r"do\s+you\s+live\s+in\s+(one\s+of\s+the\s+following\s+)?(states|countries|locations)",
+        r"do\s+you\s+(currently\s+)?reside\s+in",
+        r"are\s+you\s+located\s+in",
+        r"live\s+in\s+one\s+of\s+the\s+following",
+        r"based\s+in\s+any\s+of\s+these",
+    ]),
     (QuestionType.LOCATION, [
         r"location",
         r"city.*state",
@@ -251,7 +265,8 @@ _CLASSIFICATION_RULES: list[tuple[QuestionType, list[str]]] = [
 
     # ── Professional ──
     (QuestionType.CURRENT_COMPANY, [
-        r"current\s*(company|employer)",
+        r"^(what\s+is\s+your\s+)?current\s*(company|employer)",
+        r"name\s+of\s+your\s+current\s*(or\s+most\s+recent)?\s*(company|employer)",
         r"most\s+recent.*(company|employer)",
         r"company\s*name",
         r"where.*most\s+recently\s+worked",
@@ -264,7 +279,17 @@ _CLASSIFICATION_RULES: list[tuple[QuestionType, list[str]]] = [
         r"position\s*title",
         r"headline",
     ]),
-    (QuestionType.YEARS_EXPERIENCE, [r"years\s*(of\s*)?experience", r"experience\s*level"]),
+    (QuestionType.YEARS_EXPERIENCE, [
+        r"years\s*(of\s*)?experience",
+        r"experience\s*level",
+        r"how\s*many\s*years",
+        r"hands-on\s*experience",
+    ]),
+    (QuestionType.TECH_STACK_EXPERIENCE, [
+        r"which\s+of\s+the\s+following.*(experience|familiar|use)",
+        r"which\s+technolog",
+        r"technologies.*experience",
+    ]),
     (QuestionType.LINKEDIN, [r"linkedin"]),
     (QuestionType.GITHUB, [r"github"]),
     (QuestionType.WEBSITE, [r"portfolio", r"website", r"personal\s*site"]),
@@ -279,31 +304,60 @@ _CLASSIFICATION_RULES: list[tuple[QuestionType, list[str]]] = [
     (QuestionType.DEGREE, [r"degree", r"level\s*of\s*education", r"highest\s*degree"]),
     (QuestionType.DISCIPLINE, [r"major", r"discipline", r"field\s*of\s*study"]),
     (QuestionType.GPA, [r"\bgpa\b", r"grade\s*point\s*average"]),
+    (QuestionType.TEST_SCORE, [
+        r"\bact\s*score",
+        r"\bsat\s*score",
+        r"\bgre\s*score",
+        r"\bgmat\s*score",
+        r"test\s*score",
+    ]),
+    (QuestionType.SECURITY_CLEARANCE_LEVEL, [
+        r"security\s*clearance",
+        r"active.*clearance",
+    ]),
 
     # ── Availability / Compliance ──
     (QuestionType.SALARY, [r"salary", r"compensation", r"desired\s*pay", r"expected\s*salary"]),
     (QuestionType.NOTICE_PERIOD, [r"notice\s*period", r"start\s*date", r"available\s*to\s*start", r"how\s*soon"]),
     (QuestionType.RELOCATE, [r"relocat", r"willing\s*to\s*relocat", r"local\s+to"]),
     (QuestionType.SMS_CONSENT, [r"text\s*message", r"\bsms\b", r"consent.*(text|message)"]),
-    (QuestionType.HOW_HEARD, [r"how\s*did\s*you\s*hear", r"how\s*did\s*you\s*find\s*us", r"where\s*did\s*you.*hear"]),
+    (QuestionType.HOW_HEARD, [
+        r"how\s*did\s*you\s*hear",
+        r"how\s*did\s*you\s*find\s*us",
+        r"where\s*did\s*you.*hear",
+        r"learn\s*about.*employer",
+        r"how.*first\s+learn",
+    ]),
+    (QuestionType.PRIVACY_CONSENT, [
+        r"privacy\s*policy",
+        r"candidate\s*privacy",
+        r"recruitment\s*privacy",
+        r"acknowledge.*read\s+and\s+understand",
+        r"consent\s+to.*process",
+    ]),
     (QuestionType.ENGLISH_PROFICIENCY, [r"english\s*proficiency", r"english\s*language", r"fluent\s*in\s*english"]),
     (QuestionType.BACKGROUND_CHECK, [r"background\s*check"]),
     (QuestionType.COMPANY_HISTORY, [
-        r"previously\s*employed",
-        r"have\s*you\s*ever\s*worked\s*(at|for)",
+        r"previously\s*(worked|employed|consulted|been\s+employed)",
+        r"previously\s+been\s+employed",
+        r"worked\s+at\s+or\s+consulted",
+        r"prior\s+employment",
+        r"employment\s+history",
+        r"have\s+you\s+(ever|previously)\s*(worked|been\s+employed)\s*(at|for)",
+        r"interview(ed)?\s*with",
         r"former\s*employee",
         r"conflict\s*of\s*interest",
         r"relative.*employed",
         r"family\s+member",
-    ]),
-    (QuestionType.PRIVACY_CONSENT, [
-        r"privacy\s+notice",
-        r"job\s+applicant\s+privacy",
-        r"acknowledge.*read",
-        r"\bterms\b",
-        r"\bconsent\b",
+        r"employment\s+agreement",
+        r"non[- ]?compete",
+        r"restrictive\s+covenant",
+        r"post-employment\s+restriction",
     ]),
     (QuestionType.ACCURACY_CONFIRMATION, [
+        r"essential\s+functions",
+        r"reasonable\s+accommodation",
+        r"perform.*essential.*functions",
         r"double.?check\s+all",
         r"accuracy\s+is\s+crucial",
         r"errors\s+or\s+omissions",

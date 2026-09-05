@@ -139,7 +139,7 @@ async def generate_cover_letter_with_review(
             job_description=job_description,
             tone=tone,
         )
-        draft_result = await call_openrouter_json(drafter_user, drafter_system)
+        draft_result = await call_openrouter_json(drafter_user, drafter_system, task="cover_letter_draft")
         if draft_result and draft_result.get("content"):
             draft = str(draft_result["content"])
             pipeline_mode = "drafter"
@@ -151,7 +151,7 @@ async def generate_cover_letter_with_review(
                 role=role_title,
                 job_description=job_description,
             )
-            review_result = await call_openrouter_json(reviewer_user, reviewer_system)
+            review_result = await call_openrouter_json(reviewer_user, reviewer_system, task="cover_letter_review")
             if review_result and review_result.get("revisedContent"):
                 content = str(review_result["revisedContent"])
                 pipeline_mode = "drafter-reviewer"

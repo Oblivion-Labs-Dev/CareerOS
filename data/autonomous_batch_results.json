@@ -1,0 +1,84 @@
+{
+  "GitLab": {
+    "submitted": true,
+    "stagedForReview": false,
+    "error": "",
+    "evidence": {
+      "confirmationText": "Application confirmed by ATS (Deterministic Match)",
+      "confirmationUrl": "https://job-boards.greenhouse.io/gitlab/jobs/8615319002/confirmation",
+      "screenshotPath": "D:\\1 - Projects\\Projects\\CareerOS\\CareerOS\\apps\\api\\data\\application_assistant\\screenshots\\job_gitlab_8615319002_confirmation.png",
+      "preScreenshotPath": "D:\\1 - Projects\\Projects\\CareerOS\\CareerOS\\apps\\api\\data\\application_assistant\\screenshots\\job_gitlab_8615319002_presubmit.png",
+      "qwenPreApproved": false,
+      "qwenPostApproved": true,
+      "qwenReview": {
+        "submissionConfirmed": true,
+        "confidence": 1.0,
+        "confirmationMessage": "Application confirmed by ATS (Deterministic Match)",
+        "reason": "ATS confirmation detected"
+      },
+      "receipt": {
+        "receiptId": "rcpt_e6f0d63176ec154bafe342b6",
+        "jobId": "job_gitlab_8615319002",
+        "company": "GitLab",
+        "title": "Senior Backend Engineer - Monitoring and Anomaly Detection (Monetization)",
+        "applicationUrl": "https://job-boards.greenhouse.io/gitlab/jobs/8615319002",
+        "confirmationUrl": "https://job-boards.greenhouse.io/gitlab/jobs/8615319002/confirmation",
+        "confirmationText": "Application confirmed by ATS (Deterministic Match)",
+        "submittedAt": "2026-09-04T19:29:27.881261+00:00",
+        "fieldsFilled": {
+          "First Name": "Akshay",
+          "Last Name": "Borse",
+          "Email": "amsborse+careeros@gmail.com",
+          "Phone": "(425) 336-9852",
+          "Location": "Auburn, WA",
+          "Resume": "Akshay_Borse_Resume.pdf",
+          "Country*": "United States +1",
+          "Location (City)*": "Auburn, Washington, United States",
+          "What is your current country of residence?*": "United States of America",
+          "Will you now or in the future require sponsorship ": "Yes, USMCA Professional (TN) Visa (USA)",
+          "How many years of professional, hands-on experienc": "More than 6 years",
+          "Gender": "Male",
+          "Veteran Status": "I am not a protected veteran",
+          "Disability Status": "No, I do not have a disability and have not had one in the past",
+          "LinkedIn": "https://www.linkedin.com/in/amsborse/",
+          "Current Company": "Microsoft",
+          "Have you previously worked at or consulted for GitLab?*": "No",
+          "Which of the following do you have professional experience with?*": "Python, Go, TypeScript, React",
+          "Are you subject to any employment agreements and/or post-employment restrictions with your current employer or a past employer?*": "No"
+        },
+        "fieldsCount": 19,
+        "presubmitScreenshot": "D:\\1 - Projects\\Projects\\CareerOS\\CareerOS\\apps\\api\\data\\application_assistant\\screenshots\\job_gitlab_8615319002_presubmit.png",
+        "confirmationScreenshot": "D:\\1 - Projects\\Projects\\CareerOS\\CareerOS\\apps\\api\\data\\application_assistant\\screenshots\\job_gitlab_8615319002_confirmation.png",
+        "verificationStatus": "VERIFIED",
+        "qwenReview": {
+          "submissionConfirmed": true,
+          "confidence": 1.0,
+          "confirmationMessage": "Application confirmed by ATS (Deterministic Match)",
+          "reason": "ATS confirmation detected"
+        },
+        "certificateFingerprint": "E6F0D63176EC154BAFE342B6"
+      }
+    },
+    "fieldsFilled": {
+      "First Name": "Akshay",
+      "Last Name": "Borse",
+      "Email": "amsborse+careeros@gmail.com",
+      "Phone": "(425) 336-9852",
+      "Location": "Auburn, WA",
+      "Resume": "Akshay_Borse_Resume.pdf",
+      "Country*": "United States +1",
+      "Location (City)*": "Auburn, Washington, United States",
+      "What is your current country of residence?*": "United States of America",
+      "Will you now or in the future require sponsorship ": "Yes, USMCA Professional (TN) Visa (USA)",
+      "How many years of professional, hands-on experienc": "More than 6 years",
+      "Gender": "Male",
+      "Veteran Status": "I am not a protected veteran",
+      "Disability Status": "No, I do not have a disability and have not had one in the past",
+      "LinkedIn": "https://www.linkedin.com/in/amsborse/",
+      "Current Company": "Microsoft",
+      "Have you previously worked at or consulted for GitLab?*": "No",
+      "Which of the following do you have professional experience with?*": "Python, Go, TypeScript, React",
+      "Are you subject to any employment agreements and/or post-employment restrictions with your current employer or a past employer?*": "No"
+    }
+  }
+}

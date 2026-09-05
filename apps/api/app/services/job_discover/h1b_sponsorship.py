@@ -45,6 +45,16 @@ UNLIKELY_PATTERNS: list[tuple[re.Pattern[str], str]] = [
         "No sponsorship required",
     ),
     (re.compile(r"\bno immigration sponsorship\b", re.I), "No immigration sponsorship"),
+    (re.compile(r"\b(?:itar|ear)\s+compliance\b", re.I), "ITAR/EAR compliance required"),
+    (re.compile(r"\bsubject to (?:u\.s\.\s+)?export controls?\b", re.I), "Subject to export controls"),
+    (re.compile(r"\bexport control(?:led)?\b", re.I), "Export-controlled technology"),
+    (re.compile(r"\bu\.?s\.?\s+person\s+(?:status\s+)?required\b", re.I), "US Person required"),
+    (re.compile(r"\bmust be a (?:u\.s\.\s+)?person\b", re.I), "Must be a US person"),
+    (re.compile(r"\bsecurity clearance required\b", re.I), "Security clearance required"),
+    (re.compile(r"\beligib(?:le|ility) to obtain (?:and maintain )?(?:a )?(?:u\.s\.\s+)?security clearance\b", re.I), "Clearance eligibility required"),
+    (re.compile(r"\bsecret clearance\b", re.I), "Secret clearance required"),
+    (re.compile(r"\btop secret clearance\b", re.I), "Top secret clearance required"),
+    (re.compile(r"\bts/sci\b", re.I), "TS/SCI required"),
 ]
 
 

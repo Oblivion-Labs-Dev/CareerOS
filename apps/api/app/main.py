@@ -20,6 +20,7 @@ from app.routers.api import router
 from app.routers.application_assistant import router as application_assistant_router
 from app.routers.intelligence import router as intelligence_router
 from app.routers.job_search import router as job_search_router
+from app.routers.networking import router as networking_router
 from app.routers.repair_demo import router as repair_demo_router
 from app.routers.repair_manual import router as repair_manual_router
 from app.routers.resume_intelligence import router as resume_intelligence_router
@@ -65,6 +66,7 @@ app.include_router(repair_manual_router)
 app.include_router(application_assistant_router)
 app.include_router(resume_intelligence_router)
 app.include_router(job_search_router)
+app.include_router(networking_router)
 
 
 @app.exception_handler(Exception)

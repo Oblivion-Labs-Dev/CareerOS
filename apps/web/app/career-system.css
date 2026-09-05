@@ -97,6 +97,23 @@
 }
 .nav-link:hover { transform: none; background: var(--cos-brand-soft); color: var(--cos-ink); }
 .nav-link.active { background: var(--cos-brand-soft); color: var(--cos-brand); box-shadow: inset 3px 0 0 var(--cos-brand); }
+.nav-link--disabled,
+.nav-link[aria-disabled="true"] {
+  opacity: 0.45;
+  cursor: not-allowed;
+  user-select: none;
+}
+.nav-link--disabled:hover,
+.nav-link[aria-disabled="true"]:hover {
+  background: transparent !important;
+  color: var(--cos-ink-2) !important;
+  transform: none !important;
+}
+.nav-link--disabled .nav-icon,
+.nav-link[aria-disabled="true"] .nav-icon {
+  opacity: 0.55;
+  background: transparent !important;
+}
 .nav-icon { width: 31px; height: 31px; border: 0; border-radius: 9px; background: transparent; color: currentColor; }
 .nav-link:hover .nav-icon { background: color-mix(in srgb, var(--cos-brand) 10%, transparent); }
 .nav-link.active .nav-icon { border: 0; background: color-mix(in srgb, var(--cos-brand) 12%, transparent); color: var(--cos-brand); }

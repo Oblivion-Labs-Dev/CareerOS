@@ -30,12 +30,16 @@ export function AppTopbar() {
 
   const items = useMemo(() => [
     ...DIRECT_ACTIONS.map((item) => ({ ...item, group: "Actions" })),
-    ...NAV_GROUPS.flatMap((group) => group.items.map((item) => ({
-      label: item.label,
-      href: item.href,
-      detail: group.label,
-      group: "Navigate",
-    }))),
+    ...NAV_GROUPS.flatMap((group) =>
+      group.items
+        .filter((item) => item.enabled !== false)
+        .map((item) => ({
+          label: item.label,
+          href: item.href,
+          detail: group.label,
+          group: "Navigate",
+        })),
+    ),
   ], []);
 
   const filtered = useMemo(() => {

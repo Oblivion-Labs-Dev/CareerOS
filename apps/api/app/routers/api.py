@@ -4,7 +4,7 @@ from collections.abc import Generator
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
 from fastapi.responses import HTMLResponse, Response
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
@@ -13,6 +13,7 @@ from app.config import settings
 from app.db.store import (
     EntityStore,
     delete_entity,
+    get_entity,
     get_kv,
     import_legacy_db,
     legacy_db_snapshot,
@@ -33,11 +34,22 @@ from app.services.gmail_imap import GmailImapClient
 from app.services.gmail_sender import SendEmailPayload, build_gmail_sender
 from app.services.job_discover import relevancy_engine
 from app.services.job_discover import store as job_discover
+from app.services.job_discover.url_import import autoextract_job_from_url
+from app.services.application_assistant.persistence import get_settings as get_aa_settings
 from app.services.llm import analyze_accomplishment, generate_resume_bullets_for_job
 from app.services.log_store import append_client_log, clear_client_logs, read_client_logs
 from app.services.outreach_campaign_store import load_campaigns
+from app.services.resume_intelligence.ats_score import compute_ats_score
+from app.services.resume_intelligence import resume_profiles as resume_profiles_service
+from app.services.resume_intelligence.tailoring import (
+    TAILORING_TONE_BY_MODE,
+    build_tailoring_diff,
+    passthrough_diff,
+)
 from app.services.resume_parser import parse_resume_into_profile
 from app.services.runtime_metrics import metrics_snapshot_with_logs
+from app.services.tracker import inbox as tracker_inbox
+from app.services.tracker import pipeline as tracker_pipeline
 from app.services.target_company_jobs import (
     filter_jobs,
     format_whatsapp,
@@ -269,15 +281,23 @@ def parse_resume_route(db: Session = Depends(db_session)) -> dict[str, Any]:
 
 @router.post("/jobs/extract")
 def extract_job(payload: JobExtractPayload) -> dict[str, Any]:
+    auto: dict[str, Any] | None = None
+    # Only attempt a live fetch when the caller hasn't already supplied a
+    # description (the extension sends scraped `html` separately; a manual
+    # "paste a job link" flow from the dashboard sends just the URL).
+    if not payload.html and not payload.description and payload.url:
+        auto = autoextract_job_from_url(payload.url)
+
     job = {
         "id": new_id("job_"),
-        "companyName": payload.company or "Unknown company",
-        "title": payload.title or "Unknown role",
-        "location": payload.location or "",
-        "description": payload.description or "",
+        "companyName": payload.company or (auto or {}).get("company") or "Unknown company",
+        "title": payload.title or (auto or {}).get("title") or "Unknown role",
+        "location": payload.location or (auto or {}).get("location") or "",
+        "description": payload.description or (auto or {}).get("description") or "",
         "url": payload.url,
         "platform": payload.platform or "",
         "extractedAt": now_iso(),
+        "autoExtracted": bool(auto),
     }
     return {"success": True, "job": job}
 
@@ -653,6 +673,33 @@ def get_tracker_summary(db: Session = Depends(db_session)) -> dict[str, Any]:
     return tracker_summary(db)
 
 
+@router.get("/tracker/pipeline")
+def get_tracker_pipeline(db: Session = Depends(db_session)) -> dict[str, Any]:
+    """Kanban view of the post-apply funnel: Applied -> Ghosted -> Interviewing -> Rejected -> Offer."""
+    return tracker_pipeline.build_pipeline(db)
+
+
+@router.get("/applications/export.csv")
+def export_applications(db: Session = Depends(db_session)) -> Response:
+    csv_text = tracker_pipeline.export_applications_csv(db)
+    return Response(
+        content=csv_text,
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=careeros-applications.csv"},
+    )
+
+
+@router.post("/applications/import")
+async def import_applications(file: UploadFile = File(...), db: Session = Depends(db_session)) -> dict[str, Any]:
+    raw = await file.read()
+    try:
+        content = raw.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        content = raw.decode("latin-1")
+    result = tracker_pipeline.import_applications_csv(db, content)
+    return {"success": True, **result}
+
+
 @router.patch("/applications/{application_id}")
 def update_application(
     application_id: str,
@@ -877,6 +924,21 @@ def list_recruiter_threads(limit: int = Query(default=10, ge=1, le=150)) -> dict
     client = GmailImapClient(user, app_password)
     threads = client.fetch_threads(limit=limit)
     return {"success": True, "threads": threads, "count": len(threads)}
+
+
+@router.get("/email/recruiter-threads/classified")
+async def list_classified_recruiter_threads(limit: int = Query(default=20, ge=1, le=100), db: Session = Depends(db_session)) -> dict[str, Any]:
+    """Inbox view: recruiter threads auto-tagged Verification/Rejection/Interview/Assessment/
+    Reminder/Offer/Applied (rule-based, cached per IMAP UID; LLM fallback only when ambiguous
+    and OPENROUTER_API_KEY is set)."""
+    user, app_password = require_gmail_configured()
+    client = GmailImapClient(user, app_password)
+    threads = await tracker_inbox.fetch_and_classify_threads(db, client, limit=limit)
+    counts: dict[str, int] = {}
+    for thread in threads:
+        category = thread.get("category") or "uncategorized"
+        counts[category] = counts.get(category, 0) + 1
+    return {"success": True, "threads": threads, "count": len(threads), "categoryCounts": counts}
 
 
 @router.get("/email/recruiter-conversations")
@@ -1127,6 +1189,38 @@ class ResumeGeneratePayload(BaseModel):
     targetAtsScore: int = 85
 
 
+class ResumeTailorPayload(BaseModel):
+    accomplishmentIds: list[str] | None = None
+    jobId: str | None = None
+    targetCompany: str = ""
+    targetRole: str = ""
+    jobDescription: str = ""
+    experienceLevel: str = "Senior"
+    tone: str = "professional"
+    maxPages: int = 1
+    targetAtsScore: int = 85
+    mode: str | None = None
+
+
+class ResumeTailorApprovePayload(BaseModel):
+    mode: str
+    jobId: str | None = None
+    targetCompany: str = ""
+    targetRole: str = ""
+    bullets: list[dict[str, Any]] = Field(default_factory=list)
+    skillsList: list[str] = Field(default_factory=list)
+
+
+class ResumeProfileCreatePayload(BaseModel):
+    name: str
+    resume: dict[str, Any] | None = None
+
+
+class ResumeProfilePatchPayload(BaseModel):
+    name: str | None = None
+    resume: dict[str, Any] | None = None
+
+
 @router.get("/accomplishments")
 def list_accomplishments_route(db: Session = Depends(db_session)) -> dict[str, Any]:
     return {"accomplishments": list_entities(db, "accomplishment")}
@@ -1187,6 +1281,141 @@ async def generate_resume_route(payload: ResumeGeneratePayload, db: Session = De
             detail="Resume generation is temporarily unavailable. No synthetic fallback content was returned.",
         )
     return {"success": True, "result": result}
+
+
+@router.post("/resume/tailor")
+async def tailor_resume_route(payload: ResumeTailorPayload, db: Session = Depends(db_session)) -> dict[str, Any]:
+    """Job-specific bullet tailoring, gated by the Off/Honest/Aggressive dial.
+
+    Always returns a diff (original vs. tailored, per bullet) — never writes
+    anything. The caller applies the result explicitly via a separate accept step.
+    """
+    mode = payload.mode or get_aa_settings(db).get("tailoringMode", "honest")
+    if mode not in TAILORING_TONE_BY_MODE:
+        mode = "honest"
+
+    all_accs = list_entities(db, "accomplishment")
+    if payload.accomplishmentIds:
+        requested_ids = set(payload.accomplishmentIds)
+        selected_accs = [a for a in all_accs if a.get("id") in requested_ids]
+    else:
+        selected_accs = all_accs
+
+    if mode == "off":
+        return {"success": True, "result": passthrough_diff(selected_accs)}
+
+    target_company = payload.targetCompany
+    target_role = payload.targetRole
+    job_description = payload.jobDescription
+    if payload.jobId and not (target_company and target_role and job_description):
+        job = get_entity(db, "job", payload.jobId) or get_entity(db, "aa_discovered_job", payload.jobId)
+        if job:
+            target_company = target_company or str(job.get("companyName") or job.get("company") or "")
+            target_role = target_role or str(job.get("title") or job.get("roleTitle") or "")
+            job_description = job_description or str(job.get("description") or "")
+
+    if not selected_accs:
+        raise HTTPException(status_code=422, detail="No accomplishments available to tailor")
+
+    from app.services.settings.memory import active_memory_text
+
+    result = await generate_resume_bullets_for_job(
+        accomplishments=selected_accs,
+        target_company=target_company,
+        target_role=target_role,
+        job_description=job_description,
+        experience_level=payload.experienceLevel,
+        tone=TAILORING_TONE_BY_MODE[mode],
+        max_pages=payload.maxPages,
+        target_ats=payload.targetAtsScore,
+        extra_instructions=active_memory_text(db),
+    )
+    if result is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Resume tailoring is temporarily unavailable. No synthetic fallback content was returned.",
+        )
+    return {"success": True, "result": build_tailoring_diff(selected_accs, result, mode)}
+
+
+@router.post("/resume/tailor/approve")
+def approve_resume_tailoring_route(payload: ResumeTailorApprovePayload, db: Session = Depends(db_session)) -> dict[str, Any]:
+    """Persist an explicitly-approved tailoring result. Never called implicitly by /resume/tailor."""
+    record = upsert_entity(
+        db,
+        "resume_tailoring",
+        {
+            "id": new_id("tailor_"),
+            "mode": payload.mode,
+            "jobId": payload.jobId,
+            "targetCompany": payload.targetCompany,
+            "targetRole": payload.targetRole,
+            "bullets": payload.bullets,
+            "skillsList": payload.skillsList,
+            "approvedAt": now_iso(),
+        },
+    )
+    return {"success": True, "tailoring": record}
+
+
+@router.get("/resume/tailor/history")
+def list_resume_tailoring_route(db: Session = Depends(db_session)) -> dict[str, Any]:
+    records = sorted(list_entities(db, "resume_tailoring"), key=lambda r: r.get("approvedAt", ""), reverse=True)
+    return {"success": True, "tailorings": records}
+
+
+@router.get("/profile/resume-profiles")
+def list_resume_profiles_route(db: Session = Depends(db_session)) -> dict[str, Any]:
+    return {"success": True, "profiles": resume_profiles_service.list_resume_profiles(db)}
+
+
+@router.post("/profile/resume-profiles")
+def create_resume_profile_route(payload: ResumeProfileCreatePayload, db: Session = Depends(db_session)) -> dict[str, Any]:
+    profile = resume_profiles_service.create_resume_profile(db, payload.name, payload.resume)
+    return {"success": True, "profile": profile}
+
+
+@router.patch("/profile/resume-profiles/{profile_id}")
+def patch_resume_profile_route(profile_id: str, payload: ResumeProfilePatchPayload, db: Session = Depends(db_session)) -> dict[str, Any]:
+    patch = payload.model_dump(exclude_none=True)
+    updated = resume_profiles_service.update_resume_profile(db, profile_id, patch)
+    if not updated:
+        raise HTTPException(status_code=404, detail="Resume profile not found")
+    return {"success": True, "profile": updated}
+
+
+@router.delete("/profile/resume-profiles/{profile_id}")
+def delete_resume_profile_route(profile_id: str, db: Session = Depends(db_session)) -> dict[str, Any]:
+    deleted = resume_profiles_service.delete_resume_profile(db, profile_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Resume profile not found")
+    return {"success": True}
+
+
+@router.post("/profile/resume-profiles/{profile_id}/set-default")
+def set_default_resume_profile_route(profile_id: str, db: Session = Depends(db_session)) -> dict[str, Any]:
+    updated = resume_profiles_service.set_default_resume_profile(db, profile_id)
+    if not updated:
+        raise HTTPException(status_code=404, detail="Resume profile not found")
+    return {"success": True, "profile": updated}
+
+
+@router.get("/resume/ats-score")
+def resume_ats_score_route(profileId: str = "", jobId: str = "", db: Session = Depends(db_session)) -> dict[str, Any]:
+    if profileId:
+        profile = resume_profiles_service.get_resume_profile(db, profileId)
+        if not profile:
+            raise HTTPException(status_code=404, detail="Resume profile not found")
+        resume = profile.get("resume")
+    else:
+        documents = get_kv(db, "documents") or {}
+        resume = documents.get("defaultResume")
+
+    job = None
+    if jobId:
+        job = get_entity(db, "job", jobId) or get_entity(db, "aa_discovered_job", jobId)
+
+    return {"success": True, **compute_ats_score(resume, job)}
 
 
 class AnswerQuestionPayload(BaseModel):
@@ -1303,6 +1532,84 @@ async def test_resolve_field_route(payload: TestResolveRequest) -> dict[str, Any
         "warnings": policy_res.warnings,
         "latencyMs": latency_ms,
     }
+
+
+# ── Settings: memory, public portfolio, job boards ─────────────────────────────
+
+class MemoryNotePayload(BaseModel):
+    text: str
+
+
+class PortfolioSettingsPayload(BaseModel):
+    isPublic: bool | None = None
+    slug: str | None = None
+
+
+@router.get("/settings/memory")
+def list_assistant_memory(db: Session = Depends(db_session)) -> dict[str, Any]:
+    from app.services.settings.memory import list_memory_notes
+
+    return {"success": True, "notes": list_memory_notes(db)}
+
+
+@router.post("/settings/memory")
+def add_assistant_memory(payload: MemoryNotePayload, db: Session = Depends(db_session)) -> dict[str, Any]:
+    from app.services.settings.memory import add_memory_note
+
+    try:
+        note = add_memory_note(db, payload.text)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {"success": True, "note": note}
+
+
+@router.delete("/settings/memory/{note_id}")
+def delete_assistant_memory(note_id: str, db: Session = Depends(db_session)) -> dict[str, Any]:
+    from app.services.settings.memory import delete_memory_note
+
+    deleted = delete_memory_note(db, note_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Memory note not found")
+    return {"success": True}
+
+
+@router.get("/settings/portfolio")
+def get_portfolio_settings_route(db: Session = Depends(db_session)) -> dict[str, Any]:
+    from app.services.settings.portfolio import get_portfolio_settings
+
+    return {"success": True, "settings": get_portfolio_settings(db)}
+
+
+@router.patch("/settings/portfolio")
+def update_portfolio_settings_route(payload: PortfolioSettingsPayload, db: Session = Depends(db_session)) -> dict[str, Any]:
+    from app.services.settings.portfolio import save_portfolio_settings
+
+    try:
+        updated = save_portfolio_settings(db, payload.model_dump(exclude_none=True))
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {"success": True, "settings": updated}
+
+
+@router.get("/settings/job-boards")
+def list_job_boards() -> dict[str, Any]:
+    return {
+        "success": True,
+        "boards": [
+            {"id": "indeed", "name": "Indeed", "connected": False},
+            {"id": "naukri", "name": "Naukri", "connected": False},
+        ],
+    }
+
+
+@router.get("/public/portfolio/{slug}")
+def get_public_portfolio(slug: str, db: Session = Depends(db_session)) -> dict[str, Any]:
+    from app.services.settings.portfolio import build_public_portfolio
+
+    portfolio = build_public_portfolio(db, slug)
+    if portfolio is None:
+        raise HTTPException(status_code=404, detail="This portfolio isn't public.")
+    return {"success": True, "portfolio": portfolio}
 
 
 

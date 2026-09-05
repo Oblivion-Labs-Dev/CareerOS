@@ -805,5 +805,10 @@ export async function resetAutopilotQueue() {
   });
 }
 
+export function getTailoredResumePdfUrl(jobId: string, mode?: "off" | "honest" | "aggressive"): string {
+  const modeParam = mode ? `?mode=${mode}` : "";
+  return `${aaBaseUrl()}/application-assistant/jobs/${jobId}/tailor-resume-pdf${modeParam}`;
+}
+
 
 

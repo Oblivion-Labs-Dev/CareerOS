@@ -152,9 +152,26 @@ export function AppSidebar() {
             <div className="nav-group" key={group.label}>
               <div className="nav-group-label">{group.label}</div>
               {group.items.map((item) => {
-                const active = isItemActive(pathname, searchParams, item.href);
+                const isDisabled = item.enabled === false;
+                const active = !isDisabled && isItemActive(pathname, searchParams, item.href);
                 const count = sidebarCountForHref(item.href, counts);
-                const showCount = backendOnline !== false && loaded && count !== null && count > 0;
+                const showCount = !isDisabled && backendOnline !== false && loaded && count !== null && count > 0;
+
+                if (isDisabled) {
+                  return (
+                    <div
+                      key={item.href}
+                      className="nav-link nav-link--disabled"
+                      aria-disabled="true"
+                      title={`${item.label} (Disabled)`}
+                    >
+                      <span className="nav-icon" aria-hidden><CareerIcon name={item.icon} size={18} /></span>
+                      <span className="nav-link-label">{item.label}</span>
+                      <span className="nav-coming-soon-tag">Disabled</span>
+                    </div>
+                  );
+                }
+
                 return (
                   <Link
                     key={item.href}

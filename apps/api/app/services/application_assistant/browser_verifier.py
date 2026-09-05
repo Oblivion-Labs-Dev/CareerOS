@@ -73,21 +73,26 @@ async def verify_browser_dom_state(
             const elements = document.querySelectorAll('input:not([type="hidden"]), select, textarea, div.select__control, div[class*="select__control"]');
             
             elements.forEach(el => {
+                const wrapper = el.closest('div.select__control, div[class*="select__control"], .field, .custom-question');
+                const isInsideSelect = el.tagName === 'INPUT' && !!el.closest('div.select__control, div[class*="select__control"]');
+                const isCombobox = el.getAttribute('role') === 'combobox' || el.classList.contains('select__control') || (el.className && el.className.includes && el.className.includes('select__')) || isInsideSelect;
+                
                 let label = '';
                 const id = el.id || '';
                 const name = el.getAttribute('name') || '';
                 const type = (el.type || el.getAttribute('type') || el.tagName.toLowerCase()).toLowerCase();
-                const isCombobox = el.getAttribute('role') === 'combobox' || el.classList.contains('select__control') || el.className.includes('select__');
                 
                 // Label lookup
                 if (id) {
-                    const lbl = document.querySelector(`label[for="${id}"]`);
-                    if (lbl) label = lbl.innerText.trim();
+                    try {
+                        const lbl = document.querySelector(`label[for="${id}"]`);
+                        if (lbl && lbl.innerText && lbl.innerText.trim()) label = lbl.innerText.trim();
+                    } catch(e) {}
                 }
                 if (!label) {
                     const parent = el.closest('div.field, div.custom-question, div[class*="question"], div[class*="field"], fieldset');
                     if (parent) {
-                        const pLbl = parent.querySelector('label, legend, p.label, span.label');
+                        const pLbl = parent.querySelector('label, legend, p.label, span.label, .field__label, [class*="label"]');
                         label = pLbl ? pLbl.innerText.trim() : parent.innerText.split('\\n')[0].trim();
                     }
                 }
@@ -98,21 +103,44 @@ async def verify_browser_dom_state(
                 if (type === 'checkbox' || type === 'radio') {
                     val = el.checked ? (el.value || 'true') : '';
                 } else if (isCombobox) {
-                    const valContainer = el.querySelector('.select__single-value, [class*="singleValue"], div[class*="ValueContainer"]');
+                    const searchRoot = wrapper || (el.closest ? el.closest('div.select__control, div[class*="select__control"], div[class*="control"]') : null) || el;
+                    const valContainer = searchRoot ? searchRoot.querySelector('.select__single-value, .select__multi-value, [class*="singleValue"], [class*="single-value"], [class*="multiValue"], div[class*="ValueContainer"]') : null;
                     val = valContainer ? valContainer.innerText.trim() : (el.value || '');
                 } else {
                     val = el.value || '';
                 }
 
-                const required = el.required || el.getAttribute('aria-required') === 'true' || label.includes('*');
+                // If this is a nested input inside a select container that has a value, sync it
+                if (isInsideSelect && !val && wrapper) {
+                    const valContainer = wrapper.querySelector('.select__single-value, .select__multi-value, [class*="singleValue"], [class*="single-value"], [class*="multiValue"], div[class*="ValueContainer"]');
+                    if (valContainer) val = valContainer.innerText.trim();
+                }
+
+                // Checkboxes in a group should not be individually marked required unless the element itself is required
+                let required = false;
+                let group = '';
+                if (type === 'checkbox' || type === 'radio') {
+                    const parentQuestion = el.closest('fieldset, div.custom-question, div[class*="question"], div[class*="field"]');
+                    if (parentQuestion) {
+                        const legend = parentQuestion.querySelector('legend, label, .field__label, [class*="label"]');
+                        group = legend ? legend.innerText.trim() : parentQuestion.innerText.split('\\n')[0].trim();
+                    }
+                    // Element is only required if explicitly marked or if its question group has an asterisk
+                    const isExplicitlyRequired = el.required || el.getAttribute('aria-required') === 'true';
+                    const groupRequired = group.includes('*');
+                    required = isExplicitlyRequired || groupRequired;
+                } else {
+                    required = el.required || el.getAttribute('aria-required') === 'true' || label.includes('*');
+                }
 
                 fields.push({
                     id: id || name,
                     name: name,
                     label: label,
+                    group: group,
                     type: type,
                     isCombobox: isCombobox,
-                    value: val.trim(),
+                    value: (val || '').trim(),
                     required: required
                 });
             });
@@ -130,12 +158,34 @@ async def verify_browser_dom_state(
             dom_by_label[lbl] = f
         result.dom_values[f.get("label") or f.get("id")] = f.get("value", "")
 
+    # Group checkboxes/radios by label and group to check if at least one in the group is selected
+    checkbox_groups_satisfied: set[str] = set()
+    for f in dom_state:
+        if f.get("type") in ("checkbox", "radio") and f.get("value"):
+            grp_key = (f.get("group") or "").strip().lower()
+            name_key = (f.get("name") or "").strip().lower()
+            lbl_key = (f.get("label") or "").strip().lower()
+            if grp_key:
+                checkbox_groups_satisfied.add(grp_key)
+            if name_key:
+                checkbox_groups_satisfied.add(name_key)
+            if lbl_key:
+                checkbox_groups_satisfied.add(lbl_key)
+
     # 2. Check for missing required fields in the live DOM
     for f in dom_state:
-        if f.get("required") and not f.get("value") and f.get("type") != "file":
-            # Check if optional keyword in label
-            lbl_low = f.get("label", "").lower()
-            if not any(opt in lbl_low for opt in ["optional", "if applicable", "if willing"]):
+        f_type = f.get("type", "")
+        f_val = f.get("value", "")
+        lbl_low = (f.get("label") or "").strip().lower()
+        grp_low = (f.get("group") or "").strip().lower()
+        name_low = (f.get("name") or "").strip().lower()
+        
+        if f.get("required") and not f_val and f_type != "file":
+            # For checkboxes and radios, if any item with the same group/name was selected, it's satisfied
+            if f_type in ("checkbox", "radio") and (lbl_low in checkbox_groups_satisfied or grp_low in checkbox_groups_satisfied or name_low in checkbox_groups_satisfied):
+                continue
+            # Check if optional keyword in label or group
+            if not any(opt in lbl_low or opt in grp_low for opt in ["optional", "if applicable", "if willing"]):
                 result.unresolved_required_fields.append(f.get("label") or f.get("id"))
                 result.issues.append(
                     DOMVerificationIssue(

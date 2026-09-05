@@ -48,6 +48,10 @@ engine = create_engine(
     if not settings.career_os_database_url.startswith("sqlite:///./")
     else f"sqlite:///{DB_PATH.as_posix()}",
     connect_args={"check_same_thread": False, "timeout": 60.0},
+    pool_size=10,
+    max_overflow=20,
+    pool_recycle=300,
+    pool_pre_ping=True,
 )
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 
@@ -491,13 +495,7 @@ def normalize_job(raw: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def delete_entity(db: Session, entity_type: str, entity_id: str) -> bool:
-    row = (
-        db.query(EntityStore)
-        .filter(EntityStore.entity_type == entity_type, EntityStore.id == entity_id)
-        .one_or_none()
-    )
-    if row:
-        db.delete(row)
-        return True
-    return False
+# Note: a second, older `delete_entity` definition used to live here and
+# silently shadowed the real one above (missing `db.flush()`, so a delete
+# followed by a read in the same request — autoflush is off — saw stale
+# data). Removed as a duplicate; the flushing version above is authoritative.

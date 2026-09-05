@@ -196,6 +196,15 @@ def analytics_market_trends(country: str = "US") -> dict[str, Any]:
     return {"success": True, "marketTrends": market_trends_summary(country=country)}
 
 
+@router.get("/analytics/model-usage")
+def analytics_model_usage() -> dict[str, Any]:
+    """Ollama (local/Mistral) vs OpenRouter (Gemini) call volume, success rate,
+    and latency — real aggregation over logged `model_usage_event` records."""
+    from app.services.model_usage_tracker import summarize_model_usage
+
+    return {"success": True, **summarize_model_usage()}
+
+
 @router.get("/greenhouse/schema")
 async def greenhouse_question_schema(url: str = Query(..., min_length=8)) -> dict[str, Any]:
     if not parse_greenhouse_url(url):

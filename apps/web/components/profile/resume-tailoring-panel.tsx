@@ -255,13 +255,25 @@ function TailorForJob({ mode }: { mode: TailoringMode }) {
             <span className="muted" style={{ fontSize: "var(--cos-text-sm)" }}>
               {result.overallCritique || (changedCount ? `${changedCount} bullet(s) changed — review before approving.` : "Nothing changed.")}
             </span>
-            {!approved ? (
-              <button type="button" className="btn btn-sm" onClick={() => void handleApprove()} disabled={!result.bullets.length}>
-                Approve & save
-              </button>
-            ) : (
-              <span style={{ color: "#34d399", fontSize: "var(--cos-text-sm)", fontWeight: 650 }}>✓ Approved</span>
-            )}
+            <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+              <a
+                href={`/resumes/Akshay_Borse_Resume_${mode.toUpperCase()}.pdf`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="btn btn-sm"
+                style={{ display: "inline-flex", alignItems: "center", gap: "0.3rem", textDecoration: "none" }}
+              >
+                <span>📄</span>
+                <span>View {mode.toUpperCase()} PDF</span>
+              </a>
+              {!approved ? (
+                <button type="button" className="btn btn-sm btn-primary" onClick={() => void handleApprove()} disabled={!result.bullets.length}>
+                  Approve & save
+                </button>
+              ) : (
+                <span style={{ color: "#34d399", fontSize: "var(--cos-text-sm)", fontWeight: 650 }}>✓ Approved</span>
+              )}
+            </div>
           </div>
           <div style={{ display: "grid", gap: "0.5rem" }}>
             {result.bullets.map((bullet) => (

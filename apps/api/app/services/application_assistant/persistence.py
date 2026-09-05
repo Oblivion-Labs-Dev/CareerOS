@@ -23,6 +23,7 @@ from app.services.application_assistant.domain import (
     ApplicationStatus,
     DiscoveryRunStatus,
 )
+from app.services.tracking_email import build_tracking_email
 
 ENTITY_DISCOVERY_RUN = "aa_discovery_run"
 ENTITY_DISCOVERED_JOB = "aa_discovered_job"
@@ -34,10 +35,24 @@ ENTITY_AUTOPILOT_RUN = "aa_autopilot_run"
 ENTITY_AUTOPILOT_JOB = "aa_autopilot_job"
 KV_SETTINGS = "application_assistant_settings"
 
+# The Off/Honest/Aggressive resume-optimization dial. Each mode resolves to a
+# concrete preset for form-answer inference (allowInferredAnswers + the
+# auto-accept/review confidence thresholds already used by field mapping).
+# Bullet-level resume tailoring (see services/resume_intelligence/tailoring.py)
+# reads this same mode — Off skips rewriting entirely, Honest/Aggressive both
+# stay evidence-grounded (the generator never fabricates), differing only in
+# phrasing latitude.
+TAILORING_MODE_PRESETS: dict[str, dict[str, Any]] = {
+    "off": {"allowInferredAnswers": False, "autoAcceptConfidence": 0.90, "reviewConfidence": 0.70},
+    "honest": {"allowInferredAnswers": True, "autoAcceptConfidence": 0.90, "reviewConfidence": 0.70},
+    "aggressive": {"allowInferredAnswers": True, "autoAcceptConfidence": 0.75, "reviewConfidence": 0.50},
+}
+
 
 def default_settings() -> dict[str, Any]:
     return {
         "enabled": True,
+        "tailoringMode": "honest",
         "allowInferredAnswers": False,
         "llm": {
             "enabled": True,
@@ -90,6 +105,16 @@ def get_settings(db: Session) -> dict[str, Any]:
 def save_settings(db: Session, settings: dict[str, Any]) -> dict[str, Any]:
     current = get_settings(db)
     merged = {**current, **settings}
+    mode = settings.get("tailoringMode")
+    if mode in TAILORING_MODE_PRESETS:
+        preset = TAILORING_MODE_PRESETS[mode]
+        merged["allowInferredAnswers"] = preset["allowInferredAnswers"]
+        merged["fieldMapping"] = {
+            **current.get("fieldMapping", {}),
+            **merged.get("fieldMapping", {}),
+            "autoAcceptConfidence": preset["autoAcceptConfidence"],
+            "reviewConfidence": preset["reviewConfidence"],
+        }
     set_kv(db, KV_SETTINGS, merged)
     return merged
 
@@ -323,6 +348,10 @@ def create_application_draft(db: Session, payload: dict[str, Any]) -> dict[str, 
         return existing
 
     draft_id = application_id_for_job(job_id) if job_id else new_id("app_")
+    try:
+        tracking_email = build_tracking_email(payload.get("companyName"), draft_id)
+    except Exception:
+        tracking_email = None
     draft = {
         "id": draft_id,
         "status": ApplicationStatus.READY_TO_PREPARE.value,
@@ -334,6 +363,7 @@ def create_application_draft(db: Session, payload: dict[str, Any]) -> dict[str, 
         "conflictingCount": 0,
         "screenshots": [],
         "errors": [],
+        "trackingEmail": tracking_email,
         "createdAt": now_iso(),
         "updatedAt": now_iso(),
         **payload,
@@ -575,4 +605,93 @@ def release_job_lock(db: Session, job_app_id: str, worker_id: str) -> bool:
         upsert_entity(db, ENTITY_AUTOPILOT_JOB, job)
         return True
     return False
+
+
+def _canonical_url_key(url: str) -> str:
+    """Normalize a job application URL to a stable dedup key.
+
+    Strips tracking params, lowercases the netloc, and trims trailing slashes
+    so ``https://Company.com/jobs/123?utm_source=foo`` and
+    ``https://company.com/jobs/123`` resolve to the same key.
+    """
+    if not url or not url.strip():
+        return ""
+    from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
+
+    _TRACKING = frozenset({
+        "utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content",
+        "ref", "referer", "referrer", "gclid", "fbclid", "msclkid", "source",
+        "trk", "gh_jid", "gh_src", "lever-source", "ashby_jid",
+    })
+    parsed = urlparse(url.strip())
+    query = parse_qs(parsed.query, keep_blank_values=True)
+    clean_query = {k: v for k, v in query.items() if k.lower() not in _TRACKING}
+    return urlunparse((
+        parsed.scheme,
+        parsed.netloc.lower(),
+        parsed.path.rstrip("/"),
+        parsed.params,
+        urlencode(clean_query, doseq=True),
+        "",
+    ))
+
+
+def _composite_job_key(company: str, title: str, app_url: str = "") -> str:
+    """Deterministic key from company + title + canonical URL."""
+    norm_c = re.sub(r"(inc|llc|corp|corporation|ltd|co)\b", "", company.lower(), flags=re.IGNORECASE)
+    norm_c = re.sub(r"[^\w]", "", norm_c).strip()
+    norm_t = re.sub(r"[^\w\s]", "", title.lower())
+    norm_t = re.sub(r"\s+", " ", norm_t).strip()
+    clean_url = _canonical_url_key(app_url)
+    if clean_url:
+        from urllib.parse import urlparse
+        p = urlparse(clean_url)
+        url_part = f"{p.netloc}{p.path}".rstrip("/")
+        return f"{norm_c}::{norm_t}::{url_part}"
+    return f"{norm_c}::{norm_t}"
+
+
+def is_duplicate_application(
+    db: Session,
+    company: str,
+    title: str,
+    application_url: str = "",
+    *,
+    exclude_statuses: tuple[str, ...] = ("SKIPPED",),
+) -> tuple[bool, dict[str, Any] | None]:
+    """Check whether a job has already been submitted / queued / staged.
+
+    Returns ``(is_dup, existing_job_or_None)``.
+
+    By default jobs that were explicitly SKIPPED are *not* treated as
+    duplicates so the user can re-queue them.
+    """
+    all_jobs = list_entities(db, ENTITY_AUTOPILOT_JOB)
+
+    # Build lookup sets
+    new_url_key = _canonical_url_key(application_url)
+    new_composite = _composite_job_key(company, title, application_url)
+
+    for existing in all_jobs:
+        ex_status = (existing.get("status") or "").upper()
+        if ex_status in exclude_statuses:
+            continue
+
+        # URL-based match (highest signal)
+        if new_url_key:
+            ex_url = _canonical_url_key(existing.get("applicationUrl") or "")
+            if ex_url and ex_url == new_url_key:
+                return True, existing
+
+        # Composite key match (company + title + URL path)
+        ex_composite = _composite_job_key(
+            existing.get("company") or "",
+            existing.get("title") or "",
+            existing.get("applicationUrl") or "",
+        )
+        if new_composite and new_composite == ex_composite:
+            return True, existing
+
+    return False, None
+
 

@@ -246,7 +246,11 @@ if ($Background) {
     New-Item -ItemType Directory -Force -Path $logDir | Out-Null
     $logFile = Join-Path $logDir ('dev-' + (Get-Date -Format 'yyyyMMdd-HHmmss') + '.log')
     $errFile = $logFile + '.err'
-    $proc = Start-Process -FilePath 'cmd.exe' -ArgumentList '/c', 'pnpm dev' -WorkingDirectory $RepoRoot -PassThru -RedirectStandardOutput $logFile -RedirectStandardError $errFile
+    # -WindowStyle Hidden forces a genuinely separate console/process group for the
+    # child cmd.exe, so a Ctrl+C delivered to this script's own console (e.g. from a
+    # subsequent tool invocation sharing the terminal) doesn't get broadcast to the
+    # dev servers and kill them out from under a running session.
+    $proc = Start-Process -FilePath 'cmd.exe' -ArgumentList '/c', 'pnpm dev' -WorkingDirectory $RepoRoot -PassThru -WindowStyle Hidden -RedirectStandardOutput $logFile -RedirectStandardError $errFile
     Write-Host ('  PID ' + $proc.Id + ' - log: ' + $logFile)
     Write-Step 'Waiting for both Backend API & Web Frontend to be healthy...'
     $apiOk = Wait-HttpOk ($apiUrl + '/health') -TimeoutSec 45

@@ -6,10 +6,10 @@ export default function AutoApplyPage() {
     <WorkflowPage
         title="Auto Apply"
         eyebrow="Intelligence Layer"
-        subtitle="Programmatic ATS submission for eligible roles — pairs with ApplyPilot for form fill."
-        primaryAction={{ href: "/apply-pilot", label: "ApplyPilot" }}
+        subtitle="Parallel saved-search lanes score and stage matches into Autopilot, all drawing from one shared daily cap."
+        primaryAction={{ href: "/applications?tab=review", label: "Review Center" }}
         secondaryAction={{ href: "/intelligence/night-shift", label: "Night Shift" }}
-        outcomes={["Configure role filters and run caps.", "Dry-run before live submission.", "Full log of every run."]}
+        outcomes={["Up to 5 lanes, each with its own match bar and cap.", "Review-before-submit stays available per lane.", "Full log of every run."]}
         focusAreas={[]}
       >
         <AutoApplyPanel />

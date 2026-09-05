@@ -10,11 +10,10 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-from datetime import datetime, timezone
-from pathlib import Path
+from datetime import UTC, datetime
 from typing import Any
 
-from app.db.store import get_kv, set_kv, session_scope
+from app.db.store import get_kv, session_scope, set_kv
 
 logger = logging.getLogger("career_os.submission_receipt_service")
 
@@ -32,7 +31,7 @@ def create_submission_receipt(
     qwen_review: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Compile and archive an immutable submission receipt."""
-    timestamp = datetime.now(timezone.utc).isoformat()
+    timestamp = datetime.now(UTC).isoformat()
 
     # Generate deterministic submission fingerprint hash
     hash_payload = f"{job_id}|{company}|{title}|{application_url}|{timestamp}|{json.dumps(fields_filled, sort_keys=True)}"
@@ -57,15 +56,87 @@ def create_submission_receipt(
     }
 
     try:
+        from app.services.application_assistant.persistence import (
+            get_autopilot_job,
+            save_autopilot_job,
+        )
         with session_scope() as db:
             receipts_store = get_kv(db, "autopilot_submission_receipts") or {}
             receipts_store[job_id] = receipt
             set_kv(db, "autopilot_submission_receipts", receipts_store)
-            logger.info("Archived submission receipt [%s] for job %s (%s)", receipt["receiptId"], job_id, company)
+
+            # Persist or update aa_autopilot_job entity with SUBMITTED status
+            existing_job = get_autopilot_job(db, job_id) or {}
+            job_entity = {
+                **existing_job,
+                "id": job_id,
+                "company": company,
+                "title": title,
+                "applicationUrl": application_url,
+                "status": "SUBMITTED",
+                "submittedAt": timestamp,
+                "receiptId": receipt["receiptId"],
+                "certificateFingerprint": receipt_hash.upper(),
+                "confirmationText": confirmation_text,
+                "fieldsFilled": fields_filled,
+                "presubmitScreenshot": presubmit_screenshot_path,
+                "confirmationScreenshot": confirmation_screenshot_path,
+                # A submit click succeeding is NOT the success criterion — a real
+                # confirmation email landing at this application's tracking
+                # address is. Don't claim verified here; a confirmation email
+                # normally takes seconds-to-minutes to arrive, so checking at
+                # this instant would almost always (wrongly) read as
+                # unconfirmed. Real verification happens on demand via
+                # `GET /applications/{app_id}/submission-confirmed`
+                # (`app/services/tracker/confirmation.py`), which does a live
+                # IMAP lookup — never inferred or assumed here.
+                "verified": False,
+                "emailConfirmationChecked": False,
+            }
+            save_autopilot_job(db, job_entity)
+            logger.info("Archived submission receipt [%s] and updated autopilot job for %s (%s)", receipt["receiptId"], job_id, company)
     except Exception as ex:
         logger.error("Failed to archive submission receipt: %s", ex)
 
     return receipt
+
+
+def sync_all_receipts_to_autopilot_jobs() -> int:
+    """Sync all receipts from KV store into aa_autopilot_job entities so dashboard metrics are 100% accurate."""
+    from app.services.application_assistant.persistence import get_autopilot_job, save_autopilot_job
+    count = 0
+    try:
+        with session_scope() as db:
+            receipts_store = get_kv(db, "autopilot_submission_receipts") or {}
+            for job_id, r in receipts_store.items():
+                if not isinstance(r, dict):
+                    continue
+                existing_job = get_autopilot_job(db, job_id) or {}
+                job_entity = {
+                    **existing_job,
+                    "id": job_id,
+                    "company": r.get("company", ""),
+                    "title": r.get("title", ""),
+                    "applicationUrl": r.get("applicationUrl", ""),
+                    "status": "SUBMITTED",
+                    "submittedAt": r.get("submittedAt"),
+                    "receiptId": r.get("receiptId"),
+                    "certificateFingerprint": r.get("certificateFingerprint"),
+                    "confirmationText": r.get("confirmationText"),
+                    "fieldsFilled": r.get("fieldsFilled"),
+                    "presubmitScreenshot": r.get("presubmitScreenshot"),
+                    "confirmationScreenshot": r.get("confirmationScreenshot"),
+                    # Preserve whatever a real email-confirmation check already
+                    # found (see create_submission_receipt above) — this sync
+                    # only reconciles receipt metadata, it never itself confirms.
+                    "verified": existing_job.get("verified", False),
+                }
+                save_autopilot_job(db, job_entity)
+                count += 1
+            logger.info("Synced %d receipts into aa_autopilot_job entities", count)
+    except Exception as ex:
+        logger.error("Failed to sync receipts to autopilot jobs: %s", ex)
+    return count
 
 
 def get_submission_receipt(job_id: str) -> dict[str, Any] | None:

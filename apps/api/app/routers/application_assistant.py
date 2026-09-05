@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, Response
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
@@ -1773,6 +1773,48 @@ async def get_job_tailor_diff(
 
     diff_data = await generate_role_tailoring_diff(job, profile, master_resume, mode=active_mode)
     return {"success": True, "diff": diff_data}
+
+
+@router.get("/jobs/{id}/tailor-resume-pdf")
+async def get_job_tailor_resume_pdf(
+    id: str,
+    mode: str | None = None,
+    db: Session = Depends(db_session),
+) -> Response:
+    """Export the tailored resume for a job as a formatted 1-page PDF document."""
+    from app.services.application_assistant.persistence import get_autopilot_job, get_settings
+    from app.services.application_assistant.resume_diff_service import (
+        generate_role_tailoring_diff,
+        render_tailored_resume_pdf,
+    )
+    from app.db.store import get_kv
+
+    active_mode = mode or get_settings(db).get("tailoringMode", "honest")
+    job = get_autopilot_job(db, id)
+    if not job:
+        queue = get_kv(db, "autopilot_job_queue") or []
+        for q in queue:
+            if isinstance(q, dict) and q.get("id") == id:
+                job = q
+                break
+
+    if not job:
+        job = {"id": id, "title": "Software Engineer", "company": "Target Company"}
+
+    profile = get_kv(db, "profile") or {}
+    master_resume = get_kv(db, "resume_corpus_master") or {}
+
+    diff_data = await generate_role_tailoring_diff(job, profile, master_resume, mode=active_mode)
+    pdf_bytes = render_tailored_resume_pdf(diff_data, profile)
+
+    company_slug = "".join(c for c in job.get("company", "Role") if c.isalnum() or c in ("-", "_"))
+    filename = f"Resume_{company_slug}_{active_mode.upper()}.pdf"
+
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="{filename}"'},
+    )
 
 
 @router.post("/jobs/{id}/preflight-approve")
