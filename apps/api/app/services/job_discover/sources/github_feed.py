@@ -11,7 +11,7 @@ from typing import Any
 
 import httpx
 
-from app.services.job_discover.sources.base import JobSourceAdapter, NormalizedJob
+from app.services.job_discover.sources.base import JobSourceAdapter, NormalizedJob, SourceRole
 
 
 class GitHubFeedSource(JobSourceAdapter):
@@ -19,6 +19,7 @@ class GitHubFeedSource(JobSourceAdapter):
 
     id = "github_feed"
     name = "GitHub Job Feeds"
+    role = SourceRole.DISCOVERY
     source_type = "github_feed"
     priority = 70
     supports_incremental_sync = True

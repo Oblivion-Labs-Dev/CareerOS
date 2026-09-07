@@ -690,3 +690,311 @@ def test_circuit_breaker_and_health_summary():
 
     assert adapter.is_circuit_open() is True
     assert adapter.health_check().status == "degraded"
+
+
+# ---------------------------------------------------------------------------
+# 7. DETERMINISTIC ATS FINGERPRINTER & EVIDENCE
+# ---------------------------------------------------------------------------
+
+def test_ats_fingerprinter_deterministic_evidence():
+    from app.services.job_discover.discovery.company_registry import JobSourceDiscoveryService
+
+    # 1. Greenhouse
+    gh = JobSourceDiscoveryService.fingerprint_ats("https://boards.greenhouse.io/stripe/jobs/12345")
+    assert gh["provider"] == "greenhouse"
+    assert gh["boardIdentifier"] == "stripe"
+    assert gh["confidence"] >= 0.95
+    assert "Greenhouse" in gh["evidence"]
+
+    # 2. Lever
+    lev = JobSourceDiscoveryService.fingerprint_ats("https://jobs.lever.co/netflix/uuid-abc-123")
+    assert lev["provider"] == "lever"
+    assert lev["boardIdentifier"] == "netflix"
+    assert lev["confidence"] >= 0.95
+
+    # 3. Ashby
+    ash = JobSourceDiscoveryService.fingerprint_ats("https://jobs.ashbyhq.com/openai")
+    assert ash["provider"] == "ashby"
+    assert ash["boardIdentifier"] == "openai"
+    assert ash["confidence"] >= 0.95
+
+    # 4. Workday
+    wd = JobSourceDiscoveryService.fingerprint_ats("https://salesforce.wd12.myworkdayjobs.com/External_Career_Site")
+    assert wd["provider"] == "workday"
+    assert "salesforce" in wd["boardIdentifier"]
+    assert wd["confidence"] >= 0.95
+
+    # 5. SmartRecruiters
+    sr = JobSourceDiscoveryService.fingerprint_ats("https://jobs.smartrecruiters.com/Visa/7439999")
+    assert sr["provider"] == "smartrecruiters"
+    assert sr["boardIdentifier"] == "visa"
+
+    # 6. Workable
+    wk = JobSourceDiscoveryService.fingerprint_ats("https://apply.workable.com/huggingface/")
+    assert wk["provider"] == "workable"
+    assert wk["boardIdentifier"] == "huggingface"
+
+    # 7. Recruitee
+    rec = JobSourceDiscoveryService.fingerprint_ats("https://hotjar.recruitee.com/")
+    assert rec["provider"] == "recruitee"
+    assert rec["boardIdentifier"] == "hotjar"
+
+    # 8. BambooHR
+    bhr = JobSourceDiscoveryService.fingerprint_ats("https://postman.bamboohr.com/careers")
+    assert bhr["provider"] == "bamboohr"
+    assert bhr["boardIdentifier"] == "postman"
+
+    # 9. iCIMS
+    ic = JobSourceDiscoveryService.fingerprint_ats("https://careers-microsoft.icims.com/jobs/intro")
+    assert ic["provider"] == "icims"
+    assert "microsoft" in ic["boardIdentifier"]
+
+    # 10. Gem
+    gem = JobSourceDiscoveryService.fingerprint_ats("https://jobs.gem.com/anthropic")
+    assert gem["provider"] == "gem"
+    assert gem["boardIdentifier"] == "anthropic"
+
+    # 11. Rippling
+    rip = JobSourceDiscoveryService.fingerprint_ats("https://ramp.rippling-ats.com/")
+    assert rip["provider"] == "rippling"
+    assert rip["boardIdentifier"] == "ramp"
+
+    # 12. HTML embed fallback
+    html_embed = '<script src="https://boards.greenhouse.io/embed/job_board.js?for=instacart"></script>'
+    html_match = JobSourceDiscoveryService.fingerprint_ats("https://instacart.com/careers", html=html_embed)
+    assert html_match["provider"] == "greenhouse"
+    assert html_match["boardIdentifier"] == "instacart"
+
+
+# ---------------------------------------------------------------------------
+# 8. SCHEMA.ORG JOBPOSTING JSON-LD PARSER
+# ---------------------------------------------------------------------------
+
+def test_schema_org_jobposting_parser():
+    from app.services.job_discover.sources.structured_career_page import parse_jsonld_job_postings
+
+    sample_html = """
+    <html>
+      <head>
+        <script type="application/ld+json">
+        {
+          "@context": "https://schema.org/",
+          "@type": "JobPosting",
+          "title": "Senior Distributed Systems Engineer",
+          "description": "<p>We are seeking an <strong>expert</strong> distributed systems engineer to scale our cluster.</p>",
+          "identifier": {
+            "@type": "PropertyValue",
+            "name": "Acme Corp",
+            "value": "JOB-99482"
+          },
+          "datePosted": "2026-08-28T09:00:00Z",
+          "validThrough": "2026-11-28T09:00:00Z",
+          "employmentType": "FULL_TIME",
+          "hiringOrganization": {
+            "@type": "Organization",
+            "name": "Acme Systems Inc."
+          },
+          "jobLocation": {
+            "@type": "Place",
+            "address": {
+              "@type": "PostalAddress",
+              "addressLocality": "Seattle",
+              "addressRegion": "WA",
+              "addressCountry": "US"
+            }
+          },
+          "jobLocationType": "TELECOMMUTE",
+          "baseSalary": {
+            "@type": "MonetaryAmount",
+            "currency": "USD",
+            "value": {
+              "@type": "QuantitativeValue",
+              "minValue": 180000,
+              "maxValue": 240000,
+              "unitText": "YEAR"
+            }
+          }
+        }
+        </script>
+      </head>
+      <body><h1>Careers at Acme</h1></body>
+    </html>
+    """
+
+    jobs = parse_jsonld_job_postings(sample_html, "https://acme.example.com/careers/job-99482", "acme")
+    assert len(jobs) == 1
+    job = jobs[0]
+
+    assert job.title == "Senior Distributed Systems Engineer"
+    assert job.company_name == "Acme Systems Inc."
+    assert job.remote is True
+    assert job.remote_status == "REMOTE"
+    assert job.salary_min == 180000.0
+    assert job.salary_max == 240000.0
+    assert "$180,000 - $240,000 USD" in job.salary_range
+    assert "Seattle, WA" in job.location
+    assert "expert distributed systems engineer" in job.description
+    assert "<p>" not in job.description  # Verify HTML tags cleaned
+    assert job.external_id == "JOB-99482"
+
+
+# ---------------------------------------------------------------------------
+# 9. HIMALAYAS PUBLIC REMOTE API ADAPTER
+# ---------------------------------------------------------------------------
+
+@pytest.mark.anyio
+async def test_himalayas_adapter_ingestion():
+    from app.services.job_discover.sources.himalayas import HimalayasSource
+
+    adapter = HimalayasSource()
+    client = AsyncMock()
+
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {
+        "jobs": [
+            {
+                "id": "him-101",
+                "title": "Senior Rust Core Backend Engineer",
+                "companyName": "Hyperscale Labs",
+                "applicationLink": "https://himalayas.app/jobs/hyperscale-labs/senior-rust-engineer",
+                "minSalary": 175000,
+                "maxSalary": 225000,
+                "currency": "USD",
+                "pubDate": "2026-08-25T12:00:00Z",
+                "description": "Build high-speed asynchronous data pipelines in Rust.",
+                "locationRestrictions": ["United States", "Canada"],
+            }
+        ]
+    }
+
+    client.request.return_value = mock_resp
+
+    import re
+    compiled = [re.compile(r"software|backend|engineer|rust", re.I)]
+    cutoff = datetime(2026, 1, 1, tzinfo=UTC)
+
+    jobs = await adapter.fetch_jobs(client, "himalayas", {}, compiled, cutoff)
+    assert len(jobs) == 1
+    j = jobs[0]
+    assert j.title == "Senior Rust Core Backend Engineer"
+    assert j.company_name == "Hyperscale Labs"
+    assert j.salary_min == 175000.0
+    assert j.salary_max == 225000.0
+    assert j.remote is True
+    assert j.source == "himalayas"
+
+
+# ---------------------------------------------------------------------------
+# 10. WE WORK REMOTELY RSS FEED ADAPTER
+# ---------------------------------------------------------------------------
+
+@pytest.mark.anyio
+async def test_weworkremotely_adapter_ingestion():
+    from app.services.job_discover.sources.weworkremotely import WeWorkRemotelySource
+
+    adapter = WeWorkRemotelySource()
+    client = AsyncMock()
+
+    xml_content = b"""<?xml version="1.0" encoding="UTF-8"?>
+    <rss version="2.0">
+      <channel>
+        <title>We Work Remotely: Remote Programming Jobs</title>
+        <item>
+          <title>Basecamp: Senior Full Stack Ruby Engineer</title>
+          <link>https://weworkremotely.com/remote-jobs/basecamp-senior-full-stack-ruby-engineer</link>
+          <guid>https://weworkremotely.com/remote-jobs/12345</guid>
+          <pubDate>Mon, 24 Aug 2026 14:00:00 +0000</pubDate>
+          <description><![CDATA[<p>Join 37signals to build world-class collaborative software.</p>]]></description>
+        </item>
+      </channel>
+    </rss>
+    """
+
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.content = xml_content
+
+    client.request.return_value = mock_resp
+
+    import re
+    compiled = [re.compile(r"full\s*stack|ruby|engineer", re.I)]
+    cutoff = datetime(2026, 1, 1, tzinfo=UTC)
+
+    jobs = await adapter.fetch_jobs(client, "weworkremotely", {}, compiled, cutoff)
+    assert len(jobs) == 1
+    j = jobs[0]
+    assert j.title == "Senior Full Stack Ruby Engineer"
+    assert j.company_name == "Basecamp"
+    assert j.remote is True
+    assert j.source == "weworkremotely"
+
+
+# ---------------------------------------------------------------------------
+# 11. SOURCE ROLES CLASSIFICATION
+# ---------------------------------------------------------------------------
+
+def test_source_roles_classification():
+    from app.services.job_discover.sources.base import SourceRole
+    from app.services.job_discover.sources.greenhouse import GreenhouseSource
+    from app.services.job_discover.sources.hackernews import HackerNewsSource
+    from app.services.job_discover.sources.himalayas import HimalayasSource
+    from app.services.job_discover.sources.serpapi_google_jobs import SerpApiGoogleJobsSource
+    from app.services.job_discover.sources.structured_career_page import StructuredCareerPageAdapter
+
+    gh = GreenhouseSource()
+    assert gh.role == SourceRole.AUTHORITATIVE
+
+    hn = HackerNewsSource()
+    assert hn.role == SourceRole.DISCOVERY
+
+    him = HimalayasSource()
+    assert him.role == SourceRole.AGGREGATOR
+
+    google = SerpApiGoogleJobsSource()
+    assert google.role == SourceRole.AGGREGATOR
+
+    structured = StructuredCareerPageAdapter()
+    assert structured.role == SourceRole.FALLBACK
+
+
+# ---------------------------------------------------------------------------
+# 12. INCREMENTAL UNIQUE JOBS MEASUREMENT
+# ---------------------------------------------------------------------------
+
+def test_incremental_coverage_measurement():
+    service = JobAggregationService()
+
+    # Create dummy jobs where some overlap across sources
+    job_a = NormalizedJob(
+        id="gh:1", external_id="1", company="stripe", company_name="Stripe",
+        title="Staff Engineer", source="greenhouse", raw_fingerprint="stripe:staff:sf"
+    )
+    job_b = NormalizedJob(
+        id="gh:2", external_id="2", company="stripe", company_name="Stripe",
+        title="Backend Engineer", source="greenhouse", raw_fingerprint="stripe:backend:sf"
+    )
+    # Aggregator duplicates job_a and provides 1 new job
+    job_dup = NormalizedJob(
+        id="serp:1", external_id="1", company="stripe", company_name="Stripe",
+        title="Staff Engineer", source="serpapi_google_jobs", raw_fingerprint="stripe:staff:sf"
+    )
+    job_c = NormalizedJob(
+        id="serp:3", external_id="3", company="stripe", company_name="Stripe",
+        title="Data Engineer", source="serpapi_google_jobs", raw_fingerprint="stripe:data:sf"
+    )
+
+    raw_jobs = {
+        "greenhouse": [job_a, job_b],
+        "serpapi_google_jobs": [job_dup, job_c],
+    }
+
+    stats = service.measure_incremental_coverage(raw_jobs)
+    assert stats["greenhouse"]["jobs_fetched"] == 2
+    assert stats["greenhouse"]["incremental_unique_jobs"] == 2
+    assert stats["greenhouse"]["duplicates"] == 0
+
+    assert stats["serpapi_google_jobs"]["jobs_fetched"] == 2
+    assert stats["serpapi_google_jobs"]["incremental_unique_jobs"] == 1
+    assert stats["serpapi_google_jobs"]["duplicates"] == 1
+

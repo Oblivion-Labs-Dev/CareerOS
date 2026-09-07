@@ -10,7 +10,7 @@ from typing import Any
 
 import httpx
 
-from app.services.job_discover.sources.base import JobSourceAdapter, NormalizedJob
+from app.services.job_discover.sources.base import JobSourceAdapter, NormalizedJob, SourceRole
 
 
 class HackerNewsSource(JobSourceAdapter):
@@ -18,6 +18,7 @@ class HackerNewsSource(JobSourceAdapter):
 
     id = "hackernews"
     name = "Hacker News (Who is Hiring?)"
+    role = SourceRole.DISCOVERY
     source_type = "community"
     priority = 70
     supports_incremental_sync = True

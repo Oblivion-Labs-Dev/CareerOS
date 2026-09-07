@@ -13,7 +13,7 @@ from typing import Any
 
 import httpx
 
-from app.services.job_discover.sources.base import JobSourceAdapter, NormalizedJob
+from app.services.job_discover.sources.base import JobSourceAdapter, NormalizedJob, SourceRole
 
 logger = logging.getLogger("career_os.job_discover.serpapi")
 
@@ -30,6 +30,7 @@ class SerpApiGoogleJobsSource(JobSourceAdapter):
 
     id = "serpapi_google_jobs"
     name = "Google Jobs (SerpApi)"
+    role = SourceRole.AGGREGATOR
     source_type = "aggregator"
     priority = 60
     supports_incremental_sync = True

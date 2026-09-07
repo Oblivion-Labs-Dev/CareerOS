@@ -8,12 +8,13 @@ from app.services.job_discover.sources.base import (
     JobSourceAdapter,
     NormalizedJob,
     SourceHealth,
+    SourceRole,
 )
 from app.services.job_discover.sources.bigtech import BigTechSourceAdapter
-from app.services.job_discover.sources.generic_jsonld import GenericCareerPageSource
 from app.services.job_discover.sources.github_feed import GitHubFeedSource
 from app.services.job_discover.sources.greenhouse import GreenhouseSource
 from app.services.job_discover.sources.hackernews import HackerNewsSource
+from app.services.job_discover.sources.himalayas import HimalayasSource
 from app.services.job_discover.sources.icims import ICIMSSource
 from app.services.job_discover.sources.jobicy import JobicySource
 from app.services.job_discover.sources.lever import LeverSource
@@ -22,11 +23,20 @@ from app.services.job_discover.sources.playwright_fallback import PlaywrightCare
 from app.services.job_discover.sources.remotive import RemotiveSource
 from app.services.job_discover.sources.serpapi_google_jobs import SerpApiGoogleJobsSource
 from app.services.job_discover.sources.smartrecruiters import SmartRecruitersSource
+from app.services.job_discover.sources.structured_career_page import (
+    StructuredCareerPageAdapter,
+    parse_jsonld_job_postings,
+)
+from app.services.job_discover.sources.weworkremotely import WeWorkRemotelySource
 from app.services.job_discover.sources.workable import WorkableSource
 from app.services.job_discover.sources.workday import WorkdaySource
 
+# Backwards compatibility alias
+GenericCareerPageSource = StructuredCareerPageAdapter
+
 __all__ = [
     "SOURCE_QUALITY_TIERS",
+    "SourceRole",
     "JobSource",
     "JobSourceAdapter",
     "NormalizedJob",
@@ -43,9 +53,13 @@ __all__ = [
     "JobicySource",
     "ArbeitnowSource",
     "RemotiveSource",
+    "HimalayasSource",
+    "WeWorkRemotelySource",
     "HackerNewsSource",
     "GitHubFeedSource",
     "SerpApiGoogleJobsSource",
+    "StructuredCareerPageAdapter",
     "GenericCareerPageSource",
+    "parse_jsonld_job_postings",
     "PlaywrightCareerPageSource",
 ]

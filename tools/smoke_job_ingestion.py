@@ -105,7 +105,7 @@ async def run_smoke():
             print(f"  ✗ Jobicy failed: {exc}")
 
         # 4. Hacker News "Who is Hiring?" (Algolia API)
-        print("\n[4/4] Testing Hacker News Who is Hiring (Algolia API)...")
+        print("\n[4/5] Testing Hacker News Who is Hiring (Algolia API)...")
         hn = HackerNewsSource()
         try:
             t0 = time.perf_counter()
@@ -124,6 +124,19 @@ async def run_smoke():
             results.extend(hn_jobs)
         except Exception as exc:
             print(f"  ✗ HackerNews failed: {exc}")
+
+        # 5. Deterministic ATS Fingerprinting
+        print("\n[5/5] Testing ATS Fingerprinter Engine...")
+        from app.services.job_discover.discovery.company_registry import JobSourceDiscoveryService
+        test_urls = [
+            ("Stripe", "https://boards.greenhouse.io/stripe/jobs/123"),
+            ("Netflix", "https://jobs.lever.co/netflix/uuid-123"),
+            ("OpenAI", "https://jobs.ashbyhq.com/openai"),
+            ("Salesforce", "https://salesforce.wd12.myworkdayjobs.com/External"),
+        ]
+        for cname, u in test_urls:
+            fp = JobSourceDiscoveryService.fingerprint_ats(u)
+            print(f"  ✓ {cname} -> Provider: {fp['provider']}, Confidence: {fp['confidence']}, Evidence: {fp['evidence']}")
 
     # Deduplication test on the combined sample
     print("\n" + "-" * 70)

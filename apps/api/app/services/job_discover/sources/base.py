@@ -14,14 +14,27 @@ from urllib.parse import urlparse
 
 import httpx
 
+from enum import Enum
+
 logger = logging.getLogger("career_os.job_discover.sources")
+
+
+class SourceRole(str, Enum):
+    """Architectural classification for job data sources according to Phase 13 specification."""
+
+    AUTHORITATIVE = "AUTHORITATIVE"   # Direct employer ATS or official company APIs
+    DISCOVERY = "DISCOVERY"           # Company directories, YC, sitemaps, RSS, community feeds
+    AGGREGATOR = "AGGREGATOR"         # Multi-employer job boards and search aggregators
+    ENRICHMENT = "ENRICHMENT"         # DOL H-1B/LCA, tech stack extraction, company metadata
+    FALLBACK = "FALLBACK"             # Universal Schema.org JSON-LD, Playwright browser fallback, JobSpy
+
 
 # ── Source Priority & Quality Tiers ──────────────────────────────────────────
 SOURCE_QUALITY_TIERS: dict[str, int] = {
     "company_api": 100,      # Direct official employer API
     "ats": 95,              # Official ATS API (Greenhouse, Lever, Ashby, Workday, etc.)
     "direct_feed": 90,      # Verified company-published feed
-    "public_api": 80,       # Curated public job API (Jobicy, Arbeitnow, Remotive)
+    "public_api": 80,       # Curated public job API (Jobicy, Arbeitnow, Remotive, Himalayas)
     "community": 70,        # Community threads (Hacker News)
     "github_feed": 70,      # Structured GitHub-maintained feeds
     "aggregator": 60,       # Aggregator search engines (Google Jobs via SerpApi)
@@ -34,6 +47,7 @@ class SourceHealth:
     """Runtime observability metrics for an ingestion source."""
 
     provider: str
+    role: str = SourceRole.AUTHORITATIVE.value
     status: str = "healthy"  # "healthy" | "degraded" | "failing" | "disabled"
     last_run: str | None = None
     last_success: str | None = None
@@ -41,6 +55,7 @@ class SourceHealth:
     jobs_inserted: int = 0
     jobs_updated: int = 0
     duplicates_found: int = 0
+    incremental_unique_jobs: int = 0
     request_count: int = 0
     duration_ms: float = 0.0
     consecutive_failures: int = 0
@@ -213,6 +228,7 @@ class JobSourceAdapter(JobSource):
 
     id: str = "base_adapter"
     name: str = "Base Adapter"
+    role: SourceRole = SourceRole.AUTHORITATIVE
     source_type: str = "ats"  # "ats" | "company_api" | "public_api" | "community" | "github_feed" | "aggregator" | "scraper"
     priority: int = 95
     enabled: bool = True
@@ -225,7 +241,8 @@ class JobSourceAdapter(JobSource):
     failure_threshold: int = 5  # Consecutive failures before temporary disable
 
     def __init__(self) -> None:
-        self.health = SourceHealth(provider=self.id)
+        role_val = self.role.value if hasattr(self.role, "value") else str(self.role)
+        self.health = SourceHealth(provider=self.id, role=role_val)
         if self.source_type in SOURCE_QUALITY_TIERS:
             self.priority = SOURCE_QUALITY_TIERS[self.source_type]
 
