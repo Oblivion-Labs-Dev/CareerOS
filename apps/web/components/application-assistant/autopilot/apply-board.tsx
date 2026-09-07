@@ -237,24 +237,6 @@ export function ApplyBoard() {
 
   return (
     <div className="space-y-6 font-sans">
-      <div className={styles.pageHeader}>
-        <div>
-          <h2 className={styles.pageTitle}>
-            <IconBolt className={`w-5 h-5 ${styles.pageTitleIcon}`} />
-            <span>Ready to Apply</span>
-          </h2>
-          <p className={styles.pageSubtitle}>
-            Jobs that passed discovery's filters and ranking. Hit Apply — if something's unresolved, you'll be asked; otherwise it submits immediately.
-          </p>
-        </div>
-        <div className={styles.headerActions}>
-          <span className={styles.badgeAccent}>{jobs.length} Ready</span>
-          <button onClick={fetchAll} disabled={loading} className={styles.btnGhost}>
-            {loading ? "Refreshing..." : "↻ Refresh"}
-          </button>
-        </div>
-      </div>
-
       <QuickAddJobPanel onAdded={fetchAll} />
 
       <div className={styles.filterBar}>
@@ -296,6 +278,9 @@ export function ApplyBoard() {
         <span className={styles.filterCount}>
           Showing {visibleJobs.length} of {filteredJobs.length}{hasActiveFilters ? ` (${jobs.length} total)` : ""}
         </span>
+        <button onClick={fetchAll} disabled={loading} className={styles.btnGhost}>
+          {loading ? "Refreshing..." : "↻ Refresh"}
+        </button>
       </div>
       <p className={styles.filterHint}>
         Sponsorship isn't a per-listing filter — jobs that conflict with your work-authorization needs are already excluded at discovery (see the Skipped tab).

@@ -44,7 +44,7 @@ export function QuickAddJobPanel({ onAdded }: { onAdded?: () => void }) {
       } else if ((res as any).deduplicated) {
         setMessage({ tone: "error", text: (res as any).message || "This job is already in the system." });
       } else {
-        setMessage({ tone: "success", text: `Queued "${title.trim()}" at ${company.trim()} (${tailoringMode} tailoring). It'll show up below in Ready to Apply.` });
+        setMessage({ tone: "success", text: `Queued "${title.trim()}" at ${company.trim()} (${tailoringMode} tailoring). It'll show up below in Autopilot.` });
         reset();
         onAdded?.();
       }
