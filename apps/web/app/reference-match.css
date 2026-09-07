@@ -1,4 +1,5 @@
-:root {
+:root,
+[data-theme="dark"] {
   --ref-bg: #020913;
   --ref-panel: #071321;
   --ref-panel-deep: #050e19;
@@ -12,6 +13,22 @@
   --ref-violet: #9365f5;
   --ref-amber: #ffad3d;
   --ref-rose: #ff5264;
+}
+
+[data-theme="light"] {
+  --ref-bg: #f3f6f9;
+  --ref-panel: #ffffff;
+  --ref-panel-deep: #f8fafc;
+  --ref-border: rgba(15, 23, 42, 0.1);
+  --ref-border-bright: rgba(15, 23, 42, 0.18);
+  --ref-text: #0f172a;
+  --ref-muted: #475569;
+  --ref-dim: #94a3b8;
+  --ref-teal: #0a947e;
+  --ref-cyan: #0284c7;
+  --ref-violet: #6e5bd3;
+  --ref-amber: #b45309;
+  --ref-rose: #dc2626;
 }
 
 html,
@@ -562,6 +579,15 @@ body::before {
   background:
     radial-gradient(circle at 30% 4%, rgba(21, 56, 113, 0.055), transparent 28%),
     linear-gradient(145deg, rgba(3, 11, 22, 0.86), rgba(3, 10, 19, 0.68));
+}
+
+[data-theme="light"] .applications-control-page,
+[data-theme="light"] .main > :not(.applications-control-page):not(.autopilot-loading) {
+  border-color: rgba(15, 23, 42, 0.08);
+  background:
+    radial-gradient(circle at 30% 4%, rgba(10, 148, 126, 0.04), transparent 28%),
+    linear-gradient(145deg, #ffffff, #f8fafc);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6);
 }
 
 .autopilot-dashboard {
@@ -1766,6 +1792,153 @@ body::before {
   animation: spin 700ms linear infinite;
 }
 
+/* --------------------------------------------------------------------------
+   Light-theme overrides for the Autopilot page chrome above.
+
+   Most rules in this file paint literal dark-navy hex/rgba values instead of
+   the --ref-* semantic tokens, so they don't react to [data-theme="light"] on
+   their own. Rather than rewrite every declaration in place, the same
+   selectors are re-declared here with light-appropriate values.
+   -------------------------------------------------------------------------- */
+
+[data-theme="light"] .autopilot-panel,
+[data-theme="light"] .autopilot-night-banner,
+[data-theme="light"] .autopilot-metric-card,
+[data-theme="light"] .autopilot-system-health,
+[data-theme="light"] .autopilot-recent-activity,
+[data-theme="light"] .autopilot-active-job,
+[data-theme="light"] .applications-secondary-workspace {
+  background:
+    radial-gradient(circle at 50% 0%, rgba(10, 148, 126, 0.05), transparent 58%),
+    linear-gradient(145deg, #ffffff, #f8fafc);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6), 0 10px 28px rgba(15, 23, 42, 0.06);
+}
+
+[data-theme="light"] .autopilot-panel::after {
+  background: radial-gradient(circle at 70% 12%, rgba(110, 91, 211, 0.05), transparent 35%);
+}
+
+[data-theme="light"] .autopilot-panel-label {
+  color: #334155;
+}
+
+[data-theme="light"] .autopilot-action-error {
+  border-color: rgba(220, 38, 38, 0.3);
+  color: #b91c1c;
+  background: rgba(220, 38, 38, 0.08);
+}
+
+[data-theme="light"] .autopilot-system-health > header > span {
+  color: #334155;
+}
+
+[data-theme="light"] .autopilot-system-health > header > strong.is-offline {
+  color: #dc2626;
+}
+
+[data-theme="light"] .autopilot-system-list > div {
+  border-bottom-color: rgba(15, 23, 42, 0.08);
+}
+
+[data-theme="light"] .autopilot-system-list span {
+  color: #475569;
+}
+
+[data-theme="light"] .autopilot-system-list span svg {
+  color: #0284c7;
+}
+
+[data-theme="light"] .autopilot-system-list small.is-offline {
+  color: #dc2626;
+}
+
+[data-theme="light"] .autopilot-system-health > button {
+  color: #475569;
+  background: #f8fafc;
+  border-color: rgba(15, 23, 42, 0.12);
+}
+
+[data-theme="light"] .autopilot-repair-event,
+[data-theme="light"] .autopilot-system-details {
+  border-color: rgba(10, 148, 126, 0.25);
+  color: #475569;
+  background: rgba(10, 148, 126, 0.06);
+}
+
+[data-theme="light"] .autopilot-recent-activity > header > span {
+  color: #334155;
+}
+
+[data-theme="light"] .autopilot-recent-activity > header button {
+  border-color: rgba(15, 23, 42, 0.12);
+  color: #475569;
+  background: #f8fafc;
+}
+
+[data-theme="light"] .autopilot-activity-list article:nth-child(even) {
+  border-left-color: rgba(15, 23, 42, 0.08);
+}
+
+[data-theme="light"] .autopilot-activity-list time {
+  color: #94a3b8;
+}
+
+[data-theme="light"] .activity-icon--amber { background: rgba(180, 83, 9, 0.12); }
+[data-theme="light"] .activity-icon--rose { background: rgba(220, 38, 38, 0.12); }
+[data-theme="light"] .activity-icon--cyan { background: rgba(2, 132, 199, 0.12); }
+
+[data-theme="light"] .autopilot-activity-list strong,
+[data-theme="light"] .autopilot-activity-empty strong {
+  color: #1e293b;
+}
+
+[data-theme="light"] .autopilot-activity-list small,
+[data-theme="light"] .autopilot-activity-empty small {
+  color: #64748b;
+}
+
+[data-theme="light"] .autopilot-activity-empty {
+  color: #94a3b8;
+}
+
+[data-theme="light"] .autopilot-activity-modal {
+  background: rgba(15, 23, 42, 0.45);
+}
+
+[data-theme="light"] .autopilot-activity-modal > section {
+  background: #ffffff;
+}
+
+[data-theme="light"] .autopilot-activity-modal header button {
+  color: #475569;
+}
+
+[data-theme="light"] .autopilot-activity-modal article {
+  border-top-color: rgba(15, 23, 42, 0.08);
+  color: #475569;
+}
+
+[data-theme="light"] .autopilot-activity-modal time {
+  color: #94a3b8;
+}
+
+[data-theme="light"] .applications-secondary-header {
+  border-bottom-color: rgba(15, 23, 42, 0.1);
+}
+
+[data-theme="light"] .applications-secondary-header h1 {
+  color: #0f172a;
+}
+
+[data-theme="light"] .applications-secondary-header p {
+  color: #64748b;
+}
+
+[data-theme="light"] .autopilot-loading {
+  color: #475569;
+  background: rgba(255, 255, 255, 0.85);
+}
+
 @media (max-width: 1240px) {
   .autopilot-primary-grid {
     height: auto;
@@ -2076,7 +2249,8 @@ body::before {
    workspace the same canvas, panel, control, and typography language.
    -------------------------------------------------------------------------- */
 
-.main {
+.main,
+[data-theme="dark"] .main {
   --bg: var(--ref-bg);
   --bg-elevated: #09172a;
   --bg-surface: rgba(4, 13, 24, 0.92);
@@ -2109,6 +2283,41 @@ body::before {
   --cos-ink: var(--ref-text);
   --cos-ink-2: #bdc8d9;
   --cos-ink-3: #91a2ba;
+}
+
+[data-theme="light"] .main {
+  --bg: var(--ref-bg);
+  --bg-elevated: #ffffff;
+  --bg-surface: rgba(255, 255, 255, 0.92);
+  --card: #ffffff;
+  --card-hover: #f8fafc;
+  --border: rgba(15, 23, 42, 0.08);
+  --border-strong: rgba(15, 23, 42, 0.16);
+  --text: var(--ref-text);
+  --text-secondary: #334155;
+  --muted: #64748b;
+  --muted-dim: #94a3b8;
+  --accent: var(--ref-teal);
+  --accent-secondary: var(--ref-amber);
+  --accent-tertiary: var(--ref-violet);
+  --accent-soft: rgba(10, 148, 126, 0.1);
+  --accent-glow: rgba(10, 148, 126, 0.22);
+  --success: var(--ref-teal);
+  --warning: var(--ref-amber);
+  --danger: var(--ref-rose);
+  --gradient-hero: linear-gradient(135deg, var(--ref-teal), var(--ref-cyan));
+  --btn-primary-bg: linear-gradient(135deg, #0a947e 0%, #0c7d6b 52%, #087561 100%);
+  --btn-primary-text: #ffffff;
+  --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.05), 0 4px 12px rgba(15, 23, 42, 0.04);
+  --shadow-md: 0 12px 36px rgba(15, 23, 42, 0.08);
+  --shadow-card: 0 1px 0 rgba(255, 255, 255, 0.9) inset, 0 8px 24px rgba(15, 23, 42, 0.06);
+  --cos-brand: var(--ref-teal);
+  --cos-line: rgba(15, 23, 42, 0.08);
+  --cos-panel: #ffffff;
+  --cos-panel-strong: #f8fafc;
+  --cos-ink: var(--ref-text);
+  --cos-ink-2: #334155;
+  --cos-ink-3: #64748b;
 }
 
 /* One headline rhythm across module, scaffold, and legacy route headers. */

@@ -128,7 +128,19 @@ async def approve_preflight_submission(
         save_autopilot_job(db, job)
 
     runner = AutopilotRunner.get_instance()
-    run = await runner.start(options={"targetProcessCount": 1})
+    # concurrency=1 is deliberate: this is the single-job "Apply" click path, not
+    # the bulk /autopilot/start runner. Without it, start() falls back to
+    # DEFAULT_CONCURRENCY (5) and the batch loop picks up every other job already
+    # sitting at QUEUED status too, silently turning one Apply click into a
+    # 5-way-parallel headed-browser run — the exact concurrency blowup the memory-
+    # constrained autopilot workflow must avoid.
+    #
+    # priorityJobId matters just as much: without it, the batch loop's queue
+    # selection claims whichever QUEUED job happens to come first in
+    # list_autopilot_jobs's order — not necessarily (or even usually) this one.
+    # A user clicking "Apply" on job A would silently have job B processed
+    # instead while A sits untouched, with no indication anything went wrong.
+    run = await runner.start(options={"targetProcessCount": 1, "concurrency": 1, "priorityJobId": id})
     return {
         "success": True,
         "message": f"Pre-flight approved for {job.get('company')} — cloud submission initiated.",

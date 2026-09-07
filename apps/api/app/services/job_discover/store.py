@@ -770,6 +770,44 @@ def rescore_all(db: Session) -> dict[str, Any]:
     return {"success": False, "error": "Use rescore_jobs_async with jobIds", "rescored": 0}
 
 
+# Substrings that mark a "Remote" posting as based outside the US, so a
+# "Remote US" query doesn't also pull in e.g. "Remote - Canada" or "EMEA
+# Remote" postings just because they both contain the word "remote".
+_NON_US_REMOTE_HINTS = (
+    "canada", "uk", "united kingdom", "europe", "emea", "apac", "latam",
+    "india", "australia", "new zealand", "germany", "france", "spain",
+    "italy", "poland", "netherlands", "ireland", "mexico", "brazil",
+    "argentina", "philippines", "singapore", "japan", "china", "africa",
+    "middle east", "worldwide", "global",
+    # Latin America (seen frequently in postings scraped this session)
+    "colombia", "chile", "peru", "costa rica", "panama", "uruguay",
+    "venezuela", "ecuador", "bolivia", "paraguay", "guatemala", "honduras",
+    "el salvador", "nicaragua",
+    # Rest of world, common in "Remote" job postings
+    "vietnam", "thailand", "indonesia", "malaysia", "korea", "taiwan",
+    "hong kong", "israel", "turkey", "egypt", "nigeria", "kenya",
+    "south africa", "russia", "ukraine", "romania", "portugal", "sweden",
+    "norway", "denmark", "finland", "switzerland", "austria", "belgium",
+    "czech", "hungary", "greece", "pakistan", "bangladesh", "sri lanka",
+    "nepal", "morocco", "tunisia", "colombian",
+)
+_US_REMOTE_QUERY_ALIASES = {"remote us", "remote-us", "remote (us)", "us remote", "remote united states"}
+
+
+def _matches_single_location(query: str, job_location: str) -> bool:
+    q = (query or "").strip().lower()
+    loc = (job_location or "").lower()
+    if not q:
+        return True
+
+    if q in _US_REMOTE_QUERY_ALIASES:
+        if "remote" not in loc:
+            return False
+        return not any(hint in loc for hint in _NON_US_REMOTE_HINTS)
+
+    return q in loc
+
+
 def _matches_location(query: str, job_location: str) -> bool:
     if not query or not query.strip():
         return True

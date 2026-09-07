@@ -33,6 +33,14 @@ Never invent:
 - salary history
 - personal preferences
 
+Some questions ask for a specific NUMBER or DATE rather than a description —
+years of experience with a named technology, GPA, exact employment start/end
+dates, specific salary figures, visa sponsorship timelines. A plausible-sounding
+number is still a fabrication if it is not explicitly present in the candidate
+profile or resume text below. If the exact number or date is not there, do not
+estimate, round, or infer one — set "supported": false and "needsUserInput": true
+instead of guessing.
+
 Write naturally and concisely.
 
 Writing style:

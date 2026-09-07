@@ -183,8 +183,11 @@ async function handleSubmitInteraction(
 
 let initialized = false;
 let lastHref = location.href;
+let confirmationRecorded = false;
+let stopWatching: (() => void) | null = null;
 
 async function watchForConfirmationPage(): Promise<void> {
+  if (confirmationRecorded) return;
   const config = await getSubmitTrackerConfig();
   if (!config.enabled) return;
   const href = location.href;
@@ -193,6 +196,13 @@ async function watchForConfirmationPage(): Promise<void> {
   lastHref = href;
   if (!success) return;
   await recordSubmit('confirmation_page', 'confirmation page', config);
+  // Once a confirmation page is recorded, nothing on this page needs
+  // watching anymore — live-updating widgets on the confirmation page
+  // (chat, analytics, countdowns) would otherwise keep re-triggering the
+  // MutationObserver and this re-scan indefinitely for as long as the tab
+  // stays open.
+  confirmationRecorded = true;
+  stopWatching?.();
 }
 
 function hookSpaNavigation(onNavigate: () => void): void {
@@ -260,8 +270,14 @@ export function initSubmitTracker(): void {
   });
   observer.observe(document.documentElement, { childList: true, subtree: true });
 
-  void watchForConfirmationPage();
-  window.setInterval(() => {
+  const intervalId = window.setInterval(() => {
     void watchForConfirmationPage();
   }, 2500);
+
+  stopWatching = () => {
+    observer.disconnect();
+    window.clearInterval(intervalId);
+  };
+
+  void watchForConfirmationPage();
 }

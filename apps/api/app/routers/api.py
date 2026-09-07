@@ -673,6 +673,15 @@ def get_tracker_summary(db: Session = Depends(db_session)) -> dict[str, Any]:
     return tracker_summary(db)
 
 
+@router.post("/tracker/sync-gmail")
+def sync_gmail_tracker(db: Session = Depends(db_session)) -> dict[str, Any]:
+    """Scan Gmail for application-confirmation emails from jobs applied to
+    outside CareerOS, and track genuinely new ones alongside Autopilot's own."""
+    from app.services.tracker.gmail_applications import sync_gmail_applications
+
+    return sync_gmail_applications(db)
+
+
 @router.get("/tracker/pipeline")
 def get_tracker_pipeline(db: Session = Depends(db_session)) -> dict[str, Any]:
     """Kanban view of the post-apply funnel: Applied -> Ghosted -> Interviewing -> Rejected -> Offer."""

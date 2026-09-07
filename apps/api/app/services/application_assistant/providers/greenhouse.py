@@ -150,7 +150,14 @@ def resolve_greenhouse_apply_url(url: str, *, company_name: str = "") -> str:
 
     parsed = urlparse(url.strip())
     host = (parsed.netloc or "").lower()
-    if "greenhouse.io" in host and "/jobs/" in parsed.path:
+    # Only the modern job-boards.* domain reliably deep-links to a specific
+    # job. The legacy boards.* / boards.eu.* domains (still used by some
+    # postings, e.g. NICE's EU board) redirect through the employer's own
+    # custom careers site and lose the job context entirely — observed
+    # live: boards.eu.greenhouse.io/nice/jobs/4917028101 redirected to
+    # nice.com's generic careers search page with no application form at
+    # all, so every submit-button selector correctly found nothing.
+    if host.startswith("job-boards.") and "greenhouse.io" in host and "/jobs/" in parsed.path:
         return url
 
     ref = extract_greenhouse_job_ref(url, company_name=company_name)
@@ -158,10 +165,18 @@ def resolve_greenhouse_apply_url(url: str, *, company_name: str = "") -> str:
         return url
     slug, job_id = ref
 
-    if "greenhouse.io" not in host:
-        return _ensure_gh_jid(url.split("#")[0], job_id)
-
-    return f"https://job-boards.greenhouse.io/{slug}/jobs/{job_id}?gh_jid={job_id}"
+    # Custom-branded careers domains (coupang.jobs, zoominfo.com/careers,
+    # samsara.com/company/careers, etc.) that embed a Greenhouse job via
+    # ?gh_jid= are, confirmed live, just a styled wrapper around the exact
+    # same posting available at the canonical job-boards.greenhouse.io URL —
+    # navigating there directly instead of the custom wrapper was previously
+    # skipped ("keeping custom careers pages intact"), but the custom
+    # wrapper's markup doesn't match our submit-button/field selectors,
+    # which are built against Greenhouse's own standard form. Redirecting to
+    # canonical fixed submissions that were failing with "Submit button not
+    # found" despite the posting being genuinely live and Greenhouse-backed.
+    eu_prefix = "job-boards.eu." if host.startswith(("boards.eu.", "job-boards.eu.")) else "job-boards."
+    return f"https://{eu_prefix}greenhouse.io/{slug}/jobs/{job_id}?gh_jid={job_id}"
 
 
 GREENHOUSE_FORM_SELECTOR = (
@@ -210,7 +225,7 @@ def resolve_greenhouse_form_nav_url(
         return embed
 
     host = (parsed.netloc or "").lower()
-    if "job-boards.greenhouse.io" in host and re.search(r"/jobs/\d+", path):
+    if host.startswith("job-boards.") and "greenhouse.io" in host and re.search(r"/jobs/\d+", path):
         return url.split("#")[0] + "#app"
 
     return url
@@ -513,6 +528,7 @@ class GreenhouseAdapter(ProviderAdapter):
                 name=f.name,
                 field_id=f.id,
                 selector_hint=f.selector_hint,
+                options=f.options,
             )
             mapped.append({
                 "label": f.label,

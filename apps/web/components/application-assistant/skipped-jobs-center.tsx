@@ -1,12 +1,13 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   deleteAutopilotJob,
-  getAutopilotJobs,
+  getAutopilotJobsPage,
   reprocessSingleAutopilotJob,
   reprocessSkippedAutopilotJobs,
 } from "@/lib/application-assistant-api";
+const PAGE_SIZE = 10;
 
 const EXPIRED_REASON_PATTERNS = [
   "no longer open",
@@ -23,22 +24,29 @@ function looksExpired(reason: string): boolean {
   const lower = reason.toLowerCase();
   return EXPIRED_REASON_PATTERNS.some((p) => lower.includes(p));
 }
-import { IconCheckCircle, IconClock } from "@/components/application-assistant/autopilot/icons";
+import { IconCheckCircle, IconClock, IconRefresh } from "@/components/application-assistant/autopilot/icons";
 import { ApplicationQueueCard, type QueueApplication } from "@/components/application-assistant/application-queue-card";
 import { resolveApplicationReadiness } from "@/components/application-assistant/application-readiness";
 
 export function SkippedJobsCenter() {
   const [skippedList, setSkippedList] = useState<any[]>([]);
+  const [totalCount, setTotalCount] = useState(0);
+  const [hasMore, setHasMore] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
+  const sentinelRef = useRef<HTMLDivElement | null>(null);
+  const loadingMoreRef = useRef(false);
 
   const fetchSkipped = async () => {
     setLoading(true);
     try {
-      const res = await getAutopilotJobs("SKIPPED");
+      const res = await getAutopilotJobsPage({ status: "SKIPPED", sortBy: "updatedAt", sortDir: "desc", limit: PAGE_SIZE, offset: 0 });
       setSkippedList(res.jobs || []);
+      setTotalCount(res.total ?? (res.jobs || []).length);
+      setHasMore(!!res.hasMore);
       setError(null);
     } catch (err: any) {
       setError(err?.message || "Could not fetch skipped applications");
@@ -46,6 +54,43 @@ export function SkippedJobsCenter() {
       setLoading(false);
     }
   };
+
+  const loadMore = useCallback(async () => {
+    if (loadingMoreRef.current || !hasMore) return;
+    loadingMoreRef.current = true;
+    setLoadingMore(true);
+    try {
+      const res = await getAutopilotJobsPage({
+        status: "SKIPPED",
+        sortBy: "updatedAt",
+        sortDir: "desc",
+        limit: PAGE_SIZE,
+        offset: skippedList.length,
+      });
+      setSkippedList((prev) => [...prev, ...(res.jobs || [])]);
+      setTotalCount(res.total ?? skippedList.length + (res.jobs || []).length);
+      setHasMore(!!res.hasMore);
+    } catch {
+      // leave hasMore as-is; the sentinel retries on next scroll
+    } finally {
+      loadingMoreRef.current = false;
+      setLoadingMore(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hasMore, skippedList.length]);
+
+  useEffect(() => {
+    const el = sentinelRef.current;
+    if (!el) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) void loadMore();
+      },
+      { rootMargin: "200px" }
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [loadMore]);
 
   useEffect(() => {
     fetchSkipped();
@@ -111,7 +156,7 @@ export function SkippedJobsCenter() {
         </div>
         <div className="flex flex-wrap items-center gap-3">
           <span className="px-3.5 py-1 text-xs font-bold rounded-full bg-amber-500/15 border border-amber-500/40 text-amber-300">
-            {skippedList.length} Skipped
+            {totalCount} Skipped
           </span>
           {skippedList.length > 0 && (
             <button
@@ -205,6 +250,15 @@ export function SkippedJobsCenter() {
               />
             );
           })}
+        </div>
+      )}
+
+      {skippedList.length > 0 && hasMore && (
+        <div ref={sentinelRef} className="flex items-center justify-center py-6">
+          <div className="flex items-center gap-2 text-xs text-slate-400">
+            <IconRefresh className="w-4 h-4 animate-spin text-amber-300" />
+            <span>{loadingMore ? "Loading more applications..." : "Scroll for more"}</span>
+          </div>
         </div>
       )}
     </div>

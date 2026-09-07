@@ -78,13 +78,10 @@ Centralized in `apps/extension/src/shared/apiConfig.ts`.
 
 ### Workspace linking
 
-`CareerOS/pnpm-workspace.yaml` includes:
-
-```yaml
-- "../Arsenal/packages/shared"
-- "../Arsenal/packages/logging"
-- "../Arsenal/packages/telemetry"
-```
+`CareerOS/pnpm-workspace.yaml` previously linked to `../Arsenal/packages/{shared,logging,telemetry,ui,motion}`.
+Nothing in the CareerOS codebase actually imported `@oblivion-labs-dev/arsenal-*`, and no `package.json`
+listed them as a dependency, so these links were removed — CareerOS no longer requires a sibling `Arsenal`
+checkout on disk to install or build.
 
 ## Arsenal cleanup
 

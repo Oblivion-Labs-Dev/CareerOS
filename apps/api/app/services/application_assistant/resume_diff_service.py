@@ -135,6 +135,31 @@ def ensure_bold_lead(text: str, fallback_prefix: str = "") -> str:
     return f"<b>{lead}</b> {rest}".strip()
 
 
+def clamp_bullet_length(text: str, max_len: int) -> str:
+    """Hard safety net behind the tailoring prompt's length guidance: even a
+    well-instructed LLM occasionally overshoots. Bullets that run long wrap
+    to an extra line in the fixed-height overlay slot and visually collide
+    with the bullet below (see render_tailored_resume_pdf) — truncating at a
+    word boundary keeps the layout intact even when the prompt is ignored.
+    """
+    plain = re.sub(r"<[^>]+>", "", text)
+    if len(plain) <= max_len:
+        return text
+
+    match = re.match(r"^\s*<b>(.*?)</b>\s*(.*)$", text, re.DOTALL)
+    if not match:
+        truncated = plain[:max_len].rsplit(" ", 1)[0].rstrip(",.;: ")
+        return truncated + "…"
+
+    lead, rest = match.group(1), match.group(2).lstrip()
+    sep = "" if rest[:1] in (",", ".", ";", ":") else " "
+    budget = max_len - len(lead) - len(sep)
+    if budget <= 10 or not rest:
+        return f"<b>{lead}</b>"
+    truncated_rest = rest[:budget].rsplit(" ", 1)[0].rstrip(",.;: ")
+    return f"<b>{lead}</b>{sep}{truncated_rest}…"
+
+
 def compute_text_diff_chunks(original: str, modified: str) -> list[dict[str, str]]:
     """Compute word/token-level diff chunks between original and modified text."""
     orig_clean = strip_html_tags(original)
@@ -232,6 +257,25 @@ async def generate_role_tailoring_diff(
         }
         client = create_llm_client(llm_settings)
 
+        # The rendered PDF overlays each tailored bullet into a fixed-height
+        # slot sized for the original bullet's line count (see
+        # render_tailored_resume_pdf's ms_dot_positions/amz_dot_positions,
+        # spaced ~19pt apart) — a tailored bullet noticeably longer than the
+        # one it replaces wraps to an extra line and visually overlaps the
+        # bullet below it. Without an explicit length target the model has no
+        # way to know that constraint, so it regularly ran long — especially
+        # in AGGRESSIVE mode, whose amplified phrasing tends to add length —
+        # producing exactly that broken, overlapping layout. Giving each
+        # bullet's own character count as its target keeps the tailored
+        # version within the same visual footprint.
+        def _plain_len(html_text: str) -> int:
+            return len(re.sub(r"<[^>]+>", "", html_text))
+
+        length_targets = "\n".join(
+            f"{i+1}. target ~{_plain_len(b)} characters (max {_plain_len(b) + 15})"
+            for i, b in enumerate(master_bullets)
+        )
+
         prompt = (
             f"You are an expert resume tailoring assistant.\n"
             f"Candidate authentic experience bullets across Microsoft (bullets 1-7) and Amazon (bullets 8-17):\n"
@@ -247,7 +291,9 @@ async def generate_role_tailoring_diff(
             )
             + "- Each bullet MUST begin with a bold lead action phrase formatted as <b>Lead Action Phrase</b>, followed by the description.\n"
             + f"- Return exactly {len(master_bullets)} bullets corresponding 1-to-1 in order with the original bullets (7 Microsoft, 10 Amazon).\n"
-            f"- Return ONLY a JSON array of strings, e.g. [\"<b>Lead 1</b>, text...\", ...]\n"
+            + "- CRITICAL LENGTH CONSTRAINT: each bullet is overlaid into a fixed-size slot on the resume PDF sized for the original bullet's length — going over breaks the layout. Match each bullet's target length below (counting only visible text, not the <b> tags); never exceed the max. If your tailored version would run long, cut it down before answering, not after.\n"
+            + length_targets
+            + "\n- Return ONLY a JSON array of strings, e.g. [\"<b>Lead 1</b>, text...\", ...]\n"
         )
 
         try:
@@ -261,7 +307,10 @@ async def generate_role_tailoring_diff(
                 parsed = json.loads(raw.strip())
                 if isinstance(parsed, list) and len(parsed) == len(master_bullets):
                     tailored_bullets = [
-                        ensure_bold_lead(str(p), CANONICAL_MASTER_BULLETS[idx]["boldPrefix"])
+                        clamp_bullet_length(
+                            ensure_bold_lead(str(p), CANONICAL_MASTER_BULLETS[idx]["boldPrefix"]),
+                            _plain_len(master_bullets[idx]) + 20,
+                        )
                         for idx, p in enumerate(parsed)
                     ]
                     logger.info(f"Resume tailored successfully with model: {res.get('usedFallbackModel') or client.model}")

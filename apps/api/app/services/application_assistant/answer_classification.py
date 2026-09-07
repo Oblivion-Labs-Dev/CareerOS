@@ -10,6 +10,7 @@ from app.services.application_assistant.domain import (
     AnswerClassification,
     SensitivityCategory,
 )
+from app.services.application_assistant.profile_answer_resolver import resolve_answer
 
 _PLACEHOLDER_ANSWER_VALUES = frozenset({"-", "—", "", "na", "n/a", "none", "null"})
 
@@ -388,6 +389,7 @@ def classify_answer(
     name: str = "",
     field_id: str = "",
     selector_hint: str = "",
+    options: list[str] | None = None,
 ) -> tuple[AnswerClassification, Any, float, str, SensitivityCategory]:
     """
     Classify an answer for a form field.
@@ -403,6 +405,43 @@ def classify_answer(
 
     if is_manual_only_field(label, field_type):
         return AnswerClassification.MANUAL_ONLY, None, 0.0, "safety_rule", sensitivity
+
+    # Prefer the same deterministic, options-aware resolver the Autopilot
+    # pipeline uses, instead of this module's own raw profile-key lookup
+    # (get_profile_value below returns the profile value as-is with no
+    # awareness of what choices the dropdown actually offers — that's what
+    # let a raw "South Asian" profile value get fuzzy-matched against the
+    # wrong option on a live form, and left country-of-residence-style
+    # questions with no handling at all). resolve_answer classifies the
+    # question, then matches against `options` itself, so the value it
+    # returns is guaranteed to already be one of the real choices.
+    # Trusted exactly the same way the Autopilot pipeline already trusts it —
+    # every resolver's own fallback defaults (e.g. RACE's "Prefer not to
+    # answer" when profile data is missing) were deliberately written to be
+    # safe, so no extra gating is needed here beyond what resolve_answer
+    # itself already enforces.
+    resolution = resolve_answer(
+        question_text=label,
+        profile=profile or {},
+        options=options,
+        field_id=field_id,
+        answer_lib=answer_library,
+    )
+    if resolution.question_type == "ADDRESS_LINE_2":
+        # Deliberately unanswered (no apartment/suite data tracked) — must
+        # not fall through to this module's own cruder profile-key lookup
+        # below, which has no concept of "line 2" and would duplicate the
+        # street address onto it.
+        return AnswerClassification.UNKNOWN, None, 0.0, "resolver.ADDRESS_LINE_2", sensitivity
+
+    if resolution.answer and not resolution.blocking_errors:
+        return (
+            AnswerClassification.VERIFIED,
+            resolution.answer,
+            max(resolution.confidence, 0.9),
+            f"resolver.{resolution.question_type}",
+            sensitivity,
+        )
 
     if sensitivity != SensitivityCategory.NONE:
         # Sensitive fields: only use verified profile or answer library data (never guess).

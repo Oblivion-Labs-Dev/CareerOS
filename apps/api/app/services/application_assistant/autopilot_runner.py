@@ -7,6 +7,7 @@ concurrency metrics, and a batch-end self-healing cycle powered by Qwen.
 from __future__ import annotations
 
 import asyncio
+import re
 import threading
 import logging
 import os
@@ -58,6 +59,12 @@ TAILORING_ESCALATION_ORDER = ["off", "honest", "aggressive"]
 # former three-second default left most worker slots idle at the start of every
 # batch without improving form reliability.
 DEFAULT_STAGGER_DELAY = 0.5
+# The preprocess queue is refilled from discovered jobs whenever it dips below
+# this many QUEUED/APPLYING entries, not only when it's fully empty — so a
+# single "Apply" click (which processes one job and removes it from QUEUED)
+# never has to wait for the queue to run completely dry before the batch
+# worker looks for more eligible postings.
+TARGET_QUEUE_SIZE = 50
 
 TRANSIENT_ERRORS = {
     ApplicationErrorType.NAVIGATION_TIMEOUT.value,
@@ -144,6 +151,10 @@ class AutopilotRunner:
         self._stop_requested = False
         self._pause_requested = False
         self._loop_task: asyncio.Task | None = None
+        # Background queue-refill task (see _refill_queue) — tracked so a
+        # top-up already in flight isn't launched a second time by the next
+        # loop iteration before it finishes.
+        self._refill_task: asyncio.Task | None = None
         self.activity_log: list[dict[str, Any]] = []
         self._subscribers: set[asyncio.Queue[dict[str, Any]]] = set()
         # Serializes read-modify-write updates to the shared run record so
@@ -151,6 +162,14 @@ class AutopilotRunner:
         # A plain threading.Lock (not asyncio.Lock) so it works from both the
         # async worker paths and the sync exception-boundary handler.
         self._run_update_lock = threading.Lock()
+
+        # Job ids that a user explicitly clicked "Apply" on. The batch loop's
+        # queue selection otherwise claims whichever QUEUED job comes first in
+        # list_autopilot_jobs's order — unrelated to what the user clicked —
+        # so a single-job Apply click could silently process a different job
+        # entirely while the one the user asked for sits untouched. Checked
+        # (and popped) in _process_batch_loop's claim step, front of the list first.
+        self.priority_job_ids: list[str] = []
 
         # ── Concurrency state ──
         self.concurrency: int = DEFAULT_CONCURRENCY
@@ -221,6 +240,12 @@ class AutopilotRunner:
         self.concurrency = max(1, min(10, int(opts.get("concurrency") or DEFAULT_CONCURRENCY)))
         self.stagger_delay = float(opts.get("staggerDelay") or DEFAULT_STAGGER_DELAY)
         self.self_healing_enabled = bool(opts.get("selfHealing", True))
+
+        priority_job_id = opts.get("priorityJobId")
+        if priority_job_id:
+            if priority_job_id in self.priority_job_ids:
+                self.priority_job_ids.remove(priority_job_id)
+            self.priority_job_ids.insert(0, priority_job_id)
 
         # Initialize worker states
         self.worker_states = {
@@ -321,6 +346,25 @@ class AutopilotRunner:
 
     async def stop(self, db: Session | None = None) -> dict[str, Any] | None:
         self._stop_requested = True
+        # Wait for the loop task to actually exit before returning. Without
+        # this, the task can still be mid-flight (it only checks
+        # _stop_requested at its own checkpoints) when this call returns —
+        # if start() is then called again quickly, `self._loop_task.done()`
+        # is still False, so start() skips spawning a new worker loop
+        # entirely: the new run's DB record says RUNNING but nothing is
+        # actually processing it. Bounded wait rather than indefinite, since
+        # a genuinely wedged task shouldn't hang the stop() caller forever;
+        # on timeout we log and proceed rather than cancel, since cancelling
+        # mid-submission could skip the executor's own interrupted-submit
+        # cleanup (staging as SUBMISSION_UNCERTAIN instead of leaving it
+        # silently stuck).
+        if self._loop_task and not self._loop_task.done():
+            try:
+                await asyncio.wait_for(asyncio.shield(self._loop_task), timeout=30)
+            except asyncio.TimeoutError:
+                logger.warning("Autopilot loop task still running 30s after stop() request; proceeding anyway.")
+            except Exception:
+                pass
         if self.active_run_id:
             with session_scope() as local_db:
                 run = get_autopilot_run(local_db, self.active_run_id)
@@ -449,6 +493,59 @@ class AutopilotRunner:
             except Exception:
                 pass
 
+    async def _refill_queue(self, deficit: int, run_settings: dict[str, Any]) -> None:
+        """Pull up to `deficit` more eligible postings from the discovered-jobs
+        backlog into the QUEUED state, reusing the same hard-filter/match-score
+        ranking and duplicate protection as the original queue-population path.
+        Safe to run concurrently with in-progress job processing — it only
+        ever adds new QUEUED rows, never touches a job that's already claimed.
+        """
+        from app.db.store import get_kv
+        from app.services.application_assistant.persistence import is_duplicate_application
+
+        with session_scope() as db:
+            existing_autopilot_jobs = list_autopilot_jobs(db)
+            profile = get_kv(db, "profile") or {}
+            raw_jobs = list_discovered_jobs(db, active_only=True, exclude_demo=True)
+
+        if not raw_jobs:
+            return
+
+        self.log_event(f"Queue refill: scanning discovered postings for {deficit} more eligible matches...", level="info")
+        refill_settings = {**run_settings, "maxApplicationsPerRun": deficit}
+        ranked = filter_and_rank_jobs(existing_autopilot_jobs, raw_jobs, profile, refill_settings)
+        if not ranked:
+            self.log_event("Queue refill: no new unapplied job postings found in database.", level="info")
+            return
+
+        self.log_event(f"Queue refill: selected {len(ranked)} eligible job postings matching target criteria", level="info")
+        enqueued_count = 0
+        with session_scope() as db:
+            for r in ranked:
+                r_company = r.get("company") or ""
+                r_title = r.get("title") or ""
+                r_url = r.get("applicationUrl") or r.get("listingUrl") or ""
+                is_dup, _ = is_duplicate_application(db, r_company, r_title, r_url)
+                if is_dup:
+                    continue
+                save_autopilot_job(db, {
+                    "id": new_id("apjob_"),
+                    "jobId": r.get("id") or new_id("job_"),
+                    "company": r_company,
+                    "title": r_title,
+                    "applicationUrl": r_url,
+                    "status": AutopilotJobStatus.QUEUED.value,
+                    "matchScore": r.get("matchScore", 85.0),
+                    "matchReasons": r.get("matchReasons", []),
+                    "location": r.get("location", ""),
+                    "discoveredAt": now_iso(),
+                    "queuedAt": now_iso(),
+                })
+                enqueued_count += 1
+        if enqueued_count < len(ranked):
+            self.log_event(f"Queue refill: deduplicated {len(ranked) - enqueued_count} already-applied jobs", level="info")
+        self.log_event(f"Queue refill: enqueued {enqueued_count} new job(s)", level="info")
+
     async def _process_batch_loop(self) -> None:
         """Main Batch Loop with N concurrent workers using asyncio.Semaphore."""
         self.metrics.batch_start_time = time.time()
@@ -501,64 +598,27 @@ class AutopilotRunner:
                     r["logs"] = self.activity_log[-100:]
                     save_autopilot_run(db, r)
 
-            # 2. Fetch and auto-enqueue queued jobs
-            queued: list[dict[str, Any]] = []
+            # 2. Fetch queued jobs and refill from discovered postings once the
+            # queue dips below TARGET_QUEUE_SIZE, not only once it's fully
+            # drained — a queue topped up off a single Apply click never has
+            # to hit zero before more eligible postings get pulled in. When
+            # there's still work to process this iteration, the refill runs
+            # as a background task instead of blocking that work on an LLM
+            # match-scoring pass over the discovered-jobs backlog.
             with session_scope() as db:
-                from app.db.store import get_kv
                 existing_autopilot_jobs = list_autopilot_jobs(db)
-                queued = [j for j in existing_autopilot_jobs if j.get("status") in (AutopilotJobStatus.QUEUED.value, AutopilotJobStatus.APPLYING.value)]
-                if not queued:
-                    profile = get_kv(db, "profile") or {}
-                    raw_jobs = list_discovered_jobs(db, active_only=True, exclude_demo=True)
+            queued = [j for j in existing_autopilot_jobs if j.get("status") in (AutopilotJobStatus.QUEUED.value, AutopilotJobStatus.APPLYING.value)]
+            deficit = TARGET_QUEUE_SIZE - len(queued)
 
-            if not queued:
-                self.log_event("Scanning discovered job postings for eligible matches...", level="info")
-                with session_scope() as db:
-                    from app.db.store import get_kv
-                    existing_autopilot_jobs = list_autopilot_jobs(db)
-                    profile = get_kv(db, "profile") or {}
-                    raw_jobs = list_discovered_jobs(db, active_only=True, exclude_demo=True)
-                ranked = filter_and_rank_jobs(existing_autopilot_jobs, raw_jobs, profile, run.get("settings")) if raw_jobs else []
-
-                if ranked:
-                    self.log_event(f"Selected {len(ranked)} eligible job postings matching target criteria", level="info")
-                    with session_scope() as db:
-                        from app.services.application_assistant.persistence import is_duplicate_application
-                        enqueued_count = 0
-                        for r in ranked:
-                            r_company = r.get("company") or ""
-                            r_title = r.get("title") or ""
-                            r_url = r.get("applicationUrl") or r.get("listingUrl") or ""
-                            is_dup, _ = is_duplicate_application(db, r_company, r_title, r_url)
-                            if is_dup:
-                                self.log_event(
-                                    f"Skipping duplicate: {r_company} — {r_title}",
-                                    level="info",
-                                )
-                                continue
-                            save_autopilot_job(db, {
-                                "id": new_id("apjob_"),
-                                "jobId": r.get("id") or new_id("job_"),
-                                "company": r_company,
-                                "title": r_title,
-                                "applicationUrl": r_url,
-                                "status": AutopilotJobStatus.QUEUED.value,
-                                "matchScore": r.get("matchScore", 85.0),
-                                "matchReasons": r.get("matchReasons", []),
-                                "location": r.get("location", ""),
-                                "discoveredAt": now_iso(),
-                                "queuedAt": now_iso(),
-                            })
-                            enqueued_count += 1
-                        if enqueued_count < len(ranked):
-                            self.log_event(
-                                f"Deduplicated {len(ranked) - enqueued_count} already-applied jobs",
-                                level="info",
-                            )
-                        jobs = list_autopilot_jobs(db)
-                        queued = [j for j in jobs if j.get("status") in (AutopilotJobStatus.QUEUED.value, AutopilotJobStatus.APPLYING.value)]
+            if deficit > 0 and (self._refill_task is None or self._refill_task.done()):
+                run_settings = run.get("settings") or {}
+                if queued:
+                    self._refill_task = asyncio.create_task(self._refill_queue(deficit, run_settings))
                 else:
-                    self.log_event("No new unapplied job postings found in database.", level="info")
+                    await self._refill_queue(deficit, run_settings)
+                    with session_scope() as db:
+                        existing_autopilot_jobs = list_autopilot_jobs(db)
+                    queued = [j for j in existing_autopilot_jobs if j.get("status") in (AutopilotJobStatus.QUEUED.value, AutopilotJobStatus.APPLYING.value)]
 
             if not queued:
                 self.log_event("No more eligible jobs in queue — batch run completed.", level="info")
@@ -574,6 +634,13 @@ class AutopilotRunner:
 
             # 3. Claim up to N jobs concurrently, but never more than the
             # batch still needs — concurrency is a parallelism cap, not a target override.
+            # Jobs the user explicitly clicked "Apply" on jump the queue first —
+            # see priority_job_ids above.
+            if self.priority_job_ids:
+                by_id = {j["id"]: j for j in queued}
+                prioritized = [by_id.pop(pid) for pid in list(self.priority_job_ids) if pid in by_id]
+                queued = prioritized + list(by_id.values())
+
             remaining_budget = max(0, target_count - processed_count)
             claim_limit = min(self.concurrency, remaining_budget)
             claimed_jobs: list[dict[str, Any]] = []
@@ -590,6 +657,10 @@ class AutopilotRunner:
                 self.log_event("Could not claim any jobs — all locked or queue empty.", level="info")
                 await asyncio.sleep(2)
                 continue
+
+            for claimed in claimed_jobs:
+                if claimed["id"] in self.priority_job_ids:
+                    self.priority_job_ids.remove(claimed["id"])
 
             self.log_event(
                 f"Claimed {len(claimed_jobs)} job(s) for parallel processing (concurrency={self.concurrency})",
@@ -1010,7 +1081,18 @@ class AutopilotRunner:
             pdf_bytes = render_tailored_resume_pdf(diff_data, profile)
             tailored_dir = Path(__file__).resolve().parents[3] / "data" / "application_assistant" / "tailored_resumes"
             tailored_dir.mkdir(parents=True, exist_ok=True)
-            resume_path = tailored_dir / f"{job_item.get('id', 'job')}_{tailoring_mode}.pdf"
+            # Human-readable and deterministic (company + title), not the
+            # opaque job id — this is only our own internal storage name for
+            # browsing/linking to a specific submission's resume; the file
+            # actually uploaded to the ATS is always staged under the
+            # candidate's normal resume filename regardless (see
+            # get_resume_upload_payload in playwright_autopilot_executor.py),
+            # so a distinctive name here never leaks to the employer. A short
+            # id suffix keeps two postings with the same company+title from
+            # overwriting each other's file.
+            name_slug = re.sub(r"[^a-zA-Z0-9]+", "_", f"{company}_{title}").strip("_")[:80]
+            id_suffix = str(job_item.get("id") or "job")[-8:]
+            resume_path = tailored_dir / f"{name_slug}_{id_suffix}_{tailoring_mode}.pdf"
             resume_path.write_bytes(pdf_bytes)
             submission_profile["resumePath"] = str(resume_path)
             job_item["resumeFileUsed"] = resume_path.name

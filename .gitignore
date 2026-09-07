@@ -34,3 +34,6 @@ logs/
 *.index
 apps/extension/e2e-reports/
 apps/api/test_start.py
+.claude/
+scratch/
+apps/web/public/resumes/test_*.pdf

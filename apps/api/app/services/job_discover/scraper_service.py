@@ -813,6 +813,167 @@ async def scrape_wellfound(
     return all_jobs[:max_results]
 
 
+def _confidently_us_location(location: str) -> bool:
+    """Stricter US check for aggregator boards that skew heavily non-US.
+
+    Unlike is_us_location (which gives ambiguous/unknown locations the
+    benefit of the doubt), this requires an explicit US signal — a bare
+    "Remote" or "Worldwide" from a global board is not enough, per the
+    user's standing requirement that Autopilot only surface US postings.
+    """
+    if not location:
+        return False
+    loc = location.strip()
+    if _US_PAT.search(loc):
+        return True
+    if _STATE_NAMES_PAT.search(loc):
+        return True
+    # Deliberately split on comma only, not "|" — some boards (Arbeitnow)
+    # format location as "<ISO country code> | <city>" (e.g. "DE | München"),
+    # and 2-letter country codes collide with US state abbreviations (DE ==
+    # Delaware). Comma-separated "City, ST" is the reliable US convention.
+    parts = [p.strip().upper() for p in loc.split(",")]
+    return any(part in US_STATES_ABBR for part in parts)
+
+
+# ── Arbeitnow (free, no API key) ────────────────────────────────────────────
+
+async def scrape_arbeitnow(
+    client: httpx.AsyncClient,
+    compiled: list[re.Pattern],
+    cutoff: datetime,
+    role_keys: list[str] | None,
+    max_results: int = 200,
+) -> list[dict]:
+    """Scrape Arbeitnow's free public job board API (no key required).
+
+    Docs: https://www.arbeitnow.com/api/job-board-api
+    Paginated via `page`; each page returns ~100 postings sorted by recency.
+    """
+    all_jobs: list[dict] = []
+    page = 1
+    max_pages = 5
+
+    while len(all_jobs) < max_results and page <= max_pages:
+        try:
+            resp = await client.get(
+                "https://www.arbeitnow.com/api/job-board-api",
+                params={"page": page},
+                headers={"Accept": "application/json"},
+                timeout=20,
+            )
+            if resp.status_code != 200:
+                break
+            data = resp.json()
+            postings = data.get("data") or []
+            if not postings:
+                break
+
+            for job in postings:
+                title = job.get("title", "")
+                if not matches_title(title, compiled):
+                    continue
+
+                created = job.get("created_at")
+                ts = ""
+                if created:
+                    try:
+                        ts = datetime.fromtimestamp(int(created), tz=UTC).isoformat()
+                    except (ValueError, TypeError, OSError):
+                        ts = ""
+                if not is_recent(ts, cutoff):
+                    continue
+
+                company_name = job.get("company_name", "")
+                location = job.get("location", "") or ("Remote" if job.get("remote") else "")
+                if not _confidently_us_location(location):
+                    continue
+
+                all_jobs.append({
+                    "greenhouse_id": f"arbeitnow-{job.get('slug', '')}",
+                    "company": company_name.lower().replace(" ", "") if company_name else "arbeitnow-listing",
+                    "title": title,
+                    "location": location,
+                    "department": "",
+                    "url": job.get("url", ""),
+                    "description": strip_html(job.get("description", "")),
+                    "updated_at": ts,
+                    "first_published": ts,
+                    "employment_type": ", ".join(job.get("job_types") or []) or "Full-time",
+                    "salary_range": "",
+                })
+
+            page += 1
+            if len(postings) < 50:
+                break
+        except Exception:
+            break
+
+    return all_jobs[:max_results]
+
+
+# ── Remotive (free, no API key) ─────────────────────────────────────────────
+
+async def scrape_remotive(
+    client: httpx.AsyncClient,
+    compiled: list[re.Pattern],
+    cutoff: datetime,
+    role_keys: list[str] | None,
+    max_results: int = 200,
+) -> list[dict]:
+    """Scrape Remotive's free public remote-jobs API (no key required).
+
+    Docs: https://remotive.com/api/remote-jobs
+    Supports a `search` query, but we fetch broadly and filter locally so
+    role matching stays consistent with the other scrapers.
+    """
+    all_jobs: list[dict] = []
+
+    try:
+        resp = await client.get(
+            "https://remotive.com/api/remote-jobs",
+            headers={"Accept": "application/json"},
+            timeout=20,
+        )
+        if resp.status_code != 200:
+            return []
+        data = resp.json()
+        postings = data.get("jobs") or []
+
+        for job in postings:
+            title = job.get("title", "")
+            if not matches_title(title, compiled):
+                continue
+
+            ts = job.get("publication_date", "")
+            if not is_recent(ts, cutoff):
+                continue
+
+            location = job.get("candidate_required_location", "") or "Remote"
+            if not _confidently_us_location(location):
+                continue
+
+            all_jobs.append({
+                "greenhouse_id": f"remotive-{job.get('id', '')}",
+                "company": (job.get("company_name") or "").lower().replace(" ", "") or "remotive-listing",
+                "title": title,
+                "location": location,
+                "department": job.get("category", ""),
+                "url": job.get("url", ""),
+                "description": strip_html(job.get("description", "")),
+                "updated_at": ts,
+                "first_published": ts,
+                "employment_type": job.get("job_type", "") or "Full-time",
+                "salary_range": job.get("salary", ""),
+            })
+            if len(all_jobs) >= max_results:
+                break
+    except Exception:
+        return all_jobs
+
+    return all_jobs[:max_results]
+
+
 # ── Unified Scraper Entry Point ──────────────────────────────────────────────
 
 async def scrape_jobs(
@@ -984,6 +1145,18 @@ async def scrape_jobs(
         task_labels.append("wellfound/all")
         coros.append(run_with_sem(
             scrape_wellfound(client, compiled, cutoff, role_keys, max_results=200)
+        ))
+
+        # Arbeitnow (free, no API key)
+        task_labels.append("arbeitnow/all")
+        coros.append(run_with_sem(
+            scrape_arbeitnow(client, compiled, cutoff, role_keys, max_results=200)
+        ))
+
+        # Remotive (free, no API key)
+        task_labels.append("remotive/all")
+        coros.append(run_with_sem(
+            scrape_remotive(client, compiled, cutoff, role_keys, max_results=200)
         ))
 
         progress_total[0] = len(coros)

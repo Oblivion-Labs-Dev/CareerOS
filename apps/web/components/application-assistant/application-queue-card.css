@@ -1049,6 +1049,7 @@
 .aac-card--emerald, .aac-card--teal { --aac-accent: #48d8bb; }
 .aac-card--slate { --aac-accent: #a5afbd; }
 .aac-card:hover { transform: translateY(-2px); border-color: color-mix(in srgb, var(--aac-accent) 48%, var(--aac-border)); box-shadow: inset 0 1px 0 rgba(255,255,255,.08), 0 20px 42px rgba(0,0,0,.38), 0 0 28px color-mix(in srgb, var(--aac-accent) 10%, transparent); }
+.aac-card::after { content: ""; position: absolute; top: 0; left: 0; right: 0; height: 3px; background: linear-gradient(90deg, transparent, var(--aac-accent), transparent); opacity: .85; }
 .aac-card:focus-visible { box-shadow: 0 0 0 3px color-mix(in srgb, var(--aac-accent) 52%, transparent), 0 18px 36px rgba(0,0,0,.35); }
 .aac-card-body { padding: 1.45rem 1.85rem 1rem; gap: 1rem; }
 .aac-head { min-height: 48px; }
@@ -1144,3 +1145,104 @@
 .application-card-style-option { min-width:210px; display:flex; flex-direction:column; gap:.25rem; padding:1rem; text-align:left; border:1px solid var(--border); border-radius:14px; background:var(--card); color:var(--text-secondary); cursor:pointer; transition:border-color .16s ease, background .16s ease, box-shadow .16s ease; }
 .application-card-style-option strong { color:var(--text); }.application-card-style-option span { font-size:.78rem; }.application-card-style-option:hover, .application-card-style-option.is-selected { border-color:var(--accent); background:var(--accent-soft); box-shadow:var(--shadow-sm); }
 .application-card-style-preview { display:flex; flex-direction:column; align-items:flex-start; gap:.6rem; margin-top:1.25rem; padding-top:1rem; border-top:1px solid var(--border); }.application-card-style-preview .aac-wrap { pointer-events:none; }
+
+/* ── Default (compact) treatment: reclaim breathing room and visual weight
+   that the later "expanded reference" overrides above squeezed back down. ── */
+
+.aac-card {
+  min-height: 300px;
+}
+
+.aac-card::after {
+  height: 4px;
+  box-shadow: 0 0 14px color-mix(in srgb, var(--aac-accent) 65%, transparent);
+}
+
+.aac-card-body {
+  padding: 1.35rem 1.5rem 1.1rem;
+  gap: 0.7rem;
+}
+
+.aac-logo {
+  width: 42px;
+  height: 42px;
+  border-radius: 12px;
+  font-size: 0.98rem;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.22),
+    0 6px 16px color-mix(in srgb, var(--brand-color, #64748b) 40%, transparent);
+}
+
+.aac-status-badge {
+  padding: 0.4rem 0.7rem;
+  font-size: 0.64rem;
+}
+
+.aac-primary-content {
+  min-height: 90px;
+  padding-right: 86px;
+}
+
+.aac-role {
+  font-size: 1.05rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  -webkit-line-clamp: 2;
+}
+
+.aac-company {
+  margin-top: 0.2rem;
+  font-size: 0.84rem;
+}
+
+.aac-job-meta {
+  margin-top: 0.5rem;
+  font-size: 0.7rem;
+}
+
+.aac-match-ring {
+  width: 68px;
+  height: 68px;
+  box-shadow: 0 6px 18px color-mix(in srgb, var(--aac-accent) 30%, transparent);
+}
+
+.aac-match-ring strong {
+  font-size: 1.05rem;
+}
+
+.aac-match-ring small {
+  font-size: 0.5rem;
+}
+
+.aac-readiness {
+  padding-top: 0.55rem;
+}
+
+.aac-timeline-node {
+  width: 12px;
+  height: 12px;
+}
+
+.aac-timeline-label {
+  font-size: 0.52rem;
+}
+
+.aac-intelligence {
+  min-height: 34px;
+  padding-top: 0.6rem;
+}
+
+.aac-intelligence .aac-alert {
+  font-size: 0.72rem;
+}
+
+.aac-foot {
+  min-height: 48px;
+  padding: 0.65rem 1.5rem 0.9rem;
+}
+
+@media (max-width: 640px) {
+  .aac-card {
+    min-height: 280px;
+  }
+}

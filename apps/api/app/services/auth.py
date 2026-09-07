@@ -75,7 +75,10 @@ def create_session_token(username: str) -> str:
 def verify_session_token(token: str | None) -> dict[str, Any] | None:
     if not token:
         return None
-    parts = token.split(".")
+    # rsplit, not split: an email-address username (the common case) contains
+    # its own "."s, so a plain split() would over-fragment the token instead
+    # of cleanly separating username / expiry / signature.
+    parts = token.rsplit(".", 2)
     if len(parts) != 3:
         return None
     username, expires_at_raw, signature = parts

@@ -3,11 +3,12 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ApplicationPipelineSection, type TrackerSnapshot } from "@/components/dashboard/application-pipeline-section";
+import { ApplicationAnalytics } from "@/components/dashboard/application-analytics";
 import { CareerWorkspaceStrip } from "@/components/career-workspace-strip";
 import { TodayActions } from "@/components/dashboard/today-actions";
 import { PageTitleWithStatus } from "@/components/page-title-with-status";
 import { useCareerWorkspace } from "@/hooks/use-career-workspace";
-import { getClientApiBaseUrl } from "@/lib/api";
+import { getClientApiBaseUrl, postJson } from "@/lib/api";
 import { discoverHref } from "@/lib/career-workspace";
 import { fetchCachedJson, getCachedStale } from "@/lib/client-fetch-cache";
 import { DEFAULT_ROLE_FILTER, DEFAULT_TARGET_SEARCH } from "@/lib/career-workspace";
@@ -68,6 +69,7 @@ export function MinimalDashboard() {
     return !(getCachedStale(`${api}/jobs/discover?${params}`) && getCachedStale(`${api}/tracker/summary`));
   });
   const [error, setError] = useState("");
+  const [gmailSync, setGmailSync] = useState<{ busy: boolean; note: string }>({ busy: false, note: "" });
 
   const applications = trackerSnapshot.applications || [];
 
@@ -108,9 +110,43 @@ export function MinimalDashboard() {
     }
   }, [prefs.searchQuery, prefs.location, prefs.roleFilter, prefs.freshness]);
 
+  const syncGmail = useCallback(async () => {
+    setGmailSync({ busy: true, note: "" });
+    try {
+      const res = await postJson<{ success: boolean; added?: number; skipped?: number; reason?: string }>(
+        "/tracker/sync-gmail",
+        {},
+      );
+      if (!res.success) {
+        setGmailSync({ busy: false, note: res.reason || "Gmail sync unavailable" });
+        return;
+      }
+      setGmailSync({
+        busy: false,
+        note: res.added ? `Added ${res.added} application${res.added === 1 ? "" : "s"} from Gmail.` : "No new applications found in Gmail.",
+      });
+      await loadData();
+    } catch (err) {
+      setGmailSync({ busy: false, note: err instanceof Error ? err.message : "Gmail sync failed" });
+    }
+  }, [loadData]);
+
   useEffect(() => {
     void loadData();
   }, [loadData]);
+
+  // Pull in applications submitted outside CareerOS once per browser session —
+  // an IMAP round trip is too slow to repeat on every dashboard visit.
+  useEffect(() => {
+    const KEY = "careeros-gmail-synced-v1";
+    try {
+      if (sessionStorage.getItem(KEY)) return;
+      sessionStorage.setItem(KEY, "1");
+    } catch {
+      return;
+    }
+    void syncGmail();
+  }, [syncGmail]);
 
   const followUpCount = useMemo(() => {
     const cutoff = Date.now() - 14 * 86_400_000;
@@ -154,6 +190,28 @@ export function MinimalDashboard() {
       />
 
       {error ? <p className={styles.errorBanner}>{error}</p> : null}
+
+      <section className={styles.matchesSection}>
+        <div className={styles.sectionHeader}>
+          <h2>Application analytics</h2>
+          <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", flexWrap: "wrap" }}>
+            {gmailSync.note ? <span className={styles.muted}>{gmailSync.note}</span> : null}
+            <button
+              type="button"
+              className={styles.btnPass}
+              onClick={() => void syncGmail()}
+              disabled={gmailSync.busy}
+              title="Scan Gmail for applications you submitted outside CareerOS and track them here"
+            >
+              {gmailSync.busy ? "Syncing Gmail…" : "Sync Gmail"}
+            </button>
+            <Link href="/applications?tab=autopilot" className={styles.linkAction}>
+              Open Autopilot →
+            </Link>
+          </div>
+        </div>
+        <ApplicationAnalytics />
+      </section>
 
       <section className={styles.matchesSection}>
         <div className={styles.sectionHeader}>

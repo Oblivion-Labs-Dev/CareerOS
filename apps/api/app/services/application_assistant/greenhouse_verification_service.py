@@ -65,29 +65,23 @@ def _extract_code_from_body(body: str) -> str | None:
     return None
 
 
-async def fetch_latest_greenhouse_verification_code(
+def _poll_gmail_for_code_once(
+    user: str,
+    app_pw: str,
     company: str,
+    clean_company: str,
     since_timestamp: float,
-    timeout_sec: float = 45.0,
-    poll_interval: float = 2.5,
     log_callback: Callable[[str, str], None] | None = None,
 ) -> str | None:
-    """Poll Gmail IMAP for an incoming Greenhouse security code email for the target company."""
-    user = os.environ.get("GMAIL_USER") or settings.gmail_user or "amsborse@gmail.com"
-    app_pw = os.environ.get("GMAIL_APP_PASSWORD") or settings.gmail_app_password
-
-    if not app_pw:
-        logger.warning("GMAIL_APP_PASSWORD not configured; cannot intercept verification code via IMAP.")
-        return None
-
-    deadline = time.time() + timeout_sec
-    logger.info("Listening on Gmail (%s) for Greenhouse security code for %s (timeout: %.0fs)...", user, company, timeout_sec)
-
-    clean_company = re.sub(r"[^a-zA-Z0-9 ]", "", company).strip()
-
-    while time.time() < deadline:
+    """One synchronous IMAP poll attempt. Runs off the event loop via asyncio.to_thread —
+    imaplib has no async API, and calling it directly from an async function would block
+    the entire FastAPI event loop (all other requests, health checks included) for as long
+    as each login/search/fetch round-trip to Gmail takes. A 10s socket timeout keeps a single
+    slow/hung connection attempt from blowing past the caller's overall polling deadline.
+    """
+    try:
+        client = imaplib.IMAP4_SSL("imap.gmail.com", timeout=10)
         try:
-            client = imaplib.IMAP4_SSL("imap.gmail.com")
             client.login(user, app_pw)
             client.select("INBOX", readonly=True)
 
@@ -157,9 +151,43 @@ async def fetch_latest_greenhouse_verification_code(
                             return code
 
             client.logout()
-        except Exception as ex:
-            logger.debug("IMAP poll attempt error (will retry): %s", ex)
+        except Exception:
+            try:
+                client.logout()
+            except Exception:
+                pass
+    except Exception as ex:
+        logger.debug("IMAP poll attempt error (will retry): %s", ex)
 
+    return None
+
+
+async def fetch_latest_greenhouse_verification_code(
+    company: str,
+    since_timestamp: float,
+    timeout_sec: float = 45.0,
+    poll_interval: float = 2.5,
+    log_callback: Callable[[str, str], None] | None = None,
+) -> str | None:
+    """Poll Gmail IMAP for an incoming Greenhouse security code email for the target company."""
+    user = os.environ.get("GMAIL_USER") or settings.gmail_user
+    app_pw = os.environ.get("GMAIL_APP_PASSWORD") or settings.gmail_app_password
+
+    if not user or not app_pw:
+        logger.warning("GMAIL_USER/GMAIL_APP_PASSWORD not configured; cannot intercept verification code via IMAP.")
+        return None
+
+    deadline = time.time() + timeout_sec
+    logger.info("Listening on Gmail (%s) for Greenhouse security code for %s (timeout: %.0fs)...", user, company, timeout_sec)
+
+    clean_company = re.sub(r"[^a-zA-Z0-9 ]", "", company).strip()
+
+    while time.time() < deadline:
+        code = await asyncio.to_thread(
+            _poll_gmail_for_code_once, user, app_pw, company, clean_company, since_timestamp, log_callback
+        )
+        if code:
+            return code
         await asyncio.sleep(poll_interval)
 
     logger.warning("Timed out waiting for Greenhouse verification code for %s", company)

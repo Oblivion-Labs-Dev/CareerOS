@@ -563,7 +563,15 @@ async def open_application_review(
                     "normalizedKey": k.lower().strip(),
                     "classification": "verified",
                     "proposedValue": v,
-                    "userEdited": True,
+                    # These values are copied from an autopilot run, not
+                    # actually edited by a human — userEdited=True made
+                    # _merge_saved_fields() treat them as a permanent
+                    # override that a later, more correct classification can
+                    # never replace (observed live: a field that was wrong in
+                    # an earlier run stayed wrong forever afterward, even
+                    # after the classifier was fixed, because this flag told
+                    # every future run to trust the stale value unconditionally).
+                    "userEdited": False,
                     "confidence": 1.0,
                     "requiresUserReview": False,
                 })

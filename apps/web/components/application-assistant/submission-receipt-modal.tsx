@@ -79,7 +79,15 @@ export function SubmissionReceiptModal({ receipt, onClose }: SubmissionReceiptMo
                 <span className="text-slate-400 block text-[10px] uppercase font-semibold">Resume Used</span>
                 <span className="text-amber-300 font-bold text-sm">{receipt.tailoringMode.toUpperCase()}</span>
                 {receipt.resumeFileUsed && (
-                  <span className="text-slate-500 font-mono text-[10px] truncate block">{receipt.resumeFileUsed}</span>
+                  <a
+                    href={`/api/backend/application-assistant/autopilot/jobs/${receipt.jobId}/resume`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-cyan-300 hover:text-cyan-200 hover:underline font-mono text-[10px] truncate block"
+                    title="Open the exact resume PDF submitted for this application"
+                  >
+                    {receipt.resumeFileUsed}
+                  </a>
                 )}
               </div>
             )}

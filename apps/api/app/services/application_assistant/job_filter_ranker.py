@@ -133,23 +133,50 @@ def evaluate_hard_filters(
         "australia", "sydney", "singapore", "ireland", "dublin", "japan",
         "tokyo", "china", "emea", "apac", "latam", "mexico", "netherlands",
         "amsterdam", "spain", "madrid", "barcelona", "sweden", "stockholm",
+        "chile", "argentina", "colombia", "turkey", "peru", "ecuador",
+        "uruguay", "venezuela", "bolivia", "paraguay", "costa rica",
+        "panama", "guatemala", "el salvador", "honduras", "nicaragua",
+        "dominican republic", "bogota", "buenos aires", "santiago",
+        "lima", "istanbul", "ankara", "sao paulo", "rio de janeiro",
+        "portugal", "lisbon", "italy", "rome", "milan", "switzerland",
+        "zurich", "austria", "vienna", "belgium", "brussels", "denmark",
+        "copenhagen", "norway", "oslo", "finland", "helsinki", "israel",
+        "tel aviv", "south africa", "philippines", "manila", "vietnam",
+        "indonesia", "malaysia", "thailand", "south korea", "seoul",
+        "new zealand", "egypt", "nigeria", "kenya", "uae", "dubai",
+        "hungary", "budapest", "czech", "prague", "romania", "bucharest",
+        "bulgaria", "sofia", "greece", "athens", "ukraine", "kyiv", "kiev",
+        "serbia", "belgrade", "croatia", "slovakia", "slovenia", "lithuania",
+        "latvia", "estonia", "tallinn", "riga", "vilnius", "pakistan",
+        "bangladesh", "sri lanka", "morocco", "tunisia", "ghana", "taiwan",
+        "hong kong", "saudi", "qatar", "jordan", "armenia", "georgia (country)",
     ]
     if any(country in job_loc or country in title_lower for country in non_us_indicators):
         return False, f"Location '{job.get('location')}' is outside the United States"
 
     # Require explicit US indicators or US state/remote patterns if location is present
+    # Phrases safe to match as substrings.
     us_indicators = [
         "united states", "usa", "u.s.", "remote - us", "remote (us", "us remote",
-        ", us", ", usa", "al", "ak", "az", "ar", "ca", "co", "ct", "de", "fl",
-        "ga", "hi", "id", "il", "in", "ia", "ks", "ky", "la", "me", "md", "ma",
-        "mi", "mn", "ms", "mo", "mt", "ne", "nv", "nh", "nj", "nm", "ny", "nc",
-        "nd", "oh", "ok", "or", "pa", "ri", "sc", "sd", "tn", "tx", "ut", "vt",
-        "va", "wa", "wv", "wi", "wy", "washington", "california", "new york",
+        ", us", ", usa", "washington", "california", "new york",
         "texas", "massachusetts", "colorado", "seattle", "austin", "san francisco",
         "boston", "los angeles", "chicago", "new york city"
     ]
+    # State abbreviations must be matched as whole tokens, never as substrings —
+    # "Budapest, Hungary" contains "ga" (Georgia) and "Poland" contains "la"
+    # (Louisiana), which previously let non-US postings pass this check.
+    us_state_abbr = {
+        "al", "ak", "az", "ar", "ca", "co", "ct", "de", "fl", "ga", "hi", "id",
+        "il", "in", "ia", "ks", "ky", "la", "me", "md", "ma", "mi", "mn", "ms",
+        "mo", "mt", "ne", "nv", "nh", "nj", "nm", "ny", "nc", "nd", "oh", "ok",
+        "or", "pa", "ri", "sc", "sd", "tn", "tx", "ut", "vt", "va", "wa", "wv",
+        "wi", "wy", "dc",
+    }
     if job_loc:
         has_us_marker = any(ind in job_loc for ind in us_indicators)
+        if not has_us_marker:
+            tokens = {t.strip(" .;|()") for t in re.split(r"[,\s/]+", job_loc)}
+            has_us_marker = bool(tokens & us_state_abbr)
         # If it's a generic "remote" with no non-US markers, allow US remote
         if not has_us_marker and "remote" in job_loc:
             has_us_marker = True
@@ -254,16 +281,33 @@ def filter_and_rank_jobs(
         score = match_result.get("overallScore", 0.0)
         reasons = match_result.get("strongMatches", []) + match_result.get("potentialConcerns", [])
 
+        # Ranking priority (separate from the LLM-derived matchScore shown to
+        # the user): "Senior Software Engineer" titles and Seattle-area
+        # locations get queued ahead of otherwise-similar matches, per
+        # candidate preference — Seattle first, then the rest of the US.
+        title_l = (job.get("title") or "").lower()
+        loc_l = (job.get("location") or "").lower()
+        priority_bonus = 0.0
+        if "senior software engineer" in title_l:
+            priority_bonus += 15.0
+        elif "software engineer" in title_l:
+            priority_bonus += 5.0
+        if any(k in loc_l for k in ("seattle", ", wa", "washington")):
+            priority_bonus += 20.0
+
         ranked_job = {
             **job,
             "matchScore": score,
             "matchReasons": reasons,
             "status": AutopilotJobStatus.SCORED.value,
+            "_priorityScore": score + priority_bonus,
         }
         all_passing.append(ranked_job)
 
-    # Sort descending by matchScore and datePosted
-    all_passing.sort(key=lambda j: (j.get("matchScore", 0.0), j.get("datePosted") or ""), reverse=True)
+    # Sort descending by priority (matchScore + Seattle/Senior boost), then datePosted
+    all_passing.sort(key=lambda j: (j.get("_priorityScore", 0.0), j.get("datePosted") or ""), reverse=True)
+    for j in all_passing:
+        j.pop("_priorityScore", None)
 
     if min_score > 0:
         qualified = [j for j in all_passing if j.get("matchScore", 0.0) >= min_score]

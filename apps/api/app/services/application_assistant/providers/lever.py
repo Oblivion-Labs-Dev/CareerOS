@@ -214,6 +214,7 @@ class LeverAdapter(ProviderAdapter):
                 name=f.name,
                 field_id=f.id,
                 selector_hint=f.selector_hint,
+                options=f.options,
             )
             mapped.append({
                 "label": f.label,

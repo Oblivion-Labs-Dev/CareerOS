@@ -12,8 +12,150 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from app.services.application_assistant.profile_answer_resolver import AnswerResolution
+from app.services.tracking_email import derive_contact_email
 
 logger = logging.getLogger("career_os.browser_verifier")
+
+_PUNCT_RE = re.compile(r"[^a-z0-9 ]+")
+_DIGITS_RE = re.compile(r"\D+")
+_PHONE_CALLING_CODE_RE = re.compile(r"^\+?\d{1,4}$")
+
+# Expanded before punctuation stripping so "don't"/"do not" (or "can't"/
+# "cannot") converge to the same normalized string instead of being read as
+# different answers — this is a formatting difference, not a data conflict.
+_CONTRACTIONS = {
+    "don't": "do not", "doesn't": "does not", "didn't": "did not",
+    "can't": "cannot", "won't": "will not", "isn't": "is not",
+    "aren't": "are not", "wasn't": "was not", "weren't": "were not",
+    "haven't": "have not", "hasn't": "has not", "hadn't": "had not",
+    "wouldn't": "would not", "shouldn't": "should not", "couldn't": "could not",
+    "i'm": "i am", "i've": "i have", "i'll": "i will", "i'd": "i would",
+}
+
+# Whole-word synonym classes for common EEOC/demographic answer wordings that
+# differ by exact term used (a resolved answer like "Man" vs a form's own
+# option label "Male") but mean the same thing — mapped to one canonical word
+# per class. Applied per-word, never as a substring replace, so "human" or
+# "woman" don't get mangled by a bare "man"/"woman" rule.
+_SYNONYM_WORDS: dict[str, str] = {}
+for _class in (
+    ("man", "male"),
+    ("woman", "female"),
+    # US state abbreviation vs full name (each full name here is one word
+    # after _PUNCT_RE splits on the space in two-word states, so "new york"
+    # becomes tokens "new"/"york" and can't collide with the single-token
+    # abbreviation "ny" anyway — listing them is harmless and keeps this table
+    # a complete, direct reference rather than a partial one someone has to
+    # remember to extend). Fixes an observed real case: an intended answer of
+    # "Auburn, WA" was flagged as conflicting with a location autocomplete's
+    # own "Auburn, Washington, United States" — same place, just a state
+    # abbreviation the live DOM widget always expands to its full name.
+    ("alabama", "al"), ("alaska", "ak"), ("arizona", "az"), ("arkansas", "ar"),
+    ("california", "ca"), ("colorado", "co"), ("connecticut", "ct"), ("delaware", "de"),
+    ("florida", "fl"), ("georgia", "ga"), ("hawaii", "hi"), ("idaho", "id"),
+    ("illinois", "il"), ("indiana", "in"), ("iowa", "ia"), ("kansas", "ks"),
+    ("kentucky", "ky"), ("louisiana", "la"), ("maine", "me"), ("maryland", "md"),
+    ("massachusetts", "ma"), ("michigan", "mi"), ("minnesota", "mn"), ("mississippi", "ms"),
+    ("missouri", "mo"), ("montana", "mt"), ("nebraska", "ne"), ("nevada", "nv"),
+    ("ohio", "oh"), ("oklahoma", "ok"), ("oregon", "or"), ("pennsylvania", "pa"),
+    ("tennessee", "tn"), ("texas", "tx"), ("utah", "ut"), ("vermont", "vt"),
+    ("virginia", "va"), ("washington", "wa"), ("wisconsin", "wi"), ("wyoming", "wy"),
+):
+    _canonical = _class[0]
+    for _word in _class:
+        _SYNONYM_WORDS[_word] = _canonical
+
+
+def _normalize_words(value: str) -> list[str]:
+    """Lowercase, expand contractions/synonyms, strip punctuation, split to words."""
+    text = (value or "").lower()
+    for contraction, expanded in _CONTRACTIONS.items():
+        text = text.replace(contraction, expanded)
+    text = _PUNCT_RE.sub(" ", text)
+    return [_SYNONYM_WORDS.get(w, w) for w in text.split()]
+
+
+def _normalize_for_compare(value: str) -> str:
+    """Compact (no separators) normalized form, for exact-equality comparison
+    only — e.g. so "U.S." and "US" compare equal regardless of the dot. NOT
+    safe for substring containment (see _values_conflict): compacting removes
+    word boundaries, so unrelated words can end up literally containing one
+    another (e.g. "female" contains "male") once spaces are gone.
+    """
+    return "".join(_normalize_words(value))
+
+
+def _values_conflict(intended: str, actual: str) -> bool:
+    """True only when two non-empty values are clearly NOT the same underlying
+    answer — never flags on formatting differences alone (spacing, punctuation,
+    contractions, dropdown option text wrapping a shorter intended value,
+    phone number punctuation), since a same-underlying-value formatting
+    difference is not a data-accuracy bug and flagging it would just teach
+    reviewers to ignore this check.
+    """
+    intended, actual = (intended or "").strip(), (actual or "").strip()
+    if not intended or not actual:
+        return False
+
+    # "checked" is our own internal sentinel for "we successfully checked
+    # this consent/checkbox" — it is never the field's real DOM value. The
+    # DOM extractor only produces a non-empty value for a checkbox at all
+    # when el.checked is true (falling back to the checkbox's raw `value`
+    # attribute, typically an opaque Greenhouse-internal option id like
+    # "21038676007"), so any non-empty actual value already proves the box
+    # is checked — comparing it as text against the word "checked" was
+    # structurally guaranteed to "conflict" on virtually every real
+    # checkbox, since the value attribute is coincidentally the string
+    # "checked" only by accident.
+    if intended.lower() == "checked":
+        return False
+
+    # Chrome always reports a file <input>'s value as "C:\fakepath\<name>"
+    # regardless of the real file path, for privacy — comparing that
+    # literally against the plain filename we intended to upload (e.g. a
+    # resume) always "conflicts" even on a correct upload.
+    if actual.lower().startswith("c:\\fakepath\\"):
+        actual = actual[len("c:\\fakepath\\"):]
+
+    # Some react-select variants' DOM structure doesn't match any of the
+    # display-text selectors this extractor tries, so it falls back to the
+    # underlying hidden input's raw `value` — for react-select that's the
+    # internal option value (a long opaque hash/UUID, e.g.
+    # "bd9f80875208dd5d202543a5d9fa853a"), never anything a human actually
+    # sees or types. A hash can't be compared meaningfully against a real
+    # answer, and treating the mismatch as real just means our own
+    # extraction failed, not that the fill was wrong — so skip the compare.
+    if re.fullmatch(r"[0-9a-f]{16,40}", actual, re.IGNORECASE):
+        return False
+
+    # A bare phone calling code ("+1", "44") is only ever a legitimate answer
+    # to a phone-country-code selector, never to a generic "Country" (or
+    # similar) question — this exact confusion is a known label-matching gap
+    # (a short resolution question like "Country" can end up loosely matched
+    # against an unrelated "Phone Country Code" DOM field). Since the calling
+    # code is correct for ITS OWN field regardless of what got matched to it,
+    # treat it as compatible with anything rather than flag a mismatch that's
+    # really a matching artifact, not a data error.
+    if _PHONE_CALLING_CODE_RE.match(actual) and not _PHONE_CALLING_CODE_RE.match(intended):
+        return False
+
+    if _normalize_for_compare(intended) == _normalize_for_compare(actual):
+        return False
+    # One is a whole-word prefix of the other (e.g. intended "Yes" vs DOM
+    # "Yes, I have experience"). Word-boundary-anchored, not a raw substring
+    # check: a plain substring test would wrongly call "Man"/"Woman"
+    # compatible once normalized to "male"/"female", since "female" literally
+    # contains "male" as characters — anchoring on whole words avoids that.
+    words_i, words_a = _normalize_words(intended), _normalize_words(actual)
+    if words_i and words_a:
+        shorter, longer = (words_i, words_a) if len(words_i) <= len(words_a) else (words_a, words_i)
+        if longer[: len(shorter)] == shorter:
+            return False
+    # Phone numbers / anything numeric: compare digits only.
+    digits_i, digits_a = _DIGITS_RE.sub("", intended), _DIGITS_RE.sub("", actual)
+    if digits_i and digits_a and (digits_i == digits_a or digits_i.lstrip("1") == digits_a.lstrip("1")):
+        return False
+    return True
 
 
 @dataclass
@@ -58,13 +200,16 @@ class DOMVerificationResult:
         }
 
 
-def _state_confirmed_in_sibling_field(dom_by_label: dict[str, dict[str, Any]]) -> bool:
+def _state_confirmed_in_sibling_field(dom_by_label: dict[str, dict[str, Any]], profile_state: str, profile_state_abbrev: str) -> bool:
     """True if some other field on the page (a separate State dropdown/input,
-    distinct from the City field being checked) already holds Washington/WA."""
+    distinct from the City field being checked) already holds the candidate's
+    actual profile state, spelled out or abbreviated."""
+    if not profile_state and not profile_state_abbrev:
+        return False
     for lbl_low, f in dom_by_label.items():
         if "state" in lbl_low:
             val = (f.get("value") or "").lower()
-            if "washington" in val or val == "wa":
+            if (profile_state and profile_state in val) or (profile_state_abbrev and val == profile_state_abbrev):
                 return True
     return False
 
@@ -175,10 +320,14 @@ async def verify_browser_dom_state(
 
     # Map DOM state by label and ID for comparison
     dom_by_label: dict[str, dict[str, Any]] = {}
+    dom_by_id: dict[str, dict[str, Any]] = {}
     for f in dom_state:
         lbl = (f.get("label") or "").strip().lower()
         if lbl:
             dom_by_label[lbl] = f
+        fid = f.get("id")
+        if fid:
+            dom_by_id[fid] = f
         result.dom_values[f.get("label") or f.get("id")] = f.get("value", "")
 
     # Group checkboxes/radios by label and group to check if at least one in the group is selected
@@ -225,17 +374,39 @@ async def verify_browser_dom_state(
                     )
                 )
 
-    # 3. Specific validation: Check Location autocomplete state
-    profile_city = (profile.get("city") or "Auburn").lower()
-    profile_state = (profile.get("state") or "Washington").lower()
+    # 3. Specific validation: Check Location autocomplete state, driven by
+    # whatever the candidate's own profile actually says (never a hardcoded
+    # place) — skip entirely if the profile has no city/state on file, since
+    # there's nothing to verify against.
+    profile_city = (profile.get("city") or "").strip().lower()
+    profile_state = (profile.get("state") or "").strip().lower()
     profile_state_abbrev = "wa" if "washington" in profile_state else profile_state[:2]
 
-    for lbl_low, f in dom_by_label.items():
-        if "location" in lbl_low or "city" in lbl_low:
-            actual_loc = f.get("value", "").lower()
-            if actual_loc:
-                # Catch wrong location selections like "Auburn, ND" or "Illinois" or "Akshaya Nagara"
-                if "akshaya" in actual_loc or "india" in actual_loc:
+    if profile_city or profile_state:
+        for lbl_low, f in dom_by_label.items():
+            if "location" in lbl_low or "city" in lbl_low:
+                actual_loc = f.get("value", "").lower()
+                if not actual_loc:
+                    continue
+                # Only flag when the field DOES contain the candidate's actual
+                # city but is missing their state — a field that autocompleted
+                # to a city/place with no relation to the profile at all is
+                # already caught by the DOM required-field and answer-mismatch
+                # checks elsewhere; this section exists specifically for the
+                # "right city, state got dropped by autocomplete" failure mode.
+                if (
+                    profile_city
+                    and profile_city in actual_loc
+                    and profile_state
+                    and profile_state not in actual_loc
+                    and not (profile_state_abbrev and profile_state_abbrev in actual_loc)
+                    and not _state_confirmed_in_sibling_field(dom_by_label, profile_state, profile_state_abbrev)
+                ):
+                    # Many ATS forms split City and State into separate fields — a bare
+                    # "City" field containing only the profile city with no state text
+                    # isn't wrong, just incomplete on its own, so only treat this as a
+                    # real mismatch if no separate State field elsewhere already
+                    # confirms the profile's actual state.
                     result.issues.append(
                         DOMVerificationIssue(
                             field_id=f.get("id", ""),
@@ -244,58 +415,107 @@ async def verify_browser_dom_state(
                             actual_dom_value=f.get("value", ""),
                             issue_type="MISMATCH",
                             severity="BLOCKING",
-                            details="Location contains incorrect overseas address instead of candidate profile.",
-                        )
-                    )
-                elif "auburn" in actual_loc and not ("wa" in actual_loc or "washington" in actual_loc) and not _state_confirmed_in_sibling_field(dom_by_label):
-                    # Only a real mismatch when this field IS the combined location (no
-                    # separate state field elsewhere confirms WA/Washington already).
-                    # Many ATS forms split City and State into two separate fields — a
-                    # bare "City" field legitimately contains just "Auburn" with no state
-                    # substring at all, which isn't wrong, just incomplete information in
-                    # THIS field. Checking only this field's own text previously flagged
-                    # every such form as a location mismatch even when City=Auburn and
-                    # State=Washington were both filled correctly in their own fields.
-                    result.issues.append(
-                        DOMVerificationIssue(
-                            field_id=f.get("id", ""),
-                            label=f.get("label", ""),
-                            intended_value="Auburn, WA",
-                            actual_dom_value=f.get("value", ""),
-                            issue_type="MISMATCH",
-                            severity="BLOCKING",
-                            details=f"Location '{f.get('value')}' has wrong state (not WA).",
+                            details=f"Location '{f.get('value')}' doesn't match the candidate's actual profile city/state.",
                         )
                     )
 
-    # 4. Compare intended resolutions against actual DOM values
+    # 4. Compare intended resolutions against actual DOM values. Deterministic,
+    # not LLM-guessed: every resolved answer with a live matching DOM field
+    # must actually agree with what's on screen, not just the Yes/No subset
+    # this used to check — a wrong value here is exactly the class of bug
+    # (autofill glitch, stale value from a prior attempt, wrong field matched)
+    # that should block submission rather than ride along silently.
     for res in resolutions:
         if not res.answer:
             continue
         res_lbl = res.question.lower().strip()
-        matching_dom = None
-        for d_lbl, d_field in dom_by_label.items():
-            if res_lbl in d_lbl or d_lbl in res_lbl:
-                matching_dom = d_field
-                break
-        
+        # Prefer an exact pairing (field id, then exact label) before ever
+        # falling back to substring containment. Two different questions on
+        # the same form often have one label as a substring of the other
+        # (e.g. "Website" / "Portfolio Website", or a short label that
+        # happens to appear inside an unrelated longer one) — matching on
+        # containment alone pairs the wrong DOM field to a resolved answer,
+        # which then reports a "conflict" between two unrelated questions
+        # (observed live: a GitHub URL answer flagged as conflicting with an
+        # EEO experience-level dropdown's value). Field id is unambiguous
+        # when present; an exact label match is the next safest thing.
+        matching_dom = dom_by_id.get(res.field_id) if res.field_id else None
+        if matching_dom is None:
+            matching_dom = dom_by_label.get(res_lbl)
+        if matching_dom is None:
+            for d_lbl, d_field in dom_by_label.items():
+                if res_lbl in d_lbl or d_lbl in res_lbl:
+                    matching_dom = d_field
+                    break
+
         if matching_dom:
             actual = matching_dom.get("value", "").strip()
             intended = str(res.answer).strip()
-            # If both have values and are completely discordant (e.g. Yes vs No)
-            if actual and intended:
-                if actual.lower() in ("yes", "no") and intended.lower() in ("yes", "no") and actual.lower() != intended.lower():
-                    result.issues.append(
-                        DOMVerificationIssue(
-                            field_id=matching_dom.get("id", ""),
-                            label=matching_dom.get("label", ""),
-                            intended_value=intended,
-                            actual_dom_value=actual,
-                            issue_type="MISMATCH",
-                            severity="BLOCKING",
-                            details=f"Intended answer '{intended}' conflicts with live DOM value '{actual}'",
-                        )
+            # A checked checkbox's DOM "value" is its own raw option id
+            # (Greenhouse assigns each one an opaque numeric id, e.g.
+            # "86355847004"), never the readable option text — comparing
+            # that against a resolved answer like "Yes" always "conflicts"
+            # even when the correct box was checked. A non-empty value here
+            # already proves *some* box in the group got checked; that's all
+            # this check can verify for a checkbox's own value attribute.
+            if matching_dom.get("type") == "checkbox" and actual:
+                continue
+            if _values_conflict(intended, actual):
+                result.issues.append(
+                    DOMVerificationIssue(
+                        field_id=matching_dom.get("id", ""),
+                        label=matching_dom.get("label", ""),
+                        intended_value=intended,
+                        actual_dom_value=actual,
+                        issue_type="MISMATCH",
+                        severity="BLOCKING",
+                        details=f"Intended answer '{intended}' conflicts with live DOM value '{actual}'",
                     )
+                )
+
+    # 5. Deterministic identity-field check: the candidate's core identity
+    # (name, email, phone) is filled directly by CSS selector rather than
+    # through resolve_answer(), so it never passed through check #4 above —
+    # verify it explicitly against the actual profile instead of trusting
+    # that the fill succeeded.
+    identity_checks = [
+        ("first name", (profile.get("firstName") or "").strip()),
+        ("last name", (profile.get("lastName") or "").strip()),
+        ("email", derive_contact_email((profile.get("email") or "").strip())),
+        ("phone", (profile.get("phone") or "").strip()),
+    ]
+    for field_key, expected in identity_checks:
+        if not expected:
+            continue
+        for lbl_low, f in dom_by_label.items():
+            if field_key not in lbl_low:
+                continue
+            # A genuine identity field's label is short ("Email*", "Preferred
+            # First Name"). Long custom-question sentences can incidentally
+            # contain the same word (e.g. DoorDash's SMS/WhatsApp consent
+            # question ends "...we will contact you via the email you
+            # provided") — without this guard that unrelated Yes/No field
+            # gets compared against the candidate's actual email address and
+            # always "conflicts", since the two are semantically unrelated.
+            if len(lbl_low) > 40:
+                continue
+            # "first name"/"last name" also match within "preferred first name" —
+            # that's fine, same expected value applies there too.
+            actual = (f.get("value") or "").strip()
+            if not actual:
+                continue
+            if _values_conflict(expected, actual):
+                result.issues.append(
+                    DOMVerificationIssue(
+                        field_id=f.get("id", ""),
+                        label=f.get("label", ""),
+                        intended_value=expected,
+                        actual_dom_value=actual,
+                        issue_type="MISMATCH",
+                        severity="BLOCKING",
+                        details=f"Live DOM value '{actual}' for '{f.get('label') or field_key}' doesn't match the candidate's actual profile ('{expected}').",
+                    )
+                )
 
     # Set overall status
     blocking = [i for i in result.issues if i.severity == "BLOCKING"]

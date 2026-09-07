@@ -165,17 +165,20 @@ export function ReviewCenter() {
     setLoading(true);
     setError(null);
     const url = job.applicationUrl || job.listingUrl;
-    if (url) {
-      window.open(url, "_blank", "noopener,noreferrer");
-    }
     try {
       const sourceJobId = String(job.jobId || job.id || "");
       const appId = `app_${sourceJobId.replace(/[^a-zA-Z0-9_]+/g, "_").replace(/^_+|_+$/g, "")}`.slice(0, 120);
-      
+
+      // Only open one window: the automation-controlled Chrome window on
+      // success. A separate raw window.open() tab used to fire unconditionally
+      // alongside it, leaving two windows open per click with only one of
+      // them ever getting autofilled — the plain tab is now only a fallback
+      // for when the automated open genuinely fails.
       const result = await openApplicationReview(appId, { force: true }).catch(() => null);
       if (result?.success) {
         setMessage(`Opened Chrome review window for "${job.title}". Form autofilled with saved profile data — review, correct any fields, and click Submit!`);
       } else if (url) {
+        window.open(url, "_blank", "noopener,noreferrer");
         setMessage(`Opened "${job.title}" in a new browser tab.`);
       } else {
         throw new Error("No application URL available for this job.");
@@ -183,6 +186,7 @@ export function ReviewCenter() {
       setTimeout(() => setMessage(null), 5000);
     } catch (err: any) {
       if (url) {
+        window.open(url, "_blank", "noopener,noreferrer");
         setMessage(`Opened "${job.title}" in a new browser tab.`);
         setTimeout(() => setMessage(null), 3000);
       } else {

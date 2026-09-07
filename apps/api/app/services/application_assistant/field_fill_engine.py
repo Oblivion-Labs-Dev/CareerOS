@@ -471,6 +471,19 @@ def score_option_match(value: str, option_text: str) -> float:
         except ValueError:
             pass
 
+    # A value and an option that disagree on negation ("I am not a protected
+    # veteran" vs "Yes, I am a veteran") are opposite answers, but share every
+    # other word — "i", "am", "a", "veteran" — so the substring/word-overlap
+    # heuristics below would otherwise score them a strong match (verified:
+    # ~73/100, comfortably past every threshold in this module) purely from
+    # that overlap, with no notion that "not" flips the meaning. Observed live
+    # on a Smartsheet veteran-status question, which is exactly the class of
+    # EEO/legal field (veteran, disability, sponsorship, citizenship) where
+    # answering with the opposite of the truth is a real-world consequence,
+    # not just a cosmetic mismatch.
+    if bool(_negation_words(value_norm)) != bool(_negation_words(option_norm)):
+        return 0.0
+
     if value_norm in option_norm:
         return 80.0 + min(len(value_norm) / max(len(option_norm), 1), 1.0) * 15.0
     if option_norm in value_norm:
@@ -483,6 +496,13 @@ def score_option_match(value: str, option_text: str) -> float:
         if overlap >= 0.5:
             return 50.0 + overlap * 35.0
     return 0.0
+
+
+_NEGATION_WORDS = frozenset({"not", "no", "non", "cannot", "never", "without"})
+
+
+def _negation_words(text_norm: str) -> set[str]:
+    return set(re.findall(r"\w+", text_norm)) & _NEGATION_WORDS
 
 
 async def _click_option_safe(option: Any) -> bool:

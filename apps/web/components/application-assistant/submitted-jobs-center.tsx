@@ -1,33 +1,50 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   getAutopilotJobs,
+  getAutopilotJobsPage,
   getSubmissionReceipt,
   resetSingleAutopilotJob,
   resetSubmittedAutopilotJobs,
   SubmissionReceiptItem,
 } from "@/lib/application-assistant-api";
-import { IconCheckCircle, IconDownload, IconSend } from "@/components/application-assistant/autopilot/icons";
+import { IconCheckCircle, IconDownload, IconRefresh, IconSend } from "@/components/application-assistant/autopilot/icons";
 import { SubmissionReceiptModal } from "@/components/application-assistant/submission-receipt-modal";
 import { ApplicationQueueCard, type QueueApplication } from "@/components/application-assistant/application-queue-card";
 import { resolveApplicationReadiness } from "@/components/application-assistant/application-readiness";
 
+const PAGE_SIZE = 10;
+
 export function SubmittedJobsCenter() {
   const [submittedList, setSubmittedList] = useState<any[]>([]);
+  const [totalCount, setTotalCount] = useState(0);
+  const [hasMore, setHasMore] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [resetting, setResetting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [selectedReceipt, setSelectedReceipt] = useState<SubmissionReceiptItem | null>(null);
   const [receiptLoading, setReceiptLoading] = useState(false);
+  const sentinelRef = useRef<HTMLDivElement | null>(null);
+  const loadingMoreRef = useRef(false);
 
-  const handleDownloadMergedJson = () => {
-    if (submittedList.length === 0) return;
+  const handleDownloadMergedJson = async () => {
+    // Export needs the complete set, not just whatever's been scrolled into
+    // view so far — fetch fresh rather than relying on the paginated list.
+    let all = submittedList;
+    try {
+      const res = await getAutopilotJobs("SUBMITTED");
+      all = res.jobs || [];
+    } catch {
+      // fall back to whatever's currently loaded
+    }
+    if (all.length === 0) return;
     const mergedData = {
       exportTimestamp: new Date().toISOString(),
-      totalSubmitted: submittedList.length,
-      applications: submittedList.map((job) => ({
+      totalSubmitted: all.length,
+      applications: all.map((job) => ({
         id: job.id,
         jobId: job.jobId,
         company: job.company,
@@ -51,15 +68,23 @@ export function SubmittedJobsCenter() {
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(downloadUrl);
-    setSuccessMsg(`Exported ${submittedList.length} submitted application(s) as merged JSON.`);
+    setSuccessMsg(`Exported ${all.length} submitted application(s) as merged JSON.`);
     setTimeout(() => setSuccessMsg(null), 3500);
   };
 
   const fetchSubmitted = async () => {
     setLoading(true);
     try {
-      const res = await getAutopilotJobs("SUBMITTED");
+      const res = await getAutopilotJobsPage({
+        status: "SUBMITTED",
+        sortBy: "submittedAt",
+        sortDir: "desc",
+        limit: PAGE_SIZE,
+        offset: 0,
+      });
       setSubmittedList(res.jobs || []);
+      setTotalCount(res.total ?? (res.jobs || []).length);
+      setHasMore(!!res.hasMore);
       setError(null);
     } catch (err: any) {
       setError(err?.message || "Could not fetch submitted jobs");
@@ -67,6 +92,43 @@ export function SubmittedJobsCenter() {
       setLoading(false);
     }
   };
+
+  const loadMore = useCallback(async () => {
+    if (loadingMoreRef.current || !hasMore) return;
+    loadingMoreRef.current = true;
+    setLoadingMore(true);
+    try {
+      const res = await getAutopilotJobsPage({
+        status: "SUBMITTED",
+        sortBy: "submittedAt",
+        sortDir: "desc",
+        limit: PAGE_SIZE,
+        offset: submittedList.length,
+      });
+      setSubmittedList((prev) => [...prev, ...(res.jobs || [])]);
+      setTotalCount(res.total ?? submittedList.length + (res.jobs || []).length);
+      setHasMore(!!res.hasMore);
+    } catch {
+      // Leave hasMore as-is — the sentinel will just retry on next scroll.
+    } finally {
+      loadingMoreRef.current = false;
+      setLoadingMore(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hasMore, submittedList.length]);
+
+  useEffect(() => {
+    const el = sentinelRef.current;
+    if (!el) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) void loadMore();
+      },
+      { rootMargin: "200px" }
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [loadMore]);
 
   const handleResetAll = async () => {
     if (!confirm("Are you sure you want to reset all submitted jobs back to UNAPPLIED so they can be re-applied?")) {
@@ -151,7 +213,7 @@ export function SubmittedJobsCenter() {
         </div>
         <div className="flex flex-wrap items-center gap-3">
           <span className="px-3.5 py-1 text-xs font-bold rounded-full bg-emerald-500/15 border border-emerald-500/40 text-[#2ee8c9] shadow-[0_0_12px_rgba(46,232,201,0.25)]">
-            {submittedList.length} Submitted
+            {totalCount} Submitted
           </span>
           {submittedList.length > 0 && (
             <>
@@ -226,6 +288,7 @@ export function SubmittedJobsCenter() {
               errors: [],
               fields: Object.keys(fields).map((label) => ({ label, classification: "verified" })),
               answers: fields,
+              resumeFileUsed: job.resumeFileUsed || evidence.resumeFileUsed || undefined,
             };
 
             return (
@@ -263,7 +326,6 @@ export function SubmittedJobsCenter() {
                     {(job.tailoringMode || evidence.tailoringMode) && (
                       <p className="aac-alert aac-alert--info" style={{ marginTop: 4 }}>
                         Resume: {String(job.tailoringMode || evidence.tailoringMode).toUpperCase()}
-                        {(job.resumeFileUsed || evidence.resumeFileUsed) && ` — ${job.resumeFileUsed || evidence.resumeFileUsed}`}
                       </p>
                     )}
                   </>
@@ -276,6 +338,15 @@ export function SubmittedJobsCenter() {
               />
             );
           })}
+        </div>
+      )}
+
+      {submittedList.length > 0 && hasMore && (
+        <div ref={sentinelRef} className="flex items-center justify-center py-6">
+          <div className="flex items-center gap-2 text-xs text-slate-400">
+            <IconRefresh className="w-4 h-4 animate-spin text-[#2ee8c9]" />
+            <span>{loadingMore ? "Loading more applications..." : "Scroll for more"}</span>
+          </div>
         </div>
       )}
 

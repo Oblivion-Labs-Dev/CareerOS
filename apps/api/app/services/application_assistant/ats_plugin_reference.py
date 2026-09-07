@@ -90,6 +90,10 @@ SYNONYMS: dict[str, list[str]] = {
     ],
     "just use my name": ["prefer not to say", "prefer not to answer", "decline to answer"],
     "he/him/his": ["he him his", "him his he", "him/his/he", "he, him, his", "he/him"],
+    "master's degree": ["ms/ma", "ms", "ma", "m.s.", "m.a.", "master's", "masters", "master degree", "graduate degree"],
+    "bachelor's degree": ["bs/ba", "bs", "ba", "b.s.", "b.a.", "bachelor's", "bachelors", "bachelor degree", "undergraduate degree"],
+    "phd": ["ph.d.", "doctorate", "doctoral degree", "phd/doctorate", "doctor of philosophy"],
+    "mba": ["mba", "master of business administration"],
 }
 
 US_STATES: dict[str, str] = {

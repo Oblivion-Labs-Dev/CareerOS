@@ -43,12 +43,20 @@ async def stop_autopilot(
 
 
 @router.get("/autopilot/status")
-def get_autopilot_status(
-    db: Session = Depends(db_session),
-) -> dict[str, Any]:
+def get_autopilot_status() -> dict[str, Any]:
+    # No Depends(db_session): this is one of the most frequently polled endpoints
+    # (the dashboard hits it every few seconds alongside /jobs and /staged), and
+    # Depends(db_session) holds a pooled connection for the whole request/response
+    # cycle. Under any slowdown elsewhere (e.g. a long-running autopilot submission
+    # contending for the same SQLite file), enough of these pile up concurrently to
+    # exhaust the pool — and once that happens even the auth middleware can't get a
+    # connection, freezing the entire API. A short-lived session_scope() avoids that.
     from app.services.application_assistant.autopilot_runner import AutopilotRunner
+    from app.db.store import session_scope
+
     runner = AutopilotRunner.get_instance()
-    return runner.get_status(db)
+    with session_scope() as db:
+        return runner.get_status(db)
 
 
 @router.get("/autopilot/events")
@@ -162,9 +170,10 @@ def get_autopilot_jobs_list(
     role: str | None = Query(default=None, description="Case-insensitive substring match against job title"),
     location: str | None = Query(default=None, description="Case-insensitive substring match against job location"),
     company: str | None = Query(default=None, description="Case-insensitive substring match against company name"),
+    sortBy: str = Query(default="matchScore", description="Field to sort by: matchScore, submittedAt, or updatedAt"),
+    sortDir: str = Query(default="desc", description="asc or desc"),
     limit: int = Query(default=24, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
-    db: Session = Depends(db_session),
 ) -> dict[str, Any]:
     """List autopilot jobs, filtered and paginated server-side.
 
@@ -175,13 +184,20 @@ def get_autopilot_jobs_list(
     queue — the actual thing worth fixing today. Real scale later means giving
     autopilot jobs real indexed columns (status/company/title/location) instead
     of an opaque JSON payload blob.
+
+    No Depends(db_session): this is polled every few seconds by the dashboard
+    (five times over, once per status filter) — holding a pooled connection for
+    each request's full lifetime is how the pool gets exhausted under load. See
+    get_autopilot_status above.
     """
     from app.services.application_assistant.persistence import list_autopilot_jobs
+    from app.db.store import session_scope
 
     statuses = [s.strip() for s in status.split(",")] if status else [None]
     jobs: list[dict[str, Any]] = []
-    for s in statuses:
-        jobs.extend(list_autopilot_jobs(db, status=s))
+    with session_scope() as db:
+        for s in statuses:
+            jobs.extend(list_autopilot_jobs(db, status=s))
 
     role_q = (role or "").strip().lower()
     location_q = (location or "").strip().lower()
@@ -193,7 +209,11 @@ def get_autopilot_jobs_list(
     if company_q:
         jobs = [j for j in jobs if company_q in str(j.get("company") or "").lower()]
 
-    jobs.sort(key=lambda j: j.get("matchScore") or 0, reverse=True)
+    reverse = sortDir.lower() != "asc"
+    if sortBy in ("submittedAt", "updatedAt"):
+        jobs.sort(key=lambda j: str(j.get(sortBy) or j.get("updatedAt") or ""), reverse=reverse)
+    else:
+        jobs.sort(key=lambda j: j.get("matchScore") or 0, reverse=reverse)
 
     total = len(jobs)
     page = jobs[offset:offset + limit]
@@ -220,12 +240,47 @@ def delete_autopilot_job_endpoint(
     return {"success": True, "deletedId": job_id, "message": f"Successfully removed job application '{existing.get('title')}'"}
 
 
-@router.get("/autopilot/staged")
-def get_staged_applications(
+@router.get("/autopilot/jobs/{job_id}/resume")
+def get_autopilot_job_resume(
+    job_id: str,
     db: Session = Depends(db_session),
-) -> dict[str, Any]:
+):
+    """Serve the exact tailored resume PDF that was attached for this job's
+    submission, so the Submitted panel can link straight to it instead of
+    only showing the filename as inert text."""
+    from pathlib import Path
+    from fastapi.responses import FileResponse
+    from app.services.application_assistant.persistence import get_autopilot_job
+
+    job = get_autopilot_job(db, job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    evidence = job.get("submissionEvidence") or {}
+    filename = job.get("resumeFileUsed") or evidence.get("resumeFileUsed")
+    if not filename:
+        raise HTTPException(status_code=404, detail="No tailored resume was recorded for this submission")
+
+    tailored_dir = Path(__file__).resolve().parents[3] / "data" / "application_assistant" / "tailored_resumes"
+    resume_path = (tailored_dir / filename).resolve()
+    if tailored_dir.resolve() not in resume_path.parents or not resume_path.is_file():
+        raise HTTPException(status_code=404, detail="Resume file no longer exists on disk")
+
+    # FileResponse defaults to Content-Disposition: attachment, which forces
+    # a download regardless of how the link is opened. "inline" lets Chrome
+    # render it in its built-in PDF viewer in the new tab instead — the user
+    # can still save it from there if they want a copy.
+    return FileResponse(resume_path, media_type="application/pdf", filename=filename, content_disposition_type="inline")
+
+
+@router.get("/autopilot/staged")
+def get_staged_applications() -> dict[str, Any]:
+    # No Depends(db_session) — see get_autopilot_status above.
     from app.services.application_assistant.persistence import list_autopilot_jobs
-    jobs = list_autopilot_jobs(db)
+    from app.db.store import session_scope
+
+    with session_scope() as db:
+        jobs = list_autopilot_jobs(db)
     staged = [j for j in jobs if j.get("status") in ("STAGED", "NEEDS_REVIEW")]
     return {"staged": staged, "count": len(staged)}
 

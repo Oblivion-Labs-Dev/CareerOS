@@ -13,18 +13,19 @@ import { RecruiterInbox } from "@/components/tracker/recruiter-inbox";
 import { PipelineKanban } from "@/components/tracker/pipeline-kanban";
 import { getAutopilotJobs, getAutopilotStatus, getStagedApplications } from "@/lib/application-assistant-api";
 import { IconActivity, IconAlertCircle, IconBolt, IconClock, IconInbox, IconSend } from "@/components/application-assistant/autopilot/icons";
+import styles from "@/components/application-assistant/autopilot/autopilot-ui.module.css";
 
 function ApplicationQueueLoading() {
   return (
-    <div className="flex min-h-[360px] flex-col items-center justify-center p-16 text-center" role="status" aria-label="Loading applications">
-      <div className="relative mb-5 flex h-16 w-16 items-center justify-center">
-        <span className="absolute inset-0 rounded-full border border-cyan-300/20" />
-        <span className="absolute inset-2 rounded-full border border-cyan-300/40 border-t-cyan-200 animate-spin" />
-        <span className="absolute inset-5 rounded-full bg-cyan-300/10 shadow-[0_0_24px_rgba(103,232,249,0.22)] animate-pulse" />
-        <span className="relative h-2.5 w-2.5 rounded-full bg-cyan-200 shadow-[0_0_14px_rgba(103,232,249,0.9)]" />
+    <div className={styles.loadingWrap} role="status" aria-label="Loading applications">
+      <div className={styles.loadingRing}>
+        <span className={styles.loadingRingOuter} />
+        <span className={styles.loadingRingSpin} />
+        <span className={styles.loadingRingGlow} />
+        <span className={styles.loadingRingCore} />
       </div>
-      <p className="text-xs font-semibold tracking-[0.14em] text-slate-300 uppercase">Preparing your workspace</p>
-      <p className="mt-2 text-xs text-slate-500">Syncing the latest application activity.</p>
+      <p className={styles.loadingLabel}>Preparing your workspace</p>
+      <p className={styles.loadingSub}>Syncing the latest application activity.</p>
     </div>
   );
 }
@@ -108,188 +109,108 @@ function ApplicationsPageInner() {
 
   return (
     <div className="page-content aa-page space-y-6 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-2 pb-12 font-sans">
-      {/* ─── Top Master Header (Matching Mockup 100%) ─── */}
-      <header className="flex flex-col md:flex-row md:items-center justify-between gap-5 border-b border-white/10 pb-5">
+      {/* ─── Top Master Header ─── */}
+      <header className={styles.masterHeader}>
         <div className="space-y-1.5">
-          <div className="flex items-center gap-2">
-            <span className="text-[11px] font-black tracking-widest text-[#2ee8c9] uppercase">
-              AUTOPILOT
-            </span>
-          </div>
+          <span className={styles.eyebrow}>AUTOPILOT</span>
 
-          <h1 className="text-2xl sm:text-3xl font-black tracking-tight text-white flex items-center gap-3">
+          <h1 className={styles.heading}>
             Job Applications & Autopilot
-            <span
-              className={`inline-flex h-3 w-3 rounded-full transition-all duration-300 ${
-                isRunning
-                  ? "bg-[#2ee8c9] shadow-[0_0_14px_rgba(46,232,201,0.9)] animate-ping"
-                  : "bg-emerald-400 shadow-[0_0_10px_rgba(52,211,153,0.7)]"
-              }`}
-            />
+            <span className={`${styles.liveDot} ${isRunning ? styles.liveDotRunning : ""}`} />
           </h1>
 
-          <p className="text-xs sm:text-sm text-slate-300 max-w-2xl leading-relaxed">
+          <p className={styles.headerSubtitle}>
             Autonomous application runner with AI-powered matching, smart answering, and self-healing.
           </p>
         </div>
 
         {/* ─── Top Right Navigation Tabs ─── */}
-        <div className="flex flex-wrap items-center gap-2.5 self-start md:self-auto">
-          {/* 1. Autopilot Button (Teal) */}
+        <nav className={styles.tabBar}>
           <button
+            data-tab="autopilot"
             onClick={() => setActiveTab("autopilot")}
-            style={{
-              background: activeTab === "autopilot" ? "#0d2a2a" : "#0c1820",
-              borderColor: activeTab === "autopilot" ? "#2ee8c9" : "rgba(46, 232, 201, 0.4)",
-              color: "#2ee8c9",
-              boxShadow: activeTab === "autopilot" ? "0 0 20px rgba(46, 232, 201, 0.4)" : "none",
-            }}
-            className="px-3.5 py-2 text-xs font-black rounded-xl border transition-all duration-300 flex items-center gap-2 cursor-pointer hover:scale-[1.02] active:scale-[0.98]"
+            className={`${styles.tabBtn} ${activeTab === "autopilot" ? styles.tabBtnActive : ""}`}
           >
-            <IconBolt className="w-4 h-4 text-[#2ee8c9]" />
+            <IconBolt className="w-4 h-4" />
             <span>Autopilot</span>
           </button>
 
-          {/* 2. Submitted Button (Emerald) */}
           <button
+            data-tab="submitted"
             onClick={() => setActiveTab("submitted")}
-            style={{
-              background: activeTab === "submitted" ? "#0a241b" : "#081813",
-              borderColor: activeTab === "submitted" ? "#34d399" : "rgba(52, 211, 153, 0.4)",
-              color: "#34d399",
-              boxShadow: activeTab === "submitted" ? "0 0 20px rgba(52, 211, 153, 0.4)" : "none",
-            }}
-            className="px-3.5 py-2 text-xs font-black rounded-xl border transition-all duration-300 flex items-center gap-2 cursor-pointer hover:scale-[1.02] active:scale-[0.98]"
+            className={`${styles.tabBtn} ${activeTab === "submitted" ? styles.tabBtnActive : ""}`}
           >
-            <IconSend className="w-4 h-4 text-[#34d399]" />
+            <IconSend className="w-4 h-4" />
             <span>Submitted</span>
-            {submittedCount > 0 && (
-              <span className="px-1.5 py-0.5 rounded-full text-[10px] font-black bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 shadow-sm">
-                {submittedCount}
-              </span>
-            )}
+            {submittedCount > 0 && <span className={styles.tabBadge}>{submittedCount}</span>}
           </button>
 
-          {/* 3. Review Center Button (Purple / Violet) */}
           <button
+            data-tab="review"
             onClick={() => setActiveTab("review")}
-            style={{
-              background: activeTab === "review" ? "#23153c" : "#181128",
-              borderColor: activeTab === "review" ? "#a855f7" : "rgba(168, 85, 247, 0.4)",
-              color: "#c084fc",
-              boxShadow: activeTab === "review" ? "0 0 20px rgba(168, 85, 247, 0.4)" : "none",
-            }}
-            className="px-3.5 py-2 text-xs font-black rounded-xl border transition-all duration-300 flex items-center gap-2 cursor-pointer hover:scale-[1.02] active:scale-[0.98]"
+            className={`${styles.tabBtn} ${activeTab === "review" ? styles.tabBtnActive : ""}`}
           >
-            <IconClock className="w-4 h-4 text-[#c084fc]" />
+            <IconClock className="w-4 h-4" />
             <span>In Review</span>
-            {reviewCount > 0 && (
-              <span className="px-1.5 py-0.5 rounded-full text-[10px] font-black bg-[#a855f7] text-white shadow-sm">
-                {reviewCount}
-              </span>
-            )}
+            {reviewCount > 0 && <span className={styles.tabBadge}>{reviewCount}</span>}
           </button>
 
-          {/* 4. Failed Applications Button */}
           <button
+            data-tab="failed"
             onClick={() => setActiveTab("failed")}
-            style={{
-              background: activeTab === "failed" ? "#2a0d14" : "#19080c",
-              borderColor: activeTab === "failed" ? "#f43f5e" : "rgba(244, 63, 94, 0.4)",
-              color: "#fb7185",
-              boxShadow: activeTab === "failed" ? "0 0 20px rgba(244, 63, 94, 0.4)" : "none",
-            }}
-            className="px-3.5 py-2 text-xs font-black rounded-xl border transition-all duration-300 flex items-center gap-2 cursor-pointer hover:scale-[1.02] active:scale-[0.98]"
+            className={`${styles.tabBtn} ${activeTab === "failed" ? styles.tabBtnActive : ""}`}
           >
-            <IconAlertCircle className="w-4 h-4 text-[#fb7185]" />
+            <IconAlertCircle className="w-4 h-4" />
             <span>Failed</span>
-            {failedCount > 0 && (
-              <span className="px-1.5 py-0.5 rounded-full text-[10px] font-black bg-rose-500/30 text-rose-300 border border-rose-500/40 shadow-sm">
-                {failedCount}
-              </span>
-            )}
+            {failedCount > 0 && <span className={styles.tabBadge}>{failedCount}</span>}
           </button>
 
-          {/* 4b. Skipped Button (Amber / muted) */}
           <button
+            data-tab="skipped"
             onClick={() => setActiveTab("skipped")}
-            style={{
-              background: activeTab === "skipped" ? "#241d0a" : "#161206",
-              borderColor: activeTab === "skipped" ? "#d97706" : "rgba(217, 119, 6, 0.4)",
-              color: "#fbbf24",
-              boxShadow: activeTab === "skipped" ? "0 0 20px rgba(217, 119, 6, 0.4)" : "none",
-            }}
-            className="px-3.5 py-2 text-xs font-black rounded-xl border transition-all duration-300 flex items-center gap-2 cursor-pointer hover:scale-[1.02] active:scale-[0.98]"
+            className={`${styles.tabBtn} ${activeTab === "skipped" ? styles.tabBtnActive : ""}`}
           >
-            <IconClock className="w-4 h-4 text-[#fbbf24]" />
+            <IconClock className="w-4 h-4" />
             <span>Skipped</span>
-            {skippedCount > 0 && (
-              <span className="px-1.5 py-0.5 rounded-full text-[10px] font-black bg-amber-500/30 text-amber-300 border border-amber-500/40 shadow-sm">
-                {skippedCount}
-              </span>
-            )}
+            {skippedCount > 0 && <span className={styles.tabBadge}>{skippedCount}</span>}
           </button>
 
-          {/* 5. All Applications Button (Amber / Gold) */}
           <button
+            data-tab="tracker"
             onClick={() => setActiveTab("tracker")}
-            style={{
-              background: activeTab === "tracker" ? "#2c1d0c" : "#1e1509",
-              borderColor: activeTab === "tracker" ? "#f59e0b" : "rgba(245, 158, 11, 0.4)",
-              color: "#fbbf24",
-              boxShadow: activeTab === "tracker" ? "0 0 20px rgba(245, 158, 11, 0.4)" : "none",
-            }}
-            className="px-3.5 py-2 text-xs font-black rounded-xl border transition-all duration-300 flex items-center gap-2 cursor-pointer hover:scale-[1.02] active:scale-[0.98]"
+            className={`${styles.tabBtn} ${activeTab === "tracker" ? styles.tabBtnActive : ""}`}
           >
-            <IconInbox className="w-4 h-4 text-[#fbbf24]" />
+            <IconInbox className="w-4 h-4" />
             <span>All Applications</span>
           </button>
 
-          {/* 6. Inbox Button (Indigo) */}
           <button
+            data-tab="inbox"
             onClick={() => setActiveTab("inbox")}
-            style={{
-              background: activeTab === "inbox" ? "#181d3c" : "#0e1122",
-              borderColor: activeTab === "inbox" ? "#818cf8" : "rgba(129, 140, 248, 0.4)",
-              color: "#a5b4fc",
-              boxShadow: activeTab === "inbox" ? "0 0 20px rgba(129, 140, 248, 0.4)" : "none",
-            }}
-            className="px-3.5 py-2 text-xs font-black rounded-xl border transition-all duration-300 flex items-center gap-2 cursor-pointer hover:scale-[1.02] active:scale-[0.98]"
+            className={`${styles.tabBtn} ${activeTab === "inbox" ? styles.tabBtnActive : ""}`}
           >
-            <IconInbox className="w-4 h-4 text-[#a5b4fc]" />
+            <IconInbox className="w-4 h-4" />
             <span>Inbox</span>
           </button>
 
-          {/* 7. Pipeline Button (Lime) */}
           <button
+            data-tab="pipeline"
             onClick={() => setActiveTab("pipeline")}
-            style={{
-              background: activeTab === "pipeline" ? "#1c2410" : "#12160a",
-              borderColor: activeTab === "pipeline" ? "#a3e635" : "rgba(163, 230, 53, 0.4)",
-              color: "#bef264",
-              boxShadow: activeTab === "pipeline" ? "0 0 20px rgba(163, 230, 53, 0.4)" : "none",
-            }}
-            className="px-3.5 py-2 text-xs font-black rounded-xl border transition-all duration-300 flex items-center gap-2 cursor-pointer hover:scale-[1.02] active:scale-[0.98]"
+            className={`${styles.tabBtn} ${activeTab === "pipeline" ? styles.tabBtnActive : ""}`}
           >
-            <IconActivity className="w-4 h-4 text-[#bef264]" />
+            <IconActivity className="w-4 h-4" />
             <span>Pipeline</span>
           </button>
 
-          {/* 8. Diagnostics Button (Cyan / Blue) */}
           <button
+            data-tab="diagnostics"
             onClick={() => setActiveTab("diagnostics")}
-            style={{
-              background: activeTab === "diagnostics" ? "#0f2231" : "#0a1722",
-              borderColor: activeTab === "diagnostics" ? "#38bdf8" : "rgba(56, 189, 248, 0.4)",
-              color: "#38bdf8",
-              boxShadow: activeTab === "diagnostics" ? "0 0 20px rgba(56, 189, 248, 0.4)" : "none",
-            }}
-            className="px-3.5 py-2 text-xs font-black rounded-xl border transition-all duration-300 flex items-center gap-2 cursor-pointer hover:scale-[1.02] active:scale-[0.98]"
+            className={`${styles.tabBtn} ${activeTab === "diagnostics" ? styles.tabBtnActive : ""}`}
           >
-            <IconActivity className="w-4 h-4 text-[#38bdf8]" />
+            <IconActivity className="w-4 h-4" />
             <span>Diagnostics</span>
           </button>
-        </div>
+        </nav>
       </header>
 
       {/* ─── Main Content ─── */}

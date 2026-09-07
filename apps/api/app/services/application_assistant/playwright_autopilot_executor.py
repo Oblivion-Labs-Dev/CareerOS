@@ -61,6 +61,39 @@ def get_active_resume_path(profile: dict[str, Any]) -> str:
     return ""
 
 
+_UPLOAD_STAGING_DIR = Path(__file__).resolve().parents[3] / "data" / "application_assistant" / "resume_uploads"
+
+
+def get_resume_upload_payload(profile: dict[str, Any]) -> str:
+    """Resolve the file path to hand to Playwright's set_input_files().
+
+    A tailored resume is stored on disk under a job-id-keyed filename (so
+    concurrent jobs never collide and the file used for a given submission
+    stays traceable), but that internal filename must never be what actually
+    reaches the employer — set_input_files uploads a file under its own
+    on-disk basename, so a name like "apjob_<uuid>_aggressive.pdf" would be
+    exactly what the ATS sees, reading as obviously machine-generated. Stage
+    a copy under the candidate's normal resume filename, in a job-id-keyed
+    subfolder so concurrent workers still never collide, and upload that
+    instead — the original tailored file on disk keeps its traceable name.
+    """
+    resolved = get_active_resume_path(profile)
+    if not resolved:
+        return ""
+    resolved_path = Path(resolved)
+    display_name = PRIMARY_RESUME_PATH.name  # "Akshay_Borse_Resume.pdf"
+    if resolved_path.name == display_name:
+        return resolved
+    try:
+        job_dir = _UPLOAD_STAGING_DIR / resolved_path.stem
+        job_dir.mkdir(parents=True, exist_ok=True)
+        staged_path = job_dir / display_name
+        staged_path.write_bytes(resolved_path.read_bytes())
+        return str(staged_path.resolve())
+    except OSError:
+        return resolved
+
+
 async def _extract_dom_form_state(page: Page) -> tuple[list[dict[str, Any]], list[str]]:
     """Extract full DOM state of all form inputs, comboboxes, and validation errors."""
     js_code = """
@@ -110,19 +143,47 @@ async def _extract_dom_form_state(page: Page) -> tuple[list[dict[str, Any]], lis
         }
 
         var elements = document.querySelectorAll('input:not([type="hidden"]), textarea:not(.g-recaptcha-response):not([name*="recaptcha"]), select, [role="combobox"]');
+        var seenRadioNames = {};
         for (var i = 0; i < elements.length; i++) {
             var el = elements[i];
             var id = el.id || '';
             var name = el.name || el.getAttribute('name') || '';
             var ariaLabel = el.getAttribute('aria-label') || '';
             var isCombobox = el.getAttribute('role') === 'combobox';
-            
+            var inputType = (el.type || '').toLowerCase();
+
             if (id.indexOf('recaptcha') !== -1 || name.indexOf('recaptcha') !== -1 || el.className.indexOf('g-recaptcha-response') !== -1) {
                 continue;
             }
 
+            // A radio *group* is one question — querySelectorAll returns every
+            // individual <input> in it, so without dedup the same question
+            // shows up once per option, each independently guessing its own
+            // label via the (fragile) per-element fallback below. Two inputs
+            // in the same group can land on different, wrong ancestor divs and
+            // report different labels for what is really one question — one of
+            // which can end up matching a *different* field's resolved answer
+            // during verification (observed live: a location answer flagged as
+            // conflicting with an unrelated Yes/No radio's selected value).
+            // Emit exactly one entry per group, labeled via fieldset/legend
+            // first — the same reliable signal the fill-side logic already
+            // prefers for these groups — before falling back to nearby text.
+            if (inputType === 'radio' && name) {
+                if (seenRadioNames[name]) continue;
+                seenRadioNames[name] = true;
+            }
+
             var label = '';
-            if (id) {
+            if (inputType === 'radio' && id) {
+                try {
+                    var fs = document.querySelector('fieldset:has(#' + CSS.escape(id) + ')');
+                    if (fs) {
+                        var lg = fs.querySelector('legend');
+                        if (lg) label = lg.innerText;
+                    }
+                } catch(err) {}
+            }
+            if (!label && id) {
                 try {
                     var l = document.querySelector('label[for="' + id + '"]');
                     if (l) label = l.innerText;
@@ -138,7 +199,6 @@ async def _extract_dom_form_state(page: Page) -> tuple[list[dict[str, Any]], lis
             }
             label = (label || ariaLabel || name || id).trim();
 
-            var inputType = (el.type || '').toLowerCase();
             var val = el.value || '';
             if (inputType === 'radio') {
                 var checkedRadio = name ? document.querySelector('input[type="radio"][name="' + name + '"]:checked') : (el.checked ? el : null);
@@ -224,31 +284,53 @@ async def _select_react_combobox(page: Any, cb_id: str, search_text: str) -> str
             # 1. Look for exact or partial case-insensitive match
             clean_search = search_text.strip().lower()
             best_opt = None
-            first_valid_opt = None
-            first_valid_text = ""
+            best_text = ""
 
+            fallback_opt = None
+            fallback_text = ""
             for i in range(opt_count):
                 opt = options_loc.nth(i)
                 if not await opt.is_visible():
                     continue
                 opt_text = (await opt.inner_text()).strip()
-                if not opt_text or opt_text.lower() in ("select...", "select", "--", "choose"):
+                opt_text_lower = opt_text.lower()
+                if not opt_text or opt_text_lower in ("select...", "select", "--", "choose"):
                     continue
-                if not first_valid_opt:
-                    first_valid_opt = opt
-                    first_valid_text = opt_text
 
-                if clean_search and (clean_search in opt_text.lower() or opt_text.lower() in clean_search):
+                if clean_search and opt_text_lower == clean_search:
                     best_opt = opt
                     best_text = opt_text
                     break
 
-            target_to_click = best_opt or first_valid_opt
-            if target_to_click:
-                selected_val = best_text if best_opt else first_valid_text
-                await target_to_click.click(force=True)
+                # "male" is literally a substring of "female", so containment
+                # alone can match the wrong option — only accept it as a
+                # fallback, and never let it beat an exact match found later.
+                is_gender_collision = (
+                    (clean_search == "male" and "female" in opt_text_lower)
+                    or (clean_search == "female" and opt_text_lower == "male")
+                )
+                if clean_search and not is_gender_collision and fallback_opt is None and (clean_search in opt_text_lower or opt_text_lower in clean_search):
+                    fallback_opt = opt
+                    fallback_text = opt_text
+
+            if best_opt is None and fallback_opt is not None:
+                best_opt = fallback_opt
+                best_text = fallback_text
+
+            # Only click a real match. Falling back to "whichever option is
+            # first" when nothing matches search_text isn't a fallback, it's a
+            # fabricated answer — observed live: a bad search term ("Auburn")
+            # against a Yes/No dropdown blindly clicked "Yes" (the first
+            # option), then the caller recorded the *original* search term as
+            # the intended answer, guaranteeing a nonsensical mismatch against
+            # the real DOM value at verification time. Leaving the field
+            # untouched here means it correctly stays flagged for review.
+            if best_opt:
+                await best_opt.click(force=True)
                 await asyncio.sleep(0.2)
-                return selected_val
+                return best_text
+            await page.keyboard.press("Escape")
+            return ""
 
         # Fallback: type only if text-fillable (never on file or hidden inputs)
         try:
@@ -308,9 +390,31 @@ async def _select_radio_option(page_or_frame: Any, field_id: str, value: str) ->
                 if await option_label.count() > 0:
                     label = (await option_label.inner_text()).strip()
             candidates = (option_value.lower(), label.lower())
-            if wanted and any(wanted == candidate or wanted in candidate or candidate in wanted for candidate in candidates if candidate):
-                await radio.check()
+            if wanted and any(wanted == candidate for candidate in candidates if candidate):
+                await radio.check(force=True)
                 return True
+        for index in range(await radios.count()):
+            radio = radios.nth(index)
+            radio_id = await radio.get_attribute("id") or ""
+            option_value = (await radio.get_attribute("value") or "").strip()
+            label = ""
+            if radio_id:
+                option_label = page_or_frame.locator(f'label[for="{radio_id}"]').first
+                if await option_label.count() > 0:
+                    label = (await option_label.inner_text()).strip()
+            candidates = (option_value.lower(), label.lower())
+            for candidate in candidates:
+                if not candidate:
+                    continue
+                is_gender_collision = (
+                    (wanted == "male" and "female" in candidate)
+                    or (wanted == "female" and candidate == "male")
+                )
+                if is_gender_collision:
+                    continue
+                if wanted and (wanted in candidate or candidate in wanted):
+                    await radio.check()
+                    return True
     except Exception as exc:
         logger.debug("Radio selection error for %s: %s", field_id, exc)
     return False
@@ -320,17 +424,38 @@ async def _fill_all_greenhouse_comboboxes(
     page: Any,
     profile: dict[str, Any],
     answer_lib: list[dict[str, Any]] | None = None,
-) -> dict[str, str]:
-    """Fill all Greenhouse dropdowns & React Select controls using the centralized resolver."""
+) -> tuple[dict[str, str], dict[str, str]]:
+    """Fill all Greenhouse dropdowns & React Select controls using the centralized resolver.
+
+    Returns (filled, filled_ids): filled_ids maps the same label keys to the
+    live DOM element id so callers can rebuild an AnswerResolution with
+    field_id set — without it, DOM verification has to pair an answer back to
+    its element by fuzzy label matching, which can pair the wrong two fields.
+    """
     filled: dict[str, str] = {}
+    filled_ids: dict[str, str] = {}
     all_resolutions: list[AnswerResolution] = []
 
-    cb_elements = await page.locator('input[role="combobox"]').all()
+    # Snapshot ids up front rather than holding Locator.all()'s positional
+    # (nth-indexed) references: clicking an earlier combobox's autocomplete
+    # suggestion can insert/remove sibling DOM nodes, which reflows those
+    # positional locators onto a *different* physical element for later
+    # iterations — observed as e.g. the Location field's resolved answer
+    # ("Auburn, WA") getting compared against a completely unrelated Yes/No
+    # combobox's live DOM value during verification. Re-locating by id each
+    # iteration keeps every action bound to the same physical element
+    # regardless of what happens to its siblings in between.
+    cb_ids: list[str] = await page.eval_on_selector_all(
+        'input[role="combobox"]', "els => els.map(e => e.id)"
+    )
 
-    for el in cb_elements:
+    for cid in cb_ids:
         try:
-            cid = await el.get_attribute("id") or ""
-            if cid == "iti-0__search-input":
+            if not cid or cid == "iti-0__search-input":
+                continue
+
+            el = page.locator(f'[id="{cid}"]').first
+            if await el.count() == 0:
                 continue
 
             if not await el.is_visible():
@@ -362,6 +487,20 @@ async def _fill_all_greenhouse_comboboxes(
             wrapper = page.locator(f'div.select__control:has([id="{cid}"]), div[class*="control"]:has([id="{cid}"])').first
             target_to_open = wrapper if await wrapper.count() > 0 else el
 
+            # Some Greenhouse comboboxes (observed live on the EEOC Gender
+            # field) arrive with a real value already pre-selected before any
+            # autofill runs, rather than starting blank. Capture that closed-
+            # state value now, before we open the menu — if the resolved
+            # answer later turns out to already match it, we skip touching
+            # the control entirely rather than opening/clicking it and
+            # risking an unnecessary re-selection landing on the wrong option.
+            preexisting_value = (await el.evaluate("""el => {
+                var wrapper = el.closest('div.select__control, div[class*="select__control"]');
+                if (!wrapper) return '';
+                var sv = wrapper.querySelector('[class*="singleValue"], [class*="single-value"]');
+                return sv ? sv.textContent.trim() : '';
+            }""") or "").strip()
+
             # Collect available options by opening the dropdown
             await target_to_open.scroll_into_view_if_needed()
             await target_to_open.click(force=True)
@@ -387,22 +526,63 @@ async def _fill_all_greenhouse_comboboxes(
                 await asyncio.sleep(0.05)
                 continue
 
-            # ── Check if this is a country code dropdown (over 100 country options) ──
-            is_country_code = len(available_options) > 100 and any("+1" in o or "united states" in o.lower() for o in available_options)
-            effective_q_text = "Country Code" if is_country_code else lbl_text
+            if len(available_options) == 1:
+                # A field with exactly one real option (e.g. a GDPR/data-
+                # processing "Acknowledge/Confirm" disclosure) isn't a
+                # judgment call — there's nothing to classify or guess,
+                # since selecting it is the only possible action. Requiring
+                # resolve_answer to recognize the question type first was
+                # leaving these permanently blank and staged for review even
+                # though no real ambiguity exists.
+                resolution = AnswerResolution(
+                    field_id=cid,
+                    question=lbl_text,
+                    question_type="SINGLE_OPTION",
+                    answer=available_options[0],
+                    resolution_method="SINGLE_OPTION_FORCED",
+                    confidence=1.0,
+                )
+                all_resolutions.append(resolution)
+            else:
+                # ── Check if this is a phone country-CODE dropdown, not a plain country-NAME field ──
+                # A plain "Country" (of residence) dropdown also has 100+
+                # options and trivially contains "united states" as one of
+                # them — that old check misclassified genuine country
+                # fields as the phone dial-code field, resolving them to
+                # "United States +1" instead of "United States", which then
+                # can't be selected in a country-name-only dropdown and
+                # leaves it permanently invalid. A real dial-code list is
+                # distinguished by most options ending in "+<digits>".
+                dial_code_count = sum(1 for o in available_options if re.search(r"\+\d{1,4}$", o.strip()))
+                is_country_code = len(available_options) > 100 and dial_code_count > len(available_options) * 0.5
+                effective_q_text = "Country Code" if is_country_code else lbl_text
 
-            # ── Centralized resolution (replaces all if/elif heuristics) ──
-            resolution = resolve_answer(
-                question_text=effective_q_text,
-                profile=profile,
-                options=available_options,
-                answer_lib=answer_lib,
-            )
-            all_resolutions.append(resolution)
+                # ── Centralized resolution (replaces all if/elif heuristics) ──
+                # field_id=cid lets DOM verification match this resolution back to
+                # its exact DOM element by id instead of by label-text comparison
+                # against a separately-computed label from DOM-state extraction —
+                # two independent label lookups that don't always agree on wording,
+                # which otherwise falls back to substring matching and can pair a
+                # resolution with a different field's selected value entirely.
+                resolution = resolve_answer(
+                    question_text=effective_q_text,
+                    profile=profile,
+                    options=available_options,
+                    answer_lib=answer_lib,
+                    field_id=cid,
+                )
+                all_resolutions.append(resolution)
 
             target_text = resolution.answer
             if not target_text:
                 logger.info("Combobox '%s' unresolved (type=%s), skipping", lbl_text[:50], resolution.question_type)
+                await page.keyboard.press("Escape")
+                await asyncio.sleep(0.05)
+                continue
+
+            if preexisting_value and preexisting_value.lower() == target_text.strip().lower():
+                filled[lbl_text[:50]] = preexisting_value
+                filled_ids[lbl_text[:50]] = cid
                 await page.keyboard.press("Escape")
                 await asyncio.sleep(0.05)
                 continue
@@ -417,18 +597,39 @@ async def _fill_all_greenhouse_comboboxes(
             matched = False
             target_lower = target_text.strip().lower()
 
-            # 1. Exact or partial match click via fast locator
+            # 1. Exact or partial match click via fast locator. Exact matches
+            # are checked across every option before any substring fallback —
+            # Playwright's `has_text` filter does case-insensitive substring
+            # matching, so a naive `.filter(has_text="Male")` also matches the
+            # "Female" option (since "female" literally contains "male"), and
+            # `.first` silently clicks whichever comes first in DOM order.
+            # Anchoring the regex to the full option text prevents that.
+            candidate_str = None
             for opt_str in available_options:
-                if target_lower == opt_str.lower() or target_lower in opt_str.lower() or opt_str.lower() in target_lower:
-                    if target_lower == "male" and "female" in opt_str.lower():
+                if target_lower == opt_str.strip().lower():
+                    candidate_str = opt_str
+                    break
+            if candidate_str is None:
+                for opt_str in available_options:
+                    opt_lower = opt_str.strip().lower()
+                    is_gender_collision = (
+                        (target_lower == "male" and "female" in opt_lower)
+                        or (target_lower == "female" and opt_lower == "male")
+                    )
+                    if is_gender_collision:
                         continue
-                    opt_to_click = page.locator(f'.select__option, [role="option"]').filter(has_text=opt_str).first
-                    if await opt_to_click.count() > 0:
-                        await opt_to_click.click(force=True)
-                        filled[lbl_text[:50]] = opt_str
-                        matched = True
-                        await asyncio.sleep(0.1)
+                    if target_lower in opt_lower or opt_lower in target_lower:
+                        candidate_str = opt_str
                         break
+            if candidate_str is not None:
+                exact_pattern = re.compile(rf"^\s*{re.escape(candidate_str.strip())}\s*$", re.IGNORECASE)
+                opt_to_click = page.locator('.select__option, [role="option"]').filter(has_text=exact_pattern).first
+                if await opt_to_click.count() > 0:
+                    await opt_to_click.click(force=True)
+                    filled[lbl_text[:50]] = candidate_str
+                    filled_ids[lbl_text[:50]] = cid
+                    matched = True
+                    await asyncio.sleep(0.1)
 
             # 2. Dynamic typing pass for searchable/async comboboxes (e.g. School, Major)
             if not matched and target_text:
@@ -437,14 +638,36 @@ async def _fill_all_greenhouse_comboboxes(
                     await page.keyboard.type(target_text, delay=20)
                     await asyncio.sleep(0.3)
 
-                    first_opt = page.locator('.select__menu .select__option, div[class*="-menu"] div[class*="-option"], .select__option').first
-                    if await first_opt.count() > 0 and await first_opt.is_visible():
-                        f_txt = (await first_opt.inner_text()).strip()
-                        if f_txt and f_txt.lower() not in ("no options", "select..."):
-                            await first_opt.click(force=True)
-                            filled[lbl_text[:50]] = f_txt
-                            matched = True
-                            await asyncio.sleep(0.1)
+                    visible_opts = page.locator('.select__menu .select__option, div[class*="-menu"] div[class*="-option"], .select__option')
+                    opt_count = await visible_opts.count()
+                    chosen = None
+                    fallback = None
+                    for oi in range(min(opt_count, 20)):
+                        cand = visible_opts.nth(oi)
+                        if not await cand.is_visible():
+                            continue
+                        c_txt = (await cand.inner_text()).strip()
+                        c_txt_lower = c_txt.lower()
+                        if not c_txt or c_txt_lower in ("no options", "select..."):
+                            continue
+                        is_gender_collision = (
+                            (target_lower == "male" and "female" in c_txt_lower)
+                            or (target_lower == "female" and c_txt_lower == "male")
+                        )
+                        if is_gender_collision:
+                            continue
+                        if fallback is None:
+                            fallback = (cand, c_txt)
+                        if c_txt_lower == target_lower:
+                            chosen = (cand, c_txt)
+                            break
+                    pick = chosen or fallback
+                    if pick:
+                        await pick[0].click(force=True)
+                        filled[lbl_text[:50]] = pick[1]
+                        filled_ids[lbl_text[:50]] = cid
+                        matched = True
+                        await asyncio.sleep(0.1)
                 except Exception as dyn_err:
                     logger.debug("Combobox dynamic search error: %s", dyn_err)
 
@@ -459,7 +682,7 @@ async def _fill_all_greenhouse_comboboxes(
         except Exception as ex:
             logger.debug("Combobox error: %s", ex)
 
-    return filled
+    return filled, filled_ids
 
 
 async def _fill_standard_and_react_fields(
@@ -470,9 +693,14 @@ async def _fill_standard_and_react_fields(
     title: str,
     resume_file: str,
     log_cb: Any = None,
-) -> dict[str, str]:
-    """Execute primary field filling across standard inputs and React comboboxes."""
+) -> tuple[dict[str, str], dict[str, str]]:
+    """Execute primary field filling across standard inputs and React comboboxes.
+
+    Returns (filled, filled_ids) — see _fill_all_greenhouse_comboboxes for why
+    filled_ids (label -> live DOM element id) matters for verification.
+    """
     filled: dict[str, str] = {}
+    filled_ids: dict[str, str] = {}
 
     # 1. Standard text fields (First Name, Last Name, Email, Phone)
     first = profile.get("firstName", "Akshay")
@@ -535,6 +763,7 @@ async def _fill_standard_and_react_fields(
         try:
             await loc_input.fill(city_val)
             filled["Location"] = city_val
+            filled_ids["Location"] = await loc_input.get_attribute("id") or ""
             await asyncio.sleep(0.3)
             # Many ATS location fields are a Google-Places-style autocomplete: typed
             # text alone doesn't satisfy the required field until a suggestion is
@@ -607,8 +836,9 @@ async def _fill_standard_and_react_fields(
     # 3. React Comboboxes & Native Selects
     if log_cb:
         log_cb("Resolving dropdowns & comboboxes (EEOC / Custom)...")
-    cb_filled = await _fill_all_greenhouse_comboboxes(page, profile, answer_lib)
+    cb_filled, cb_ids = await _fill_all_greenhouse_comboboxes(page, profile, answer_lib)
     filled.update(cb_filled)
+    filled_ids.update(cb_ids)
 
     # Native Select dropdowns (EEOC, custom questions)
     select_elements = await page.locator('select:visible').all()
@@ -631,18 +861,49 @@ async def _fill_standard_and_react_fields(
             opt_texts = await sel_el.locator('option').all_inner_texts()
             available = [o.strip() for o in opt_texts if o.strip() and o.strip().lower() not in ("select...", "select", "--", "choose")]
 
+            if len(available) == 1:
+                # Same rationale as the combobox path above: one real option
+                # means there's no ambiguity to classify, just select it.
+                await sel_el.select_option(label=available[0])
+                filled[sel_lbl[:50]] = available[0]
+                filled_ids[sel_lbl[:50]] = sel_id
+                continue
+
             resolution = resolve_answer(
                 question_text=sel_lbl,
                 profile=profile,
                 options=available,
                 answer_lib=answer_lib,
+                field_id=sel_id,
             )
             if resolution.answer and not resolution.blocking_errors:
+                target_lower = resolution.answer.strip().lower()
+                # Exact match first: substring containment alone is unsafe for
+                # short answers like "Male", which is literally a substring of
+                # "Female" ("fe-male") — checking containment before equality
+                # let a "Male" intent select the "Female" option whenever
+                # Female happened to come first in the dropdown's option order.
+                chosen_opt = None
                 for opt_t in available:
-                    if resolution.answer.lower() in opt_t.lower() or opt_t.lower() in resolution.answer.lower():
-                        await sel_el.select_option(label=opt_t)
-                        filled[sel_lbl[:50]] = opt_t
+                    if opt_t.strip().lower() == target_lower:
+                        chosen_opt = opt_t
                         break
+                if chosen_opt is None:
+                    for opt_t in available:
+                        opt_lower = opt_t.strip().lower()
+                        is_gender_collision = (
+                            (target_lower == "male" and "female" in opt_lower)
+                            or (target_lower == "female" and opt_lower == "male")
+                        )
+                        if is_gender_collision:
+                            continue
+                        if target_lower in opt_lower or opt_lower in target_lower:
+                            chosen_opt = opt_t
+                            break
+                if chosen_opt:
+                    await sel_el.select_option(label=chosen_opt)
+                    filled[sel_lbl[:50]] = chosen_opt
+                    filled_ids[sel_lbl[:50]] = sel_id
         except Exception:
             pass
 
@@ -663,7 +924,7 @@ async def _fill_standard_and_react_fields(
 
             chk_lbl_low = (chk_lbl or "").lower()
             if any(k in chk_lbl_low for k in ["consent", "agree", "acknowledge", "terms", "privacy", "survey", "certify", "understand"]):
-                await chk.check()
+                await chk.check(force=True)
                 filled[chk_lbl[:50] or "Consent Checkbox"] = "checked"
         except Exception:
             pass
@@ -727,16 +988,121 @@ async def _fill_standard_and_react_fields(
                     full_text = (await parent.inner_text()).strip()
                     group_lbl = full_text.split("\n")[0].strip() if full_text else ""
             if not group_lbl:
+                # Last resort: some Greenhouse demographic questions render
+                # without any field/form-group wrapper class, only a bare
+                # ancestor <div>/<fieldset> — without a label these groups
+                # were silently skipped forever (never even attempted),
+                # showing up at DOM-verification time as "an unlabeled
+                # field" left empty. Walk up to the nearest container that
+                # actually has text distinct from the option labels
+                # themselves, rather than giving up immediately.
+                broad_parent = radio.locator("xpath=ancestor::fieldset[1] | ancestor::div[2]").first
+                if await broad_parent.count() > 0:
+                    full_text = (await broad_parent.inner_text()).strip()
+                    first_line = full_text.split("\n")[0].strip() if full_text else ""
+                    if first_line and first_line.lower() not in [o.lower() for o in options]:
+                        group_lbl = first_line
+            if not group_lbl:
                 continue
 
-            resolution = resolve_answer(question_text=group_lbl, profile=profile, options=options, answer_lib=answer_lib)
+            resolution = resolve_answer(question_text=group_lbl, profile=profile, options=options, answer_lib=answer_lib, field_id=first_radio_id)
             if not resolution.answer or resolution.blocking_errors:
                 continue
 
             if await _select_radio_option(page, first_radio_id, resolution.answer):
                 filled[group_lbl[:50]] = resolution.answer
+                filled_ids[group_lbl[:50]] = first_radio_id
         except Exception as exc:
             logger.debug("Radio group fill error on name=%s: %s", name or "?", exc)
+            continue
+
+    # Checkbox-styled single-choice groups: some Greenhouse custom questions
+    # (observed live: "If not located in the greater Seattle area, are you
+    # willing to relocate?" -> Yes/No/Not Applicable) render as a <fieldset>
+    # of individually-named checkboxes (name="question_X[]") rather than a
+    # radio group or combobox. The existing checkbox loop above only ever
+    # checks boxes whose own label mentions "consent"/"agree"/etc., so a
+    # Yes/No/Not-Applicable-as-checkboxes question was silently skipped
+    # every time — this handles fieldset-grouped checkboxes as their own
+    # single-choice question, resolved the same way as a radio group.
+    checkbox_group_fieldsets = await page.locator('fieldset:has(input[type="checkbox"])').all()
+    for fieldset in checkbox_group_fieldsets:
+        try:
+            legend = fieldset.locator("legend").first
+            if await legend.count() == 0:
+                continue
+            group_lbl = (await legend.inner_text()).strip()
+            if not group_lbl:
+                continue
+
+            boxes = fieldset.locator('input[type="checkbox"]')
+            box_count = await boxes.count()
+            if box_count < 2:
+                # A single checkbox under a fieldset is the plain consent
+                # case the loop above already owns — not a choice group.
+                continue
+
+            options: list[str] = []
+            option_ids: list[str] = []
+            already_checked = False
+            for idx in range(box_count):
+                box = boxes.nth(idx)
+                if await box.is_checked():
+                    already_checked = True
+                    break
+                box_id = await box.get_attribute("id") or ""
+                opt_label = ""
+                if box_id:
+                    lbl_el = page.locator(f'label[for="{box_id}"]').first
+                    if await lbl_el.count() > 0:
+                        opt_label = (await lbl_el.inner_text()).strip()
+                if opt_label:
+                    options.append(opt_label)
+                    option_ids.append(box_id)
+            if already_checked or not options:
+                continue
+
+            resolution = resolve_answer(question_text=group_lbl, profile=profile, options=options, answer_lib=answer_lib, field_id=option_ids[0])
+            if not resolution.answer or resolution.blocking_errors:
+                continue
+
+            target_lower = resolution.answer.strip().lower()
+            chosen_id = None
+            for opt_str, opt_id in zip(options, option_ids):
+                if opt_str.strip().lower() == target_lower:
+                    chosen_id = opt_id
+                    break
+            if chosen_id is None:
+                for opt_str, opt_id in zip(options, option_ids):
+                    opt_lower = opt_str.strip().lower()
+                    if target_lower in opt_lower or opt_lower in target_lower:
+                        chosen_id = opt_id
+                        break
+            if chosen_id:
+                # Neither clicking the raw <input> nor its <label> reliably
+                # flips these custom-styled checkboxes (confirmed live:
+                # Playwright reports each click completed but .checked never
+                # changes) — this is a React-controlled input that needs its
+                # real DOM property set plus native input/change/click events
+                # dispatched for React's synthetic event system to notice.
+                target_box = page.locator(f'[id="{chosen_id}"]').first
+                await target_box.evaluate("""el => {
+                    const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'checked').set;
+                    setter.call(el, true);
+                    el.dispatchEvent(new Event('click', { bubbles: true }));
+                    el.dispatchEvent(new Event('input', { bubbles: true }));
+                    el.dispatchEvent(new Event('change', { bubbles: true }));
+                }""")
+                if not await target_box.is_checked():
+                    label_loc = page.locator(f'label[for="{chosen_id}"]').first
+                    if await label_loc.count() > 0:
+                        await label_loc.click(force=True)
+                    else:
+                        await target_box.check(force=True)
+                filled[group_lbl[:50]] = resolution.answer
+                filled_ids[group_lbl[:50]] = chosen_id
+        except Exception as exc:
+            logger.debug("Checkbox group fill error: %s", exc)
             continue
 
     if log_cb and cb_filled:
@@ -775,7 +1141,13 @@ async def _fill_standard_and_react_fields(
                 essay_ans = f"Deeply passionate about {company}'s mission and engineering excellence. Excited to contribute to mission-critical systems and high-scale architecture."
 
             await ta.fill(essay_ans)
-            filled[ta_lbl[:30] or "Essay"] = essay_ans[:30] + "..."
+            # Store the full answer, not a truncated preview — this dict feeds
+            # DOM verification later (via form_resolutions), which compares it
+            # against the live textarea's full value. A truncated "...' stored
+            # here always mismatches the real value, staging every essay-style
+            # answer for review even when it was filled correctly.
+            filled[ta_lbl[:30] or "Essay"] = essay_ans
+            filled_ids[ta_lbl[:30] or "Essay"] = ta_id
         except Exception:
             pass
 
@@ -829,11 +1201,14 @@ async def _fill_standard_and_react_fields(
 
             if val_to_fill:
                 await inp.fill(val_to_fill)
+                for key in ("LinkedIn", "Current Company", "Current Title", "State", "GitHub", "Website"):
+                    if filled.get(key) == val_to_fill:
+                        filled_ids[key] = inp_id
                 await asyncio.sleep(0.1)
         except Exception:
             pass
 
-    return filled
+    return filled, filled_ids
 
 
 async def execute_live_playwright_submission(
@@ -848,22 +1223,22 @@ async def execute_live_playwright_submission(
 
     Playwright's browser launch spawns a subprocess via asyncio, which raises a bare
     NotImplementedError on Windows if it runs on the ambient (non-Proactor) event loop —
-    e.g. uvicorn's own request-handling loop. Routing through browser_runner's dedicated
-    Proactor thread avoids that, matching the workaround already used elsewhere for
-    manual (non-autopilot) applications.
+    e.g. uvicorn's own request-handling loop under `--reload` (uvicorn forces
+    SelectorEventLoop for its reloaded worker process, see uvicorn/loops/asyncio.py).
+
+    This used to run the impl directly first and only fall back to the dedicated
+    Proactor thread on `except NotImplementedError` — but that exception is raised
+    inside Playwright's own internal driver-connection task (`Connection.run()`),
+    which is scheduled fire-and-forget (`Task exception was never retrieved` in the
+    logs) rather than propagated synchronously to the awaited call here. So the
+    except clause never actually fires: the coroutine just hangs forever awaiting a
+    driver handshake that will never arrive, since the driver subprocess never
+    launched. Route through the dedicated Proactor thread unconditionally on
+    Windows instead, matching the (correct) pattern in browser_runner.prepare_application.
     """
-    try:
-        # Check if already running on a valid event loop with Playwright capability
-        return await _execute_live_playwright_submission_impl(
-            job_item=job_item,
-            profile=profile,
-            answer_lib=answer_lib,
-            headless=headless,
-            timeout_sec=timeout_sec,
-            log_callback=log_callback,
-        )
-    except NotImplementedError:
-        # On Windows non-Proactor loops (e.g. standard thread), route via dedicated Proactor loop
+    import sys
+
+    if sys.platform == "win32":
         from app.services.application_assistant.browser_runner import run_playwright_async
         return await run_playwright_async(
             _execute_live_playwright_submission_impl(
@@ -876,6 +1251,15 @@ async def execute_live_playwright_submission(
             ),
             timeout=timeout_sec + 30,
         )
+
+    return await _execute_live_playwright_submission_impl(
+        job_item=job_item,
+        profile=profile,
+        answer_lib=answer_lib,
+        headless=headless,
+        timeout_sec=timeout_sec,
+        log_callback=log_callback,
+    )
 
 
 async def _execute_live_playwright_submission_impl(
@@ -891,6 +1275,28 @@ async def _execute_live_playwright_submission_impl(
     company = job_item.get("company") or "Target Company"
     title = job_item.get("title") or "Target Role"
     job_id = job_item.get("id") or "job"
+
+    # Custom-branded careers domains that embed a Greenhouse job via ?gh_jid=
+    # (coupang.jobs, zoominfo.com/careers, samsara.com/company/careers, etc.)
+    # render markup our submit-button/field selectors don't recognize —
+    # they're built against Greenhouse's own standard form. Redirecting to
+    # the canonical job-boards.greenhouse.io URL when we can confidently
+    # derive one fixes "Submit button not found" on postings that are
+    # genuinely live and Greenhouse-backed, not actually broken.
+    if app_url and ("gh_jid=" in app_url.lower() or "greenhouse" in app_url.lower()):
+        # Only attempt this when the URL itself already signals Greenhouse
+        # involvement — extract_greenhouse_job_ref's job-id fallback pattern
+        # (bare "/jobs/<digits>") is common to many unrelated ATS URLs too,
+        # and guessing a slug from the company name for a genuinely
+        # non-Greenhouse site could redirect to a wrong/nonexistent page.
+        try:
+            from app.services.application_assistant.providers.greenhouse import resolve_greenhouse_apply_url
+            normalized_url = resolve_greenhouse_apply_url(app_url, company_name=company)
+            if normalized_url and normalized_url != app_url:
+                logger.info("Normalized application URL for %s: %s -> %s", company, app_url, normalized_url)
+                app_url = normalized_url
+        except Exception as e:
+            logger.debug("Greenhouse URL normalization skipped for %s: %s", company, e)
 
     # Per-application Gmail plus-addressing (deterministic reply tracking) —
     # read-only lookup; falls back to the real profile email on any failure
@@ -922,7 +1328,22 @@ async def _execute_live_playwright_submission_impl(
             logger.info("Resolved career hub gh_jid URL %s -> direct Greenhouse URL: %s", app_url, direct_board_url)
             app_url = direct_board_url
 
-    resume_file = get_active_resume_path(profile)
+    # api.smartrecruiters.com/v1/... is the raw JSON REST endpoint the
+    # discovery scraper sometimes captures instead of the public job page —
+    # loading it in a browser shows bare JSON with no form/submit button at
+    # all. jobs.smartrecruiters.com/{company}/{id} is the actual public
+    # posting page and always exists for any job the API endpoint returns.
+    sr_api_match = re.match(
+        r"https?://api\.smartrecruiters\.com/v1/companies/([^/]+)/postings/(\d+)",
+        app_url,
+    )
+    if sr_api_match:
+        sr_company, sr_posting_id = sr_api_match.group(1), sr_api_match.group(2)
+        direct_sr_url = f"https://jobs.smartrecruiters.com/{sr_company}/{sr_posting_id}"
+        logger.info("Resolved SmartRecruiters API URL %s -> public posting URL: %s", app_url, direct_sr_url)
+        app_url = direct_sr_url
+
+    resume_file = get_resume_upload_payload(profile)
 
     async with async_playwright() as p:
         browser: Browser = await p.chromium.launch(
@@ -1055,7 +1476,7 @@ async def _execute_live_playwright_submission_impl(
                 logger.debug("Field discovery persistence error: %s", disc_err)
 
             # Initial Form Filling
-            filled_fields = await _fill_standard_and_react_fields(
+            filled_fields, filled_field_ids = await _fill_standard_and_react_fields(
                 page=target_frame,
                 profile=profile,
                 answer_lib=answer_lib,
@@ -1112,11 +1533,37 @@ async def _execute_live_playwright_submission_impl(
                 if log_callback:
                     log_callback(f"Auto-healing {len(missing_fields)} field(s) (Round {round_num})...", lvl="warning")
 
+                dom_fields_by_id = {f.get("id"): f for f in dom_fields if f.get("id")}
+
                 for item in missing_fields:
                     f_id = item.get("fieldId")
                     f_label = item.get("label", "")
                     f_label_lower = f_label.lower()
                     fix_val = item.get("suggestedFixValue")
+
+                    # The LLM review returns fieldId/label pairs it read off the
+                    # same dom_fields list, but it can misattribute an id to the
+                    # wrong question in its own output (e.g. suggesting fieldId
+                    # "candidate-location" — a different field entirely — for
+                    # what it meant as the fix for a hybrid-work Yes/No
+                    # question). Blindly trusting fieldId then writes the fix
+                    # value into a completely unrelated field (observed live: a
+                    # "Yes" fix landing in the Location autocomplete while the
+                    # actual target question stayed empty). Cross-check the
+                    # LLM's claimed label against that id's real DOM label
+                    # before applying anything — if they share no meaningful
+                    # words, the pairing is unreliable and the fix is skipped
+                    # rather than corrupting the wrong field.
+                    if f_id and f_id in dom_fields_by_id:
+                        actual_label = dom_fields_by_id[f_id].get("label", "")
+                        actual_words = {w for w in re.findall(r"[a-z]+", actual_label.lower()) if len(w) > 2}
+                        claimed_words = {w for w in re.findall(r"[a-z]+", f_label_lower) if len(w) > 2}
+                        if actual_words and claimed_words and not (actual_words & claimed_words):
+                            logger.warning(
+                                "Skipping self-heal fix: LLM label %r doesn't match actual DOM label %r for fieldId %r",
+                                f_label, actual_label, f_id,
+                            )
+                            continue
 
                     # ── Use centralized resolver instead of if/elif heuristics ──
                     if not fix_val:
@@ -1138,25 +1585,36 @@ async def _execute_live_playwright_submission_impl(
                                         try:
                                             await elem.set_input_files(resume_file)
                                             filled_fields[f_label or f_id] = os.path.basename(resume_file)
+                                            filled_field_ids[f_label or f_id] = f_id
                                             if log_callback:
                                                 log_callback(f"Attached file for [{f_label or f_id}] ({os.path.basename(resume_file)})")
                                         except Exception as f_err:
                                             logger.warning("File attachment error on %s: %s", f_id, f_err)
                                 elif is_cb:
                                     if fix_val and str(fix_val).lower() not in ("none", "null", "undefined", ""):
-                                        await _select_react_combobox(target_frame, f_id, str(fix_val))
-                                        filled_fields[f_label or f_id] = str(fix_val)
-                                        if log_callback:
-                                            log_callback(f"Self-healed [{f_label or f_id}] -> '{fix_val}'")
+                                        # Record whatever _select_react_combobox actually
+                                        # clicked, not the guessed fix_val — it can decline
+                                        # to select anything (empty return) when fix_val
+                                        # doesn't match any real option, and trusting the
+                                        # guess instead of the outcome records an "intended"
+                                        # answer that doesn't match what's really in the DOM.
+                                        actually_selected = await _select_react_combobox(target_frame, f_id, str(fix_val))
+                                        if actually_selected:
+                                            filled_fields[f_label or f_id] = actually_selected
+                                            filled_field_ids[f_label or f_id] = f_id
+                                            if log_callback:
+                                                log_callback(f"Self-healed [{f_label or f_id}] -> '{actually_selected}'")
                                 elif el_type == "radio":
                                     if fix_val and str(fix_val).lower() not in ("none", "null", "undefined", "") and await _select_radio_option(target_frame, f_id, str(fix_val)):
                                         filled_fields[f_label or f_id] = str(fix_val)
+                                        filled_field_ids[f_label or f_id] = f_id
                                         if log_callback:
                                             log_callback(f"Self-healed [{f_label or f_id}] -> '{fix_val}'")
                                 elif el_type == "checkbox":
                                     if fix_val and str(fix_val).lower() not in ("no", "false", "0", "unchecked", "none", "null"):
-                                        await elem.check()
+                                        await elem.check(force=True)
                                         filled_fields[f_label or f_id] = "checked"
+                                        filled_field_ids[f_label or f_id] = f_id
                                         if log_callback:
                                             log_callback(f"Self-healed checkbox [{f_label or f_id}] -> checked")
                                 elif el_type in ("select-one", "select-multiple"):
@@ -1167,16 +1625,36 @@ async def _execute_live_playwright_submission_impl(
                                         opt_texts = await elem.locator("option").all_inner_texts()
                                         wanted = str(fix_val).strip().lower()
                                         matched_opt = None
+                                        # Exact match first: "male" is literally a substring
+                                        # of "female", so a bare containment check can pick
+                                        # the wrong option when the wrong one happens to come
+                                        # first in the dropdown's order.
                                         for opt_t in opt_texts:
                                             clean = opt_t.strip()
                                             if not clean or clean.lower() in ("select...", "select", "--", "choose"):
                                                 continue
-                                            if wanted == clean.lower() or wanted in clean.lower() or clean.lower() in wanted:
+                                            if wanted == clean.lower():
                                                 matched_opt = clean
                                                 break
+                                        if matched_opt is None:
+                                            for opt_t in opt_texts:
+                                                clean = opt_t.strip()
+                                                clean_lower = clean.lower()
+                                                if not clean or clean_lower in ("select...", "select", "--", "choose"):
+                                                    continue
+                                                is_gender_collision = (
+                                                    (wanted == "male" and "female" in clean_lower)
+                                                    or (wanted == "female" and clean_lower == "male")
+                                                )
+                                                if is_gender_collision:
+                                                    continue
+                                                if wanted in clean_lower or clean_lower in wanted:
+                                                    matched_opt = clean
+                                                    break
                                         if matched_opt:
                                             await elem.select_option(label=matched_opt)
                                             filled_fields[f_label or f_id] = matched_opt
+                                            filled_field_ids[f_label or f_id] = f_id
                                             if log_callback:
                                                 log_callback(f"Self-healed [{f_label or f_id}] -> '{matched_opt}'")
                                         elif log_callback:
@@ -1186,6 +1664,7 @@ async def _execute_live_playwright_submission_impl(
                                     if fix_val and str(fix_val).lower() not in ("none", "null", "undefined", ""):
                                         await elem.fill(str(fix_val))
                                         filled_fields[f_label or f_id] = str(fix_val)
+                                        filled_field_ids[f_label or f_id] = f_id
                                         if log_callback:
                                             log_callback(f"Self-healed [{f_label or f_id}] -> '{fix_val}'")
                             except Exception as fill_err:
@@ -1197,11 +1676,37 @@ async def _execute_live_playwright_submission_impl(
 
             # ─── VERIFIED AUTONOMY SUBMISSION POLICY GATE ─────────────────────
             # 1. Collect all answer resolutions from form filling
+            #
+            # resolve_answer() is called again here only to get question_type
+            # classification for cross-field validation below — NOT to
+            # re-derive the answer. It's called with no `options` (the actual
+            # live dropdown/radio options aren't available anymore at this
+            # point), so for a Yes/No-style question it can classify and
+            # resolve differently than the original fill-time call did (which
+            # saw the real options) and return a different answer entirely.
+            # Verification then compares that fresh, options-blind guess
+            # against the live DOM value under the field's own label — an
+            # unrelated field can share enough of that label as a substring to
+            # get matched, so a wrong guess here surfaces as a nonsensical
+            # mismatch on a completely different question (observed live: a
+            # location answer flagged as conflicting with an office-days
+            # Yes/No field's selected value). The fix is field_id: every fill
+            # site above now records the live DOM element id it actually
+            # wrote into (filled_field_ids), so verification can pair each
+            # resolution back to its own element by id instead of by fuzzy
+            # label/substring matching. The answer itself is also overwritten
+            # with `ans` — the real value this function wrote into the DOM —
+            # rather than trusting a fresh re-resolution's guess.
             form_resolutions: list[AnswerResolution] = []
             for lbl, ans in filled_fields.items():
-                form_resolutions.append(
-                    resolve_answer(question_text=lbl, profile=profile, answer_lib=answer_lib)
+                res = resolve_answer(
+                    question_text=lbl,
+                    profile=profile,
+                    answer_lib=answer_lib,
+                    field_id=filled_field_ids.get(lbl, ""),
                 )
+                res.answer = ans
+                form_resolutions.append(res)
 
             # 2. Run cross-field deterministic validation
             cross_field_report = validate_answers(form_resolutions, profile)
@@ -1261,6 +1766,29 @@ async def _execute_live_playwright_submission_impl(
             except Exception:
                 pass
 
+            # A cookie-consent overlay left on screen blocks every subsequent
+            # click with "intercepts pointer events" (observed live on NICE's
+            # careers page, a CookieYes-style ".cky-overlay") — dismiss it
+            # before attempting the submit click rather than only discovering
+            # the block after the click has already started retrying.
+            for consent_sel in (
+                'button:has-text("Accept All")',
+                'button:has-text("Accept all")',
+                'button:has-text("Accept Cookies")',
+                'button:has-text("I Accept")',
+                'button:has-text("Accept")',
+                '.cky-btn-accept',
+                '#onetrust-accept-btn-handler',
+            ):
+                try:
+                    consent_btn = page.locator(consent_sel).first
+                    if await consent_btn.count() > 0 and await consent_btn.is_visible():
+                        await consent_btn.click(timeout=2000)
+                        await asyncio.sleep(0.3)
+                        break
+                except Exception:
+                    pass
+
             # ─── FINAL SUBMIT CLICK ─────────────────────────────────────────────
             submit_selectors = [
                 '#submit_app',
@@ -1276,24 +1804,74 @@ async def _execute_live_playwright_submission_impl(
                 '[role="button"]:has-text("Submit")',
             ]
 
-            submit_button = None
-            for sel in submit_selectors:
-                btn = target_frame.locator(sel).first
-                if await btn.count() > 0 and await btn.is_visible():
-                    submit_button = btn
-                    break
-
-            if not submit_button:
+            async def _find_real_submit_button(scope: Any) -> Any:
                 for sel in submit_selectors:
-                    btn = page.locator(sel).first
-                    if await btn.count() > 0 and await btn.is_visible():
-                        submit_button = btn
-                        break
+                    candidates = scope.locator(sel)
+                    for idx in range(await candidates.count()):
+                        candidate = candidates.nth(idx)
+                        if not await candidate.is_visible():
+                            continue
+                        # A bare button[type="submit"] selector matches ANY
+                        # submit button on the page, not just the
+                        # application form's — observed live: it grabbed a
+                        # site-wide header search icon (title="Search",
+                        # class="header-search-icon") on NICE's careers
+                        # page, clicked it instead of ever finding the real
+                        # submit button, and the run timed out waiting for
+                        # that irrelevant button to become clickable.
+                        title = (await candidate.get_attribute("title") or "").lower()
+                        aria = (await candidate.get_attribute("aria-label") or "").lower()
+                        cls = (await candidate.get_attribute("class") or "").lower()
+                        if any("search" in v for v in (title, aria, cls)):
+                            continue
+                        return candidate
+                return None
+
+            submit_button = await _find_real_submit_button(target_frame)
+            if not submit_button:
+                submit_button = await _find_real_submit_button(page)
 
             if not submit_button:
+                # "Submit button not found" is misleading when the page never
+                # had an application form to begin with — observed live on two
+                # postings: a Greenhouse URL that now 302s to the company's
+                # careers homepage (posting pulled), and a job *description*
+                # page whose form only mounts after an "Apply" click. Both
+                # reported as submit-button failures and looked like selector
+                # bugs. Distinguish them so a dead posting is triaged as
+                # expired instead of retried against a page that can never
+                # submit.
+                form_present = False
+                try:
+                    for probe in ('form', 'input[type="file"]', 'input[name*="resume" i]'):
+                        for scope in (target_frame, page):
+                            try:
+                                if await scope.locator(probe).count() > 0:
+                                    form_present = True
+                                    break
+                            except Exception:
+                                continue
+                        if form_present:
+                            break
+                except Exception:
+                    pass
+
+                if form_present:
+                    error_msg = "Submit button not found on application page"
+                else:
+                    try:
+                        landed_url = page.url
+                    except Exception:
+                        landed_url = ""
+                    error_msg = (
+                        "No application form on the page — the posting appears to be closed or "
+                        f"redirected (landed on {landed_url or 'an unknown URL'})"
+                    )
+
                 return {
                     "submitted": False,
-                    "error": "Submit button not found on application page",
+                    "error": error_msg,
+                    "noApplicationForm": not form_present,
                     "evidence": {
                         "preScreenshotPath": str(pre_screenshot_path.resolve()),
                     },

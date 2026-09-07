@@ -216,9 +216,11 @@ export function getAutopilotEventSource(): EventSource {
   return new EventSource(`${aaBaseUrl()}/application-assistant/autopilot/events`);
 }
 
-export async function getAutopilotJobs(status?: string) {
-  const qs = status ? `?status=${status}` : "";
-  return aaFetch<{ success: boolean; jobs: any[]; count: number }>(`/autopilot/jobs${qs}`);
+export async function getAutopilotJobs(status?: string, limit = 200) {
+  const qs = new URLSearchParams();
+  if (status) qs.set("status", status);
+  qs.set("limit", String(limit));
+  return aaFetch<{ success: boolean; jobs: any[]; count: number }>(`/autopilot/jobs?${qs.toString()}`);
 }
 
 export interface AutopilotJobsPageParams {
@@ -226,6 +228,8 @@ export interface AutopilotJobsPageParams {
   role?: string;
   location?: string;
   company?: string;
+  sortBy?: "matchScore" | "submittedAt" | "updatedAt";
+  sortDir?: "asc" | "desc";
   limit?: number;
   offset?: number;
 }
@@ -236,6 +240,8 @@ export async function getAutopilotJobsPage(params: AutopilotJobsPageParams) {
   if (params.role) qs.set("role", params.role);
   if (params.location) qs.set("location", params.location);
   if (params.company) qs.set("company", params.company);
+  if (params.sortBy) qs.set("sortBy", params.sortBy);
+  if (params.sortDir) qs.set("sortDir", params.sortDir);
   qs.set("limit", String(params.limit ?? 24));
   qs.set("offset", String(params.offset ?? 0));
   return aaFetch<{ success: boolean; jobs: any[]; count: number; total: number; hasMore: boolean }>(

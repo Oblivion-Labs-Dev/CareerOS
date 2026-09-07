@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   approvePreflightSubmission,
@@ -9,10 +9,13 @@ import {
   getAutopilotJobs,
   skipStagedApplication,
 } from "@/lib/application-assistant-api";
-import { IconAlertCircle, IconBolt, IconCheckCircle } from "./icons";
+import { IconAlertCircle, IconBolt, IconCheckCircle, IconRefresh } from "./icons";
 import { ApplicationQueueCard, type QueueApplication } from "../application-queue-card";
 import { resolveApplicationReadiness } from "../application-readiness";
 import { QuickAddJobPanel } from "./quick-add-job-panel";
+import styles from "./autopilot-ui.module.css";
+
+const PAGE_SIZE = 10;
 
 type TailoringMode = "off" | "honest" | "aggressive";
 
@@ -63,6 +66,11 @@ export function ApplyBoard() {
   const [locationFilter, setLocationFilter] = useState("");
   const [companyFilter, setCompanyFilter] = useState("");
   const [mounted, setMounted] = useState(false);
+  // The 3 merged statuses are fetched in full (needed so text filters search
+  // across everything, not just whatever's been scrolled into view) — only
+  // rendering is paginated, revealing PAGE_SIZE more rows at a time.
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+  const sentinelRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     setMounted(true);
@@ -95,7 +103,7 @@ export function ApplyBoard() {
 
   const modeFor = (job: any): TailoringMode => modeByJob[job.id] || job.tailoringMode || "honest";
 
-  const visibleJobs = jobs.filter((job) => {
+  const filteredJobs = jobs.filter((job) => {
     const role = roleFilter.trim().toLowerCase();
     const loc = locationFilter.trim().toLowerCase();
     const comp = companyFilter.trim().toLowerCase();
@@ -104,6 +112,30 @@ export function ApplyBoard() {
     if (comp && !String(job.company || "").toLowerCase().includes(comp)) return false;
     return true;
   });
+  const visibleJobs = filteredJobs.slice(0, visibleCount);
+  const hasMoreVisible = visibleCount < filteredJobs.length;
+
+  // Filters (and the underlying job list) narrow or widen what's on offer —
+  // restart pagination from the top rather than showing a stale, possibly
+  // now-too-large slice.
+  useEffect(() => {
+    setVisibleCount(PAGE_SIZE);
+  }, [roleFilter, locationFilter, companyFilter]);
+
+  useEffect(() => {
+    const el = sentinelRef.current;
+    if (!el) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) {
+          setVisibleCount((prev) => Math.min(prev + PAGE_SIZE, filteredJobs.length));
+        }
+      },
+      { rootMargin: "200px" }
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [filteredJobs.length]);
 
   const hasActiveFilters = Boolean(roleFilter || locationFilter || companyFilter);
   const clearFilters = () => {
@@ -205,25 +237,19 @@ export function ApplyBoard() {
 
   return (
     <div className="space-y-6 font-sans">
-      <div className="p-6 rounded-2xl border border-[#2ee8c9]/25 bg-gradient-to-br from-[#0a161f] via-[#0d1e2a] to-[#071017] shadow-xl flex flex-wrap justify-between items-center gap-4">
+      <div className={styles.pageHeader}>
         <div>
-          <h2 className="text-xl font-bold text-slate-100 flex items-center gap-2">
-            <IconBolt className="w-5 h-5 text-[#2ee8c9]" />
+          <h2 className={styles.pageTitle}>
+            <IconBolt className={`w-5 h-5 ${styles.pageTitleIcon}`} />
             <span>Ready to Apply</span>
           </h2>
-          <p className="text-xs text-slate-300 mt-1 max-w-2xl">
+          <p className={styles.pageSubtitle}>
             Jobs that passed discovery's filters and ranking. Hit Apply — if something's unresolved, you'll be asked; otherwise it submits immediately.
           </p>
         </div>
-        <div className="flex flex-wrap items-center gap-3">
-          <span className="px-3.5 py-1 text-xs font-bold rounded-full bg-[#2ee8c9]/15 border border-[#2ee8c9]/40 text-[#2ee8c9]">
-            {jobs.length} Ready
-          </span>
-          <button
-            onClick={fetchAll}
-            disabled={loading}
-            className="px-3 py-1 text-xs font-semibold text-slate-300 hover:text-white bg-white/5 hover:bg-white/10 rounded-xl border border-white/10 transition-all cursor-pointer"
-          >
+        <div className={styles.headerActions}>
+          <span className={styles.badgeAccent}>{jobs.length} Ready</span>
+          <button onClick={fetchAll} disabled={loading} className={styles.btnGhost}>
             {loading ? "Refreshing..." : "↻ Refresh"}
           </button>
         </div>
@@ -231,74 +257,71 @@ export function ApplyBoard() {
 
       <QuickAddJobPanel onAdded={fetchAll} />
 
-      <div className="rounded-2xl border border-white/10 bg-[#0a101b] p-4 flex flex-wrap items-end gap-3">
-        <div className="flex flex-col gap-1">
-          <label className="text-[10px] font-bold uppercase text-slate-500">Role</label>
+      <div className={styles.filterBar}>
+        <div className={styles.filterField}>
+          <label className={styles.filterLabel}>Role</label>
           <input
             type="text"
             value={roleFilter}
             onChange={(e) => setRoleFilter(e.target.value)}
             placeholder="e.g. Software Engineer, Product Manager"
-            className="w-56 rounded-lg border border-white/10 bg-black/30 px-3 py-1.5 text-xs text-slate-100 placeholder:text-slate-600 outline-none focus:border-cyan-400/50"
+            className={styles.filterInput}
           />
         </div>
-        <div className="flex flex-col gap-1">
-          <label className="text-[10px] font-bold uppercase text-slate-500">Location</label>
+        <div className={styles.filterField}>
+          <label className={styles.filterLabel}>Location</label>
           <input
             type="text"
             value={locationFilter}
             onChange={(e) => setLocationFilter(e.target.value)}
             placeholder="e.g. Remote, CA, United States"
-            className="w-48 rounded-lg border border-white/10 bg-black/30 px-3 py-1.5 text-xs text-slate-100 placeholder:text-slate-600 outline-none focus:border-cyan-400/50"
+            className={`${styles.filterInput} ${styles.filterInputNarrow}`}
           />
         </div>
-        <div className="flex flex-col gap-1">
-          <label className="text-[10px] font-bold uppercase text-slate-500">Company</label>
+        <div className={styles.filterField}>
+          <label className={styles.filterLabel}>Company</label>
           <input
             type="text"
             value={companyFilter}
             onChange={(e) => setCompanyFilter(e.target.value)}
             placeholder="e.g. Stripe"
-            className="w-40 rounded-lg border border-white/10 bg-black/30 px-3 py-1.5 text-xs text-slate-100 placeholder:text-slate-600 outline-none focus:border-cyan-400/50"
+            className={`${styles.filterInput} ${styles.filterInputCompact}`}
           />
         </div>
         {hasActiveFilters && (
-          <button
-            onClick={clearFilters}
-            className="px-3 py-1.5 text-xs font-semibold text-slate-300 hover:text-white bg-white/5 hover:bg-white/10 rounded-lg border border-white/10 transition-all cursor-pointer"
-          >
+          <button onClick={clearFilters} className={styles.filterClear}>
             Clear filters
           </button>
         )}
-        <span className="ml-auto text-xs text-slate-500 self-center">
-          Showing {visibleJobs.length} of {jobs.length}
+        <span className={styles.filterCount}>
+          Showing {visibleJobs.length} of {filteredJobs.length}{hasActiveFilters ? ` (${jobs.length} total)` : ""}
         </span>
       </div>
-      <p className="text-[11px] text-slate-500 -mt-3">
+      <p className={styles.filterHint}>
         Sponsorship isn't a per-listing filter — jobs that conflict with your work-authorization needs are already excluded at discovery (see the Skipped tab).
       </p>
 
       {successMsg && (
-        <div className="p-4 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 text-xs flex items-center gap-2">
+        <div className={styles.alertSuccess}>
           <IconCheckCircle className="w-4 h-4" />
           <span>{successMsg}</span>
         </div>
       )}
       {error && (
-        <div className="p-4 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs flex items-center gap-2">
+        <div className={styles.alertError}>
           <IconAlertCircle className="w-4 h-4" />
           <span>{error}</span>
         </div>
       )}
 
       {jobs.length === 0 ? (
-        <div className="p-12 text-center border border-dashed border-white/10 rounded-2xl text-slate-500 text-xs bg-[#0d121c]/40">
+        <div className={styles.emptyState}>
           Nothing ready yet. Add a job by URL above, or find more from Job Discovery.
         </div>
       ) : visibleJobs.length === 0 ? (
-        <div className="p-12 text-center border border-dashed border-white/10 rounded-2xl text-slate-500 text-xs bg-[#0d121c]/40">
+        <div className={styles.emptyState}>
           No ready jobs match these filters.{" "}
-          <button onClick={clearFilters} className="text-cyan-300 underline underline-offset-2 cursor-pointer">
+          <button onClick={clearFilters} className={styles.emptyStateLink}>
             Clear filters
           </button>
         </div>
@@ -355,11 +378,11 @@ export function ApplyBoard() {
                 intelligenceSlot={
                   <div className="w-full space-y-2.5">
                     {needsAnswer && (
-                      <p className="aac-alert aac-alert--warn">
+                      <p className={styles.readyAlertWarn}>
                         {questionsFor(job)[0]?.question || job.lastError || job.aiExplanation}
                       </p>
                     )}
-                    <div className="flex items-center gap-1.5">
+                    <div className={styles.modeToggleGroup}>
                       {(["off", "honest", "aggressive"] as TailoringMode[]).map((m) => (
                         <button
                           key={m}
@@ -368,11 +391,7 @@ export function ApplyBoard() {
                             e.stopPropagation();
                             setModeByJob((prev) => ({ ...prev, [job.id]: m }));
                           }}
-                          className={`px-2 py-1 rounded-md text-[10px] font-bold capitalize border transition-all cursor-pointer ${
-                            mode === m
-                              ? "bg-[#2ee8c9]/15 border-[#2ee8c9]/50 text-[#2ee8c9]"
-                              : "bg-white/5 border-white/10 text-slate-400 hover:text-slate-200"
-                          }`}
+                          className={`${styles.modeToggle} ${mode === m ? styles.modeToggleActive : ""}`}
                         >
                           {m}
                         </button>
@@ -385,7 +404,7 @@ export function ApplyBoard() {
                         void handleApplyClick(job);
                       }}
                       disabled={applyingId === job.id || classifyingId === job.id}
-                      className="w-full rounded-xl bg-gradient-to-r from-emerald-500/25 via-teal-500/20 to-emerald-500/25 hover:from-emerald-500/35 hover:to-teal-500/35 text-emerald-200 border border-emerald-500/40 hover:border-emerald-400/60 py-2 px-3 font-bold text-xs transition flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+                      className={styles.applyCta}
                     >
                       {applyingId === job.id
                         ? "Applying..."
@@ -415,18 +434,19 @@ export function ApplyBoard() {
         </div>
       )}
 
+      {visibleJobs.length > 0 && hasMoreVisible && (
+        <div ref={sentinelRef} className={styles.loadingMore}>
+          <IconRefresh className={`w-4 h-4 ${styles.spin}`} />
+          <span>Loading more applications...</span>
+        </div>
+      )}
+
       {mounted && questionJob && createPortal(
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
-          onClick={() => setQuestionJob(null)}
-        >
-          <div
-            className="w-full max-w-md rounded-2xl border border-white/10 bg-[#0a101b] p-6 space-y-4 shadow-2xl max-h-[85vh] overflow-y-auto"
-            onClick={(e) => e.stopPropagation()}
-          >
+        <div className={styles.modalOverlay} onClick={() => setQuestionJob(null)}>
+          <div className={styles.modalCard} onClick={(e) => e.stopPropagation()}>
             <div>
-              <h3 className="text-sm font-bold text-slate-100">{questionJob.company} — {questionJob.title}</h3>
-              <p className="text-xs text-slate-400 mt-1">
+              <h3 className={styles.modalTitle}>{questionJob.company} — {questionJob.title}</h3>
+              <p className={styles.modalSubtitle}>
                 Before applying, {questionList.length > 1 ? "these need answers" : "this needs an answer"}:
               </p>
             </div>
@@ -435,7 +455,7 @@ export function ApplyBoard() {
                 const hasOptions = Array.isArray(q.options) && q.options.length > 0;
                 return (
                   <div key={i} className="space-y-1.5">
-                    <p className="text-sm text-slate-200 bg-white/5 border border-white/10 rounded-lg p-3">{q.question}</p>
+                    <p className={styles.questionBox}>{q.question}</p>
                     {hasOptions ? (
                       <select
                         autoFocus={i === 0}
@@ -443,13 +463,11 @@ export function ApplyBoard() {
                         onChange={(e) =>
                           setAnswerDrafts((prev) => prev.map((v, idx) => (idx === i ? e.target.value : v)))
                         }
-                        className="w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-sm text-slate-100 outline-none focus:border-cyan-400/50"
+                        className={styles.modalInput}
                       >
-                        <option value="" className="bg-[#0a101b]">
-                          Select...
-                        </option>
+                        <option value="">Select...</option>
                         {q.options!.map((opt) => (
-                          <option key={opt} value={opt} className="bg-[#0a101b]">
+                          <option key={opt} value={opt}>
                             {opt}
                           </option>
                         ))}
@@ -466,26 +484,22 @@ export function ApplyBoard() {
                           if (e.key === "Enter") void handleAnswerAndApply();
                         }}
                         placeholder="Your answer..."
-                        className="w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-600 outline-none focus:border-cyan-400/50"
+                        className={styles.modalInput}
                       />
                     )}
                   </div>
                 );
               })}
             </div>
-            <div className="flex justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => setQuestionJob(null)}
-                className="px-3.5 py-2 rounded-xl border border-white/10 bg-white/5 text-slate-300 text-xs font-semibold hover:bg-white/10 cursor-pointer"
-              >
+            <div className={styles.modalActions}>
+              <button type="button" onClick={() => setQuestionJob(null)} className={styles.modalBtnCancel}>
                 Cancel
               </button>
               <button
                 type="button"
                 onClick={() => void handleAnswerAndApply()}
                 disabled={applyingId === questionJob.id}
-                className="px-3.5 py-2 rounded-xl bg-emerald-500/25 border border-emerald-500/50 text-emerald-200 text-xs font-bold hover:bg-emerald-500/35 cursor-pointer disabled:opacity-50"
+                className={styles.modalBtnSave}
               >
                 {applyingId === questionJob.id ? "Applying..." : "Save & Apply"}
               </button>

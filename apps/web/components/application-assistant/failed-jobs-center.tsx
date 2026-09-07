@@ -1,14 +1,17 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   approveStagedAnswer,
   deleteAutopilotJob,
   getAutopilotJobs,
+  getAutopilotJobsPage,
   reprocessFailedAutopilotJobs,
   reprocessSingleAutopilotJob,
   resetSingleAutopilotJob,
 } from "@/lib/application-assistant-api";
+
+const PAGE_SIZE = 10;
 import {
   IconAlertCircle,
   IconCheck,
@@ -39,7 +42,10 @@ function fullFailureDetail(job: any): { typeLabel: string; message: string; conf
 
 export function FailedJobsCenter({ onReprocessSuccess, onOpenPrep }: { onReprocessSuccess?: () => void; onOpenPrep?: () => void }) {
   const [failedList, setFailedList] = useState<any[]>([]);
+  const [totalCount, setTotalCount] = useState(0);
+  const [hasMore, setHasMore] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [reprocessing, setReprocessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
@@ -47,13 +53,17 @@ export function FailedJobsCenter({ onReprocessSuccess, onOpenPrep }: { onReproce
   const [draftQuestion, setDraftQuestion] = useState("");
   const [draftAnswer, setDraftAnswer] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const sentinelRef = useRef<HTMLDivElement | null>(null);
+  const loadingMoreRef = useRef(false);
 
   const fetchFailed = async () => {
     setLoading(true);
     try {
-      const res = await getAutopilotJobs("FAILED");
+      const res = await getAutopilotJobsPage({ status: "FAILED", sortBy: "updatedAt", sortDir: "desc", limit: PAGE_SIZE, offset: 0 });
       const list = res.jobs || [];
       setFailedList(list);
+      setTotalCount(res.total ?? list.length);
+      setHasMore(!!res.hasMore);
       setSelectedId((prev) => (prev && list.some((j: any) => j.id === prev) ? prev : list[0]?.id ?? null));
       setError(null);
     } catch (err: any) {
@@ -62,6 +72,43 @@ export function FailedJobsCenter({ onReprocessSuccess, onOpenPrep }: { onReproce
       setLoading(false);
     }
   };
+
+  const loadMore = useCallback(async () => {
+    if (loadingMoreRef.current || !hasMore) return;
+    loadingMoreRef.current = true;
+    setLoadingMore(true);
+    try {
+      const res = await getAutopilotJobsPage({
+        status: "FAILED",
+        sortBy: "updatedAt",
+        sortDir: "desc",
+        limit: PAGE_SIZE,
+        offset: failedList.length,
+      });
+      setFailedList((prev) => [...prev, ...(res.jobs || [])]);
+      setTotalCount(res.total ?? failedList.length + (res.jobs || []).length);
+      setHasMore(!!res.hasMore);
+    } catch {
+      // leave hasMore as-is; the sentinel retries on next scroll
+    } finally {
+      loadingMoreRef.current = false;
+      setLoadingMore(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hasMore, failedList.length]);
+
+  useEffect(() => {
+    const el = sentinelRef.current;
+    if (!el) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) void loadMore();
+      },
+      { rootMargin: "200px" }
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [loadMore]);
 
   const handleReprocessAll = async () => {
     setReprocessing(true);
@@ -171,11 +218,20 @@ export function FailedJobsCenter({ onReprocessSuccess, onOpenPrep }: { onReproce
   };
 
   const handleCopyAllErrors = async () => {
+    // Needs the complete set, not just whatever's been scrolled into view —
+    // fetch fresh rather than relying on the paginated list.
+    let all = failedList;
+    try {
+      const res = await getAutopilotJobs("FAILED");
+      all = res.jobs || [];
+    } catch {
+      // fall back to whatever's currently loaded
+    }
     const prompt = [
       "Investigate and propose a safe fix for these CareerOS job-application failures.",
       "Do not submit any application. Diagnose the form-filling or confirmation issue from the supplied evidence.",
       "",
-      ...failedList.map((job, index) => {
+      ...all.map((job, index) => {
         const evidence = job.submissionEvidence || {};
         return [
           `${index + 1}. ${job.company || "Unknown company"} — ${job.title || "Unknown role"}`,
@@ -191,7 +247,7 @@ export function FailedJobsCenter({ onReprocessSuccess, onOpenPrep }: { onReproce
 
     try {
       await navigator.clipboard.writeText(prompt);
-      setSuccessMsg(`Copied ${failedList.length} failure${failedList.length === 1 ? "" : "s"} as an AI-ready prompt.`);
+      setSuccessMsg(`Copied ${all.length} failure${all.length === 1 ? "" : "s"} as an AI-ready prompt.`);
       setTimeout(() => setSuccessMsg(null), 3000);
     } catch {
       setError("Could not copy the troubleshooting prompt. Please try again.");
@@ -202,22 +258,22 @@ export function FailedJobsCenter({ onReprocessSuccess, onOpenPrep }: { onReproce
     setReprocessing(true);
     setError(null);
     const url = job.applicationUrl || job.listingUrl;
-    
-    // Immediately open in a new window/tab so user is never blocked or left with just a text message
-    if (url) {
-      window.open(url, "_blank", "noopener,noreferrer");
-    }
 
     try {
       const rawJobId = String(job.jobId || job.id || "");
       const cleanJobId = rawJobId.replace(/[^a-zA-Z0-9_]+/g, "_").replace(/^_+|_+$/g, "");
       const appId = `app_${cleanJobId}`.slice(0, 120);
-      
-      // Also request backend open-review to launch playwright/autofill in background if active
+
+      // Only open one window: the automation-controlled Chrome window on
+      // success. A separate raw window.open() tab used to fire unconditionally
+      // alongside it, leaving two windows open per click with only one of
+      // them ever getting autofilled — the plain tab is now only a fallback
+      // for when the automated open genuinely fails.
       const result = await openApplicationReview(appId, { force: true }).catch(() => null);
       if (result?.success) {
         setSuccessMsg(`Opened "${job.title}" in a browser window with autofilled profile data. Review and click Submit!`);
       } else if (url) {
+        window.open(url, "_blank", "noopener,noreferrer");
         setSuccessMsg(`Opened "${job.title}" in a browser tab.`);
       } else {
         throw new Error("No application URL available for this job.");
@@ -225,6 +281,7 @@ export function FailedJobsCenter({ onReprocessSuccess, onOpenPrep }: { onReproce
       setTimeout(() => setSuccessMsg(null), 5000);
     } catch (err: any) {
       if (url) {
+        window.open(url, "_blank", "noopener,noreferrer");
         setSuccessMsg(`Opened "${job.title}" in a browser tab.`);
         setTimeout(() => setSuccessMsg(null), 4000);
       } else {
@@ -255,7 +312,7 @@ export function FailedJobsCenter({ onReprocessSuccess, onOpenPrep }: { onReproce
 
         <div className="mt-5 flex flex-wrap items-center gap-2">
           <span className="rounded-full bg-rose-300/10 px-3 py-1.5 text-xs font-medium text-rose-200">
-            {failedList.length} require review
+            {totalCount} require review
           </span>
           {failedList.length > 0 && (
             <button
@@ -312,7 +369,8 @@ export function FailedJobsCenter({ onReprocessSuccess, onOpenPrep }: { onReproce
         </div>
       ) : (
         <div className="flex items-start gap-4">
-        <div className="aa-queue-grid flex-1 min-w-0">
+        <div className="flex-1 min-w-0 flex flex-col gap-4">
+        <div className="aa-queue-grid">
           {failedList.map((job) => {
             const queueApp: QueueApplication = {
               id: job.id,
@@ -487,6 +545,16 @@ export function FailedJobsCenter({ onReprocessSuccess, onOpenPrep }: { onReproce
               </div>
             );
           })}
+        </div>
+
+        {failedList.length > 0 && hasMore && (
+          <div ref={sentinelRef} className="flex items-center justify-center py-6">
+            <div className="flex items-center gap-2 text-xs text-slate-400">
+              <IconRefresh className="w-4 h-4 animate-spin text-rose-300" />
+              <span>{loadingMore ? "Loading more applications..." : "Scroll for more"}</span>
+            </div>
+          </div>
+        )}
         </div>
 
         {/* Right detail panel — full, untruncated error for the selected application */}

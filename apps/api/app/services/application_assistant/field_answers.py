@@ -306,6 +306,7 @@ def reclassify_draft_fields(
             name=str(field.get("name") or ""),
             field_id=str(field.get("fieldId") or field.get("id") or ""),
             selector_hint=str(field.get("selectorHint") or ""),
+            options=field.get("options"),
         )
         if classification == AnswerClassification.VERIFIED:
             field.update(

@@ -28,6 +28,7 @@ export type QueueApplication = {
   matchScore?: number;
   updatedAt: string;
   resumeId?: string;
+  resumeFileUsed?: string;
   jobLocation?: string;
   workplaceType?: string;
   errors: { error?: string; type?: string }[];
@@ -650,6 +651,21 @@ export function ApplicationQueueCard({
                 {location && <li>Location · {location}</li>}
                 {workplace && <li>Workplace · {workplace}</li>}
                 {app.resumeId && <li>Resume · {app.resumeId}</li>}
+                {app.resumeFileUsed && (
+                  <li>
+                    Resume ·{" "}
+                    <a
+                      href={`/api/backend/application-assistant/autopilot/jobs/${app.id}/resume`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      onClick={(event) => event.stopPropagation()}
+                      style={{ color: "#2ee8c9", textDecoration: "underline" }}
+                      title="Open the exact resume PDF submitted for this application"
+                    >
+                      {app.resumeFileUsed}
+                    </a>
+                  </li>
+                )}
                 <li>{isSubmitted ? "Submitted" : "Last updated"} · {updated || "Recently"}</li>
                 {app.quickApplyAvailable && <li>Saved application state available</li>}
               </ul>

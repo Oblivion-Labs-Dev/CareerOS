@@ -824,10 +824,25 @@ export function fillCheckbox(element: HTMLInputElement, value: string): boolean 
 
   if (element.checked === shouldCheck) return true;
 
-  element.checked = shouldCheck;
-  element.dispatchEvent(new Event('click', { bubbles: true }));
-  element.dispatchEvent(new Event('change', { bubbles: true }));
-  element.dispatchEvent(new Event('input', { bubbles: true }));
+  // Assigning .checked directly bypasses React's internal value tracker, so a
+  // controlled checkbox can silently revert it on the next render — the same
+  // class of bug already fixed in CareerOS's backend Playwright autofill.
+  // Use the native property setter and a real pointer/mouse event sequence,
+  // matching the radio-button fill path (fillCustomRadios) above.
+  const checkedSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'checked')?.set;
+  if (checkedSetter) {
+    checkedSetter.call(element, shouldCheck);
+  } else {
+    element.checked = shouldCheck;
+  }
+
+  const doc = element.ownerDocument;
+  const eventTypes = ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click', 'input', 'change'];
+  eventTypes.forEach((type) => {
+    element.dispatchEvent(
+      new MouseEvent(type, { bubbles: true, cancelable: true, view: doc.defaultView || window, button: 0 })
+    );
+  });
   return element.checked === shouldCheck;
 }
 

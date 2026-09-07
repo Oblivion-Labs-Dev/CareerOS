@@ -446,6 +446,19 @@ def create_llm_client(settings: dict[str, Any]) -> LLMClient:
 
     Defaults to local Mistral via Ollama, automatically falling back to
     Gemini Flash when Mistral is unreachable or every retry fails.
+
+    Measured on this deployment's hardware (2026-09-05): mistral-small3.2:24b
+    only fits ~5.85GB of its 16GB weights in VRAM, so most layers run on CPU —
+    291 output tokens measured at 110s (~2.6 tok/s). A typical tailoring
+    completion (several hundred tokens of structured JSON) will always exceed
+    even a generous single-attempt timeout, so retrying it (`max_retries`,
+    each a full `timeout`-second wait) before falling back to Gemini doesn't
+    add resilience, it only adds 1-2x `timeout` seconds of guaranteed-to-fail
+    waiting per job — which is what was pushing whole submission attempts
+    (bounded at 90s in execute_live_playwright_submission) past their own
+    timeout and into repeated NAVIGATION_TIMEOUT failures. The primary client
+    retries 0 times and falls back to Gemini immediately on its first miss;
+    the fallback keeps normal retries for genuine transient network blips.
     """
     llm_config = settings.get("llm", {})
     base_url, model, api_key = _resolve_llm_config(llm_config, default_model="mistral-small3.2:24b")
@@ -455,12 +468,13 @@ def create_llm_client(settings: dict[str, Any]) -> LLMClient:
     fallback = None if "gemini" in model.lower() else _build_gemini_fallback(
         timeout=timeout, max_retries=max_retries, confidence_threshold=confidence_threshold
     )
+    primary_max_retries = 0 if fallback is not None else max_retries
     return LLMClient(
         base_url=base_url,
         model=model,
         api_key=api_key,
         timeout=timeout,
-        max_retries=max_retries,
+        max_retries=primary_max_retries,
         confidence_threshold=confidence_threshold,
         fallback=fallback,
     )
@@ -483,12 +497,15 @@ def create_mapping_client(settings: dict[str, Any]) -> LLMClient:
     fallback = None if "gemini" in model.lower() else _build_gemini_fallback(
         timeout=timeout, max_retries=max_retries, confidence_threshold=confidence_threshold
     )
+    # See create_llm_client: retrying the measured-too-slow local model before
+    # falling back to Gemini only adds guaranteed-to-fail wait time, not resilience.
+    primary_max_retries = 0 if fallback is not None else max_retries
     return LLMClient(
         base_url=base_url,
         model=model,
         api_key=api_key,
         timeout=timeout,
-        max_retries=max_retries,
+        max_retries=primary_max_retries,
         confidence_threshold=confidence_threshold,
         fallback=fallback,
     )

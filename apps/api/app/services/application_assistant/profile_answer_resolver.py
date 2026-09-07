@@ -342,16 +342,25 @@ def _resolve_city(res: AnswerResolution, profile: dict, opts: list[str]) -> None
     _resolve_from_profile(res, profile, opts, "city", fallback=city_fallback)
 
 def _resolve_state(res: AnswerResolution, profile: dict, opts: list[str]) -> None:
-    _resolve_from_profile(res, profile, opts, "state", fallback="Washington")
+    # Profiles store street-level detail under customFields (a separate
+    # sub-object), not as flat top-level keys — a plain profile_key="state"
+    # lookup always missed, same class of bug already fixed for city above.
+    custom = profile.get("customFields") or {}
+    state_fallback = str(custom.get("state") or "").strip() or "Washington"
+    _resolve_from_profile(res, profile, opts, "state", fallback=state_fallback)
 
 def _resolve_country(res: AnswerResolution, profile: dict, opts: list[str]) -> None:
     _resolve_from_profile(res, profile, opts, "country", fallback="United States")
 
 def _resolve_zip(res: AnswerResolution, profile: dict, opts: list[str]) -> None:
-    _resolve_from_profile(res, profile, opts, "zip")
+    custom = profile.get("customFields") or {}
+    zip_fallback = str(custom.get("zip") or custom.get("postalCode") or "").strip() or None
+    _resolve_from_profile(res, profile, opts, "zip", fallback=zip_fallback)
 
 def _resolve_address(res: AnswerResolution, profile: dict, opts: list[str]) -> None:
-    _resolve_from_profile(res, profile, opts, "address")
+    custom = profile.get("customFields") or {}
+    addr_fallback = str(custom.get("addressLine1") or custom.get("street") or "").strip() or None
+    _resolve_from_profile(res, profile, opts, "address", fallback=addr_fallback)
 
 def _resolve_current_company(res: AnswerResolution, profile: dict, opts: list[str]) -> None:
     _resolve_from_profile(res, profile, opts, "currentCompany")
@@ -444,18 +453,30 @@ def _resolve_sponsorship_required(res: AnswerResolution, profile: dict, opts: li
     requires = wa["requiresSponsorshipNowOrFuture"]
     if opts:
         if requires:
-            # Check for US-specific visa options first if located in US
-            us_match = None
-            for opt in opts:
-                opt_lower = opt.lower()
-                if "yes" in opt_lower and any(w in opt_lower for w in ["us", "u.s.", "united states", "h-1b", "h1b"]):
-                    us_match = opt
-                    break
-            if us_match:
-                res.answer = us_match
+            # "Will you require sponsorship?" only tells us the candidate will
+            # need it at some point — it says nothing about which specific
+            # visa type they'd need, or whether they already hold one. Only
+            # ever pick a visa-type-specific option (H-1B, F-1/CPT/OPT, etc.)
+            # when the profile itself names that type; otherwise asserting
+            # "I am on an H-1B visa" (or any other specific status) would be
+            # a fabricated factual claim, not an honest "yes".
+            visa_type = str(wa.get("authorizationType") or "").lower()
+            specific_match = None
+            if visa_type:
+                for opt in opts:
+                    if visa_type in opt.lower():
+                        specific_match = opt
+                        break
+            if specific_match:
+                res.answer = specific_match
             else:
-                matched = _match_option(opts, "Yes")
-                res.answer = matched or "Yes"
+                # Prefer a plain "Yes" option; only fall back to a
+                # visa-specific-sounding option if that's genuinely all
+                # that's offered, and even then prefer a generic catch-all
+                # ("Other") over guessing a specific visa type.
+                generic_yes = next((o for o in opts if o.strip().lower() == "yes"), None)
+                other_opt = next((o for o in opts if o.strip().lower() == "other"), None)
+                res.answer = generic_yes or other_opt or (_match_option(opts, "Yes") or "Yes")
         else:
             matched = _match_option(opts, "No")
             res.answer = matched or "No"
@@ -507,6 +528,56 @@ def _resolve_citizenship(res: AnswerResolution, profile: dict, opts: list[str]) 
     res.profile_key = "workAuth.usCitizen"
     res.source_value = wa["usCitizen"]
     res.confidence = 1.0
+
+
+def _resolve_sanctioned_countries(res: AnswerResolution, profile: dict, opts: list[str]) -> None:
+    """OFAC sanctioned-country citizenship/residency question (Cuba, Iran,
+    North Korea, Syria, Crimea). No profile field tracks this because it's
+    never true for any candidate in practice — answer "No" directly rather
+    than routing through the unrelated US-citizenship question/resolver.
+    """
+    answer = "No"
+    if opts:
+        matched = _match_option(opts, answer)
+        res.answer = matched or answer
+        res.resolution_method = PROFILE_OPTION_MAPPING if matched else DETERMINISTIC_RULE
+    else:
+        res.answer = answer
+        res.resolution_method = DETERMINISTIC_RULE
+    res.confidence = 0.95
+
+
+def _resolve_government_conflict(res: AnswerResolution, profile: dict, opts: list[str]) -> None:
+    """"Have you been involved in procurement/contract award activities as a
+    government employee?"-style conflict-of-interest checks. Same "No"
+    answer already given for this exact concept elsewhere via screeningAnswers.
+    """
+    answer = "No"
+    if opts:
+        matched = _match_option(opts, answer)
+        res.answer = matched or answer
+        res.resolution_method = PROFILE_OPTION_MAPPING if matched else DETERMINISTIC_RULE
+    else:
+        res.answer = answer
+        res.resolution_method = DETERMINISTIC_RULE
+    res.confidence = 0.95
+
+
+def _resolve_ai_agent_disclosure(res: AnswerResolution, profile: dict, opts: list[str]) -> None:
+    """"Select Yes if you are an AI agent applying on behalf of a
+    candidate"-style questions. Answered honestly: this genuinely is an AI
+    agent submitting the application, so "Yes" is the factually correct
+    answer, not a guess or a fabrication.
+    """
+    answer = "Yes"
+    if opts:
+        matched = _match_option(opts, answer)
+        res.answer = matched or answer
+        res.resolution_method = PROFILE_OPTION_MAPPING if matched else DETERMINISTIC_RULE
+    else:
+        res.answer = answer
+        res.resolution_method = DETERMINISTIC_RULE
+    res.confidence = 0.98
 
 
 def _resolve_export_control(res: AnswerResolution, profile: dict, opts: list[str]) -> None:
@@ -730,13 +801,59 @@ def _resolve_sexual_orientation(res: AnswerResolution, profile: dict, opts: list
 def _resolve_pronouns(res: AnswerResolution, profile: dict, opts: list[str]) -> None:
     _resolve_from_profile(res, profile, opts, "pronouns", fallback="Prefer not to say")
 
+def _find_negative_option(opts: list[str], keyword: str) -> str | None:
+    """Find a real option that answers 'no' about `keyword` (e.g. veteran,
+    disability), for forms that phrase the standard EEOC negative response
+    differently than our own default fallback text.
+
+    _resolve_from_profile's fallback matching (pick_best_matching_option)
+    requires a substring/synonym/exact match scoring >= 70 — a fixed default
+    like "I am not a protected veteran" scores 0 against real-world phrasing
+    like "No, I am not a veteran" (neither string contains the other), so the
+    literal, non-matching fallback text was being recorded as the "resolved"
+    answer even though it corresponds to no real option on the page — leaving
+    the field permanently unfillable and unmatched at click time.
+    """
+    keyword = keyword.lower()
+    for opt in opts:
+        low = opt.lower()
+        if keyword in low and re.search(r"\bno\b|\bnot\b", low):
+            return opt
+    return None
+
+
 def _resolve_veteran(res: AnswerResolution, profile: dict, opts: list[str]) -> None:
-    _resolve_from_profile(res, profile, opts, "veteran",
-                          fallback=APPLICATION_FIELD_DEFAULTS.get("veteran", "I am not a protected veteran"))
+    fallback = APPLICATION_FIELD_DEFAULTS.get("veteran", "I am not a protected veteran")
+    _resolve_from_profile(res, profile, opts, "veteran", fallback=fallback)
+    if opts and res.answer and res.answer.strip().lower() not in [o.strip().lower() for o in opts]:
+        negative = _find_negative_option(opts, "veteran")
+        if negative:
+            res.answer = negative
 
 def _resolve_disability(res: AnswerResolution, profile: dict, opts: list[str]) -> None:
-    _resolve_from_profile(res, profile, opts, "disability",
-                          fallback=APPLICATION_FIELD_DEFAULTS.get("disability", "No, I don't have a disability"))
+    fallback = APPLICATION_FIELD_DEFAULTS.get("disability", "No, I don't have a disability")
+    _resolve_from_profile(res, profile, opts, "disability", fallback=fallback)
+    if opts and res.answer and res.answer.strip().lower() not in [o.strip().lower() for o in opts]:
+        negative = _find_negative_option(opts, "disab")
+        if negative:
+            res.answer = negative
+
+
+def _resolve_first_gen_professional(res: AnswerResolution, profile: dict, opts: list[str]) -> None:
+    """"First-generation professional" is a voluntary self-identification
+    question about the candidate's own family/career history, not a fact the
+    profile records — answering "Yes" or "No" without knowing the truth would
+    be a fabrication. Declining is the only honest default absent explicit
+    profile data.
+    """
+    value = profile.get("firstGenerationProfessional")
+    if value is not None and str(value).strip():
+        _resolve_from_profile(res, profile, opts, "firstGenerationProfessional")
+        return
+    decline = _find_decline_option(opts) if opts else None
+    res.answer = decline or ("I don't wish to answer" if not opts else opts[-1])
+    res.resolution_method = DETERMINISTIC_RULE
+    res.confidence = 0.9
 
 
 # ── Misc resolvers ───────────────────────────────────────────────────────────
@@ -758,8 +875,89 @@ def _resolve_how_heard(res: AnswerResolution, profile: dict, opts: list[str]) ->
     res.confidence = 0.9
 
 
+def _resolve_company_familiarity(res: AnswerResolution, profile: dict, opts: list[str]) -> None:
+    """"How familiar were you with [Company] before applying?"-style survey
+    question. The most honest answer for an application sourced through
+    automated job discovery is the option describing learning about the
+    company through the posting itself, not a claim of prior familiarity we
+    have no basis for.
+    """
+    default = "I learned about the company through this job posting"
+    if opts:
+        posting_opt = next((o for o in opts if re.search(r"job\s*posting|recruiter", o, re.IGNORECASE)), None)
+        heard_opt = next((o for o in opts if re.search(r"heard.*didn.?t\s*know|somewhat\s*familiar", o, re.IGNORECASE)), None)
+        res.answer = posting_opt or heard_opt or opts[0]
+        res.resolution_method = DETERMINISTIC_RULE
+    else:
+        res.answer = default
+        res.resolution_method = DETERMINISTIC_RULE
+    res.confidence = 0.85
+
+
 def _resolve_relocate(res: AnswerResolution, profile: dict, opts: list[str]) -> None:
-    _resolve_from_profile(res, profile, opts, "relocate", fallback="Yes")
+    # "Are you willing to relocate?" and "Will you REQUIRE relocation
+    # (assistance)?" are opposite-direction questions that both match the
+    # same "relocat" classifier pattern — a candidate open to relocating
+    # does NOT require the company to relocate them, so blindly answering
+    # "Yes" to both is wrong for the "require" phrasing specifically.
+    q_low = (res.question or "").lower()
+    requires_relocation_assistance = bool(re.search(r"\brequire\b.{0,15}relocat", q_low))
+    fallback = "No" if requires_relocation_assistance else "Yes"
+    _resolve_from_profile(res, profile, opts, "relocate", fallback=fallback)
+
+def _resolve_work_arrangement(res: AnswerResolution, profile: dict, opts: list[str]) -> None:
+    """Hybrid / remote / onsite schedule questions — the candidate is open to any."""
+    stored = str(profile.get("workArrangement") or "").strip()
+    if not opts:
+        res.answer = stored or "Yes"
+        res.resolution_method = PROFILE_EXACT if stored else DETERMINISTIC_RULE
+        res.confidence = 0.9 if stored else 0.7
+        return
+
+    # Prefer an explicit "open to anything" option when the form offers one.
+    for keyword in ("flexible", "no preference", "open to all", "open to any", "either", "any of the above"):
+        matched = _match_option(opts, keyword)
+        if matched:
+            res.answer = matched
+            res.resolution_method = PROFILE_OPTION_MAPPING
+            res.confidence = 0.95
+            return
+
+    if stored:
+        matched = _match_option(opts, stored)
+        if matched:
+            res.answer = matched
+            res.resolution_method = PROFILE_OPTION_MAPPING
+            res.confidence = 0.9
+            return
+
+    # A plain Yes/No question ("are you open to hybrid, 3 days/week?") — being
+    # open to all arrangements means yes to whichever specific one is asked.
+    matched_yes = _match_option(opts, "Yes")
+    if matched_yes:
+        res.answer = matched_yes
+        res.resolution_method = DETERMINISTIC_RULE
+        res.confidence = 0.9
+        return
+
+    # A genuine single-choice among Remote/Hybrid/Onsite with no umbrella
+    # option isn't answerable from "open to all" alone — leave it for review
+    # rather than guessing which one this specific listing wants to hear.
+
+def _resolve_timezone_availability(res: AnswerResolution, profile: dict, opts: list[str]) -> None:
+    """"Are you ok working Eastern/Central Time?"-style questions — the
+    candidate is generally flexible on core-hours overlap, same spirit as
+    being open to any work arrangement.
+    """
+    answer = "Yes"
+    if opts:
+        matched = _match_option(opts, answer)
+        res.answer = matched or answer
+        res.resolution_method = PROFILE_OPTION_MAPPING if matched else DETERMINISTIC_RULE
+    else:
+        res.answer = answer
+        res.resolution_method = DETERMINISTIC_RULE
+    res.confidence = 0.85
 
 def _resolve_salary(res: AnswerResolution, profile: dict, opts: list[str]) -> None:
     _resolve_from_profile(res, profile, opts, "salaryExpectations", fallback="Open / Negotiable")
@@ -774,8 +972,18 @@ def _resolve_sms_consent(res: AnswerResolution, profile: dict, opts: list[str]) 
 def _resolve_english_proficiency(res: AnswerResolution, profile: dict, opts: list[str]) -> None:
     target = "Fluent"
     if opts:
-        matched = _match_option(opts, target) or _match_option(opts, "Professional") or _match_option(opts, "Native")
-        res.answer = matched or target
+        # Some forms (observed on Sezzle) offer bare CEFR codes (A1-C2)
+        # instead of descriptive text — "Fluent"/"Professional"/"Native"
+        # share no substring with "C2", so the descriptive-text match below
+        # always missed and left the field unresolved. C2 is the correct
+        # CEFR level for a fluent/native-equivalent self-assessment.
+        cefr_opts = {o.strip().upper() for o in opts}
+        if cefr_opts & {"A1", "A2", "B1", "B2", "C1", "C2"}:
+            matched = _match_option(opts, "C2") or _match_option(opts, "C1")
+            res.answer = matched or target
+        else:
+            matched = _match_option(opts, target) or _match_option(opts, "Professional") or _match_option(opts, "Native")
+            res.answer = matched or target
     else:
         res.answer = target
     res.resolution_method = DETERMINISTIC_RULE
@@ -900,6 +1108,16 @@ def _resolve_tech_stack_experience(res: AnswerResolution, profile: dict, opts: l
         res.confidence = 1.0
         res.resolution_method = PROFILE_EXACT
 
+def _resolve_preferred_language(res: AnswerResolution, profile: dict, opts: list[str]) -> None:
+    default = "Python"
+    if opts:
+        res.answer = _match_option(opts, default) or default
+        res.resolution_method = PROFILE_OPTION_MAPPING
+    else:
+        res.answer = default
+        res.resolution_method = PROFILE_EXACT
+    res.confidence = 0.9
+
 def _resolve_unknown(res: AnswerResolution, profile: dict, opts: list[str]) -> None:
     """Unknown question type — leave unresolved for review or LLM."""
     res.answer = None
@@ -933,6 +1151,9 @@ _RESOLVERS: dict[QuestionType, Any] = {
     QuestionType.SPONSORSHIP_REQUIRED: _resolve_sponsorship_required,
     QuestionType.PERMANENT_WORK_AUTHORIZATION: _resolve_permanent_work_auth,
     QuestionType.CITIZENSHIP: _resolve_citizenship,
+    QuestionType.SANCTIONED_COUNTRIES: _resolve_sanctioned_countries,
+    QuestionType.GOVERNMENT_CONFLICT: _resolve_government_conflict,
+    QuestionType.AI_AGENT_DISCLOSURE: _resolve_ai_agent_disclosure,
     QuestionType.EXPORT_CONTROL: _resolve_export_control,
     QuestionType.SECURITY_CLEARANCE_ELIGIBILITY: _resolve_clearance_eligibility,
     QuestionType.SECURITY_CLEARANCE_LEVEL: _resolve_clearance_level,
@@ -944,8 +1165,12 @@ _RESOLVERS: dict[QuestionType, Any] = {
     QuestionType.RACE: _resolve_race,
     QuestionType.VETERAN_STATUS: _resolve_veteran,
     QuestionType.DISABILITY: _resolve_disability,
+    QuestionType.FIRST_GEN_PROFESSIONAL: _resolve_first_gen_professional,
     QuestionType.HOW_HEARD: _resolve_how_heard,
+    QuestionType.COMPANY_FAMILIARITY: _resolve_company_familiarity,
     QuestionType.RELOCATE: _resolve_relocate,
+    QuestionType.WORK_ARRANGEMENT: _resolve_work_arrangement,
+    QuestionType.TIMEZONE_AVAILABILITY: _resolve_timezone_availability,
     QuestionType.SALARY: _resolve_salary,
     QuestionType.NOTICE_PERIOD: _resolve_notice_period,
     QuestionType.SMS_CONSENT: _resolve_sms_consent,
@@ -961,5 +1186,6 @@ _RESOLVERS: dict[QuestionType, Any] = {
     QuestionType.TEST_SCORE: _resolve_test_score,
     QuestionType.LOCATION_CONFIRMATION: _resolve_location_confirmation,
     QuestionType.TECH_STACK_EXPERIENCE: _resolve_tech_stack_experience,
+    QuestionType.PREFERRED_LANGUAGE: _resolve_preferred_language,
     QuestionType.TRANSCRIPT: _resolve_transcript,
 }
