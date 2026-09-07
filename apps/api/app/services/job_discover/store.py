@@ -101,11 +101,9 @@ def _merge_jobs_into_snapshot(db: Session, updated_jobs: list[dict[str, Any]]) -
     if not updated_jobs:
         return
     snapshot = _load_snapshot(db)
-    by_id = {job["id"]: job for job in (snapshot.get("jobs") or []) if job.get("id")}
-    for job in updated_jobs:
-        if job.get("id"):
-            by_id[job["id"]] = job
-    snapshot["jobs"] = list(by_id.values())
+    from app.services.job_discover.dedup import cross_source_deduplicate
+    merged = cross_source_deduplicate((snapshot.get("jobs") or []) + updated_jobs)
+    snapshot["jobs"] = merged
     _persist_snapshot(db, snapshot)
 
 
@@ -166,6 +164,16 @@ def _normalize_scraped_job(raw: dict[str, Any]) -> dict[str, Any]:
         "verificationStatus": verified.get("verification_status"),
         "employmentType": verified.get("employment_type") or str(raw.get("employment_type") or "").strip(),
         "salaryRange": str(raw.get("salary_range") or raw.get("salaryRange") or ""),
+        "salaryMin": raw.get("salary_min") or raw.get("salaryMin"),
+        "salaryMax": raw.get("salary_max") or raw.get("salaryMax"),
+        "salaryCurrency": raw.get("salary_currency") or raw.get("salaryCurrency") or "USD",
+        "sourcePriority": raw.get("source_priority") or raw.get("sourcePriority") or 50,
+        "sourceQuality": raw.get("source_quality") or raw.get("sourceQuality") or 50,
+        "jobStatus": raw.get("job_status") or raw.get("jobStatus") or "ACTIVE",
+        "firstSeenAt": verified.get("first_seen_date") or raw.get("first_seen_at") or _utc_now(),
+        "lastSeenAt": verified.get("last_seen_date") or raw.get("last_seen_at") or _utc_now(),
+        "missingConsecutiveRuns": raw.get("missing_consecutive_runs") or raw.get("missingConsecutiveRuns") or 0,
+        "closedAt": raw.get("closed_at") or raw.get("closedAt"),
         "scrapedAt": verified.get("last_seen_date") or _utc_now(),
         "relevancyScore": 0,
         "keywordsMatched": [],
@@ -279,10 +287,8 @@ def _attach_heuristic_gaps(
 
 
 def _merge_jobs(existing: list[dict[str, Any]], incoming: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    by_id = {job["id"]: job for job in existing if job.get("id")}
-    for job in incoming:
-        by_id[job["id"]] = job
-    return list(by_id.values())
+    from app.services.job_discover.dedup import cross_source_deduplicate
+    return cross_source_deduplicate(existing + incoming)
 
 
 def _read_snapshot_file() -> dict[str, Any] | None:

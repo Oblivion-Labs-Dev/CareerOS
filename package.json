@@ -30,6 +30,7 @@
     "test:api": "cd apps/api && python -m pytest tests -q",
     "test:web": "pnpm --filter @career-os/web test:e2e",
     "test:repair": "cd tools/repair-orchestrator && python -m pytest tests -q",
+    "jobs:smoke": "apps/api/.venv/Scripts/python tools/smoke_job_ingestion.py",
     "ci": "node scripts/ci-run.mjs",
     "ci:typecheck": "pnpm --filter @career-os/core build && pnpm typecheck",
     "ci:extension-unit": "pnpm --filter @career-os/extension test",

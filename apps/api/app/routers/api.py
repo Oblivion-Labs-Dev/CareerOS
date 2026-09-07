@@ -425,6 +425,16 @@ async def discover_company_source(payload: CompanyDiscoverPayload) -> dict[str, 
         }
 
 
+@router.get("/jobs/discover/sources/health")
+def job_sources_health() -> dict[str, Any]:
+    """Phase 19 Observability: Return runtime health status for all registered JobSourceAdapters."""
+    from app.services.job_discover.aggregation import job_aggregation_service
+    return {
+        "success": True,
+        "sources": job_aggregation_service.get_health_summary(),
+    }
+
+
 @router.get("/jobs/discover/status")
 def job_discover_status(db: Session = Depends(db_session)) -> dict[str, Any]:
     status = job_discover.get_status()

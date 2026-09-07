@@ -1159,6 +1159,22 @@ async def scrape_jobs(
             scrape_remotive(client, compiled, cutoff, role_keys, max_results=200)
         ))
 
+        # Jobicy (free remote jobs API, no API key)
+        from app.services.job_discover.sources.jobicy import JobicySource
+        jobicy_adapter = JobicySource()
+        task_labels.append("jobicy/all")
+        coros.append(run_with_sem(
+            jobicy_adapter.fetch_jobs(client, compiled_patterns=compiled, cutoff=cutoff, role_keys=role_keys)
+        ))
+
+        # Hacker News 'Who is Hiring?' (free Algolia API, no API key)
+        from app.services.job_discover.sources.hackernews import HackerNewsSource
+        hn_adapter = HackerNewsSource()
+        task_labels.append("hackernews/whoishiring")
+        coros.append(run_with_sem(
+            hn_adapter.fetch_jobs(client, compiled_patterns=compiled, cutoff=cutoff, role_keys=role_keys)
+        ))
+
         progress_total[0] = len(coros)
 
         # Run all concurrently
@@ -1166,7 +1182,11 @@ async def scrape_jobs(
 
         for result in results:
             if isinstance(result, list):
-                all_jobs.extend(result)
+                for item in result:
+                    if hasattr(item, "to_dict"):
+                        all_jobs.append(item.to_dict())
+                    elif isinstance(item, dict):
+                        all_jobs.append(item)
 
     # Filter to US-only locations and sort by recency
     us_jobs = [j for j in all_jobs if is_us_location(j.get("location", ""))]
