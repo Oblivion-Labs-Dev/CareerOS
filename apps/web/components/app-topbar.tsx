@@ -11,7 +11,7 @@ import { ThemeMorphButton } from "@/components/ui/theme-morph-button";
 
 const DIRECT_ACTIONS = [
   { label: "Open dashboard", href: "/dashboard", detail: "Dashboard" },
-  { label: "Open job scraper", href: "/jobs/discover", detail: "Job Scraper" },
+  { label: "Browse jobs", href: "/jobs/discover", detail: "Browse Jobs" },
   { label: "Open AI Assistant", href: "/application-assistant", detail: "AI Assistant" },
   { label: "Edit profile", href: "/profile", detail: "Profile" },
 ];

@@ -1699,10 +1699,14 @@ export function JobDiscoverDashboard() {
           </label>
           <label>
             Sort
-            <select value={sort} onChange={(event) => { setSort(event.target.value as SortFilter); setPage(1); }}>
-              <option value="relevancy">Best match</option>
-              <option value="date">Newest</option>
-              <option value="company">Company</option>
+            <select
+              value={sort}
+              onChange={(event) => { setSort(event.target.value as SortFilter); setPage(1); }}
+              aria-label="Sort jobs"
+            >
+              <option value="relevancy">⚡ Best Match</option>
+              <option value="date">🕒 Most Recent</option>
+              <option value="company">🏢 Company Name</option>
             </select>
           </label>
           <label>
@@ -1988,63 +1992,129 @@ export function JobDiscoverDashboard() {
               </div>
             ) : null}
 
-          <div className="data-list">
-            {visibleJobs.map((job, index) => {
-              const signals = triageSignals({ id: job.id, title: job.title, url: job.url, updatedAt: job.updatedAt });
-              const rowNumber = (page - 1) * perPage + index + 1;
-              const inPrepQueue = Boolean(queuedStarts[job.id]);
-              const isAdding = addingToAssistant === job.id;
-              const queueFull = (prepQueue?.available ?? 1) <= 0;
-              const isSelected = selectedJobIds.has(job.id);
-              const gapPercent = Math.round(
-                job.gapAnalysis?.gapPercent ?? Math.max(0, 100 - (job.relevancyScore ?? 0)),
-              );
-              return (
-              <div className={`data-row target-job-row job-discover-row${isSelected ? " job-discover-row--selected" : ""}`} key={job.id}>
-                <div style={{ display: "flex", alignItems: "center", paddingRight: "0.4rem" }}>
-                  <input
-                    type="checkbox"
-                    checked={isSelected}
-                    onChange={() => toggleSelectJob(job.id)}
-                    title="Select role for batch AI Prep"
-                    style={{ width: "1.15rem", height: "1.15rem", cursor: "pointer", accentColor: "#62ddc5" }}
-                  />
-                </div>
-                <div className="job-discover-row-main">
-                  <div className="job-discover-match-scores">
-                    <span className={scoreClass(job.color)} title="Fit score from your profile and uploaded resume">
-                      {job.relevancyScore ?? 0}%
+            {/* Quick Sort Bar */}
+            <div
+              className="job-discover-sort-bar"
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                flexWrap: "wrap",
+                gap: "0.5rem",
+                marginBlock: "0.5rem 0.75rem",
+                padding: "0.5rem 0.85rem",
+                backgroundColor: "var(--bg-elevated, #11161d)",
+                border: "1px solid var(--border, rgba(166, 181, 201, 0.16))",
+                borderRadius: "10px",
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: "0.45rem", flexWrap: "wrap" }}>
+                <span className="muted text-sm" style={{ fontWeight: 600 }}>Sort:</span>
+                <button
+                  type="button"
+                  className={`btn btn-xs ${sort === "relevancy" ? "btn-primary" : "btn-secondary"}`}
+                  onClick={() => { setSort("relevancy"); setPage(1); }}
+                >
+                  ⚡ Best Match
+                </button>
+                <button
+                  type="button"
+                  className={`btn btn-xs ${sort === "date" ? "btn-primary" : "btn-secondary"}`}
+                  onClick={() => { setSort("date"); setPage(1); }}
+                >
+                  🕒 Most Recent
+                </button>
+                <button
+                  type="button"
+                  className={`btn btn-xs ${sort === "company" ? "btn-primary" : "btn-secondary"}`}
+                  onClick={() => { setSort("company"); setPage(1); }}
+                >
+                  🏢 Company
+                </button>
+              </div>
+              <span className="muted text-sm">
+                Showing {Math.min((page - 1) * perPage + 1, filteredTotal)}–{Math.min(page * perPage, filteredTotal)} of {filteredTotal.toLocaleString()} roles
+              </span>
+            </div>
+
+            <div className="cos-job-cards-grid" role="list">
+              {visibleJobs.map((job, index) => {
+                const signals = triageSignals({ id: job.id, title: job.title, url: job.url, updatedAt: job.updatedAt });
+                const rowNumber = (page - 1) * perPage + index + 1;
+                const inPrepQueue = Boolean(queuedStarts[job.id]);
+                const isAdding = addingToAssistant === job.id;
+                const queueFull = (prepQueue?.available ?? 1) <= 0;
+                const isSelected = selectedJobIds.has(job.id);
+                const gapPercent = Math.round(
+                  job.gapAnalysis?.gapPercent ?? Math.max(0, 100 - (job.relevancyScore ?? 0)),
+                );
+                return (
+                <article
+                  className={`cos-job-card${isSelected ? " cos-job-card--selected" : ""}`}
+                  key={job.id}
+                  role="listitem"
+                >
+                  {/* Card Header */}
+                  <div className="cos-job-card-header">
+                    <div style={{ display: "flex", alignItems: "flex-start", gap: "0.6rem", flex: 1, minWidth: 0 }}>
+                      <input
+                        type="checkbox"
+                        checked={isSelected}
+                        onChange={() => toggleSelectJob(job.id)}
+                        title="Select role for batch AI Prep"
+                        style={{ width: "1.15rem", height: "1.15rem", cursor: "pointer", accentColor: "#62ddc5", marginTop: "0.2rem" }}
+                      />
+                      <div className="cos-job-card-title-group">
+                        <div className="cos-job-card-company">
+                          <span>{job.companyName}</span>
+                          <span className="muted text-sm">· #{rowNumber}</span>
+                        </div>
+                        <h3 className="cos-job-card-title">
+                          <a href={job.url} target="_blank" rel="noreferrer">
+                            {job.title}
+                          </a>
+                        </h3>
+                      </div>
+                    </div>
+
+                    <div className="cos-job-card-scores">
+                      <span className={scoreClass(job.color)} title="Fit score from your profile and uploaded resume">
+                        {job.relevancyScore ?? 0}% match
+                      </span>
+                      {gapPercent > 0 ? (
+                        <button
+                          type="button"
+                          className="job-discover-gap-pill"
+                          onClick={() => void openGapPanel(job)}
+                          title="See what the job requires vs what's missing from your resume"
+                        >
+                          {gapPercent}% gap
+                        </button>
+                      ) : null}
+                    </div>
+                  </div>
+
+                  {/* Badges & Source */}
+                  <div style={{ display: "flex", alignItems: "center", gap: "0.35rem", flexWrap: "wrap", marginBlock: "0.25rem" }}>
+                    <span className="phase-pill" style={{ textTransform: "uppercase", fontSize: "0.7rem", fontWeight: 700 }}>
+                      {signals.ats !== "other" ? signals.ats : "ATS / Feed"}
                     </span>
-                    {gapPercent > 0 ? (
-                      <button
-                        type="button"
-                        className="job-discover-gap-pill"
-                        onClick={() => void openGapPanel(job)}
-                        title="See what the job requires vs what's missing from your resume"
-                      >
-                        {gapPercent}% gap
-                      </button>
+                    {signals.seniority ? (
+                      <span className="phase-pill" style={{ fontSize: "0.7rem" }}>
+                        {signals.seniority}
+                      </span>
+                    ) : null}
+                    {fitByJobId[job.id] ? (
+                      <span className="phase-pill" title="Multi-dimension fit score">
+                        {fitByJobId[job.id].verdict} · {fitByJobId[job.id].overallScore}
+                      </span>
+                    ) : null}
+                    {fitByJobId[job.id]?.legitimacy === "caution" ? (
+                      <span className="phase-pill" title="Posting legitimacy check">Review posting</span>
                     ) : null}
                   </div>
-                <a className="job-discover-row-link" href={job.url} target="_blank" rel="noreferrer">
-                  {fitByJobId[job.id] ? (
-                    <span className="phase-pill" title="Multi-dimension fit score">
-                      {fitByJobId[job.id].verdict} · {fitByJobId[job.id].overallScore}
-                    </span>
-                  ) : null}
-                  {fitByJobId[job.id]?.legitimacy === "caution" ? (
-                    <span className="phase-pill" title="Posting legitimacy check">Review posting</span>
-                  ) : null}
-                  {fitByJobId[job.id]?.legitimacy === "suspicious" ? (
-                    <span className="phase-pill" title="Posting legitimacy check">Caution</span>
-                  ) : null}
-                  <div>
-                    <h3>{job.title}</h3>
-                    <span>{job.companyName}</span>
-                    <span className="muted text-sm" style={{ display: "block", marginTop: "0.15rem" }}>
-                      {signals.seniority ? `${signals.seniority} · ` : ""}
-                      {signals.ats !== "other" ? signals.ats : "ATS"}
-                    </span>
+
+                  <div className="cos-job-card-badges">
                     <JobMetaBadges
                       location={job.location || undefined}
                       salaryRange={job.salaryRange}
@@ -2055,65 +2125,96 @@ export function JobDiscoverDashboard() {
                       h1bSignals={job.h1bSignals}
                       freshnessLabel={job.freshness?.label}
                     />
-                    {job.keywordsMatched?.length ? (
-                      <span className="job-discover-keywords">{job.keywordsMatched.slice(0, 6).join(" · ")}</span>
-                    ) : null}
                   </div>
-                </a>
-                </div>
-                <div className="job-discover-row-actions">
-                  <span className="job-discover-row-num" title="Position in review queue">#{rowNumber}</span>
-                  <ShortlistToggle jobId={job.id} shortlist={shortlist} onToggle={toggleShortlist} />
-                  <button
-                    type="button"
-                    className="btn btn-sm btn-secondary"
-                    onClick={() => void handleDismissJob(job)}
-                    title="Mark as not relevant and remove from review queue"
-                  >
-                    Not relevant
-                  </button>
-                  <button
-                    type="button"
-                    className="btn btn-sm btn-primary"
-                    onClick={() => void handleAddToAssistant(job)}
-                    disabled={isAdding || inPrepQueue || (queueFull && !inPrepQueue)}
-                    title={
-                      inPrepQueue
-                        ? "Already in prep queue"
-                        : queueFull
-                          ? "Prep queue is full"
-                          : "Launch 1-click AI Assistant Prep for this job"
-                    }
-                  >
-                    {isAdding ? "Starting…" : inPrepQueue ? "Queued" : "⚡ Launch AI Prep"}
-                  </button>
-                  <a className="btn btn-sm btn-primary" href={job.url} target="_blank" rel="noreferrer">
-                    Apply
-                  </a>
-                </div>
-              </div>
-              );
-            })}
-          </div>
-          </>
-        )}
 
-        {(data?.totalPages ?? 0) > 1 ? (
-          <div className="job-discover-pagination">
-            <button type="button" className="btn btn-sm btn-secondary" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>
-              Previous
-            </button>
-            <span className="muted">Page {page} of {data?.totalPages ?? 1}</span>
-            <button
-              type="button"
-              className="btn btn-sm btn-secondary"
-              disabled={page >= (data?.totalPages ?? 1)}
-              onClick={() => setPage((p) => p + 1)}
+                  {/* Keywords Preview */}
+                  {job.keywordsMatched?.length ? (
+                    <p className="cos-job-card-keywords">
+                      <strong>Matched skills:</strong> {job.keywordsMatched.slice(0, 8).join(" · ")}
+                    </p>
+                  ) : null}
+
+                  {/* Card Actions Footer */}
+                  <div className="cos-job-card-footer">
+                    <div style={{ display: "flex", alignItems: "center", gap: "0.35rem" }}>
+                      <ShortlistToggle jobId={job.id} shortlist={shortlist} onToggle={toggleShortlist} />
+                      <button
+                        type="button"
+                        className="btn btn-xs btn-secondary"
+                        onClick={() => void handleDismissJob(job)}
+                        title="Mark as not relevant and remove from review queue"
+                      >
+                        Hide
+                      </button>
+                    </div>
+
+                    <div className="cos-job-card-actions">
+                      <button
+                        type="button"
+                        className="btn btn-xs btn-primary"
+                        onClick={() => void handleAddToAssistant(job)}
+                        disabled={isAdding || inPrepQueue || (queueFull && !inPrepQueue)}
+                        title={
+                          inPrepQueue
+                            ? "Already in prep queue"
+                            : queueFull
+                              ? "Prep queue is full"
+                              : "Launch 1-click AI Assistant Prep for this job"
+                        }
+                        style={{
+                          background: "linear-gradient(135deg, #62ddc5 0%, #84cbe6 100%)",
+                          color: "#07130f",
+                          fontWeight: 700,
+                          border: 0,
+                        }}
+                      >
+                        {isAdding ? "Starting…" : inPrepQueue ? "Queued" : "⚡ AI Prep"}
+                      </button>
+                      <a className="btn btn-xs btn-secondary" href={job.url} target="_blank" rel="noreferrer">
+                        Apply ↗
+                      </a>
+                    </div>
+                  </div>
+                </article>
+                );
+              })}
+            </div>
+            </>
+          )}
+
+          {(data?.totalPages ?? 0) > 1 ? (
+            <div
+              className="job-discover-pagination"
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: "0.85rem",
+                marginTop: "1.5rem",
+                padding: "1rem",
+              }}
             >
-              Next
-            </button>
-          </div>
-        ) : null}
+              <button
+                type="button"
+                className="btn btn-sm btn-secondary"
+                disabled={page <= 1}
+                onClick={() => { setPage((p) => Math.max(1, p - 1)); window.scrollTo({ top: 350, behavior: "smooth" }); }}
+              >
+                ← Previous
+              </button>
+              <span className="muted" style={{ fontWeight: 600 }}>
+                Page {page} of {data?.totalPages ?? 1}
+              </span>
+              <button
+                type="button"
+                className="btn btn-sm btn-secondary"
+                disabled={page >= (data?.totalPages ?? 1)}
+                onClick={() => { setPage((p) => p + 1); window.scrollTo({ top: 350, behavior: "smooth" }); }}
+              >
+                Next →
+              </button>
+            </div>
+          ) : null}
       </section>
 
       <JobMatchGapPanel

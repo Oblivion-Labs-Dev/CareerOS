@@ -547,6 +547,7 @@ def list_discovered_jobs(
     company: str = Query(default=""),
     location: str = Query(default=""),
     role: str = Query(default=""),
+    source: str = Query(default="all"),
     freshness: str = Query(default="all"),
     sponsorship: str = Query(default="all"),
     sort: str = Query(default="relevancy"),
@@ -555,7 +556,7 @@ def list_discovered_jobs(
 ) -> dict[str, Any]:
     snapshot = job_discover.get_snapshot(db)
     freshness_filter = freshness if freshness in {"12", "24", "48", "72", "168", "336", "720", "all"} else "all"
-    sort_option = sort if sort in {"relevancy", "date", "company"} else "relevancy"
+    sort_option = sort if sort in {"relevancy", "date", "company", "recent", "most_recent"} else "relevancy"
     from app.services.application_assistant.scraper_import import get_synced_scraper_job_ids
 
     synced_ids = get_synced_scraper_job_ids(db)
@@ -570,6 +571,7 @@ def list_discovered_jobs(
         company=company,
         location=location,
         role=role,
+        source=source,
         freshness=freshness_filter,  # type: ignore[arg-type]
         sponsorship=sponsorship,
         sort=sort_option,  # type: ignore[arg-type]
@@ -577,6 +579,10 @@ def list_discovered_jobs(
         per_page=per_page,
     )
     total_pages = (total + per_page - 1) // per_page if per_page else 0
+    logger.info(
+        "[API] GET /jobs/discover: returned %d/%d jobs (page=%d, per_page=%d, q='%s', company='%s', loc='%s', source='%s', sort='%s')",
+        len(jobs), total, page, per_page, q, company, location, source, sort_option,
+    )
     return {
         "success": True,
         "jobs": jobs,

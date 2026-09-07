@@ -830,6 +830,7 @@ def filter_jobs(
     company: str = "",
     location: str = "",
     role: str = "",
+    source: str = "all",
     freshness: FreshnessOption = "all",
     sponsorship: str = "all",
     sort: SortOption = "relevancy",
@@ -864,6 +865,16 @@ def filter_jobs(
 
         filtered = [job for job in filtered if matches(job)]
 
+    if source and source != "all":
+        src_needle = source.lower().strip()
+        filtered = [
+            job for job in filtered
+            if src_needle in str(job.get("source") or "").lower()
+            or src_needle in str(job.get("canonicalSource") or "").lower()
+            or src_needle in str(job.get("sourceType") or "").lower()
+            or any(src_needle in str(ds).lower() for ds in (job.get("discoverySources") or []))
+        ]
+
     if freshness != "all":
         try:
             hours = int(freshness)
@@ -894,10 +905,20 @@ def filter_jobs(
                 if job.get("h1bStatus") in {"likely", "unknown", None, ""}
             ]
 
-    if sort == "company":
+    if sort in ("date", "recent", "most_recent"):
+        def _job_date_key(job: dict[str, Any]) -> str:
+            return str(
+                job.get("updatedAt")
+                or job.get("updated_at")
+                or job.get("firstPublished")
+                or job.get("first_published")
+                or job.get("first_seen_at")
+                or job.get("last_seen_at")
+                or ""
+            )
+        filtered.sort(key=_job_date_key, reverse=True)
+    elif sort == "company":
         filtered.sort(key=lambda job: (job.get("companyName", "").lower(), -(job.get("relevancyScore") or 0)))
-    elif sort == "date":
-        filtered.sort(key=lambda job: job.get("updatedAt") or "", reverse=True)
     else:
         filtered.sort(key=lambda job: job.get("relevancyScore") or 0, reverse=True)
 
@@ -905,6 +926,11 @@ def filter_jobs(
     start = max(page - 1, 0) * per_page
     end = start + per_page
     page_jobs = filtered[start:end]
+
+    logger.info(
+        "[BrowseJobs] filter_jobs: total=%d (page=%d, per_page=%d, returned=%d) | q='%s' company='%s' location='%s' role='%s' source='%s' sort='%s' freshness='%s'",
+        total, page, per_page, len(page_jobs), q, company, location, role, source, sort, freshness,
+    )
 
     enriched: list[dict[str, Any]] = []
     for job in page_jobs:

@@ -39,7 +39,7 @@ export const ALL_NAV_GROUPS: NavGroup[] = [
     label: "Intelligence Layer",
     items: [
       { href: "/applications", label: "AI Autopilot", icon: "applypilot", emoji: "⚡", requiresBackend: true, enabled: true },
-      { href: "/jobs/discover", label: "Job Scraper", icon: "jobs", emoji: "🔎", requiresBackend: true, enabled: true },
+      { href: "/jobs/discover", label: "Browse Jobs", icon: "jobs", emoji: "🔎", requiresBackend: true, enabled: true },
       { href: "/application-assistant", label: "AI Assistant", icon: "applypilot", emoji: "🤖", requiresBackend: true, enabled: true },
       { href: "/benchmarks", label: "LLM Benchmarks", icon: "evidence", emoji: "⚡", requiresBackend: true, enabled: true },
       { href: "/dev/dummy-job", label: "Dummy Job Test Bed", icon: "evidence", emoji: "🧪", requiresBackend: true, enabled: true },
@@ -107,7 +107,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { href: "/applications", label: "Autopilot", icon: "applypilot", requiresBackend: true, enabled: true },
       { href: "/applications?tab=inbox", label: "Inbox", icon: "applications", requiresBackend: true, enabled: true },
       { href: "/applications?tab=pipeline", label: "Pipeline", icon: "applications", requiresBackend: true, enabled: true },
-      { href: "/jobs/discover", label: "Job Discovery", icon: "search", requiresBackend: true, enabled: true },
+      { href: "/jobs/discover", label: "Browse Jobs", icon: "search", requiresBackend: true, enabled: true },
       { href: "/intelligence/auto-apply", label: "Auto Apply", icon: "applypilot", requiresBackend: true, enabled: true },
       { href: "/applications?tab=tracker", label: "All Applications", icon: "applications", requiresBackend: true, enabled: false },
       { href: "/applications?tab=review", label: "Review Center", icon: "review", requiresBackend: true, enabled: false },

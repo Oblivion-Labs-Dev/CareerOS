@@ -32,7 +32,7 @@ export function CareerWorkspaceStrip({ active }: CareerWorkspaceStripProps) {
           className={`career-workspace-chip${active === "discover" ? " career-workspace-chip--active" : ""}`}
           aria-current={active === "discover" ? "page" : undefined}
         >
-          <span className="career-workspace-chip-label">Job Scraper</span>
+          <span className="career-workspace-chip-label">Browse Jobs</span>
           <strong>{loading ? "…" : `${total.toLocaleString()} roles · ${strong} strong`}</strong>
         </Link>
         <Link
