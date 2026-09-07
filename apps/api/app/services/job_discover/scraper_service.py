@@ -991,12 +991,12 @@ async def scrape_jobs(
                    If None, scrape all companies in company_config.json.
         role_keys: Filter by role category ('pm', 'swe', 'ux', etc.).
                    If None, match all roles in ROLE_FILTERS.
-        hours: Only include jobs updated within this many hours (max 720 / 30 days).
+        hours: Only include jobs updated within this many hours (max 2160 / 90 days / 3 months).
         concurrency: Max concurrent HTTP requests.
         progress_callback: Called with (done, total) as scraping progresses.
     """
     config = load_config()
-    hours = max(1, min(int(hours), 720))
+    hours = max(1, min(int(hours), 2160))
     compiled = compile_role_patterns(role_keys)
     cutoff = datetime.now(UTC) - timedelta(hours=hours)
     sem = asyncio.Semaphore(concurrency)
@@ -1173,6 +1173,22 @@ async def scrape_jobs(
         task_labels.append("hackernews/whoishiring")
         coros.append(run_with_sem(
             hn_adapter.fetch_jobs(client, compiled_patterns=compiled, cutoff=cutoff, role_keys=role_keys)
+        ))
+
+        # Himalayas (live public API, 100k+ remote jobs)
+        from app.services.job_discover.sources.himalayas import HimalayasSource
+        himalayas_adapter = HimalayasSource()
+        task_labels.append("himalayas/all")
+        coros.append(run_with_sem(
+            himalayas_adapter.fetch_jobs(client, company="all", config={}, compiled_patterns=compiled, cutoff=cutoff, role_keys=role_keys)
+        ))
+
+        # WeWorkRemotely (live developer & devops RSS feeds)
+        from app.services.job_discover.sources.weworkremotely import WeWorkRemotelySource
+        wwr_adapter = WeWorkRemotelySource()
+        task_labels.append("weworkremotely/all")
+        coros.append(run_with_sem(
+            wwr_adapter.fetch_jobs(client, company="all", config={}, compiled_patterns=compiled, cutoff=cutoff, role_keys=role_keys)
         ))
 
         progress_total[0] = len(coros)

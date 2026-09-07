@@ -32,8 +32,8 @@ FreshnessOption = PostedAgoOption
 POSTED_AGO_HOURS = frozenset({12, 24, 48, 72, 168, 336, 720})
 ScrapeMode = Literal["ats", "bigtech", "apify", "all"]
 
-# Hard cap: never scrape or retain jobs older than 30 days.
-MAX_SCRAPE_HOURS = 720
+# Retention cap: keep jobs for 90 days (3 months).
+MAX_SCRAPE_HOURS = 2160
 
 _scrape_lock = asyncio.Lock()
 _save_lock = asyncio.Lock()

@@ -379,7 +379,7 @@ def update_oracle_seed(payload: TargetCompanyOracleSeedPayload, db: Session = De
 
 
 class JobDiscoverScrapePayload(BaseModel):
-    hours: int = Field(default=168, ge=1, le=720)
+    hours: int = Field(default=168, ge=1, le=2160)
     roles: str = ""
     mode: str = "ats"
 
