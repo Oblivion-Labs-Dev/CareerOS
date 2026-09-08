@@ -88,7 +88,7 @@ export function ApplicationInsights() {
 
   useEffect(() => {
     let cancelled = false;
-    getAutopilotJobs(ALL_STATUSES, 200)
+    getAutopilotJobs(ALL_STATUSES, 1000)
       .then((res) => !cancelled && setJobs(res.jobs || []))
       .catch(() => !cancelled && setJobs([]));
     return () => {

@@ -26,6 +26,7 @@ from typing import Any
 
 from app.db.store import new_id, now_iso, session_scope
 from app.services.application_assistant.llm_client import create_llm_client
+from app.services.application_assistant.healing_response import parse_healing_response
 from app.services.application_assistant.persistence import (
     get_settings,
     list_autopilot_jobs,
@@ -276,7 +277,7 @@ async def ask_qwen_for_code_fix(
 
     llm = create_llm_client(settings)
     if not llm or not llm.enabled:
-        return {"patchType": "no_fix", "analysis": "LLM not configured", "confidence": 0.0}
+        return {"patchType": "error", "analysis": "LLM not configured", "confidence": 0.0}
 
     truncated_source = source_code[:12000] if len(source_code) > 12000 else source_code
 
@@ -295,15 +296,10 @@ async def ask_qwen_for_code_fix(
             messages=[{"role": "user", "content": prompt}],
             system=SELF_HEALING_SYSTEM_PROMPT,
         )
-        raw = result.get("data") or result.get("text") or ""
-        match = re.search(r"\{[\s\S]*\}", raw)
-        if match:
-            parsed = json.loads(match.group(0))
-            return parsed
-        return {"patchType": "no_fix", "analysis": "Could not parse Qwen response", "confidence": 0.0}
+        return parse_healing_response(result)
     except Exception as e:
         logger.error("Qwen code-fix request failed: %s", e)
-        return {"patchType": "no_fix", "analysis": f"LLM error: {e}", "confidence": 0.0}
+        return {"patchType": "error", "analysis": f"LLM error: {e}", "confidence": 0.0}
 
 
 async def run_self_healing_cycle(
@@ -319,6 +315,8 @@ async def run_self_healing_cycle(
     state.max_rounds = max_rounds
     state.status = "analyzing"
     state.current_round = 0
+    state.last_error = ""
+    initial_patches = state.patches_applied
 
     rounds_log: list[dict[str, Any]] = []
 
@@ -365,6 +363,13 @@ async def run_self_healing_cycle(
         _log(f"Round {round_num}: Qwen analysis: {analysis[:200]}")
         round_result["analysis"] = analysis
         round_result["confidence"] = confidence
+
+        if patch_type == "error":
+            state.last_error = analysis
+            round_result["status"] = "diagnosis_failed"
+            rounds_log.append(round_result)
+            _log(f"Round {round_num}: Self-healing diagnosis failed: {analysis}", level="error")
+            break
 
         if patch_type == "no_fix" or confidence < 0.3:
             _log(f"Round {round_num}: Qwen determined no code fix needed (confidence={confidence:.0%}). Stopping.", level="warning")
@@ -468,9 +473,10 @@ async def run_self_healing_cycle(
 
     summary = {
         "totalRounds": len(rounds_log),
-        "patchesApplied": state.patches_applied,
+        "patchesApplied": state.patches_applied - initial_patches,
+        "lastError": state.last_error,
         "lastPatchSummary": state.last_patch_summary,
         "rounds": rounds_log,
     }
-    _log(f"Self-healing cycle complete: {state.patches_applied} patch(es) applied across {len(rounds_log)} round(s)")
+    _log(f"Self-healing cycle complete: {summary['patchesApplied']} patch(es) applied across {len(rounds_log)} round(s)")
     return summary

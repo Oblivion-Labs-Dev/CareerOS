@@ -857,11 +857,8 @@ async def _fill_standard_and_react_fields(
     if await file_input.count() > 0 and resume_file and os.path.exists(resume_file):
         try:
             await file_input.set_input_files(resume_file, timeout=5000)
-            try:
-                await file_input.dispatch_event("change")
-                await file_input.dispatch_event("input")
-            except Exception:
-                pass
+            # Playwright already emits input/change. React may remove this
+            # input once attached; dispatching again waits on a vanished node.
             filled["Resume"] = os.path.basename(resume_file)
             if log_cb:
                 log_cb(f"Attached resume ({os.path.basename(resume_file)})")
@@ -1413,7 +1410,13 @@ async def _execute_live_playwright_submission_impl(
             logger.info("Navigating to application URL: %s", app_url)
             if log_callback:
                 log_callback(f"Navigating to {company} job URL...")
-            await page.goto(app_url, wait_until="domcontentloaded", timeout=timeout_sec * 1000)
+            try:
+                await asyncio.wait_for(
+                    page.goto(app_url, wait_until="domcontentloaded", timeout=min(timeout_sec, 60.0) * 1000),
+                    timeout=65.0,
+                )
+            except Exception as goto_err:
+                logger.warning("Initial page.goto encountered warning (%s); checking page state...", goto_err)
             await asyncio.sleep(2.5)
 
             # Check if job was closed / unlisted by company and redirected to generic job search / open roles
@@ -1831,7 +1834,7 @@ async def _execute_live_playwright_submission_impl(
 
                 pre_screenshot_path = SCREENSHOTS_DIR / f"{job_id}_needs_review.png"
                 try:
-                    await page.screenshot(path=str(pre_screenshot_path), full_page=True)
+                    await page.screenshot(path=str(pre_screenshot_path), full_page=True, timeout=5000)
                 except Exception:
                     pass
 
@@ -1855,7 +1858,7 @@ async def _execute_live_playwright_submission_impl(
             # Pre-submit screenshot
             pre_screenshot_path = SCREENSHOTS_DIR / f"{job_id}_presubmit.png"
             try:
-                await page.screenshot(path=str(pre_screenshot_path), full_page=True)
+                await page.screenshot(path=str(pre_screenshot_path), full_page=True, timeout=5000)
             except Exception:
                 pass
 
@@ -1995,15 +1998,83 @@ async def _execute_live_playwright_submission_impl(
             except Exception as v_ex:
                 logger.warning("Greenhouse verification flow check encountered: %s", v_ex)
 
-            try:
-                await page.wait_for_load_state("networkidle", timeout=15000)
-            except Exception:
-                pass
+            # ─── WAIT FOR SUBMISSION RESOLUTION (CONFIRMATION OR ERRORS) ───────
+            conf_phrases = [
+                "thank you for applying",
+                "thank you for your application",
+                "we have received your application",
+                "your application was submitted",
+                "your application has been received",
+                "your application has been submitted to",
+                "we've received your application",
+                "thank you for taking the time to apply",
+                "successfully submitted",
+                "submission successful",
+                "your response has been recorded",
+                "thanks for applying",
+                "thank you for your interest",
+            ]
+            
+            logger.info("Waiting for external site submission confirmation...")
+            start_wait = asyncio.get_event_loop().time()
+            max_wait_sec = 45.0
+            submission_resolved = False
+
+            while (asyncio.get_event_loop().time() - start_wait) < max_wait_sec:
+                cur_url = page.url.lower()
+                if any(x in cur_url for x in ["/confirmation", "/thank_you", "/thank-you", "/applied", "/success", "submitted=true", "thanks"]):
+                    logger.info("Submission confirmed via URL redirect: %s", page.url)
+                    submission_resolved = True
+                    break
+
+                # Check page body
+                try:
+                    p_text = (await page.inner_text("body", timeout=1000)).lower()
+                    if any(ph in p_text for ph in conf_phrases):
+                        logger.info("Submission confirmed via page DOM text.")
+                        submission_resolved = True
+                        break
+                except Exception:
+                    pass
+
+                # Check frame body if different
+                if target_frame and target_frame != page:
+                    try:
+                        f_text = (await target_frame.inner_text("body", timeout=1000)).lower()
+                        if any(ph in f_text for ph in conf_phrases):
+                            logger.info("Submission confirmed via frame DOM text.")
+                            submission_resolved = True
+                            break
+                    except Exception:
+                        pass
+
+                # Check confirmation elements
+                try:
+                    conf_el = page.locator('[data-qa="application-success"], [data-qa="confirmation"], #application_confirmation, .application-confirmation, [class*="ApplicationConfirmation"], [class*="confirmation"]')
+                    if await conf_el.count() > 0 and await conf_el.first.is_visible():
+                        logger.info("Submission confirmed via confirmation element.")
+                        submission_resolved = True
+                        break
+                except Exception:
+                    pass
+
+                # Check if validation errors appeared
+                _, active_errs = await _extract_dom_form_state(target_frame)
+                if active_errs:
+                    logger.warning("Submission rejected with validation errors: %s", active_errs)
+                    break
+
+                await asyncio.sleep(2.0)
+
+            await asyncio.sleep(1.0)
 
             # Post-submission screenshot
             confirmation_url = page.url
             post_screenshot_path = SCREENSHOTS_DIR / f"{job_id}_confirmation.png"
-            await page.screenshot(path=str(post_screenshot_path), full_page=True)
+            try:
+                await page.screenshot(path=str(post_screenshot_path), full_page=True, timeout=10000)
+            except Exception:
+                pass
 
             # ─── STRICT QWEN POST-SUBMISSION PROOF VALIDATION ───────────────────
             body_text = await page.inner_text("body")
@@ -2094,7 +2165,7 @@ async def _execute_live_playwright_submission_impl(
             logger.error("Playwright submission failed: %s", e, exc_info=True)
             err_screenshot = SCREENSHOTS_DIR / f"{job_id}_error.png"
             try:
-                await page.screenshot(path=str(err_screenshot), full_page=True)
+                await page.screenshot(path=str(err_screenshot), full_page=True, timeout=5000)
             except Exception:
                 pass
             return {

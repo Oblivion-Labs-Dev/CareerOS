@@ -5,6 +5,8 @@ test.describe("CareerOS navigation polish", () => {
     await page.goto("/dashboard");
 
     const trigger = page.locator(".app-topbar-search");
+    await expect(trigger).toBeVisible();
+    await trigger.focus();
     await page.keyboard.press("Control+K");
 
     const dialog = page.getByRole("dialog", { name: "Search CareerOS" });

@@ -172,7 +172,7 @@ def get_autopilot_jobs_list(
     company: str | None = Query(default=None, description="Case-insensitive substring match against company name"),
     sortBy: str = Query(default="matchScore", description="Field to sort by: matchScore, submittedAt, or updatedAt"),
     sortDir: str = Query(default="desc", description="asc or desc"),
-    limit: int = Query(default=24, ge=1, le=200),
+    limit: int = Query(default=24, ge=1, le=1000),
     offset: int = Query(default=0, ge=0),
 ) -> dict[str, Any]:
     """List autopilot jobs, filtered and paginated server-side.

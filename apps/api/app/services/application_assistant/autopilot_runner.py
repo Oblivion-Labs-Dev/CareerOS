@@ -578,6 +578,7 @@ class AutopilotRunner:
 
             target_count = run.get("targetProcessCount", 25)
             processed_count = run.get("processedCount", 0)
+            submitted_count = run.get("submittedCount", 0)
 
             if processed_count >= target_count:
                 with session_scope() as db:
@@ -587,9 +588,9 @@ class AutopilotRunner:
                         r["completedAt"] = now_iso()
                         r["currentJobId"] = None
                         save_autopilot_run(db, r)
-                self.log_event(f"Batch completed: {processed_count} of {target_count} jobs processed!", level="info")
+                self.log_event(f"Batch completed: {submitted_count} applications submitted ({processed_count} processed)!", level="info")
                 await self._trigger_post_batch_self_healing(run["id"])
-                break
+                continue
 
             # Heartbeat update
             with session_scope() as db:
@@ -608,7 +609,7 @@ class AutopilotRunner:
             # match-scoring pass over the discovered-jobs backlog.
             with session_scope() as db:
                 existing_autopilot_jobs = list_autopilot_jobs(db)
-            queued = [j for j in existing_autopilot_jobs if j.get("status") in (AutopilotJobStatus.QUEUED.value, AutopilotJobStatus.APPLYING.value)]
+            queued = [j for j in existing_autopilot_jobs if j.get("status") == AutopilotJobStatus.QUEUED.value]
             deficit = TARGET_QUEUE_SIZE - len(queued)
 
             if deficit > 0 and (self._refill_task is None or self._refill_task.done()):
@@ -619,7 +620,7 @@ class AutopilotRunner:
                     await self._refill_queue(deficit, run_settings)
                     with session_scope() as db:
                         existing_autopilot_jobs = list_autopilot_jobs(db)
-                    queued = [j for j in existing_autopilot_jobs if j.get("status") in (AutopilotJobStatus.QUEUED.value, AutopilotJobStatus.APPLYING.value)]
+                    queued = [j for j in existing_autopilot_jobs if j.get("status") == AutopilotJobStatus.QUEUED.value]
 
             if not queued:
                 self.log_event("No more eligible jobs in queue — batch run completed.", level="info")
@@ -631,7 +632,7 @@ class AutopilotRunner:
                         r["currentJobId"] = None
                         save_autopilot_run(db, r)
                 await self._trigger_post_batch_self_healing(run["id"])
-                break
+                continue
 
             # 3. Claim up to N jobs concurrently, but never more than the
             # batch still needs — concurrency is a parallelism cap, not a target override.
@@ -643,7 +644,9 @@ class AutopilotRunner:
             from app.services.application_assistant.job_filter_ranker import role_location_priority_bonus
             queued.sort(
                 key=lambda j: (
-                    (j.get("matchScore") or 0.0) + role_location_priority_bonus(j),
+                    role_location_priority_bonus(j),
+                    (j.get("matchScore") or 0.0) >= 80.0,
+                    (j.get("matchScore") or 0.0),
                     j.get("queuedAt") or "",
                 ),
                 reverse=True,
@@ -784,7 +787,7 @@ class AutopilotRunner:
         failed_jobs: list[dict[str, Any]] = []
         with session_scope() as db:
             all_jobs = list_autopilot_jobs(db)
-            failed_jobs = [j for j in all_jobs if j.get("status") in (AutopilotJobStatus.FAILED.value, "ERROR")]
+            failed_jobs = [j for j in all_jobs if j.get("status") in (AutopilotJobStatus.FAILED.value, "ERROR") and j.get("lastAttemptRunId") == run_id]
 
         if not failed_jobs:
             self.log_event("Post-batch check: No failures detected — self-healing not needed.", level="info")
@@ -866,6 +869,7 @@ class AutopilotRunner:
 
         attempt = (job_item.get("attemptCount") or 0) + 1
         job_item["attemptCount"] = attempt
+        job_item["lastAttemptRunId"] = run_id
         self._record_checkpoint(job_item, CheckpointStep.JOB_CLAIMED, f"Attempt {attempt}/{MAX_JOB_ATTEMPTS}")
         with session_scope() as db:
             save_autopilot_job(db, job_item)
@@ -1103,17 +1107,14 @@ class AutopilotRunner:
                 metadata={"slot": slot_idx, "company": company},
             )
 
-        # Generate a resume tailored to this job's mode (Off/Honest/Aggressive), escalating
-        # the mode if the match score doesn't clear the submission bar, and attach the
-        # winning PDF for this submission only — never mutate the shared profile record.
+        # Preserve the operator's selected mode, even for low-scoring matches.
         submission_profile = dict(profile)
         from app.services.application_assistant.resume_diff_service import (
             generate_role_tailoring_diff,
             render_tailored_resume_pdf,
         )
 
-        start_idx = TAILORING_ESCALATION_ORDER.index(tailoring_mode) if tailoring_mode in TAILORING_ESCALATION_ORDER else 1
-        modes_to_try = TAILORING_ESCALATION_ORDER[start_idx:]
+        modes_to_try = [tailoring_mode if tailoring_mode in TAILORING_ESCALATION_ORDER else "honest"]
 
         diff_data: dict[str, Any] | None = None
         winning_mode: str | None = None
@@ -1123,13 +1124,22 @@ class AutopilotRunner:
                 candidate_diff = await generate_role_tailoring_diff(job_item, profile, master_resume, mode=candidate_mode)
                 score = float(candidate_diff.get("matchScore") or 0)
                 best_score = max(best_score, score)
-                if score >= MIN_MATCH_SCORE_TO_SUBMIT:
+                if score >= MIN_MATCH_SCORE_TO_SUBMIT or job_item.get("manualMatchOverride") is True:
+                    if score < MIN_MATCH_SCORE_TO_SUBMIT:
+                        _granular_log(f"Explicit Apply overrides match cutoff ({score:.0f}%); preserving {candidate_mode} tailoring and eligibility checks")
                     diff_data = candidate_diff
                     winning_mode = candidate_mode
                     break
-                _granular_log(f"Match score {score:.0f}% below {MIN_MATCH_SCORE_TO_SUBMIT:.0f}% at mode={candidate_mode}; escalating tailoring")
+                _granular_log(f"Match score {score:.0f}% below {MIN_MATCH_SCORE_TO_SUBMIT:.0f}% in selected mode={candidate_mode}; preserving selected mode")
         except Exception as e:
             logger.warning("Resume tailoring/match-scoring failed for %s (mode=%s): %s", company, tailoring_mode, e)
+
+        if self._stop_requested:
+            job_item["status"] = AutopilotJobStatus.QUEUED.value
+            with session_scope() as db:
+                save_autopilot_job(db, job_item)
+            _granular_log("Stopped before opening the employer application form")
+            return
 
         if winning_mode is None or diff_data is None:
             skip_reason = f"Match score stayed below {MIN_MATCH_SCORE_TO_SUBMIT:.0f}% even after tailoring (best {best_score:.0f}%)"
@@ -1174,7 +1184,11 @@ class AutopilotRunner:
             resume_path.write_bytes(pdf_bytes)
             submission_profile["resumePath"] = str(resume_path)
             job_item["resumeFileUsed"] = resume_path.name
-            _granular_log(f"Tailored resume generated (mode={tailoring_mode}, match={diff_data.get('matchScore')}%)")
+            job_item["resumeTailoringFailed"] = bool(diff_data.get("tailoringFailed"))
+            if job_item["resumeTailoringFailed"]:
+                _granular_log("Resume tailoring unavailable; using the saved template wording", "warning")
+            else:
+                _granular_log(f"Tailored resume generated (mode={tailoring_mode}, match={diff_data.get('matchScore')}%)")
         except Exception as e:
             logger.warning(
                 "Resume PDF render failed for %s (mode=%s): %s — falling back to default resume",
@@ -1185,20 +1199,25 @@ class AutopilotRunner:
         with session_scope() as db:
             save_autopilot_job(db, job_item)
 
-        result = await execute_live_playwright_submission(
-            job_item=job_item,
-            profile=submission_profile,
-            answer_lib=answer_lib,
-            headless=headless_mode,
-            # 60s was not enough for real Greenhouse forms: four jobs in one batch
-            # (both Robinhood postings, both Brex postings) died on TimeoutError
-            # mid-way through the LLM field auto-healing rounds, which alone can run
-            # two rounds over 9+ fields. The cap exists to stop a wedged browser
-            # hanging a worker slot forever, so it stays — just wide enough for a
-            # large form to finish honestly.
-            timeout_sec=180.0,
-            log_callback=_granular_log,
-        )
+        try:
+            result = await asyncio.wait_for(
+                execute_live_playwright_submission(
+                    job_item=job_item,
+                    profile=submission_profile,
+                    answer_lib=answer_lib,
+                    headless=headless_mode,
+                    timeout_sec=420.0,
+                    log_callback=_granular_log,
+                ),
+                timeout=480.0,
+            )
+        except asyncio.TimeoutError:
+            logger.error("Playwright execution hard watchdog timed out for job %s", job_item.get("id"))
+            result = {
+                "submitted": False,
+                "error": "Navigation or submission watchdog timeout (480s limit exceeded)",
+                "evidence": {},
+            }
 
         if result.get("submitted"):
             if worker_state:

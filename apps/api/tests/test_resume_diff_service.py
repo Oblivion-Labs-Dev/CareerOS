@@ -49,8 +49,8 @@ async def test_generate_role_tailoring_diff():
         assert b["isModified"] is False
         assert b["original"] == b["tailored"]
 
-    # Test aggressive mode (inflated impact & high match score)
+    # Tailoring mode cannot manufacture a higher match score.
     res_agg = await generate_role_tailoring_diff(job, profile, mode="aggressive")
     assert res_agg["mode"] == "aggressive"
-    assert res_agg["matchScore"] >= 95
+    assert res_agg["matchScore"] == res["matchScore"] == res_off["matchScore"] == 0
     assert any("multi-agent" in b["tailored"] or "Spearheaded" in b["tailored"] or "Orchestrated" in b["tailored"] for b in res_agg["bulletDiffs"])

@@ -37,6 +37,26 @@ apps/api/test_start.py
 .claude/
 scratch/
 apps/web/public/resumes/test_*.pdf
+*.err
+apps/api/test_sample_resume.pdf
+check_robinhood.py
+find_good_jobs.py
+inspect_jobs.py
+monitor_autopilot.py
+test_diff.py
+apps/api/check_*.py
+apps/api/inspect_*.py
+apps/api/test_datadog_*.py
+apps/api/backfill_gmail_sources.py
+apps/api/call_get_status.py
+apps/api/debug_ui_dom.py
+apps/api/get_runner_logs.py
+apps/api/listen_events.py
+apps/api/pin_mistral_7b.py
+apps/api/reset_stale_locks.py
+apps/api/run_single_job_via_ui.py
+apps/api/run_ui_applications.py
+apps/api/stop_autopilot.py
 
 # Playwright session state (contains an auth cookie)
 apps/web/e2e/.auth/

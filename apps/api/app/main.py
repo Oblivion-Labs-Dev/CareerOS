@@ -7,6 +7,67 @@ from pathlib import Path
 
 if sys.platform == "win32":
     asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
+    # Patch asyncio.proactor_events.BaseProactorEventLoop._start_serving to prevent
+    # WinError 64 / 121 (client disconnected before accept completed) from closing the listener socket.
+    try:
+        from asyncio import trsock, exceptions
+        import asyncio.proactor_events as pe
+        def _safe_start_serving(self, protocol_factory, sock,
+                                sslcontext=None, server=None, backlog=100,
+                                ssl_handshake_timeout=None,
+                                ssl_shutdown_timeout=None):
+            def loop(f=None):
+                try:
+                    if f is not None:
+                        try:
+                            conn, addr = f.result()
+                        except OSError as exc:
+                            if getattr(exc, "winerror", None) in (64, 121, 1225, 10054):
+                                if not self.is_closed() and sock.fileno() != -1:
+                                    loop()
+                                return
+                            raise
+                        if self._debug:
+                            pe.logger.debug("%r got a new connection from %r: %r",
+                                         server, addr, conn)
+                        protocol = protocol_factory()
+                        if sslcontext is not None:
+                            self._make_ssl_transport(
+                                conn, protocol, sslcontext, server_side=True,
+                                extra={'peername': addr}, server=server,
+                                ssl_handshake_timeout=ssl_handshake_timeout,
+                                ssl_shutdown_timeout=ssl_shutdown_timeout)
+                        else:
+                            self._make_socket_transport(
+                                conn, protocol,
+                                extra={'peername': addr}, server=server)
+                    if self.is_closed():
+                        return
+                    f = self._proactor.accept(sock)
+                except OSError as exc:
+                    if getattr(exc, "winerror", None) in (64, 121, 1225, 10054):
+                        if not self.is_closed() and sock.fileno() != -1:
+                            self.call_soon(loop)
+                        return
+                    if sock.fileno() != -1:
+                        self.call_exception_handler({
+                            'message': 'Accept failed on a socket',
+                            'exception': exc,
+                            'socket': trsock.TransportSocket(sock),
+                        })
+                        sock.close()
+                    elif self._debug:
+                        pe.logger.debug("Accept failed on socket %r",
+                                     sock, exc_info=True)
+                except exceptions.CancelledError:
+                    sock.close()
+                else:
+                    self._accept_futures[sock.fileno()] = f
+                    f.add_done_callback(loop)
+            self.call_soon(loop)
+        pe.BaseProactorEventLoop._start_serving = _safe_start_serving
+    except Exception as _patch_err:
+        pass
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware

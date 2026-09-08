@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { PageTitleWithStatus } from "@/components/page-title-with-status";
+import styles from "./workspace-header.module.css";
 
 interface WorkflowPageProps {
   title: string;
@@ -73,17 +74,17 @@ export function WorkflowPage({
 
   return (
     <div className={`page-content workflow-page${embedded ? " workflow-page--embedded" : ""}`}>
-      <header className="cos-page-header workflow-hero">
-        <div>
-          <span className="toc-eyebrow">{eyebrow}</span>
+      <header className={styles.header}>
+        <div className={styles.copy}>
+          <span className={styles.eyebrow}>{eyebrow}</span>
           <PageTitleWithStatus>{title}</PageTitleWithStatus>
           <p>{subtitle}</p>
         </div>
         {(primaryAction || secondaryAction) && (
-          <div className="workflow-actions">
+          <div className={styles.actions}>
             {primaryAction && (
               <Link href={primaryAction.href} className="btn-primary">
-                {primaryAction.label}
+                {primaryAction.label} <span aria-hidden="true">↗</span>
               </Link>
             )}
             {secondaryAction && (
@@ -93,6 +94,7 @@ export function WorkflowPage({
             )}
           </div>
         )}
+        <div className={styles.constellation} aria-hidden="true"><i /><i /><i /><span>✦</span></div>
       </header>
 
       {!embedded ? (

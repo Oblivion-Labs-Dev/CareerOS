@@ -2,7 +2,7 @@ import { NextRequest } from "next/server";
 
 export const dynamic = "force-dynamic";
 
-const API_BASE = process.env.CAREER_OS_API_PUBLIC_URL || process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
+const API_BASE = process.env.CAREER_OS_API_PUBLIC_URL || process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:4000";
 
 async function proxy(request: NextRequest, context: { params: Promise<{ path: string[] }> }) {
   const { path } = await context.params;
@@ -28,8 +28,9 @@ async function proxy(request: NextRequest, context: { params: Promise<{ path: st
     responseHeaders.delete("content-encoding");
     responseHeaders.delete("content-length");
     return new Response(response.body, { status: response.status, headers: responseHeaders });
-  } catch {
-    return Response.json({ detail: "CareerOS API is unavailable." }, { status: 503 });
+  } catch (err: any) {
+    console.error(`[backend-proxy-error] failed proxying to ${target.toString()}:`, err, err?.cause);
+    return Response.json({ detail: "CareerOS API is unavailable.", error: String(err), cause: String(err?.cause), code: err?.cause?.code, target: target.toString() }, { status: 503 });
   }
 }
 

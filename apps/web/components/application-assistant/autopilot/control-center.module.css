@@ -11,13 +11,32 @@
 /* ─── Header ─── */
 
 .header {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
   display: flex;
   flex-wrap: wrap;
   align-items: flex-start;
   justify-content: space-between;
   gap: 1.25rem;
-  padding-bottom: 1.15rem;
-  border-bottom: 1px solid var(--border);
+  padding: clamp(1.25rem, 3vw, 2rem);
+  border: 1px solid var(--border);
+  border-radius: 22px;
+  background: radial-gradient(ellipse at 95% 0%, color-mix(in srgb, var(--accent) 17%, transparent), transparent 60%), var(--card);
+}
+
+.header::after {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  right: -35px;
+  top: -90px;
+  width: 270px;
+  aspect-ratio: 1;
+  border: 1px solid color-mix(in srgb, var(--accent) 20%, transparent);
+  border-radius: 50%;
+  box-shadow: 0 0 0 35px color-mix(in srgb, var(--accent) 4%, transparent), 0 0 0 70px color-mix(in srgb, var(--accent) 3%, transparent);
+  pointer-events: none;
 }
 
 .eyebrow {
@@ -29,6 +48,7 @@
 }
 
 .title {
+  font-family: var(--font-outfit), var(--font-sans);
   margin-top: 0.3rem;
   font-size: 1.5rem;
   font-weight: 750;
@@ -553,7 +573,7 @@
   border-radius: 12px;
   border: 1px solid var(--border);
   background: var(--card);
-  cursor: pointer;
+  border-top: 3px solid color-mix(in srgb, var(--s) 55%, var(--border));
   text-align: left;
   transition: border-color var(--duration-fast) var(--ease-out), transform var(--duration-fast) var(--ease-out), box-shadow var(--duration-fast) var(--ease-out);
 }
@@ -655,7 +675,19 @@
   color: var(--muted-dim);
 }
 
-.appFootLink { color: var(--accent); font-weight: 600; }
+.appFootLink { color: var(--accent); font-weight: 600; border: 0; background: transparent; cursor: pointer; padding: 0.35rem 0; }
+.appFootLink:disabled { opacity: 0.5; cursor: wait; }
+.appDetailsButton { display: flex; flex-direction: column; align-items: flex-start; gap: 0.5rem; text-align: left; font: inherit; font-weight: 650; color: var(--text); background: transparent; border: 0; padding: 0.25rem 0; cursor: pointer; }
+.appDetailsHint { font-size: 0.7rem; font-weight: 500; color: var(--muted); }
+.appDetailsButton:focus-visible, .appFootLink:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; border-radius: 4px; }
+
+@media (prefers-reduced-motion: no-preference) {
+  .header { animation: cc-arrive 450ms ease-out both; }
+  .appCard { animation: cc-arrive 320ms ease-out both; }
+  .appCard:nth-child(3n + 2) { animation-delay: 35ms; }
+  .appCard:nth-child(3n) { animation-delay: 70ms; }
+}
+@keyframes cc-arrive { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
 
 /* ─── Filters ─── */
 

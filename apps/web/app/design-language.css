@@ -420,6 +420,90 @@ button:focus-visible,
 /* Eyebrow glow reads as a smudge on white. */
 [data-theme="light"] .main :is(.toc-card-kicker, .stat-label, [class*="todayEyebrow"]) {
   text-shadow: none;
+  color: #397269;
+}
+
+.main .profile-data-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+}
+.main .profile-field-row {
+  display: grid;
+  grid-template-columns: minmax(90px, .7fr) minmax(0, 1.3fr);
+  gap: 1rem;
+  align-items: start;
+}
+.main .profile-field-row strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+@media (max-width: 650px) {
+  .main .profile-data-grid { grid-template-columns: minmax(0, 1fr); }
+  .main .profile-connected-panel .dashboard-panel-header { flex-direction: column; align-items: stretch; gap: 1rem; }
+  .main .profile-connected-panel .target-jobs-actions { display: flex; flex-wrap: wrap; gap: .5rem; }
+  .main .profile-connected-panel .target-jobs-actions a { flex: 1 1 auto; white-space: nowrap; }
+  .main .career-workspace-strip-inner { display: grid; grid-template-columns: minmax(0, 1fr); }
+  .main .career-workspace-chip { min-width: 0; }
+}
+
+/* Shared atmosphere: lightweight gradients and finite entrance motion. */
+[data-theme="light"] .app-mobile-header {
+  background: #f8fbfa;
+  border-color: #dce7e3;
+}
+[data-theme="light"] .app-mobile-header .brand {
+  color: #18332e;
+}
+[data-theme="light"] .app-mobile-menu-button {
+  background: #fff;
+  border-color: #dce7e3;
+  color: #18332e;
+}
+[data-theme="light"] .main :is(
+  [class*="minimal-dashboard_pageHeader"],
+  [class*="application-analytics_statTile"]
+) p {
+  color: #526176;
+}
+[data-theme="light"] .main [class*="minimal-dashboard_heroEyebrow"] {
+  color: #087b70;
+}
+[data-theme="light"] .sidebar-profile-card button {
+  color: #475569;
+}
+.main {
+  background-image: radial-gradient(ellipse at 100% 0%, color-mix(in srgb, var(--accent) 5%, transparent), transparent 48%);
+}
+.main :is(.page-header, .dashboard-header, .section-header) h1 {
+  font-family: var(--font-outfit), var(--font-sans);
+  letter-spacing: -0.035em;
+  text-wrap: balance;
+}
+.main :is(.workflow-panel, .dashboard-panel, .data-panel, .cos-surface) {
+  border-radius: 16px;
+  background-image: linear-gradient(135deg, color-mix(in srgb, var(--accent) 3%, transparent), transparent 55%);
+}
+.main :is(.eyebrow, .page-eyebrow, .section-eyebrow) {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.main :is(.eyebrow, .page-eyebrow, .section-eyebrow)::before {
+  content: "";
+  width: 0.4rem;
+  height: 0.4rem;
+  border-radius: 50%;
+  background: var(--accent);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .main > :is(.page, .dashboard-page, .career-page) {
+    animation: workspace-arrive 380ms ease-out both;
+  }
+}
+@keyframes workspace-arrive {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 /* ─── Motion discipline ─── */

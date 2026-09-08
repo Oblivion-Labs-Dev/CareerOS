@@ -110,6 +110,9 @@ async def approve_preflight_submission(
         if not job:
             raise HTTPException(status_code=404, detail="Application not found")
 
+        if job.get("status") in ("SUBMITTED", "INELIGIBLE"):
+            raise HTTPException(status_code=409, detail="Submitted or ineligible applications cannot be requeued")
+
         if job.get("status") == "APPLYING" or not claim_job_lock(db, id, worker_id="preflight-approve"):
             return {
                 "success": True,
@@ -120,6 +123,7 @@ async def approve_preflight_submission(
 
         job["status"] = "QUEUED"
         job["preflightApproved"] = True
+        job["manualMatchOverride"] = True
         job["preflightApprovedAt"] = now_iso()
         job["lockedBy"] = None
         job["lockedAt"] = None
@@ -251,7 +255,6 @@ def audit_sponsorship_endpoint(
         "skippedJobs": skipped_jobs,
         "message": f"Audited {len(jobs)} jobs. Flagged/Skipped {skipped_count} jobs requiring US Citizenship or lacking sponsorship.",
     }
-
 
 
 

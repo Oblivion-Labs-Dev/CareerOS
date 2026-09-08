@@ -50,6 +50,8 @@ TAILORING_MODE_PRESETS: dict[str, dict[str, Any]] = {
 
 
 def default_settings() -> dict[str, Any]:
+    from app.config import settings as app_settings
+
     return {
         "enabled": True,
         "tailoringMode": "honest",
@@ -63,6 +65,13 @@ def default_settings() -> dict[str, Any]:
             "maxRetries": 2,
             "confidenceThreshold": 0.7,
             "provider": "ollama",
+        },
+        "freetoken": {
+            "enabled": getattr(app_settings, "freetoken_enabled", False),
+            "baseUrl": getattr(app_settings, "freetoken_base_url", "http://127.0.0.1:1919/v1"),
+            "model": getattr(app_settings, "freetoken_model", "Qwen3.6-35B-A3B"),
+            "apiKey": getattr(app_settings, "freetoken_api_key", ""),
+            "timeout": getattr(app_settings, "freetoken_timeout", 60),
         },
         "browser": {
             "headed": True,
@@ -95,6 +104,8 @@ def get_settings(db: Session) -> dict[str, Any]:
     merged = {**defaults, **stored}
     if "llm" in stored:
         merged["llm"] = {**defaults["llm"], **stored["llm"]}
+    if "freetoken" in stored:
+        merged["freetoken"] = {**defaults["freetoken"], **stored["freetoken"]}
     if "browser" in stored:
         merged["browser"] = {**defaults["browser"], **stored["browser"]}
     if "fieldMapping" in stored:

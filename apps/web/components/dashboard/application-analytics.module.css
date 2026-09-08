@@ -48,6 +48,11 @@
   box-shadow: 0 12px 28px color-mix(in srgb, var(--tile-color) 14%, transparent);
 }
 
+@media (prefers-reduced-motion: reduce) {
+  .statTile { transition: none; }
+  .statTile:hover { transform: none; }
+}
+
 .statTile[data-tone="accent"] { --tile-color: var(--accent); }
 .statTile[data-tone="success"] { --tile-color: var(--success); }
 .statTile[data-tone="violet"] { --tile-color: var(--accent-tertiary, #8b5cf6); }

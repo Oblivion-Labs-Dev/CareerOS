@@ -161,8 +161,8 @@ export default function ProfilePage() {
     <>
       <WorkflowPage
         title="Profile"
-        eyebrow="Foundation"
-        subtitle="Your profile, resume, and documents power job relevancy scoring, dashboard matches, and application defaults."
+        eyebrow="Tell your story"
+        subtitle="Your experience, in your own words. Keep your resume, skills, and application details ready for the right opportunity."
         primaryAction={{ href: discoverHref(prefs), label: "View matched jobs" }}
         secondaryAction={{ href: "#documents", label: "Upload resume" }}
         outcomes={[

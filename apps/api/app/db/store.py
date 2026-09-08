@@ -353,23 +353,21 @@ def entity_count(db: Session, entity_type: str) -> int:
 
 def tracker_summary(db: Session) -> dict[str, Any]:
     """Lightweight tracker payload for the web dashboard (no resume binary)."""
-    applications = [enrich_application_record(app) for app in list_entities(db, "application")]
+    raw_applications = [enrich_application_record(app) for app in list_entities(db, "application")]
+    # Exclude Gmail-synced entries when Gmail sync is disabled to prevent duplicate counts
+    applications = [
+        a for a in raw_applications
+        if a.get("source") not in ("careeros", "gmail_manual") and not str(a.get("id", "")).startswith("gmail_")
+    ]
 
-    # Split counts: Autopilot-submitted vs Gmail-synced manual applications
-    # Autopilot jobs tracked internally in aa_autopilot_job
-    autopilot_job_count = sum(
+    # Autopilot jobs tracked internally in aa_autopilot_job (source of truth)
+    autopilot_submitted = sum(
         1 for j in list_entities(db, "aa_autopilot_job") if j.get("status") == "SUBMITTED"
     )
-    # Gmail-synced applications sent via CareerOS (+career alias) also count as autopilot
-    careeros_gmail_count = sum(
-        1 for a in applications if a.get("source") == "careeros"
-    )
-    autopilot_submitted = autopilot_job_count + careeros_gmail_count
 
-    manual_submitted = sum(
-        1 for a in applications if a.get("source") == "gmail_manual"
-    )
-    total_submitted = autopilot_submitted + manual_submitted
+    # Gmail sync is disabled for now to eliminate duplicate counting
+    manual_submitted = 0
+    total_submitted = autopilot_submitted
 
     return {
         "applications": applications,

@@ -43,57 +43,85 @@ def generate_composite_job_key(company: str, title: str, app_url: str = "", exte
 
 
 def role_location_priority_bonus(job: dict[str, Any]) -> float:
-    """Candidate-preference ranking bonus, separate from the LLM match score.
+    """Candidate-preference ranking bonus implementing strict 4-tier priority:
 
-    Two stated preferences, in order:
-
-    1. **Senior over Staff/Principal.** The candidate wants Senior-level
-       individual-contributor roles, not Staff/Principal/Director titles. The
-       bonus and penalty here are deliberately large relative to the LLM match
-       score, because that score routinely spans 25-97 and would otherwise decide
-       the queue order on its own - which is exactly what happened before, when a
-       97%-matching Staff posting was applied to ahead of a Senior one in Seattle.
-    2. **Seattle first**, then the rest of the United States. (Anything outside
-       the US is rejected by the hard filters, never merely deprioritized.)
-
-    Used both when ranking discovered postings into the queue and when the
-    autopilot runner picks which queued jobs to claim next, so the preference
-    survives all the way to the browser worker instead of being lost to storage
-    order.
+    Tier 1 (+100.0): Senior Software Engineer in Washington State (Seattle, Bellevue, Redmond, Kirkland, WA)
+    Tier 2 (+70.0):  Senior Software Engineer in United States (Remote US / Nationwide)
+    Tier 3 (+30-40): Staff or Principal Software Engineer (WA/US fallback when Senior is exhausted)
+    Tier 4 (+10-15): Rest / Other qualifying software engineering roles (e.g. SWE II, Platform)
     """
     title_l = (job.get("title") or "").lower()
     loc_l = (job.get("location") or "").lower()
-    bonus = 0.0
 
-    # Levels above Senior are demoted rather than filtered out: they stay
-    # eligible if the queue runs dry, they just never outrank a Senior role.
-    above_senior = (
+    # If location is missing from autopilot job payload, check metadata or raw payload
+    if not loc_l and "metadata" in job and isinstance(job["metadata"], dict):
+        loc_l = (job["metadata"].get("location") or "").lower()
+
+    # Non-software engineering roles must never receive SWE tier priority
+    non_swe_markers = (
+        "product manager", "program manager", "project manager", "sales engineer",
+        "solution architect", "account executive", "designer", "recruiter", "talent",
+        "marketing", "human resources", "counsel", "legal", "business analyst",
+        "operations manager", "account manager",
+    )
+    if any(m in title_l for m in non_swe_markers):
+        return 0.0
+
+    # Location classification
+    is_wa = any(k in loc_l for k in (
+        "seattle", "bellevue", "redmond", "kirkland", "spokane",
+        "tacoma", ", wa", "wa,", "wa ", "washington",
+    ))
+    is_us = is_wa or any(k in loc_l for k in (
+        "united states", "usa", "u.s.", "remote", "us", "remote - us", "remote, us",
+    ))
+
+    # Role level classification
+    above_senior_markers = (
         "staff", "principal", "distinguished", "fellow", "architect",
-        "director", "head of", "vp ", "vice president",
+        "director", "head of", "vp", "vice president",
     )
-    is_above_senior = any(k in title_l for k in above_senior)
+    is_above_senior = any(k in title_l for k in above_senior_markers)
 
-    is_senior = any(
-        k in title_l
-        for k in ("senior software engineer", "sr. software engineer",
-                  "sr software engineer", "senior swe")
+    is_senior = (
+        any(k in title_l for k in ("senior", "sr.", "sr ", "sr-", "senior swe"))
+        and any(k in title_l for k in (
+            "software", "backend", "full stack", "frontend", "platform",
+            "infrastructure", "systems", "cloud", "security", "data",
+            "engineer", "developer",
+        ))
+        and not is_above_senior
     )
 
-    if is_senior and not is_above_senior:
-        # "Senior Staff Software Engineer" contains both markers and is a level
-        # above Senior, so it must not collect the Senior bonus.
-        bonus += 40.0
-    elif is_above_senior:
-        bonus -= 40.0
-    elif "senior" in title_l and "software engineer" in title_l:
-        bonus += 30.0
-    elif "software engineer" in title_l or "software developer" in title_l:
-        bonus += 10.0
+    is_staff_or_principal = (
+        is_above_senior
+        and any(k in title_l for k in ("staff", "principal"))
+        and not any(k in title_l for k in ("director", "vp", "vice president", "head of"))
+    )
 
-    if any(k in loc_l for k in ("seattle", "bellevue", "redmond", "kirkland",
-                                ", wa", "washington")):
-        bonus += 25.0
-    return bonus
+    is_other_swe = (
+        any(k in title_l for k in ("software", "backend", "full stack", "frontend", "engineer", "developer"))
+        and not is_above_senior
+        and not is_senior
+    )
+
+    # Tier 1: Senior Software Engineer in Washington State
+    if is_senior and is_wa:
+        return 100.0
+
+    # Tier 2: Senior Software Engineer in United States (Remote / Nationwide)
+    if is_senior and is_us:
+        return 70.0
+
+    # Tier 3: Staff or Principal Software Engineer (WA / US)
+    if is_staff_or_principal:
+        return 40.0 if is_wa else 30.0
+
+    # Tier 4: Rest / Other engineering roles (e.g. SWE II, general SWE)
+    if is_other_swe:
+        return 15.0 if is_wa else 10.0
+
+    return 0.0
 
 
 def evaluate_hard_filters(

@@ -13,6 +13,7 @@ import json
 import logging
 import re
 from typing import Any
+from app.services.application_assistant.tailoring_metadata import authorization_summary, job_match_score
 
 logger = logging.getLogger("career_os.resume_diff_service")
 
@@ -394,12 +395,8 @@ async def generate_role_tailoring_diff(
         try:
             res = await client.complete(prompt, system="You are an expert ATS resume optimizer. Respond only with a JSON array of strings.")
             if res.get("success") and res.get("data"):
-                raw = res["data"].strip()
-                if raw.startswith("```json"):
-                    raw = raw[7:]
-                if raw.endswith("```"):
-                    raw = raw[:-3]
-                parsed = json.loads(raw.strip())
+                from app.services.application_assistant.resume_response import parse_resume_bullets
+                parsed = parse_resume_bullets(res["data"])
                 # A 7B model is not reliably exact about list length. Requiring a
                 # perfect 17 meant one short list threw away every good bullet in
                 # the response and silently served the generic static template
@@ -517,14 +514,10 @@ async def generate_role_tailoring_diff(
 
     bullet_diffs = compute_bullet_diffs(master_bullets, tailored_bullets)
 
-    # Calculate match score based on mode
-    base_match = job.get("matchScore") or job.get("score") or 82
-    if valid_mode == "off":
-        match_score = base_match
-    elif valid_mode == "honest":
-        match_score = min(96, base_match + 10)
-    else:  # aggressive
-        match_score = min(99, max(95, base_match + 18))
+    # Rewording a resume is not evidence of improved job fit. Never manufacture
+    # points (or a passing default) merely because tailoring was selected.
+    match_score = job_match_score(job)
+    work_auth = authorization_summary(profile)
 
     # Draft tailored cover letter
     candidate_name = f"{profile.get('firstName', 'Akshay')} {profile.get('lastName', 'Borse')}".strip()
@@ -560,8 +553,8 @@ async def generate_role_tailoring_diff(
         },
         {
             "question": "What is your authorization status and notice period?",
-            "suggestedAnswer": "Legally authorized to work in the United States without requiring sponsorship. Available to start immediately or within standard two weeks notice.",
-            "confidence": 0.99,
+            "suggestedAnswer": work_auth + ". Confirm your notice period before submitting.",
+            "confidence": 0.0,
         },
     ]
 
@@ -571,8 +564,8 @@ async def generate_role_tailoring_diff(
         "title": title,
         "mode": valid_mode,
         "matchScore": match_score,
-        "salaryRange": job.get("salary") or job.get("salaryRange") or "$185,000 - $245,000 USD",
-        "visaStatus": "Authorized (US Citizen / Permanent Resident)",
+        "salaryRange": job.get("salary") or job.get("salaryRange") or "Not provided",
+        "visaStatus": work_auth,
         "bulletDiffs": bullet_diffs,
         "tailoredCoverLetter": cover_letter,
         "screeningQAs": screening_qas,
@@ -599,7 +592,6 @@ def render_tailored_resume_pdf(diff_data: dict[str, Any], candidate_info: dict[s
     from pypdf import PdfReader, PdfWriter
     from reportlab.lib.pagesizes import letter
     from reportlab.pdfgen import canvas
-    from reportlab.platypus import Paragraph
     from reportlab.lib.styles import ParagraphStyle
     from reportlab.lib import colors
 
@@ -607,6 +599,7 @@ def render_tailored_resume_pdf(diff_data: dict[str, Any], candidate_info: dict[s
 
     # Locate the authentic original resume PDF
     possible_paths = [
+        Path(__file__).resolve().parents[3] / "data" / "Akshay_Borse_Resume_Original.pdf",
         Path("apps/api/data/Akshay_Borse_Resume_Original.pdf"),
         Path("d:/3 - Resources/Docs/Interview/Resume/Akshay_Borse_Resume.pdf"),
         Path("D:/3 - Resources/Docs/Interview/Resume/Akshay_Borse_Resume.pdf"),
@@ -625,7 +618,9 @@ def render_tailored_resume_pdf(diff_data: dict[str, Any], candidate_info: dict[s
         return orig_path.read_bytes()
 
     # In 'honest' or 'aggressive' mode: overlay tailored bullets onto original PDF
-    reader = PdfReader(str(orig_path))
+    from app.services.application_assistant.resume_pdf_text import remove_replaced_bullets, fit_bullet_paragraph
+
+    reader = PdfReader(io.BytesIO(remove_replaced_bullets(orig_path.read_bytes())))
     page = reader.pages[0]
 
     # Create overlay canvas
@@ -672,8 +667,8 @@ def render_tailored_resume_pdf(diff_data: dict[str, Any], candidate_info: dict[s
         can.drawString(54.0, dot_y, chr(8226))
 
         formatted_text = ensure_bold_lead(b_text, CANONICAL_MASTER_BULLETS[i]["boldPrefix"])
-        p = Paragraph(formatted_text, bullet_style)
-        w, h = p.wrap(508, 150)
+        slot_height = dot_y - ms_dot_positions[i + 1] if i + 1 < len(ms_dot_positions) else dot_y + 7 - 550
+        p, h = fit_bullet_paragraph(formatted_text, bullet_style, slot_height)
         # Position top of paragraph 7.0pt above the bullet dot baseline
         top_y = dot_y + 7.0
         p.drawOn(can, 72.0, top_y - h)
@@ -689,8 +684,8 @@ def render_tailored_resume_pdf(diff_data: dict[str, Any], candidate_info: dict[s
         master_idx = 7 + j
         fallback_lead = CANONICAL_MASTER_BULLETS[master_idx]["boldPrefix"] if master_idx < len(CANONICAL_MASTER_BULLETS) else ""
         formatted_text = ensure_bold_lead(b_text, fallback_lead)
-        p = Paragraph(formatted_text, bullet_style)
-        w, h = p.wrap(508, 150)
+        slot_height = dot_y - amz_dot_positions[j + 1] if j + 1 < len(amz_dot_positions) else dot_y + 7 - 314
+        p, h = fit_bullet_paragraph(formatted_text, bullet_style, slot_height)
         # Position top of paragraph 7.0pt above the bullet dot baseline
         top_y = dot_y + 7.0
         p.drawOn(can, 72.0, top_y - h)

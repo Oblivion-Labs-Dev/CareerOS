@@ -115,17 +115,19 @@ def _is_careeros_recipient(to_address: str) -> bool:
 
 
 def sync_gmail_applications(db: Session, limit: int = 100) -> dict[str, Any]:
-    """Scan Gmail for application-confirmation emails and track genuinely new ones.
-
-    Categorisation uses the recipient address (To / Delivered-To header):
-      • amsborse+career@gmail.com  → source "careeros"  (applied through CareerOS)
-      • amsborse@gmail.com (plain) → source "gmail_manual" (applied manually)
-
-    Idempotent: each tracked application is keyed by its Gmail UID, so re-running
-    this only adds emails it hasn't seen before.
+    """Scan Gmail for application-confirmation emails.
+    
+    DISABLED: Currently disabled to prevent duplicate counting with Autopilot.
     """
-    if not settings.gmail_user or not settings.gmail_app_password:
-        return {"success": False, "reason": "Gmail isn't configured (GMAIL_USER / GMAIL_APP_PASSWORD)", "added": 0, "skipped": 0}
+    return {
+        "success": True,
+        "disabled": True,
+        "reason": "Gmail sync is disabled for now.",
+        "added": 0,
+        "addedCareeros": 0,
+        "addedManual": 0,
+        "skipped": 0,
+    }
 
     client = GmailImapClient(settings.gmail_user, settings.gmail_app_password)
 

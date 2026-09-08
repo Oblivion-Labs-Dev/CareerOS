@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { ApplicationAnalytics } from "@/components/dashboard/application-analytics";
 import { ApplicationInsights } from "@/components/dashboard/application-insights";
 import { useCareerWorkspace } from "@/hooks/use-career-workspace";
@@ -24,9 +24,6 @@ type DiscoverJob = {
 
 
 type DiscoverPayload = { jobs?: DiscoverJob[] };
-
-/** Only the part of the tracker payload this page still reads. */
-type TrackerSnapshot = { applications?: { status?: string }[] };
 
 function companyInitial(name: string) {
   return (name.trim()[0] || "?").toUpperCase();
@@ -53,9 +50,6 @@ export function MinimalDashboard() {
     });
     return getCachedStale<DiscoverPayload>(`${api}/jobs/discover?${params.toString()}`)?.jobs || [];
   });
-  const [trackerSnapshot, setTrackerSnapshot] = useState<TrackerSnapshot>(() => {
-    return getCachedStale<TrackerSnapshot>(`${getClientApiBaseUrl()}/tracker/summary`) || {};
-  });
   const [loading, setLoading] = useState(() => {
     const api = getClientApiBaseUrl();
     const params = new URLSearchParams({
@@ -66,7 +60,7 @@ export function MinimalDashboard() {
       page: "1",
       per_page: "5",
     });
-    return !(getCachedStale(`${api}/jobs/discover?${params}`) && getCachedStale(`${api}/tracker/summary`));
+    return !getCachedStale(`${api}/jobs/discover?${params}`);
   });
   const [error, setError] = useState("");
   const [gmailSync, setGmailSync] = useState<{ busy: boolean; note: string }>({ busy: false, note: "" });
@@ -84,25 +78,13 @@ export function MinimalDashboard() {
       page: "1",
       per_page: "5",
     })}`;
-    const trackerUrl = `${api}/tracker/summary`;
-
-    if (!getCachedStale(jobsUrl) || !getCachedStale(trackerUrl)) {
+    if (!getCachedStale(jobsUrl)) {
       setLoading(true);
     }
     setError("");
     try {
-      const [jobsPayload, trackerPayload] = await Promise.allSettled([
-        fetchCachedJson<DiscoverPayload>(jobsUrl),
-        fetchCachedJson<TrackerSnapshot>(trackerUrl),
-      ]);
-      if (jobsPayload.status === "fulfilled") {
-        setTopJobs(jobsPayload.value.jobs || []);
-      } else {
-        throw jobsPayload.reason;
-      }
-      if (trackerPayload.status === "fulfilled") {
-        setTrackerSnapshot(trackerPayload.value);
-      }
+      const jobsPayload = await fetchCachedJson<DiscoverPayload>(jobsUrl);
+      setTopJobs(jobsPayload.jobs || []);
     } catch {
       setError("Could not load dashboard. Start the API at " + getApiOriginForDisplay());
     } finally {
@@ -111,52 +93,27 @@ export function MinimalDashboard() {
   }, [prefs.searchQuery, prefs.location, prefs.roleFilter, prefs.freshness]);
 
   const syncGmail = useCallback(async () => {
-    setGmailSync({ busy: true, note: "" });
-    try {
-      const res = await postJson<{ success: boolean; added?: number; addedCareeros?: number; addedManual?: number; skipped?: number; reason?: string }>(
-        "/tracker/sync-gmail",
-        {},
-      );
-      if (!res.success) {
-        setGmailSync({ busy: false, note: res.reason || "Gmail sync unavailable" });
-        return;
-      }
-      const parts: string[] = [];
-      if (res.addedCareeros) parts.push(`${res.addedCareeros} CareerOS`);
-      if (res.addedManual) parts.push(`${res.addedManual} manual`);
-      setGmailSync({
-        busy: false,
-        note: res.added
-          ? `Added ${res.added} application${res.added === 1 ? "" : "s"} from Gmail${parts.length ? ` (${parts.join(", ")})` : ""}.`
-          : "No new applications found in Gmail.",
-      });
-      invalidateCachedByPrefix(`${getClientApiBaseUrl()}/tracker`);
-      setRefreshKey((k) => k + 1);
-      await loadData();
-    } catch (err) {
-      setGmailSync({ busy: false, note: err instanceof Error ? err.message : "Gmail sync failed" });
-    }
-  }, [loadData]);
+    setGmailSync({ busy: false, note: "Gmail sync is disabled for now." });
+  }, []);
 
   useEffect(() => {
     void loadData();
   }, [loadData]);
 
-  // Pull in applications submitted outside CareerOS once per browser session —
-  // an IMAP round trip is too slow to repeat on every dashboard visit.
-  useEffect(() => {
-    const KEY = "careeros-gmail-synced-v1";
-    try {
-      if (sessionStorage.getItem(KEY)) return;
-      sessionStorage.setItem(KEY, "1");
-    } catch {
-      return;
-    }
-    void syncGmail();
-  }, [syncGmail]);
+  // Gmail sync disabled for now to prevent duplicate counts with Autopilot
+  // (Autopilot jobs are tracked directly in aa_autopilot_job)
 
   return (
     <div className={styles.minimal}>
+      <header className={styles.pageHeader}>
+        <div>
+          <p className={styles.heroEyebrow}>YOUR NEXT CHAPTER</p>
+          <h1 className={styles.pageTitle}>Make your next move.</h1>
+          <p className={styles.pageSubtitle}>A little momentum, every day. Discover your next role, shape your story, and keep your applications moving.</p>
+          <Link className={styles.heroLink} href="/applications">Step into Autopilot <span aria-hidden="true">↗</span></Link>
+        </div>
+        <div className={styles.orbitArt} aria-hidden="true"><span>↗</span></div>
+      </header>
       {error ? <p className={styles.errorBanner}>{error}</p> : null}
 
       <section className={styles.matchesSection}>
@@ -227,7 +184,9 @@ export function MinimalDashboard() {
                     <span className={styles.companyName}>{job.companyName}</span>
                   </div>
                   <div className={styles.cardActions}>
-                    <button type="button" className={styles.btnPass}>
+                    <button type="button" className={styles.btnPass}
+                      aria-label={`Dismiss ${job.title} at ${job.companyName} from current matches`}
+                      onClick={() => setTopJobs((current) => current.filter((item) => item.id !== job.id))}>
                       Pass
                     </button>
                     <a href={job.url} target="_blank" rel="noreferrer" className={styles.btnApply}>

@@ -1,117 +1,44 @@
-import { test, expect } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 
-test.describe("UI Single-Job Autopilot Runner (1 at a time)", () => {
-  test.setTimeout(1800_000); // 30 minutes
-
-  test("apply 1 at a time through UI until 10 new applications succeed", async ({ page }) => {
-    console.log("[UI-RUNNER] Navigating to /applications...");
-    await page.goto("/applications?tab=applications", { waitUntil: "domcontentloaded" });
-
-    // Ensure we are on the applications list
-    await page.waitForTimeout(3000);
-
-    // Verify page loaded
-    const appTab = page.getByRole("button", { name: /^Applications/i });
-    if (await appTab.isVisible()) {
-      await appTab.click();
-      await page.waitForTimeout(2000);
-    }
-
-    // Filter to Queued jobs so we only pick unapplied ones
-    const queuedFilterBtn = page.getByRole("button", { name: /^Queued/i });
-    if (await queuedFilterBtn.isVisible()) {
-      console.log("[UI-RUNNER] Switching filter to Queued...");
-      await queuedFilterBtn.click();
-      await page.waitForTimeout(2000);
-    }
-
-    let newlySubmittedCount = 0;
-    const targetSubmissions = 10;
-
-    for (let round = 1; round <= targetSubmissions; round++) {
-      console.log(`\n========================================`);
-      console.log(`[UI-RUNNER] Starting single application #${round} (Goal: ${targetSubmissions})`);
-      console.log(`========================================`);
-
-      // Find the first available "Apply →" action in the grid
-      const applyBtn = page.locator('span[role="button"]:has-text("Apply →")').first();
-
-      const canApply = await applyBtn.isVisible({ timeout: 10000 }).catch(() => false);
-      if (!canApply) {
-        console.log("[UI-RUNNER] No immediate 'Apply →' button visible in Queued filter. Reloading view...");
-        await page.goto("/applications?tab=applications", { waitUntil: "domcontentloaded" });
-        await page.waitForTimeout(3000);
-        const qBtn = page.getByRole("button", { name: /^Queued/i });
-        if (await qBtn.isVisible()) {
-          await qBtn.click();
-          await page.waitForTimeout(2000);
-        }
+// This is an explicit live exercise, never part of an ordinary test run.
+test("apply to ten distinct approved jobs, one at a time", async ({ page, request }, testInfo) => {
+  test.skip(process.env.CAREEROS_LIVE_APPLY !== "1", "Requires explicit live application opt-in");
+  const ids = (process.env.CAREEROS_APPROVED_JOB_IDS || "").split(",").map(id => id.trim()).filter(Boolean);
+  expect(ids.length, "Provide at least ten explicitly approved job IDs").toBeGreaterThanOrEqual(10);
+  expect(new Set(ids).size, "Jobs must be distinct").toBe(ids.length);
+  test.setTimeout((ids.length * 7 + 1) * 60_000);
+  const outcomes: Record<string, unknown>[] = [];
+  const api = "/api/backend/application-assistant";
+  await page.goto("/applications", { waitUntil: "domcontentloaded" });
+  await page.getByRole("button", { name: "Applications", exact: true }).click();
+  try {
+    for (const id of ids) {
+      if (outcomes.filter(outcome => outcome.verified === true).length === 10) break;
+      const card = page.locator(`[data-job-id="${id}"]`);
+      await expect(card).toHaveAttribute("data-status", "queued");
+      const before = await card.innerText();
+      const accepted = page.waitForResponse(r => r.url().endsWith(`/jobs/${id}/preflight-approve`) && r.request().method() === "POST");
+      await card.getByRole("button", { name: "Apply →", exact: true }).click();
+      expect((await accepted).ok(), `${id}: application request accepted`).toBeTruthy();
+      // Never infer success from a disappearing button. Wait for this exact
+      // job's terminal status; a timeout stops the exercise, preventing overlap.
+      await expect(card).toHaveAttribute("data-status", /^(submitted|review|failed|skipped|ineligible)$/, { timeout: 6 * 60_000 });
+      const status = await card.getAttribute("data-status");
+      const outcome: Record<string, unknown> = { id, before, status, details: await card.innerText() };
+      await card.screenshot({ path: testInfo.outputPath(`${id}.png`) });
+      if (status === "submitted") {
+        const response = await request.get(`${api}/receipts/${id}`);
+        expect(response.ok(), `${id}: receipt exists`).toBeTruthy();
+        const { receipt } = await response.json();
+        outcome.receiptId = receipt?.receiptId;
+        outcome.verified = receipt?.verificationStatus === "VERIFIED" && Boolean(receipt?.confirmationText || receipt?.confirmationUrl);
+        expect(outcome.verified, `${id}: explicit submission evidence`).toBeTruthy();
       }
-
-      // Check again
-      const targetApplyBtn = page.locator('span[role="button"]:has-text("Apply →")').first();
-      await expect(targetApplyBtn).toBeVisible({ timeout: 15000 });
-
-      // Get the job card details for logging
-      const card = targetApplyBtn.locator("xpath=ancestor::button[1]");
-      const cardText = await card.innerText();
-      const firstLine = cardText.split("\n")[0] || "Unknown job";
-      console.log(`[UI-RUNNER] Clicking 'Apply →' from UI for: ${firstLine.trim()}`);
-
-      // Click Apply from the UI
-      await targetApplyBtn.click();
-
-      // Monitor processing until this single job reaches terminal state or progresses
-      console.log("[UI-RUNNER] Application triggered. Watching live UI status...");
-      
-      // Wait for it to switch out of applying or complete
-      let waitSeconds = 0;
-      const maxWait = 240; // 4 minutes per job
-      let completed = false;
-
-      while (waitSeconds < maxWait) {
-        await page.waitForTimeout(5000);
-        waitSeconds += 5;
-
-        // Check if there is a note or notification
-        const noteEl = page.locator('div[class*="empty"]');
-        if (await noteEl.isVisible()) {
-          const noteText = await noteEl.innerText();
-          if (noteText.includes("Applied") || noteText.includes("Submitted")) {
-            console.log(`[UI-RUNNER] UI Status Note: ${noteText}`);
-          }
-        }
-
-        // Check overview/status if it finished
-        // We can inspect whether the applying button is gone and the job moved to Submitted
-        if (waitSeconds % 20 === 0) {
-          console.log(`[UI-RUNNER] Waiting for single job completion... (${waitSeconds}s elapsed)`);
-        }
-
-        // Check if the current button is no longer "Applying…"
-        const currentText = await targetApplyBtn.innerText().catch(() => "");
-        if (currentText !== "Applying…") {
-          // It finished this single application
-          console.log(`[UI-RUNNER] Job execution cycle ended at ${waitSeconds}s.`);
-          completed = true;
-          break;
-        }
-      }
-
-      newlySubmittedCount++;
-      console.log(`[UI-RUNNER] Finished processing application #${round}. Pausing 5s before next...`);
-      await page.waitForTimeout(5000);
-
-      // Refresh list to update counts and move to next queued job
-      await page.goto("/applications?tab=applications", { waitUntil: "domcontentloaded" });
-      await page.waitForTimeout(2000);
-      const qFilter = page.getByRole("button", { name: /^Queued/i });
-      if (await qFilter.isVisible()) {
-        await qFilter.click();
-        await page.waitForTimeout(2000);
-      }
+      outcomes.push(outcome);
+      console.log(JSON.stringify(outcome));
     }
-
-    console.log(`[UI-RUNNER] Successfully completed 10 UI application triggers!`);
-  });
+  } finally {
+    await testInfo.attach("application-outcomes", { body: JSON.stringify(outcomes, null, 2), contentType: "application/json" });
+  }
+  expect(outcomes.filter(o => o.verified).length, "All ten must have verified submission receipts to report ten successes").toBe(10);
 });

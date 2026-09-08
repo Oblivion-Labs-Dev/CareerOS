@@ -7,6 +7,7 @@ import json
 import logging
 import re
 from typing import Any
+from urllib.parse import parse_qs, urlsplit
 
 from app.db.store import session_scope
 from app.services.application_assistant.llm_client import create_llm_client
@@ -200,16 +201,9 @@ async def verify_submission_confirmation(
             "reason": f"Page contains active validation errors: {', '.join(active_errors[:5])}",
         }
 
-    url_lower = confirmation_url.lower()
-    url_redirected = any(term in url_lower for term in ["/thank_you", "/confirmation", "/applied", "/success", "submitted=true", "thanks"])
-
-    # If the user is still on the un-redirected page with the submit button visible, the form did NOT submit
-    if (form_still_visible or submit_button_visible) and not url_redirected:
-        return {
-            "submissionConfirmed": False,
-            "confidence": 0.95,
-            "reason": "Submission was not processed: Application form and submit button are still active on the page",
-        }
+    parsed_url = urlsplit(confirmation_url.lower())
+    confirmation_paths = {"thank_you", "thank-you", "confirmation", "applied", "success", "thanks"}
+    url_redirected = bool(set(parsed_url.path.strip("/").split("/")) & confirmation_paths) or parse_qs(parsed_url.query).get("submitted") == ["true"]
 
     conf_phrases = [
         "thank you for applying",
@@ -223,11 +217,20 @@ async def verify_submission_confirmation(
         "successfully submitted",
         "submission successful",
         "your response has been recorded",
+        "thanks for applying",
     ]
     body_lower = body_text.lower()
     has_phrase = any(p in body_lower for p in conf_phrases)
 
-    is_confirmed = (url_redirected or (has_phrase and not form_still_visible)) and not active_errors
+    # If the user is still on the un-redirected page with the submit button visible, and no confirmation phrase was shown, the form did NOT submit
+    if form_still_visible or submit_button_visible:
+        return {
+            "submissionConfirmed": False,
+            "confidence": 0.95,
+            "reason": "Submission was not processed: Application form and submit button are still active on the page",
+        }
+
+    is_confirmed = (url_redirected or has_phrase) and not active_errors
     return {
         "submissionConfirmed": is_confirmed,
         "confidence": 1.0 if is_confirmed else 0.2,

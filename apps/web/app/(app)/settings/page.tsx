@@ -107,8 +107,8 @@ export default function SettingsPage() {
   return (
     <WorkflowPage
       title="Settings"
-      eyebrow="Foundation"
-      subtitle="Control how CareerOS stores data, syncs with the extension, and protects your job search workspace."
+      eyebrow="Make it yours"
+      subtitle="A workspace that works your way. Fine-tune your preferences, connected tools, and the details CareerOS remembers."
       primaryAction={{ href: "/profile", label: "Review profile" }}
       secondaryAction={{ href: "/roadmap", label: "View roadmap" }}
       outcomes={[

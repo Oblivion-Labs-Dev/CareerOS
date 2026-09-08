@@ -2,11 +2,17 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
+import logging
+import os
 import threading
+import time
 from typing import Any
 
 import httpx
+
+logger = logging.getLogger("careeros.llm")
 
 
 class LLMCallMetrics:
@@ -19,24 +25,42 @@ class LLMCallMetrics:
         self._lock = threading.Lock()
         # per-model: {"success": int, "failure": int}
         self._by_model: dict[str, dict[str, int]] = {}
+        self._by_provider: dict[str, dict[str, int]] = {}
         self.fallback_rescues = 0  # primary failed, fallback succeeded
         self.total_calls = 0
 
-    def record(self, model: str, succeeded: bool, *, is_fallback: bool = False, task: str = "unspecified") -> None:
+    def record(
+        self,
+        model: str,
+        succeeded: bool,
+        *,
+        provider: str = "ollama",
+        is_fallback: bool = False,
+        task: str = "unspecified",
+        latency_ms: float | None = None,
+    ) -> None:
         with self._lock:
             self.total_calls += 1
             bucket = self._by_model.setdefault(model, {"success": 0, "failure": 0})
             bucket["success" if succeeded else "failure"] += 1
+
+            p_bucket = self._by_provider.setdefault(provider, {"success": 0, "failure": 0})
+            p_bucket["success" if succeeded else "failure"] += 1
+
             if is_fallback and succeeded:
                 self.fallback_rescues += 1
 
-        # Durable copy (this in-memory tracker resets on restart) — a fallback
-        # call still reports its own model, not the primary's, so provider
-        # comparisons stay accurate.
+        # Durable copy (this in-memory tracker resets on restart) — records
+        # actual provider and model for later performance comparison.
         from app.services.model_usage_tracker import log_model_usage
 
-        provider = "openrouter" if is_fallback else "ollama"
-        log_model_usage(provider=provider, model=model, task=task, success=succeeded)
+        log_model_usage(
+            provider=provider,
+            model=model,
+            task=task,
+            success=succeeded,
+            latency_ms=latency_ms,
+        )
 
     def to_dict(self) -> dict[str, Any]:
         with self._lock:
@@ -46,11 +70,15 @@ class LLMCallMetrics:
                 "byModel": {
                     model: dict(counts) for model, counts in self._by_model.items()
                 },
+                "byProvider": {
+                    provider: dict(counts) for provider, counts in self._by_provider.items()
+                },
             }
 
     def reset(self) -> None:
         with self._lock:
             self._by_model.clear()
+            self._by_provider.clear()
             self.fallback_rescues = 0
             self.total_calls = 0
 
@@ -71,6 +99,7 @@ class LLMClient:
         max_retries: int = 2,
         confidence_threshold: float = 0.7,
         fallback: "LLMClient | None" = None,
+        provider: str = "ollama",
     ):
         self.base_url = base_url.rstrip("/")
         self.model = model
@@ -80,6 +109,7 @@ class LLMClient:
         self.confidence_threshold = confidence_threshold
         # Secondary client tried when this one is unavailable or every retry fails.
         self.fallback = fallback
+        self.provider = provider
 
     @property
     def enabled(self) -> bool:
@@ -94,10 +124,10 @@ class LLMClient:
                 if resp.status_code == 200:
                     data = resp.json()
                     models = [m.get("id", "") for m in data.get("data", [])]
-                    return {"success": True, "models": models}
-                return {"success": False, "error": f"HTTP {resp.status_code}"}
+                    return {"success": True, "models": models, "provider": self.provider, "model": self.model}
+                return {"success": False, "error": f"HTTP {resp.status_code}", "provider": self.provider}
         except Exception as exc:
-            return {"success": False, "error": str(exc)}
+            return {"success": False, "error": str(exc), "provider": self.provider}
 
     async def chat(
         self,
@@ -106,17 +136,38 @@ class LLMClient:
         system: str = "",
     ) -> dict[str, Any]:
         """Multi-turn chat completion, falling back to `self.fallback` if this client fails."""
+        start_t = time.monotonic()
         result = await self._chat_once(messages, system=system) if self.enabled else {
             "success": False,
             "error": "LLM not configured",
         }
+        latency_ms = (time.monotonic() - start_t) * 1000
         if self.enabled:
-            llm_call_metrics.record(self.model, bool(result.get("success")))
+            llm_call_metrics.record(
+                self.model,
+                bool(result.get("success")),
+                provider=self.provider,
+                latency_ms=latency_ms,
+            )
+            logger.info(
+                "LLM chat call: provider=%s model=%s success=%s latency=%.1fms",
+                self.provider,
+                self.model,
+                bool(result.get("success")),
+                latency_ms,
+            )
         if not result.get("success") and self.fallback is not None and self.fallback.enabled:
-            fallback_result = await self.fallback._chat_once(messages, system=system)
-            llm_call_metrics.record(self.fallback.model, bool(fallback_result.get("success")), is_fallback=True)
+            logger.warning(
+                "LLM chat failed on provider=%s model=%s (%s). Falling back to provider=%s model=%s",
+                self.provider,
+                self.model,
+                result.get("error"),
+                self.fallback.provider,
+                self.fallback.model,
+            )
+            fallback_result = await self.fallback.chat(messages, system=system)
             if fallback_result.get("success"):
-                fallback_result["usedFallbackModel"] = self.fallback.model
+                fallback_result["usedFallbackModel"] = fallback_result.get("usedFallbackModel") or self.fallback.model
                 return fallback_result
         return result
 
@@ -185,18 +236,43 @@ class LLMClient:
         response_schema: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Structured completion, falling back to `self.fallback` if this client fails."""
+        start_t = time.monotonic()
         result = (
             await self._complete_once(prompt, system=system, response_schema=response_schema)
             if self.enabled
             else {"success": False, "error": "LLM not configured"}
         )
+        latency_ms = (time.monotonic() - start_t) * 1000
         if self.enabled:
-            llm_call_metrics.record(self.model, bool(result.get("success")))
+            llm_call_metrics.record(
+                self.model,
+                bool(result.get("success")),
+                provider=self.provider,
+                latency_ms=latency_ms,
+            )
+            logger.info(
+                "LLM complete call: provider=%s model=%s success=%s latency=%.1fms",
+                self.provider,
+                self.model,
+                bool(result.get("success")),
+                latency_ms,
+            )
         if not result.get("success") and self.fallback is not None and self.fallback.enabled:
-            fallback_result = await self.fallback._complete_once(prompt, system=system, response_schema=response_schema)
-            llm_call_metrics.record(self.fallback.model, bool(fallback_result.get("success")), is_fallback=True)
+            logger.warning(
+                "LLM complete failed on provider=%s model=%s (%s). Falling back to provider=%s model=%s",
+                self.provider,
+                self.model,
+                result.get("error"),
+                self.fallback.provider,
+                self.fallback.model,
+            )
+            fallback_result = await self.fallback.complete(
+                prompt,
+                system=system,
+                response_schema=response_schema,
+            )
             if fallback_result.get("success"):
-                fallback_result["usedFallbackModel"] = self.fallback.model
+                fallback_result["usedFallbackModel"] = fallback_result.get("usedFallbackModel") or self.fallback.model
                 return fallback_result
         return result
 
@@ -391,7 +467,144 @@ class LLMClient:
         return LLMClient._parse_json_object(text)
 
 
-import os
+class FreeTokenProvider(LLMClient):
+    """FreeToken OpenAI-compatible local LLM provider.
+
+    Connects to FreeToken server (typically http://127.0.0.1:1919/v1).
+    Performs fast health checks before sending requests to prevent blocking
+    when the FreeToken server is not running, and falls back to Mistral / Gemini.
+    """
+
+    def __init__(
+        self,
+        *,
+        base_url: str = "http://127.0.0.1:1919/v1",
+        model: str = "Qwen3.6-35B-A3B",
+        api_key: str = "",
+        timeout: int = 60,
+        max_retries: int = 0,
+        confidence_threshold: float = 0.7,
+        fallback: LLMClient | None = None,
+        health_check_ttl: float = 5.0,
+        health_check_timeout: float = 1.5,
+    ):
+        super().__init__(
+            base_url=base_url,
+            model=model,
+            api_key=api_key,
+            timeout=timeout,
+            max_retries=max_retries,
+            confidence_threshold=confidence_threshold,
+            fallback=fallback,
+            provider="freetoken",
+        )
+        self.health_check_ttl = health_check_ttl
+        self.health_check_timeout = health_check_timeout
+        self._last_health_check_time: float = 0.0
+        self._last_health_status: bool = False
+        self._health_lock = asyncio.Lock()
+
+    async def check_health(self, timeout: float | None = None) -> dict[str, Any]:
+        """Probe FreeToken server health via GET /models."""
+        t = timeout or self.health_check_timeout
+        try:
+            async with httpx.AsyncClient(timeout=t) as client:
+                headers = self._headers()
+                resp = await client.get(f"{self.base_url}/models", headers=headers)
+                if resp.status_code == 200:
+                    data = resp.json()
+                    models = [m.get("id", "") for m in data.get("data", [])] if isinstance(data, dict) else []
+                    return {"healthy": True, "models": models}
+                return {"healthy": False, "error": f"HTTP {resp.status_code}"}
+        except Exception as exc:
+            return {"healthy": False, "error": str(exc)}
+
+    async def is_healthy(self, force: bool = False) -> bool:
+        """Cached health check to avoid spamming the endpoint before every request."""
+        now = time.monotonic()
+        if not force and (now - self._last_health_check_time < self.health_check_ttl):
+            return self._last_health_status
+
+        async with self._health_lock:
+            now = time.monotonic()
+            if not force and (now - self._last_health_check_time < self.health_check_ttl):
+                return self._last_health_status
+
+            health = await self.check_health()
+            self._last_health_status = bool(health.get("healthy"))
+            self._last_health_check_time = now
+            return self._last_health_status
+
+    async def chat(
+        self,
+        messages: list[dict[str, str]],
+        *,
+        system: str = "",
+    ) -> dict[str, Any]:
+        if not self.enabled:
+            return await self._fallback_chat(messages, system=system, reason="FreeToken not enabled")
+
+        healthy = await self.is_healthy()
+        if not healthy:
+            logger.warning("FreeToken is unreachable at %s; bypassing to fallback", self.base_url)
+            return await self._fallback_chat(messages, system=system, reason="FreeToken unreachable or unhealthy")
+
+        return await super().chat(messages, system=system)
+
+    async def complete(
+        self,
+        prompt: str,
+        *,
+        system: str = "",
+        response_schema: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        if not self.enabled:
+            return await self._fallback_complete(prompt, system=system, response_schema=response_schema, reason="FreeToken not enabled")
+
+        healthy = await self.is_healthy()
+        if not healthy:
+            logger.warning("FreeToken is unreachable at %s; bypassing to fallback", self.base_url)
+            return await self._fallback_complete(prompt, system=system, response_schema=response_schema, reason="FreeToken unreachable or unhealthy")
+
+        return await super().complete(prompt, system=system, response_schema=response_schema)
+
+    async def _fallback_chat(self, messages: list[dict[str, str]], *, system: str = "", reason: str = "") -> dict[str, Any]:
+        if self.fallback is not None and self.fallback.enabled:
+            res = await self.fallback.chat(messages, system=system)
+            if res.get("success"):
+                res["usedFallbackModel"] = res.get("usedFallbackModel") or self.fallback.model
+            return res
+        return {"success": False, "error": reason or "FreeToken unavailable and no fallback configured"}
+
+    async def _fallback_complete(
+        self,
+        prompt: str,
+        *,
+        system: str = "",
+        response_schema: dict[str, Any] | None = None,
+        reason: str = "",
+    ) -> dict[str, Any]:
+        if self.fallback is not None and self.fallback.enabled:
+            res = await self.fallback.complete(prompt, system=system, response_schema=response_schema)
+            if res.get("success"):
+                res["usedFallbackModel"] = res.get("usedFallbackModel") or self.fallback.model
+            return res
+        return {"success": False, "error": reason or "FreeToken unavailable and no fallback configured"}
+
+
+def _is_freetoken_enabled(settings: dict[str, Any]) -> bool:
+    from app.config import settings as app_settings
+
+    ft_cfg = settings.get("freetoken") or {}
+    if "enabled" in ft_cfg:
+        return bool(ft_cfg["enabled"])
+    llm_cfg = settings.get("llm") or {}
+    if str(llm_cfg.get("provider") or "").lower() == "freetoken":
+        return True
+
+    if getattr(app_settings, "freetoken_enabled", False):
+        return True
+    return os.environ.get("FREETOKEN_ENABLED", "").lower() in ("true", "1", "yes")
 
 
 def _resolve_llm_config(llm_config: dict[str, Any], default_model: str = "qwen3:8b") -> tuple[str, str, str]:
@@ -401,7 +614,11 @@ def _resolve_llm_config(llm_config: dict[str, Any], default_model: str = "qwen3:
     api_key = str(llm_config.get("apiKey") or "").strip()
     base_url = str(llm_config.get("baseUrl") or "").strip()
 
-    if provider in ("openai", "chatgpt") or (not provider and ("gpt" in model.lower() or "o1" in model.lower() or "o3" in model.lower())):
+    if provider in ("freetoken",) or (not provider and "1919" in base_url):
+        base_url = base_url or os.environ.get("FREETOKEN_BASE_URL", "http://127.0.0.1:1919/v1")
+        model = model or os.environ.get("FREETOKEN_MODEL", "Qwen3.6-35B-A3B")
+        api_key = api_key or os.environ.get("FREETOKEN_API_KEY", "")
+    elif provider in ("openai", "chatgpt") or (not provider and ("gpt" in model.lower() or "o1" in model.lower() or "o3" in model.lower())):
         base_url = base_url or "https://api.openai.com/v1"
         model = model or "gpt-4o-mini"
         api_key = api_key or os.environ.get("OPENAI_API_KEY", "")
@@ -438,6 +655,7 @@ def _build_gemini_fallback(*, timeout: int, max_retries: int, confidence_thresho
         timeout=timeout,
         max_retries=max_retries,
         confidence_threshold=confidence_threshold,
+        provider="gemini",
     )
 
 
@@ -446,38 +664,67 @@ def create_llm_client(settings: dict[str, Any]) -> LLMClient:
 
     Defaults to local Mistral via Ollama, automatically falling back to
     Gemini Flash when Mistral is unreachable or every retry fails.
-
-    Measured on this deployment's hardware (2026-09-05): mistral-small3.2:24b
-    only fits ~5.85GB of its 16GB weights in VRAM, so most layers run on CPU —
-    291 output tokens measured at 110s (~2.6 tok/s). A typical tailoring
-    completion (several hundred tokens of structured JSON) will always exceed
-    even a generous single-attempt timeout, so retrying it (`max_retries`,
-    each a full `timeout`-second wait) before falling back to Gemini doesn't
-    add resilience, it only adds 1-2x `timeout` seconds of guaranteed-to-fail
-    waiting per job — which is what was pushing whole submission attempts
-    (bounded at 90s in execute_live_playwright_submission) past their own
-    timeout and into repeated NAVIGATION_TIMEOUT failures. The primary client
-    retries 0 times and falls back to Gemini immediately on its first miss;
-    the fallback keeps normal retries for genuine transient network blips.
+    When FreeToken is enabled and healthy, FreeToken takes precedence as the
+    primary local provider with automatic fallback to Mistral and Gemini.
     """
     llm_config = settings.get("llm", {})
+    provider = str(llm_config.get("provider") or "").lower().strip()
     base_url, model, api_key = _resolve_llm_config(llm_config, default_model="mistral-small3.2:24b")
     timeout = llm_config.get("timeout", 60)
     max_retries = llm_config.get("maxRetries", 2)
     confidence_threshold = llm_config.get("confidenceThreshold", 0.7)
-    fallback = None if "gemini" in model.lower() else _build_gemini_fallback(
+    gemini_fallback = None if "gemini" in model.lower() else _build_gemini_fallback(
         timeout=timeout, max_retries=max_retries, confidence_threshold=confidence_threshold
     )
-    primary_max_retries = 0 if fallback is not None else max_retries
-    return LLMClient(
+    primary_max_retries = 0 if gemini_fallback is not None else max_retries
+
+    mistral_provider_name = "ollama" if ("11434" in base_url or "ollama" in provider) else (provider or "ollama")
+    mistral_client = LLMClient(
         base_url=base_url,
         model=model,
         api_key=api_key,
         timeout=timeout,
         max_retries=primary_max_retries,
         confidence_threshold=confidence_threshold,
-        fallback=fallback,
+        fallback=gemini_fallback,
+        provider=mistral_provider_name,
     )
+
+    if _is_freetoken_enabled(settings):
+        from app.config import settings as app_settings
+
+        ft_cfg = settings.get("freetoken") or {}
+        ft_base_url = (
+            ft_cfg.get("baseUrl")
+            or getattr(app_settings, "freetoken_base_url", None)
+            or os.environ.get("FREETOKEN_BASE_URL", "http://127.0.0.1:1919/v1")
+        )
+        ft_model = (
+            ft_cfg.get("model")
+            or getattr(app_settings, "freetoken_model", None)
+            or os.environ.get("FREETOKEN_MODEL", "Qwen3.6-35B-A3B")
+        )
+        ft_timeout = int(
+            ft_cfg.get("timeout")
+            or getattr(app_settings, "freetoken_timeout", 60)
+            or os.environ.get("FREETOKEN_TIMEOUT", 60)
+        )
+        ft_api_key = (
+            ft_cfg.get("apiKey")
+            or getattr(app_settings, "freetoken_api_key", "")
+            or os.environ.get("FREETOKEN_API_KEY", "")
+        )
+        return FreeTokenProvider(
+            base_url=ft_base_url,
+            model=ft_model,
+            api_key=ft_api_key,
+            timeout=ft_timeout,
+            max_retries=0,
+            confidence_threshold=confidence_threshold,
+            fallback=mistral_client,
+        )
+
+    return mistral_client
 
 
 def create_mapping_client(settings: dict[str, Any]) -> LLMClient:
@@ -494,21 +741,59 @@ def create_mapping_client(settings: dict[str, Any]) -> LLMClient:
     timeout = llm_config.get("timeout", 90)
     max_retries = llm_config.get("maxRetries", 2)
     confidence_threshold = llm_config.get("confidenceThreshold", 0.7)
-    fallback = None if "gemini" in model.lower() else _build_gemini_fallback(
+    gemini_fallback = None if "gemini" in model.lower() else _build_gemini_fallback(
         timeout=timeout, max_retries=max_retries, confidence_threshold=confidence_threshold
     )
-    # See create_llm_client: retrying the measured-too-slow local model before
-    # falling back to Gemini only adds guaranteed-to-fail wait time, not resilience.
-    primary_max_retries = 0 if fallback is not None else max_retries
-    return LLMClient(
+    primary_max_retries = 0 if gemini_fallback is not None else max_retries
+
+    provider = str(cfg.get("provider") or "").lower().strip()
+    mistral_provider_name = "ollama" if ("11434" in base_url or "ollama" in provider) else (provider or "ollama")
+    mistral_client = LLMClient(
         base_url=base_url,
         model=model,
         api_key=api_key,
         timeout=timeout,
         max_retries=primary_max_retries,
         confidence_threshold=confidence_threshold,
-        fallback=fallback,
+        fallback=gemini_fallback,
+        provider=mistral_provider_name,
     )
+
+    if _is_freetoken_enabled(settings):
+        from app.config import settings as app_settings
+
+        ft_cfg = settings.get("freetoken") or {}
+        ft_base_url = (
+            ft_cfg.get("baseUrl")
+            or getattr(app_settings, "freetoken_base_url", None)
+            or os.environ.get("FREETOKEN_BASE_URL", "http://127.0.0.1:1919/v1")
+        )
+        ft_model = (
+            ft_cfg.get("model")
+            or getattr(app_settings, "freetoken_model", None)
+            or os.environ.get("FREETOKEN_MODEL", "Qwen3.6-35B-A3B")
+        )
+        ft_timeout = int(
+            ft_cfg.get("timeout")
+            or getattr(app_settings, "freetoken_timeout", 90)
+            or os.environ.get("FREETOKEN_TIMEOUT", 90)
+        )
+        ft_api_key = (
+            ft_cfg.get("apiKey")
+            or getattr(app_settings, "freetoken_api_key", "")
+            or os.environ.get("FREETOKEN_API_KEY", "")
+        )
+        return FreeTokenProvider(
+            base_url=ft_base_url,
+            model=ft_model,
+            api_key=ft_api_key,
+            timeout=ft_timeout,
+            max_retries=0,
+            confidence_threshold=confidence_threshold,
+            fallback=mistral_client,
+        )
+
+    return mistral_client
 
 
 def create_vision_client(settings: dict[str, Any]) -> LLMClient:

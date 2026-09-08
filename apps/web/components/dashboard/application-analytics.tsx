@@ -81,21 +81,18 @@ export function ApplicationAnalytics({ refreshKey = 0 }: { refreshKey?: number }
     if (jobs === null && tracker === null) return null;
 
     const autopilotList = jobs || [];
-    const allApps = tracker?.applications || [];
-    const manualApps = allApps.filter((a) => a.source === "gmail_manual");
-
+    // With Gmail sync disabled, use Autopilot jobs as clean source of truth to prevent double counting
     const autopilotCount =
       tracker?.autopilotSubmittedCount ??
       autopilotList.filter((j) => j.status === "SUBMITTED" || !j.status).length;
-    const manualCount = tracker?.manualSubmittedCount ?? manualApps.length;
-    const total = tracker?.totalSubmittedCount ?? autopilotCount + manualCount;
+    const manualCount = 0;
+    const total = autopilotCount;
 
     const today = startOfDay(new Date());
 
-    // Collect timestamps from both autopilot jobs and manual applications
+    // Only collect timestamps from verified autopilot jobs to eliminate double counts
     const autopilotTimestamps = autopilotList.map(jobTimestamp).filter((t) => !Number.isNaN(t));
-    const manualTimestamps = manualApps.map(appTimestamp).filter((t) => !Number.isNaN(t));
-    const allTimestamps = [...autopilotTimestamps, ...manualTimestamps];
+    const allTimestamps = autopilotTimestamps;
 
     const buckets = new Map<string, number>();
     for (let i = DAYS_SHOWN - 1; i >= 0; i -= 1) {
@@ -143,7 +140,7 @@ export function ApplicationAnalytics({ refreshKey = 0 }: { refreshKey?: number }
               <span className={styles.statValue}>{stats ? stats.total : "—"}</span>
             </div>
             <p className={styles.statSub}>
-              {stats ? `${stats.autopilotCount} Autopilot + ${stats.manualCount} Manual` : "All-time applications"}
+              {stats ? `${stats.autopilotCount} Autopilot verified` : "All-time applications"}
             </p>
           </div>
 
@@ -166,7 +163,7 @@ export function ApplicationAnalytics({ refreshKey = 0 }: { refreshKey?: number }
             <div className={styles.statValueRow}>
               <span className={styles.statValue}>{stats ? stats.manualCount : "—"}</span>
             </div>
-            <p className={styles.statSub}>Detected from thank-you emails</p>
+            <p className={styles.statSub}>Sync disabled (avoid duplicates)</p>
           </div>
 
           {/* Card 4: Today */}

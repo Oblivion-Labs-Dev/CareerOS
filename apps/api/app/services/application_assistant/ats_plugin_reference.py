@@ -236,9 +236,9 @@ CANONICAL_PATTERNS: dict[str, list[str]] = {
     ],
     "address": [r"address", r"street", r"address\s*line\s*1"],
     "city": [r"\bcity\b", r"municipality"],
-    "state": [r"\bstate\b", r"province", r"region"],
+    "state": [r"\bstate\b", r"province", r"region", r"reside", r"which.*state"],
     "zip": [r"\bzip\b", r"postal\s*code", r"postal", r"postcode"],
-    "country": [r"\bcountry\b", r"country/region"],
+    "country": [r"\bcountry\b", r"country/region", r"country\s*of\s*residence"],
     "linkedin": [r"linkedin", r"linked\s*in", r"urls\[linkedin\]"],
     "github": [r"github", r"git\s*hub", r"share.*github", r"urls\[github\]"],
     "portfolio": [r"portfolio", r"website", r"personal\s*site", r"personal\s*website", r"urls\[portfolio\]"],
@@ -284,6 +284,8 @@ CANONICAL_PATTERNS: dict[str, list[str]] = {
     "gpa": [r"\bgpa\b", r"grade\s*point\s*average"],
     "transcript": [r"transcript", r"unofficial\s*transcript"],
     "referralSource": [r"how\s*did\s*you\s*hear", r"source", r"how\s*did\s*you\s*find\s*us"],
+    "citizenship": [r"what\s*is\s*your\s*citizenship", r"your\s*citizenship", r"country\s*of\s*citizenship", r"nationality"],
+    "otherLinks": [r"other\s*links", r"additional\s*links", r"other\s*url", r"supplementary\s*links"],
 }
 
 
@@ -347,10 +349,20 @@ def extract_canonical_value(
         return addr, "Profile address"
 
     if key == "city":
-        return profile.get("city") or profile.get("location"), "Profile city"
+        cf = profile.get("customFields") or {}
+        city_val = profile.get("city") or cf.get("city") or profile.get("location", "").split(",")[0].strip()
+        return city_val, "Profile city"
 
     if key == "state":
+        cf = profile.get("customFields") or {}
         st = profile.get("state") or profile.get("province")
+        # Resolve WA -> Washington from customFields if needed
+        if not st:
+            st_abbr = cf.get("state", "")
+            if st_abbr:
+                st = US_STATES.get(st_abbr.lower().strip(), st_abbr)
+                # Capitalize properly
+                st = st.title() if st else st_abbr
         if options and st:
             matched = pick_best_matching_option(options, st)
             if matched:
@@ -428,6 +440,7 @@ def extract_canonical_value(
         else:
             spons_val = "Yes"
         if options:
+            # Only match Yes/No from available options — never append visa type details
             matched = pick_best_matching_option(options, spons_val)
             if matched:
                 return matched, "Matched sponsorship option"
@@ -595,6 +608,19 @@ def extract_canonical_value(
             if matched:
                 return matched, "Matched referral source option"
         return val, "Referral source default"
+
+    if key == "citizenship":
+        cit = profile.get("citizenship") or "India"
+        if options:
+            matched = pick_best_matching_option(options, cit)
+            if matched:
+                return matched, "Matched citizenship option"
+        return cit, "Candidate citizenship"
+
+    if key == "otherLinks":
+        # "Other Links" should be a URL (portfolio, GitHub), not a prose answer
+        val = profile.get("portfolio") or profile.get("portfolioUrl") or profile.get("website") or profile.get("github") or ""
+        return val, "Candidate other links (URL)"
 
     return None, ""
 

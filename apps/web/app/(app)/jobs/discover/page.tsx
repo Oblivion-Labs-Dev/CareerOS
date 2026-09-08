@@ -6,8 +6,8 @@ export default function JobDiscoverPage() {
   return (
     <WorkflowPage
       title="Browse Jobs"
-      eyebrow="Job Ingestion & Discovery"
-      subtitle="Search and browse 250,000+ jobs across authoritative ATS platforms, Big Tech, curated remote APIs, and startup feeds with multi-source deduplication, profile relevancy, and 1-click AI prep."
+      eyebrow="A world of possibilities"
+      subtitle="Find a role worth your next move. Explore fresh openings, compare your fit, and save the opportunities that feel right."
       primaryAction={{ href: "/profile", label: "Update profile" }}
       secondaryAction={{ href: "/dashboard", label: "Back to dashboard" }}
       outcomes={[
