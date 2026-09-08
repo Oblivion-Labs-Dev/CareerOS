@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import logging
 from collections import Counter
 from datetime import UTC, datetime
 from pathlib import Path
@@ -21,6 +22,8 @@ from app.services.application_assistant.candidate_match_context import (
 )
 from app.services.job_discover import apify_service, bigtech_scrapers, relevancy_engine, scraper_service
 from app.services.job_discover.h1b_sponsorship import apply_h1b_fields
+
+logger = logging.getLogger("career_os.job_discover_store")
 
 KV_KEY = "job_discover"
 DATA_DIR = Path(__file__).resolve().parents[3] / "data" / "job_discover"

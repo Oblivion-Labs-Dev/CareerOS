@@ -121,11 +121,28 @@ async def approve_preflight_submission(
         job["status"] = "QUEUED"
         job["preflightApproved"] = True
         job["preflightApprovedAt"] = now_iso()
+        job["lockedBy"] = None
+        job["lockedAt"] = None
+        job["lockExpiresAt"] = None
         if payload.get("customAnswers"):
             job["customAnswers"] = payload["customAnswers"]
         if payload.get("tailoringMode") in ("off", "honest", "aggressive"):
             job["tailoringMode"] = payload["tailoringMode"]
         save_autopilot_job(db, job)
+
+    # start() below *resumes* an already-active run rather than guaranteeing this
+    # job starts now — it only pushes the id onto priority_job_ids for whenever
+    # the batch loop next claims work. Capture whether a run was already active so
+    # the response can say which of those two things actually happened; reporting
+    # "submission initiated" unconditionally previously made a job that never left
+    # QUEUED look like it had been submitted.
+    from app.services.application_assistant.persistence import get_active_autopilot_run
+
+    with session_scope() as db:
+        active_run = get_active_autopilot_run(db)
+    queued_behind_active_run = bool(
+        active_run and active_run.get("status") in ("RUNNING", "PAUSED", "RECOVERING")
+    )
 
     runner = AutopilotRunner.get_instance()
     # concurrency=1 is deliberate: this is the single-job "Apply" click path, not
@@ -141,9 +158,19 @@ async def approve_preflight_submission(
     # A user clicking "Apply" on job A would silently have job B processed
     # instead while A sits untouched, with no indication anything went wrong.
     run = await runner.start(options={"targetProcessCount": 1, "concurrency": 1, "priorityJobId": id})
+
+    if queued_behind_active_run:
+        message = (
+            f"{job.get('company')} is queued next — Autopilot is already running, "
+            "so it starts when the current job finishes."
+        )
+    else:
+        message = f"Pre-flight approved for {job.get('company')} — cloud submission initiated."
+
     return {
         "success": True,
-        "message": f"Pre-flight approved for {job.get('company')} — cloud submission initiated.",
+        "queuedBehindActiveRun": queued_behind_active_run,
+        "message": message,
         "job": job,
         "run": run,
     }

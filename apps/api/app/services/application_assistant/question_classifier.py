@@ -193,6 +193,8 @@ _CLASSIFICATION_RULES: list[tuple[QuestionType, list[str]]] = [
         # deliberately left unanswered above.
         r"prepared\s+or\s+submitted.{0,40}\bby\s+an?\s+ai\b",
         r"ai\s+system,?\s+language\s+model,?\s+or\s+automated\s+agent",
+        r"use\s+ai[\s-]*powered\s+tools\s+during\s+our\s+evaluation",
+        r"simulate\s+real[\s-]*world\s+workflows",
     ]),
     # Must come before CITIZENSHIP/EXPORT_CONTROL below: contains neither
     # "citizen" nor "export control" verbatim, but is the same "answer No,
@@ -204,6 +206,19 @@ _CLASSIFICATION_RULES: list[tuple[QuestionType, list[str]]] = [
         r"procurement\s+or\s+contract\s+award",
         r"oversight.*(business|company|contract)",
         r"conflict\s*of\s*interest",
+    ]),
+    # Work authorization questions that mention country ("authorized to work in the country outlined", etc.)
+    # must be classified as WORK_AUTHORIZED rather than falling into CITIZENSHIP.
+    (QuestionType.WORK_AUTHORIZED, [
+        r"authorized\s+to\s+work",
+        r"authorization\s+to\s+work",
+        r"right\s+to\s+work",
+        r"eligible\s+to\s+work",
+        r"legally\s+(authorized|able)\s+to\s+work",
+        r"work\s+authoriz",
+        r"work\s+status",
+        r"permit\s+to\s+work",
+        r"u\.s\.\s*work\s+authoriz",
     ]),
     (QuestionType.CITIZENSHIP, [
         r"citizen(ship)?(?!.*clear)",
@@ -218,16 +233,6 @@ _CLASSIFICATION_RULES: list[tuple[QuestionType, list[str]]] = [
         r"immigration",
         r"\bh-?1b\b",
         r"require\s+visa",
-    ]),
-    (QuestionType.WORK_AUTHORIZED, [
-        r"authorized\s+to\s+work",
-        r"right\s+to\s+work",
-        r"eligible\s+to\s+work",
-        r"legally\s+(authorized|able)\s+to\s+work",
-        r"work\s+authoriz",
-        r"work\s+status",
-        r"permit\s+to\s+work",
-        r"u\.s\.\s*work\s+authoriz",
     ]),
 
     # ── Security Clearance ──
@@ -282,10 +287,10 @@ _CLASSIFICATION_RULES: list[tuple[QuestionType, list[str]]] = [
     ]),
 
     # ── Identity ──
+    (QuestionType.PREFERRED_NAME, [r"preferred\s*(first\s*)?name", r"preferred\s*name", r"nickname", r"what.*call\s*you"]),
     (QuestionType.FIRST_NAME, [r"first[\s_-]*name", r"^fname$", r"given[\s_-]*name"]),
     (QuestionType.LAST_NAME, [r"last[\s_-]*name", r"^lname$", r"family[\s_-]*name", r"surname"]),
     (QuestionType.FULL_NAME, [r"full\s*name", r"^name\s*\*?$", r"legal\s*name", r"applicant\s*name"]),
-    (QuestionType.PREFERRED_NAME, [r"preferred\s*name", r"nickname", r"what.*call\s*you"]),
     # Checked before EMAIL: a long consent sentence ("contact you via SMS or
     # WhatsApp... via the email you provided") mentions "email" only in
     # passing, but the bare EMAIL pattern below matches on that substring
@@ -364,6 +369,7 @@ _CLASSIFICATION_RULES: list[tuple[QuestionType, list[str]]] = [
         r"experience\s*level",
         r"how\s*many\s*years",
         r"hands-on\s*experience",
+        r"early\s+career",
     ]),
     (QuestionType.TECH_STACK_EXPERIENCE, [
         r"which\s+of\s+the\s+following.*(experience|familiar|use)",
@@ -377,7 +383,17 @@ _CLASSIFICATION_RULES: list[tuple[QuestionType, list[str]]] = [
     ]),
     (QuestionType.LINKEDIN, [r"linkedin"]),
     (QuestionType.GITHUB, [r"github"]),
-    (QuestionType.WEBSITE, [r"portfolio", r"website", r"personal\s*site"]),
+    (QuestionType.WEBSITE, [
+        r"portfolio",
+        r"website",
+        r"personal\s*site",
+        r"other\s*links?",
+        r"other\s*websites?",
+        r"additional\s*links?",
+        r"additional\s*websites?",
+        r"relevant\s*links?",
+        r"other\s*social",
+    ]),
 
     # ── Documents ──
     (QuestionType.RESUME, [r"resume", r"\bcv\b", r"curriculum\s*vitae"]),
@@ -461,6 +477,7 @@ _CLASSIFICATION_RULES: list[tuple[QuestionType, list[str]]] = [
         r"have\s+you\s+(ever|previously)\s*(worked|been\s+employed)\s*(at|for)",
         r"have\s+you\s+(ever\s+)?been\s+employed\s*(by|at|for)",
         r"have\s+you\s+(ever\s+)?worked\s*(at|for)",
+        r"worked\s+for\s+\w+\s+as\s+an\s+employee,?\s+intern",
         r"employed\s+by\s+\w+\s+before",
         r"(ever,?\s*or\s+are\s+you\s+currently\s+)?working\s+at\s+\w+\s+in\s+any\s+capacity",
         r"currently\s+working\s+(at|for)\s+\w+",

@@ -294,7 +294,10 @@ export function RecentActivityPanel({ logs, workers, concurrency }: RecentActivi
           return slot === activeTab;
         });
 
-  const displayLogs = filteredLogs.slice(-6).reverse();
+  // Keep a scrollable window of recent history rather than growing the page:
+  // the panel is a fixed-height scroll area below, so showing more entries adds
+  // scrollback instead of stretching the dashboard.
+  const displayLogs = filteredLogs.slice(-60).reverse();
 
   const handleCopyLogs = async () => {
     const formatted = logs
@@ -381,7 +384,8 @@ export function RecentActivityPanel({ logs, workers, concurrency }: RecentActivi
 
       {/* Grid of timeline cards */}
       {displayLogs.length > 0 ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+        <div className="max-h-[22rem] overflow-y-auto overscroll-contain pr-1 scrollbar-thin">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
           {displayLogs.map((log) => {
             const { icon: EventIcon, color, title, detail, workerSlot } = parseActivityItem(log);
             const timeStr = new Date(log.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
@@ -417,6 +421,7 @@ export function RecentActivityPanel({ logs, workers, concurrency }: RecentActivi
               </div>
             );
           })}
+          </div>
         </div>
       ) : (
         <div className="p-6 rounded-xl bg-[#060a10] border border-white/5 text-center text-xs text-slate-500 italic">

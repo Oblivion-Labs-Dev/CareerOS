@@ -20,6 +20,24 @@ from app.services.application_assistant.question_classifier import (
     SENSITIVE_FACTUAL_TYPES,
 )
 
+# Map validation rules to their high-risk contradiction domains.
+# When a rule fires, the domain is recorded on the blocking contradiction
+# so the submission policy can enforce a permanent block for that category.
+RULE_DOMAIN_MAP: dict[str, str] = {
+    "SENSITIVE_LLM_BLOCKED": "factual_experience",
+    "H1B_SPONSORSHIP_INCONSISTENCY": "visa_work_auth",
+    "CITIZENSHIP_EXPORT_INCONSISTENCY": "legal_acknowledgement",
+    "CITIZENSHIP_INCONSISTENCY": "visa_work_auth",
+    "PERMANENT_AUTH_INCONSISTENCY": "visa_work_auth",
+    "STATE_MISMATCH": "location",
+    "ETHNICITY_RACE_CROSSOVER": "demographics",
+    "RACE_ETHNICITY_CROSSOVER": "demographics",
+    "PHONE_INCOMPLETE": "factual_experience",
+    "CLEARANCE_ELIGIBILITY_INCONSISTENCY": "legal_acknowledgement",
+    "NAME_AS_LOCATION": "location",
+    "GENDER_IDENTITY_CONTRADICTION": "demographics",
+}
+
 
 @dataclass
 class ValidationIssue:
@@ -29,9 +47,10 @@ class ValidationIssue:
     severity: str  # BLOCKING | WARNING
     rule: str
     reason: str
+    domain: str = ""  # High-risk domain category (demographics, visa_work_auth, etc.)
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        d = {
             "fieldId": self.field_id,
             "question": self.question,
             "answer": self.answer,
@@ -39,6 +58,9 @@ class ValidationIssue:
             "rule": self.rule,
             "reason": self.reason,
         }
+        if self.domain:
+            d["domain"] = self.domain
+        return d
 
 
 @dataclass
@@ -67,6 +89,7 @@ def _add_error(report: ValidationReport, res: AnswerResolution, rule: str, reaso
         severity="BLOCKING",
         rule=rule,
         reason=reason,
+        domain=RULE_DOMAIN_MAP.get(rule, ""),
     )
     report.blocking_errors.append(issue)
     report.status = "FAIL"
@@ -216,5 +239,21 @@ def validate_answers(
         if last_name and loc_lower == last_name:
             _add_error(report, loc_res, "NAME_AS_LOCATION",
                        f"Candidate's last name '{last_name}' was used as location")
+
+    # ── Rule 13: Gender identity contradiction (Male vs Female on same form) → BLOCK ──
+    gender_res = by_type.get(QuestionType.GENDER.value) if hasattr(QuestionType, 'GENDER') else None
+    if gender_res and gender_res.answer:
+        profile_gender = (profile.get("demographics", {}) or {}).get("gender", "").lower()
+        answer_gender = gender_res.answer.lower().strip()
+        # Detect clear contradiction: profile says Male but answer says Female or vice versa
+        male_keywords = {"male", "man", "cis male", "cisgender male"}
+        female_keywords = {"female", "woman", "cis female", "cisgender female"}
+        profile_is_male = any(kw in profile_gender for kw in male_keywords) and not any(kw in profile_gender for kw in female_keywords)
+        profile_is_female = any(kw in profile_gender for kw in female_keywords) and not any(kw in profile_gender for kw in male_keywords)
+        answer_is_male = any(kw in answer_gender for kw in male_keywords) and not any(kw in answer_gender for kw in female_keywords)
+        answer_is_female = any(kw in answer_gender for kw in female_keywords) and not any(kw in answer_gender for kw in male_keywords)
+        if (profile_is_male and answer_is_female) or (profile_is_female and answer_is_male):
+            _add_error(report, gender_res, "GENDER_IDENTITY_CONTRADICTION",
+                       f"Profile gender '{profile_gender}' contradicts form answer '{gender_res.answer}'")
 
     return report

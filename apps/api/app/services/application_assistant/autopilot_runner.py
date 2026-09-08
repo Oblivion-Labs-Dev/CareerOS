@@ -28,6 +28,7 @@ from app.services.application_assistant.domain import (
     AutopilotJobStatus,
     AutopilotRunStatus,
     CheckpointStep,
+    IneligibilityReason,
 )
 from app.services.application_assistant.job_filter_ranker import filter_and_rank_jobs
 from app.services.application_assistant.persistence import (
@@ -634,6 +635,20 @@ class AutopilotRunner:
 
             # 3. Claim up to N jobs concurrently, but never more than the
             # batch still needs — concurrency is a parallelism cap, not a target override.
+            # Claim order follows the same Senior-SWE/Seattle preference used to
+            # rank postings into the queue: list_autopilot_jobs returns rows in
+            # storage order, so without this a partial batch would apply to
+            # whichever jobs happen to sit at the front of the table rather than
+            # to the highest-priority ones.
+            from app.services.application_assistant.job_filter_ranker import role_location_priority_bonus
+            queued.sort(
+                key=lambda j: (
+                    (j.get("matchScore") or 0.0) + role_location_priority_bonus(j),
+                    j.get("queuedAt") or "",
+                ),
+                reverse=True,
+            )
+
             # Jobs the user explicitly clicked "Apply" on jump the queue first —
             # see priority_job_ids above.
             if self.priority_job_ids:
@@ -829,6 +844,26 @@ class AutopilotRunner:
     async def _process_single_job_with_retries(
         self, run_id: str, job_item: dict[str, Any], worker_state: WorkerState | None = None
     ) -> None:
+        # SAFETY GUARD: Never retry a job with persistent blocking contradictions.
+        # These can only be resolved through explicit human review (custom answers).
+        if job_item.get("hasPersistentBlock") or job_item.get("blockingContradictions"):
+            company = job_item.get("company", "Unknown")
+            title = job_item.get("title", "Unknown")
+            job_item["status"] = AutopilotJobStatus.NEEDS_REVIEW.value
+            job_item["lastError"] = "Persistent contradiction block — requires human review"
+            job_item["aiExplanation"] = (
+                "This application has irreconcilable contradictions detected on a prior attempt. "
+                "Automated retries cannot clear this block. Please review and provide custom answers."
+            )
+            self._record_checkpoint(job_item, CheckpointStep.STAGED, "Persistent block prevents retry")
+            with session_scope() as db:
+                save_autopilot_job(db, job_item)
+            self.log_event(
+                f"Skipping retry for {company} — {title}: persistent contradiction block active",
+                level="warning",
+            )
+            return
+
         attempt = (job_item.get("attemptCount") or 0) + 1
         job_item["attemptCount"] = attempt
         self._record_checkpoint(job_item, CheckpointStep.JOB_CLAIMED, f"Attempt {attempt}/{MAX_JOB_ATTEMPTS}")
@@ -841,6 +876,35 @@ class AutopilotRunner:
             exc_detail = str(exc).strip() or exc.__class__.__name__
             err_type = self._classify_error(Exception(exc_detail))
 
+            # An ineligible posting is not a failure to retry: no number of
+            # attempts makes a citizenship-restricted, non-sponsoring, non-US or
+            # dead posting applyable. Classify before the retry branch so those
+            # never burn three attempts and never land in the review queue.
+            from app.services.application_assistant.ineligibility import (
+                apply_ineligibility,
+                classify_ineligibility,
+            )
+
+            job_item["lastError"] = exc_detail
+            job_item["lastErrorType"] = err_type
+            classified = classify_ineligibility(job_item)
+            if classified:
+                reason, detail = classified
+                apply_ineligibility(job_item, reason, detail)
+                self._record_checkpoint(job_item, CheckpointStep.SKIPPED, f"{reason.value}: {detail}")
+                with self._run_update_lock:
+                    with session_scope() as db:
+                        save_autopilot_job(db, job_item)
+                        r = get_autopilot_run(db, run_id)
+                        if r:
+                            r["ineligibleCount"] = (r.get("ineligibleCount") or 0) + 1
+                            save_autopilot_run(db, r)
+                self.log_event(
+                    f"Ineligible ({reason.value}): {job_item.get('company')} — {job_item.get('title')}",
+                    level="warning",
+                )
+                return
+
             if err_type in TRANSIENT_ERRORS and attempt < MAX_JOB_ATTEMPTS:
                 delay = 2 if attempt == 1 else 5
                 self.log_event(f"Transient error ({err_type}). Retrying attempt {attempt + 1} after {delay}s...", level="warning")
@@ -848,8 +912,6 @@ class AutopilotRunner:
                 return await self._process_single_job_with_retries(run_id, job_item, worker_state)
 
             job_item["status"] = AutopilotJobStatus.FAILED.value
-            job_item["lastError"] = exc_detail
-            job_item["lastErrorType"] = err_type
             job_item["aiExplanation"] = f"Failed due to error: {err_type} ({exc_detail})"
             self._record_checkpoint(job_item, CheckpointStep.FAILED, f"Failed on error: {err_type}")
             with self._run_update_lock:
@@ -938,21 +1000,37 @@ class AutopilotRunner:
             prof = get_kv(filter_db, "profile") or {}
         passed, skip_reason = evaluate_hard_filters(job_item, prof, [])
         if not passed and ("citizenship" in skip_reason.lower() or "sponsorship" in skip_reason.lower() or "itar" in skip_reason.lower()):
-            self.log_event(
-                f"{w_prefix}Skipped {company} — {title}: {skip_reason}",
-                level="warning",
-                metadata={"slot": slot_idx, "company": company, "title": title, "reason": skip_reason},
+            # Terminal, not a soft skip: no retry and no profile change makes a
+            # citizenship-restricted or non-sponsoring posting applyable for this
+            # candidate, so it is marked INELIGIBLE with the exact reason and kept
+            # out of the review/retry queues entirely.
+            from app.services.application_assistant.ineligibility import (
+                apply_ineligibility,
+                classify_ineligibility,
             )
-            job_item["status"] = AutopilotJobStatus.SKIPPED.value
+
             job_item["skipReason"] = skip_reason
             job_item["aiExplanation"] = skip_reason
-            self._record_checkpoint(job_item, CheckpointStep.SKIPPED, skip_reason)
+            classified = classify_ineligibility(job_item)
+            reason, detail = classified if classified else (
+                IneligibilityReason.REQUIRES_US_CITIZENSHIP, skip_reason
+            )
+            apply_ineligibility(job_item, reason, detail)
+            self.log_event(
+                f"{w_prefix}Ineligible {company} — {title} [{reason.value}]: {skip_reason}",
+                level="warning",
+                metadata={
+                    "slot": slot_idx, "company": company, "title": title,
+                    "reason": skip_reason, "ineligibilityReason": reason.value,
+                },
+            )
+            self._record_checkpoint(job_item, CheckpointStep.SKIPPED, f"{reason.value}: {skip_reason}")
             with self._run_update_lock:
                 with session_scope() as db:
                     save_autopilot_job(db, job_item)
                     r = get_autopilot_run(db, run_id)
                     if r:
-                        r["skippedCount"] = (r.get("skippedCount") or 0) + 1
+                        r["ineligibleCount"] = (r.get("ineligibleCount") or 0) + 1
                         save_autopilot_run(db, r)
             return
 
@@ -1112,7 +1190,13 @@ class AutopilotRunner:
             profile=submission_profile,
             answer_lib=answer_lib,
             headless=headless_mode,
-            timeout_sec=60.0,
+            # 60s was not enough for real Greenhouse forms: four jobs in one batch
+            # (both Robinhood postings, both Brex postings) died on TimeoutError
+            # mid-way through the LLM field auto-healing rounds, which alone can run
+            # two rounds over 9+ fields. The cap exists to stop a wedged browser
+            # hanging a worker slot forever, so it stays — just wide enough for a
+            # large form to finish honestly.
+            timeout_sec=180.0,
             log_callback=_granular_log,
         )
 
@@ -1141,26 +1225,57 @@ class AutopilotRunner:
                 level="info",
                 metadata={"slot": slot_idx, "company": company, "title": title},
             )
-        elif result.get("expired"):
-            # Job is unlisted / removed by employer: Drop from list and exclude permanently from future queue
+        elif result.get("expired") or result.get("noApplicationForm"):
+            # Job is unlisted / removed by employer: Drop from list and exclude permanently from future queue.
+            # `noApplicationForm` lands here too: the executor sets it when the posting URL
+            # resolved to a page with no form at all (observed live: otter.ai/careers, a
+            # Coinbase posting 302ing to its careers index). That is a pulled posting, not a
+            # selector bug — treating it as FAILED burned three retries per job and left the
+            # dead posting eligible for the next batch.
             self.log_event(
                 f"{w_prefix}Job unlisted / expired by employer ({company} — {title}). Dropping from candidate list.",
                 level="info",
                 metadata={"slot": slot_idx, "company": company, "title": title},
             )
             with session_scope() as db:
-                from app.services.application_assistant.persistence import delete_autopilot_job
-                delete_autopilot_job(db, job_item["id"])
-                # Also archive or mark inactive in discovered jobs so it is never picked up again
+                from app.services.application_assistant.persistence import ENTITY_DISCOVERED_JOB
+                from app.services.application_assistant.ineligibility import apply_ineligibility
+
+                # Retained as an INELIGIBLE row rather than deleted: the user asked to
+                # be able to see *why* a posting produced no application, and a silently
+                # deleted job is indistinguishable from one that was never queued.
+                apply_ineligibility(
+                    job_item,
+                    IneligibilityReason.POSTING_EXPIRED,
+                    result.get("error") or "Posting was unlisted or removed by the employer.",
+                )
+                save_autopilot_job(db, job_item)
+                r = get_autopilot_run(db, run_id)
+                if r:
+                    r["ineligibleCount"] = (r.get("ineligibleCount") or 0) + 1
+                    save_autopilot_run(db, r)
+                # Also archive or mark inactive in discovered jobs so it is never picked up again.
+                # This must use ENTITY_DISCOVERED_JOB ("aa_discovered_job") — the entity type
+                # every other reader/writer of these rows uses. It previously passed a bare
+                # "discovered_job", so get_entity always returned None, the archive silently
+                # never happened, and _refill_queue re-queued the very posting that had just
+                # been dropped — expired postings cycled through the batch forever, each pass
+                # consuming a processedCount slot without producing an application.
                 from app.db.store import get_entity, upsert_entity
                 job_id = job_item.get("jobId")
                 if job_id:
-                    dj = get_entity(db, "discovered_job", job_id)
+                    dj = get_entity(db, ENTITY_DISCOVERED_JOB, job_id)
                     if dj:
                         dj["active"] = False
                         dj["expired"] = True
                         dj["unlistedAt"] = now_iso()
-                        upsert_entity(db, "discovered_job", dj)
+                        upsert_entity(db, ENTITY_DISCOVERED_JOB, dj)
+                    else:
+                        logger.warning(
+                            "Expired job %s (%s — %s) had no discovered_job row to archive; "
+                            "it may be re-discovered on the next crawl.",
+                            job_id, company, title,
+                        )
         elif result.get("stagedForReview") or result.get("status") == "NEEDS_REVIEW":
             # ─── VERIFIED AUTONOMY: STAGE TO NEEDS_REVIEW (NOT FAILED) ───
             review_reason = result.get("error") or "Requires human review before submission"
@@ -1171,6 +1286,22 @@ class AutopilotRunner:
             job_item["answers"] = result.get("fieldsFilled", {})
             job_item["aiExplanation"] = job_item["lastError"]
 
+            # ── Persist blocking contradictions from executor onto the job ──
+            # The executor may have recorded new high-risk contradictions on
+            # job_item["blockingContradictions"] during its run. These MUST be
+            # persisted so that any subsequent retry or self-healing cycle
+            # cannot bypass them — SubmissionPolicy will permanently block.
+            blocking_issues = ((result.get("evidence") or {}).get("policyEvaluation") or {}).get("blockingIssues", [])
+            has_persistent_blocks = any(bi.get("persistent") or bi.get("gate") == "PERSISTENT_CONTRADICTION_BLOCK" for bi in blocking_issues)
+            if has_persistent_blocks:
+                job_item["hasPersistentBlock"] = True
+                self.log_event(
+                    f"{w_prefix}PERSISTENT BLOCK: {company} — {title} has irreconcilable contradictions. "
+                    f"Only human resolution (custom answers) can clear this.",
+                    level="error",
+                    metadata={"slot": slot_idx, "company": company, "title": title, "persistent": True},
+                )
+
             # Structured, answerable questions for the Apply-board popup. Browser-automation
             # errors are inherently non-deterministic (wording varies per ATS, per field type,
             # per employer) — rather than hand-coding an ever-growing set of string patterns,
@@ -1180,7 +1311,6 @@ class AutopilotRunner:
             # shared with the on-demand re-classification endpoint for pre-existing jobs.
             from app.services.application_assistant.error_normalizer import build_pending_questions
 
-            blocking_issues = ((result.get("evidence") or {}).get("policyEvaluation") or {}).get("blockingIssues", [])
             job_item["pendingQuestions"] = await build_pending_questions(blocking_issues)
             self._record_checkpoint(job_item, CheckpointStep.STAGED, f"Staged for Review: {review_reason}")
             

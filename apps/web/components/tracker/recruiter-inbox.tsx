@@ -51,12 +51,18 @@ export function RecruiterInbox() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeFilter, setActiveFilter] = useState<EmailCategory | "all">("all");
+  const [query, setQuery] = useState("");
+  const [page, setPage] = useState(0);
+
+  // An inbox with a thousand threads should not be a thousand-row page. Show a
+  // fixed window and let search + paging reach the rest.
+  const PAGE_SIZE = 12;
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
       setError(null);
-      const result = await listClassifiedRecruiterThreads(20);
+      const result = await listClassifiedRecruiterThreads(500);
       setThreads(result.threads);
       setCounts(result.categoryCounts);
     } catch (err) {
@@ -70,10 +76,31 @@ export function RecruiterInbox() {
     load();
   }, [load]);
 
-  const filtered = useMemo(
-    () => (activeFilter === "all" ? threads : threads.filter((t) => t.category === activeFilter)),
-    [threads, activeFilter],
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return threads
+      .filter((t) => activeFilter === "all" || t.category === activeFilter)
+      .filter(
+        (t) =>
+          !q ||
+          [t.subject, t.fromName, t.fromAddress, t.snippet].some((v) =>
+            String(v || "").toLowerCase().includes(q),
+          ),
+      );
+  }, [threads, activeFilter, query]);
+
+  const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const safePage = Math.min(page, pageCount - 1);
+  const visible = useMemo(
+    () => filtered.slice(safePage * PAGE_SIZE, safePage * PAGE_SIZE + PAGE_SIZE),
+    [filtered, safePage],
   );
+
+  // Changing filter or search should land you on the first page of the new set,
+  // not on page 7 of results that no longer exist.
+  useEffect(() => {
+    setPage(0);
+  }, [activeFilter, query]);
 
   if (loading) {
     return <p className="text-sm text-slate-400 px-1">Classifying recruiter email…</p>;
@@ -121,6 +148,13 @@ export function RecruiterInbox() {
             </button>
           );
         })}
+        <input
+          type="search"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Search sender, subject…"
+          className="ml-auto min-w-[12rem] flex-1 rounded-full border border-white/10 bg-white/[0.03] px-3 py-1 text-xs text-slate-200 outline-none placeholder:text-slate-500 focus:border-white/25"
+        />
       </div>
 
       {filtered.length === 0 ? (
@@ -131,7 +165,7 @@ export function RecruiterInbox() {
         </p>
       ) : (
         <div className="flex flex-col gap-2">
-          {filtered.map((thread) => (
+          {visible.map((thread) => (
             <div
               key={thread.uid}
               className="flex flex-col gap-1.5 rounded-xl border border-white/10 bg-white/[0.02] px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4"
@@ -149,6 +183,36 @@ export function RecruiterInbox() {
               <span className="shrink-0 text-[11px] text-slate-500">{formatDate(thread.date)}</span>
             </div>
           ))}
+        </div>
+      )}
+
+      {filtered.length > PAGE_SIZE && (
+        <div className="flex items-center justify-between gap-3 pt-1">
+          <span className="text-[11px] text-slate-500">
+            {safePage * PAGE_SIZE + 1}–{Math.min(filtered.length, (safePage + 1) * PAGE_SIZE)} of{" "}
+            {filtered.length}
+          </span>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setPage((p) => Math.max(0, p - 1))}
+              disabled={safePage === 0}
+              className="rounded-lg border border-white/15 bg-white/5 px-2.5 py-1 text-[11px] font-bold text-slate-200 transition hover:bg-white/10 disabled:opacity-40"
+            >
+              Previous
+            </button>
+            <span className="text-[11px] text-slate-500">
+              {safePage + 1} / {pageCount}
+            </span>
+            <button
+              type="button"
+              onClick={() => setPage((p) => Math.min(pageCount - 1, p + 1))}
+              disabled={safePage >= pageCount - 1}
+              className="rounded-lg border border-white/15 bg-white/5 px-2.5 py-1 text-[11px] font-bold text-slate-200 transition hover:bg-white/10 disabled:opacity-40"
+            >
+              Next
+            </button>
+          </div>
         </div>
       )}
     </div>

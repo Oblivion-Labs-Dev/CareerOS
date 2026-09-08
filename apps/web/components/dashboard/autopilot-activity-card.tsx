@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { DonutProgressRing } from "@/components/application-assistant/autopilot/donut-progress-ring";
-import { getClientApiBaseUrl } from "@/lib/api";
+import { getAutopilotStatus } from "@/lib/application-assistant-api";
 import styles from "./minimal-dashboard.module.css";
 
 type Cumulative = {
@@ -25,16 +25,21 @@ export function AutopilotActivityCard() {
   const router = useRouter();
   const [cumulative, setCumulative] = useState<Cumulative | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
-    const api = getClientApiBaseUrl();
-    fetch(`${api}/application-assistant/autopilot/status`, { credentials: "include" })
-      .then((res) => (res.ok ? res.json() : null))
+    // Use the shared helper rather than a bare fetch against
+    // NEXT_PUBLIC_API_URL: that origin (127.0.0.1) differs from the one the app
+    // is served from (localhost), so the session cookie was never sent and the
+    // request came back 401 — which this card then rendered as "no activity".
+    getAutopilotStatus()
       .then((data) => {
-        if (!cancelled && data?.cumulative) setCumulative(data.cumulative);
+        if (!cancelled) setCumulative(data?.cumulative ?? {});
       })
-      .catch(() => {})
+      .catch(() => {
+        if (!cancelled) setLoadError(true);
+      })
       .finally(() => {
         if (!cancelled) setLoading(false);
       });
@@ -45,6 +50,12 @@ export function AutopilotActivityCard() {
 
   if (loading) {
     return <p className={styles.muted}>Loading Autopilot activity…</p>;
+  }
+
+  // "Couldn't load" and "nothing has run yet" are different claims — saying the
+  // second when we mean the first contradicts the counters elsewhere on the page.
+  if (loadError) {
+    return <p className={styles.muted}>Couldn&apos;t load Autopilot activity. Retry in a moment.</p>;
   }
 
   const submitted = cumulative?.submitted ?? 0;

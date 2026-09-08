@@ -315,6 +315,16 @@ def approve_staged_answer(
         }
         upsert_answer(db, entry)
 
+    # When user approves in Review Center, clear any persistent contradiction blocks
+    # so the job can be safely retried with the verified answer.
+    custom_answers = payload.get("customAnswers") or {}
+    if question and answer:
+        custom_answers[question] = answer
+    if custom_answers:
+        job.setdefault("customAnswers", {}).update(custom_answers)
+
+    job.pop("hasPersistentBlock", None)
+    job.pop("blockingContradictions", None)
     job["status"] = "QUEUED"
     save_autopilot_job(db, job)
     return {"success": True, "job": job}
@@ -472,6 +482,10 @@ def _requeue_autopilot_jobs_by_status(statuses: tuple[str, ...]) -> dict[str, An
     with session_scope() as db:
         jobs = list_autopilot_jobs(db)
         for j in jobs:
+            # Never requeue a permanently ineligible posting — it would just fail
+            # the same hard filter again and re-pollute the queue.
+            if j.get("status") == "INELIGIBLE" or j.get("ineligibilityReason"):
+                continue
             if j.get("status") in statuses:
                 j["status"] = "QUEUED"
                 j["lastError"] = None
@@ -488,6 +502,56 @@ def _requeue_autopilot_jobs_by_status(statuses: tuple[str, ...]) -> dict[str, An
         "success": True,
         "reprocessedCount": reprocessed_count,
         "message": f"Queued {reprocessed_count} application(s). Choose a batch size and press Start Run when you are ready.",
+    }
+
+
+@router.post("/autopilot/reclassify-ineligible")
+def reclassify_ineligible_jobs(dry_run: bool = Query(default=False)) -> dict[str, Any]:
+    """Re-triage existing NEEDS_REVIEW / FAILED / SKIPPED jobs into INELIGIBLE.
+
+    The review queue is only useful if everything in it is something the user can
+    actually act on. Jobs blocked on citizenship, visa sponsorship, a non-US
+    location, or a dead posting can never be resolved by review or by a retry, so
+    they are moved to INELIGIBLE with the exact reason recorded. Everything else
+    is left exactly where it is.
+    """
+    from app.services.application_assistant.ineligibility import (
+        apply_ineligibility,
+        classify_ineligibility,
+    )
+    from app.services.application_assistant.persistence import (
+        list_autopilot_jobs,
+        save_autopilot_job,
+    )
+    from app.db.store import session_scope
+
+    TRIAGE_STATUSES = ("NEEDS_REVIEW", "FAILED", "SKIPPED", "ERROR", "VALIDATION_FAILED")
+    moved: list[dict[str, Any]] = []
+    with session_scope() as db:
+        for job in list_autopilot_jobs(db):
+            if job.get("status") not in TRIAGE_STATUSES:
+                continue
+            classified = classify_ineligibility(job)
+            if not classified:
+                continue
+            reason, detail = classified
+            moved.append({
+                "id": job.get("id"),
+                "company": job.get("company"),
+                "title": job.get("title"),
+                "fromStatus": job.get("status"),
+                "reason": reason.value,
+                "detail": detail[:300],
+            })
+            if not dry_run:
+                apply_ineligibility(job, reason, detail)
+                save_autopilot_job(db, job)
+
+    return {
+        "success": True,
+        "dryRun": dry_run,
+        "reclassifiedCount": len(moved),
+        "jobs": moved,
     }
 
 

@@ -215,6 +215,37 @@ def compute_bullet_diffs(
     return results
 
 
+def _reject_fabrication(tailored: str, original: str) -> str:
+    """Return `tailored`, or fall back to `original` when the rewrite is unsafe.
+
+    These bullets go onto a resume submitted to a real employer, so a rewrite that
+    invents scope is worse than no rewrite at all. Two checks, both observed
+    failing live with a 7B model:
+
+    * placeholder wording copied straight out of the prompt ("Lead 4, ...");
+    * every figure in the original must survive. Dropping or changing a number
+      is how "100K+ TPS at Amazon" quietly became a different claim, and it is a
+      cheap, reliable signal that the model rewrote substance rather than
+      phrasing.
+    """
+    plain_tailored = re.sub(r"<[^>]+>", "", tailored)
+
+    if re.match(r"^\s*(?:<b>\s*)?Lead\s+\d+", tailored, re.I):
+        return original
+
+    original_numbers = set(re.findall(r"\d[\d,.]*\+?%?", re.sub(r"<[^>]+>", "", original)))
+    tailored_numbers = set(re.findall(r"\d[\d,.]*\+?%?", plain_tailored))
+    if original_numbers and not original_numbers.issubset(tailored_numbers):
+        logger.info(
+            "Tailored bullet dropped or altered a figure from the original; keeping the "
+            "original bullet. missing=%s",
+            sorted(original_numbers - tailored_numbers)[:4],
+        )
+        return original
+
+    return tailored
+
+
 async def generate_role_tailoring_diff(
     job: dict[str, Any],
     profile: dict[str, Any],
@@ -233,10 +264,42 @@ async def generate_role_tailoring_diff(
     title = job.get("title") or "Target Role"
     description = job.get("description") or job.get("snippet") or ""
 
+    # Autopilot job rows carry only company/title/url/location — never the posting
+    # text — so tailoring was running with an empty job description and could not
+    # actually match anything to the role. The full description does exist, on the
+    # discovered_job row this autopilot job was created from, so fetch it by jobId.
+    if not description.strip():
+        try:
+            from app.db.store import session_scope, get_entity
+            from app.services.application_assistant.persistence import ENTITY_DISCOVERED_JOB
+
+            source_id = job.get("jobId") or job.get("id")
+            if source_id:
+                with session_scope() as _db:
+                    src_job = get_entity(_db, ENTITY_DISCOVERED_JOB, source_id)
+                if src_job:
+                    description = (
+                        src_job.get("description") or src_job.get("snippet") or ""
+                    )
+                    if description.strip():
+                        logger.info(
+                            "Loaded job description (%d chars) from discovered job %s for tailoring",
+                            len(description), source_id,
+                        )
+        except Exception as e:
+            logger.warning("Could not load job description for tailoring: %s", e)
+
+    if not description.strip():
+        logger.warning(
+            "No job description available for %s — %s; tailoring can only use the title.",
+            company, title,
+        )
+
     # Master bullets across both Microsoft (0..6) and Amazon (7..16)
     master_bullets = [b["fullText"] for b in CANONICAL_MASTER_BULLETS]
 
     tailored_bullets: list[str] = []
+    tailoring_failed = False
 
     if valid_mode == "off":
         # Off: passthrough exact master bullets with zero alteration
@@ -249,9 +312,24 @@ async def generate_role_tailoring_diff(
             "llm": {
                 "enabled": True,
                 "provider": "ollama",
-                "model": "mistral-small3.2:24b",
+                # mistral-small3.2:24b needs ~16GB and this box has an 8GB
+                # RTX 2070 Super Max-Q, so only ~5.8GB ever loaded and the rest
+                # ran on CPU at ~2.6 tok/s - a 17-bullet completion never
+                # finished, so every tailoring call fell back to the static
+                # template and every "tailored" resume came out byte-identical.
+                # mistral:7b-instruct fits entirely in VRAM and does the same
+                # 17-bullet pass in ~9s measured.
+                "model": "mistral:7b-instruct",
                 "baseUrl": "http://localhost:11434/v1",
-                "timeout": 45,
+                                # Deliberately short. mistral-small3.2:24b runs mostly on CPU here
+                # (~2.6 tok/s measured), so a 17-bullet completion never finishes no
+                # matter how long we wait - raising this to 300s did not produce a
+                # single success, it just made every job spend 300s failing before
+                # handing off. create_llm_client retries the primary 0 times and falls
+                # straight through to the cloud fallback, so failing fast is the point.
+                # ~9s warm; the first call after an idle period also pays a
+                # ~47s model load, so this covers a cold start with margin.
+                "timeout": 120,
                 "maxRetries": 1,
             }
         }
@@ -276,24 +354,41 @@ async def generate_role_tailoring_diff(
             for i, b in enumerate(master_bullets)
         )
 
+        # 800 chars truncated most postings before their requirements section -
+        # exactly the part worth tailoring against. Keep enough to include it.
+        jd_text = description.strip()[:6000] or "(no job description available)"
+
         prompt = (
             f"You are an expert resume tailoring assistant.\n"
             f"Candidate authentic experience bullets across Microsoft (bullets 1-7) and Amazon (bullets 8-17):\n"
             + "\n".join(f"{i+1}. {b}" for i, b in enumerate(master_bullets))
             + f"\n\nTarget Role: {title} at {company}\n"
-            f"Job Context / Snippet: {description[:800]}\n"
+            f"=== JOB DESCRIPTION (tailor against THIS) ===\n{jd_text}\n=== END JOB DESCRIPTION ===\n\n"
             f"Tailoring Mode: {valid_mode.upper()}\n"
             f"Instructions:\n"
             + (
-                "- Mode HONEST: Strictly preserve candidate's factual achievements, tech stack, and verified scope. Reorganize, rephrase, and highlight keywords and competencies matching the target job description while remaining 100% truthful across BOTH Microsoft and Amazon roles.\n"
+                "- Mode HONEST: start from the candidate's real bullets above and change only how they are told. "
+                "Read the job description, identify the responsibilities, technologies and competencies it asks for, "
+                "and where the candidate has genuinely done that work, reorganize and rephrase the bullet to lead with "
+                "it and to use the job description's own vocabulary. Re-order emphasis inside a bullet, surface a "
+                "technology that is already true but buried, and drop filler this role does not care about. Invent "
+                "nothing: no new employers, technologies, scope, seniority or metrics, and never change a number. If a "
+                "bullet is irrelevant to this role, leave it essentially as-is.\n"
                 if valid_mode == "honest" else
-                "- Mode AGGRESSIVE: Elevate executive presence, amplify leadership impact, emphasize scale and high-impact metrics (e.g., enterprise SLAs, latency, multi-agent workflows, cross-team influence) to aggressively align with the job description and maximize callback rates across BOTH Microsoft and Amazon roles.\n"
+                "- Mode AGGRESSIVE: do everything HONEST does, then inflate somewhat so the resume matches more of "
+                "the job description. Use stronger leadership verbs, frame the candidate at the senior/owner end of "
+                "what is plausible, emphasize scale and business impact, and lean into the job description's language "
+                "wherever the candidate's real work is adjacent to what is asked for. Stay anchored to the same "
+                "underlying projects and employers, and keep every hard number exactly as given - amplify the framing, "
+                "not the facts.\n"
             )
+            + "- ABSOLUTE RULE, both modes: never change WHERE or ON WHAT the work happened. Keep the employer, product, industry and domain of each bullet exactly as given. If a bullet describes e-commerce or logistics work, it stays e-commerce or logistics work even when applying to a healthcare or finance role - you may change the emphasis and wording, never the facts. Do not move a technology into a bullet it was not already in, and reuse every number exactly.\n"
             + "- Each bullet MUST begin with a bold lead action phrase formatted as <b>Lead Action Phrase</b>, followed by the description.\n"
             + f"- Return exactly {len(master_bullets)} bullets corresponding 1-to-1 in order with the original bullets (7 Microsoft, 10 Amazon).\n"
             + "- CRITICAL LENGTH CONSTRAINT: each bullet is overlaid into a fixed-size slot on the resume PDF sized for the original bullet's length — going over breaks the layout. Match each bullet's target length below (counting only visible text, not the <b> tags); never exceed the max. If your tailored version would run long, cut it down before answering, not after.\n"
             + length_targets
-            + "\n- Return ONLY a JSON array of strings, e.g. [\"<b>Lead 1</b>, text...\", ...]\n"
+            + "\n- Never copy any placeholder wording from these instructions (for example \"Lead\" followed by a number) into a bullet; every bullet must begin with a real action phrase taken from the candidate's own work.\n"
+            + "- Return ONLY a JSON array of strings, and nothing else.\n"
         )
 
         try:
@@ -305,10 +400,28 @@ async def generate_role_tailoring_diff(
                 if raw.endswith("```"):
                     raw = raw[:-3]
                 parsed = json.loads(raw.strip())
-                if isinstance(parsed, list) and len(parsed) == len(master_bullets):
+                # A 7B model is not reliably exact about list length. Requiring a
+                # perfect 17 meant one short list threw away every good bullet in
+                # the response and silently served the generic static template
+                # instead. Take what it did return, position by position, and keep
+                # the candidate's own bullet wherever it did not.
+                if isinstance(parsed, list) and parsed:
+                    if len(parsed) != len(master_bullets):
+                        logger.info(
+                            "Tailoring returned %d bullets, expected %d - keeping originals "
+                            "for the remainder.",
+                            len(parsed), len(master_bullets),
+                        )
+                        parsed = [
+                            parsed[i] if i < len(parsed) else master_bullets[i]
+                            for i in range(len(master_bullets))
+                        ]
                     tailored_bullets = [
                         clamp_bullet_length(
-                            ensure_bold_lead(str(p), CANONICAL_MASTER_BULLETS[idx]["boldPrefix"]),
+                            ensure_bold_lead(
+                                _reject_fabrication(str(p), master_bullets[idx]),
+                                CANONICAL_MASTER_BULLETS[idx]["boldPrefix"],
+                            ),
                             _plain_len(master_bullets[idx]) + 20,
                         )
                         for idx, p in enumerate(parsed)
@@ -316,6 +429,19 @@ async def generate_role_tailoring_diff(
                     logger.info(f"Resume tailored successfully with model: {res.get('usedFallbackModel') or client.model}")
         except Exception as e:
             logger.warning(f"LLM resume tailoring failed, using template fallback: {e}")
+
+        if not tailored_bullets:
+            # The static bullets below are generic and identical for every posting,
+            # so falling back means this resume is NOT tailored to the job. That used
+            # to happen on every single application (the LLM call always timed out)
+            # while still reporting a 95-99% match score, so nothing ever surfaced it.
+            # Flag it on the diff so the caller can log and act on it.
+            tailoring_failed = True
+            logger.warning(
+                "Resume tailoring FELL BACK to the static template for %s - %s "
+                "(mode=%s): the generated resume is NOT tailored to this job description.",
+                company, title, valid_mode,
+            )
 
         if not tailored_bullets:
             # High quality template fallbacks tailored specifically to title & company across all 17 bullets
@@ -451,6 +577,10 @@ async def generate_role_tailoring_diff(
         "tailoredCoverLetter": cover_letter,
         "screeningQAs": screening_qas,
         "totalChanges": sum(1 for b in bullet_diffs if b["isModified"]),
+        # True when the LLM rewrite failed and the generic static template was used,
+        # i.e. this resume is NOT actually tailored to this posting.
+        "tailoringFailed": tailoring_failed,
+        "jobDescriptionChars": len(description or ""),
     }
 
 

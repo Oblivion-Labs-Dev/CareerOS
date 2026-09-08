@@ -2,15 +2,12 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ApplicationPipelineSection, type TrackerSnapshot } from "@/components/dashboard/application-pipeline-section";
 import { ApplicationAnalytics } from "@/components/dashboard/application-analytics";
-import { CareerWorkspaceStrip } from "@/components/career-workspace-strip";
-import { TodayActions } from "@/components/dashboard/today-actions";
-import { PageTitleWithStatus } from "@/components/page-title-with-status";
+import { ApplicationInsights } from "@/components/dashboard/application-insights";
 import { useCareerWorkspace } from "@/hooks/use-career-workspace";
-import { getClientApiBaseUrl, postJson } from "@/lib/api";
+import { getApiOriginForDisplay, getClientApiBaseUrl, postJson } from "@/lib/api";
 import { discoverHref } from "@/lib/career-workspace";
-import { fetchCachedJson, getCachedStale } from "@/lib/client-fetch-cache";
+import { fetchCachedJson, getCachedStale, invalidateCachedByPrefix } from "@/lib/client-fetch-cache";
 import { DEFAULT_ROLE_FILTER, DEFAULT_TARGET_SEARCH } from "@/lib/career-workspace";
 import styles from "./minimal-dashboard.module.css";
 
@@ -27,6 +24,9 @@ type DiscoverJob = {
 
 
 type DiscoverPayload = { jobs?: DiscoverJob[] };
+
+/** Only the part of the tracker payload this page still reads. */
+type TrackerSnapshot = { applications?: { status?: string }[] };
 
 function companyInitial(name: string) {
   return (name.trim()[0] || "?").toUpperCase();
@@ -70,8 +70,8 @@ export function MinimalDashboard() {
   });
   const [error, setError] = useState("");
   const [gmailSync, setGmailSync] = useState<{ busy: boolean; note: string }>({ busy: false, note: "" });
+  const [refreshKey, setRefreshKey] = useState(0);
 
-  const applications = trackerSnapshot.applications || [];
 
   const loadData = useCallback(async () => {
     const api = getClientApiBaseUrl();
@@ -104,7 +104,7 @@ export function MinimalDashboard() {
         setTrackerSnapshot(trackerPayload.value);
       }
     } catch {
-      setError("Could not load dashboard. Start the API at " + getClientApiBaseUrl());
+      setError("Could not load dashboard. Start the API at " + getApiOriginForDisplay());
     } finally {
       setLoading(false);
     }
@@ -113,7 +113,7 @@ export function MinimalDashboard() {
   const syncGmail = useCallback(async () => {
     setGmailSync({ busy: true, note: "" });
     try {
-      const res = await postJson<{ success: boolean; added?: number; skipped?: number; reason?: string }>(
+      const res = await postJson<{ success: boolean; added?: number; addedCareeros?: number; addedManual?: number; skipped?: number; reason?: string }>(
         "/tracker/sync-gmail",
         {},
       );
@@ -121,10 +121,17 @@ export function MinimalDashboard() {
         setGmailSync({ busy: false, note: res.reason || "Gmail sync unavailable" });
         return;
       }
+      const parts: string[] = [];
+      if (res.addedCareeros) parts.push(`${res.addedCareeros} CareerOS`);
+      if (res.addedManual) parts.push(`${res.addedManual} manual`);
       setGmailSync({
         busy: false,
-        note: res.added ? `Added ${res.added} application${res.added === 1 ? "" : "s"} from Gmail.` : "No new applications found in Gmail.",
+        note: res.added
+          ? `Added ${res.added} application${res.added === 1 ? "" : "s"} from Gmail${parts.length ? ` (${parts.join(", ")})` : ""}.`
+          : "No new applications found in Gmail.",
       });
+      invalidateCachedByPrefix(`${getClientApiBaseUrl()}/tracker`);
+      setRefreshKey((k) => k + 1);
       await loadData();
     } catch (err) {
       setGmailSync({ busy: false, note: err instanceof Error ? err.message : "Gmail sync failed" });
@@ -148,47 +155,8 @@ export function MinimalDashboard() {
     void syncGmail();
   }, [syncGmail]);
 
-  const followUpCount = useMemo(() => {
-    const cutoff = Date.now() - 14 * 86_400_000;
-    return applications.filter((app) => {
-      const status = (app.status || "").toLowerCase();
-      if (!["submitted", "interviewing"].includes(status)) return false;
-      const stamp = app.submittedAt || app.updatedAt || app.createdAt || "";
-      const time = Date.parse(stamp);
-      return !Number.isNaN(time) && time <= cutoff;
-    }).length;
-  }, [applications]);
-
-  const awaitingDecisionCount = useMemo(
-    () => applications.filter((app) => (app.status || "").toLowerCase() === "saved").length,
-    [applications],
-  );
-
-  const freshMatchCount = useMemo(
-    () => topJobs.filter((job) => (job.relevancyScore ?? 0) >= 75).length,
-    [topJobs],
-  );
-
   return (
     <div className={styles.minimal}>
-      <header className={styles.pageHeader}>
-        <div>
-          <PageTitleWithStatus className={styles.pageTitle}>Dashboard</PageTitleWithStatus>
-          <p className={styles.pageSubtitle}>
-            Today&apos;s priorities, top matches, and your application pipeline.
-          </p>
-        </div>
-      </header>
-
-      <CareerWorkspaceStrip active="dashboard" />
-
-      <TodayActions
-        prefs={prefs}
-        freshMatchCount={freshMatchCount}
-        followUpCount={followUpCount}
-        awaitingDecisionCount={awaitingDecisionCount}
-      />
-
       {error ? <p className={styles.errorBanner}>{error}</p> : null}
 
       <section className={styles.matchesSection}>
@@ -210,7 +178,14 @@ export function MinimalDashboard() {
             </Link>
           </div>
         </div>
-        <ApplicationAnalytics />
+        <ApplicationAnalytics refreshKey={refreshKey} />
+      </section>
+
+      <section className={styles.matchesSection}>
+        <div className={styles.sectionHeader}>
+          <h2>What happened to your applications</h2>
+        </div>
+        <ApplicationInsights />
       </section>
 
       <section className={styles.matchesSection}>
@@ -272,11 +247,6 @@ export function MinimalDashboard() {
         )}
       </section>
 
-      {loading ? (
-        <p className={styles.muted}>Loading application pipeline…</p>
-      ) : (
-        <ApplicationPipelineSection snapshot={trackerSnapshot} />
-      )}
     </div>
   );
 }

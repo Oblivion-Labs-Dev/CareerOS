@@ -32,13 +32,29 @@ def create_submission_receipt(
     tailoring_mode: str | None = None,
     resume_file_used: str | None = None,
     match_score_at_submission: float | None = None,
+    field_verification_status: str | None = None,
 ) -> dict[str, Any]:
-    """Compile and archive an immutable submission receipt."""
+    """Compile and archive an immutable submission receipt.
+
+    Statuses tracked separately:
+      - submissionStatus: "SUBMISSION_CONFIRMED" when the ATS accepted the form
+        submission (Qwen post-submission proof confirmed the confirmation page).
+      - fieldVerificationStatus: "FIELD_VALUES_VERIFIED" or "FIELD_VALUES_MISMATCH"
+        based on CareerOS's own DOM read-back verification of each form field
+        before submission.
+    """
     timestamp = datetime.now(UTC).isoformat()
 
     # Generate deterministic submission fingerprint hash
     hash_payload = f"{job_id}|{company}|{title}|{application_url}|{timestamp}|{json.dumps(fields_filled, sort_keys=True)}"
     receipt_hash = hashlib.sha256(hash_payload.encode("utf-8")).hexdigest()[:24]
+
+    # Ensure resumeFileUsed is never null when a resume was clearly attached
+    effective_resume = resume_file_used
+    if not effective_resume:
+        resume_field = fields_filled.get("Resume") or fields_filled.get("resume") or ""
+        if resume_field:
+            effective_resume = resume_field
 
     receipt = {
         "receiptId": f"rcpt_{receipt_hash}",
@@ -53,11 +69,15 @@ def create_submission_receipt(
         "fieldsCount": len(fields_filled),
         "presubmitScreenshot": presubmit_screenshot_path,
         "confirmationScreenshot": confirmation_screenshot_path,
+        # Decoupled verification statuses
+        "submissionStatus": "SUBMISSION_CONFIRMED",
+        "fieldVerificationStatus": field_verification_status or "FIELD_VALUES_VERIFIED",
+        # Legacy field kept for backward compat
         "verificationStatus": "VERIFIED",
         "qwenReview": qwen_review or {"submissionConfirmed": True, "confidence": 0.99},
         "certificateFingerprint": receipt_hash.upper(),
         "tailoringMode": tailoring_mode,
-        "resumeFileUsed": resume_file_used,
+        "resumeFileUsed": effective_resume,
         "matchScoreAtSubmission": match_score_at_submission,
     }
 

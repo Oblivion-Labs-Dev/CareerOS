@@ -64,6 +64,27 @@ class AutopilotJobStatus(str, Enum):
     SUBMITTED = "SUBMITTED"
     SKIPPED = "SKIPPED"
     FAILED = "FAILED"
+    # Terminal and non-actionable: the candidate cannot apply to this posting at
+    # all, so it must never sit in the review or retry queues alongside work the
+    # user can actually resolve. Distinct from SKIPPED (a soft filter that may
+    # pass later, e.g. after a profile change) and from FAILED (an automation
+    # problem worth retrying). Always paired with an IneligibilityReason.
+    INELIGIBLE = "INELIGIBLE"
+
+
+class IneligibilityReason(str, Enum):
+    """Why a posting is permanently closed to this candidate.
+
+    Kept separate from ApplicationErrorType: those describe something going wrong
+    with the automation, these describe the posting itself being a dead end.
+    """
+
+    REQUIRES_US_CITIZENSHIP = "REQUIRES_US_CITIZENSHIP"
+    NO_VISA_SPONSORSHIP = "NO_VISA_SPONSORSHIP"
+    OUTSIDE_UNITED_STATES = "OUTSIDE_UNITED_STATES"
+    POSTING_EXPIRED = "POSTING_EXPIRED"
+    NOT_A_REAL_POSTING = "NOT_A_REAL_POSTING"
+    DUPLICATE_APPLICATION = "DUPLICATE_APPLICATION"
 
 
 class ApplicationErrorType(str, Enum):

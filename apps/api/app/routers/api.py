@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 from collections.abc import Generator
 from pathlib import Path
@@ -58,6 +59,8 @@ from app.services.target_company_jobs import (
     refresh_and_store,
     should_refresh_weekly,
 )
+
+logger = logging.getLogger("career_os.api")
 
 router = APIRouter()
 

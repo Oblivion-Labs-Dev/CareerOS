@@ -37,6 +37,7 @@ DETERMINISTIC_RULE = "DETERMINISTIC_RULE"
 RESUME_FACT = "RESUME_FACT"
 LLM_GENERATED_TEXT = "LLM_GENERATED_TEXT"
 USER_OVERRIDE = "USER_OVERRIDE"
+PROFILE_SCREENING_ANSWER = "PROFILE_SCREENING_ANSWER"
 UNKNOWN_METHOD = "UNKNOWN"
 
 
@@ -204,6 +205,31 @@ def _find_user_approved_answer(question_text: str, answer_lib: list[dict[str, An
 
 # ── Core resolver ────────────────────────────────────────────────────────────
 
+def _match_preferred_office(options: list[str], profile: dict[str, Any]) -> str | None:
+    """Pick an office from a posting's own list.
+
+    Preference order, per the candidate's stated priority: their own metro
+    (Seattle area) first, then any other US office, and finally the first
+    option offered. Non-US offices are never chosen — applying to a role based
+    outside the United States is explicitly out of scope.
+    """
+    NON_US = (
+        "london", "toronto", "vancouver", "berlin", "munich", "dublin", "paris",
+        "amsterdam", "singapore", "sydney", "tokyo", "bangalore", "hyderabad",
+        "tel aviv", "warsaw", "krakow", "sao paulo", "mexico city", "remote - emea",
+        "barcelona", "madrid", "milan", "zurich", "stockholm", "gurugram", "pune",
+    )
+    HOME = ("seattle", "bellevue", "redmond", "kirkland", "tacoma", "auburn", ", wa", "washington")
+
+    usable = [o for o in options if o and not any(x in o.lower() for x in NON_US)]
+    if not usable:
+        return None
+    for opt in usable:
+        if any(h in opt.lower() for h in HOME):
+            return opt
+    return usable[0]
+
+
 def resolve_answer(
     question_text: str,
     profile: dict[str, Any],
@@ -226,6 +252,67 @@ def resolve_answer(
         question_type=qtype.value,
         resolved_at=now_iso(),
     )
+
+    # An answer the candidate has explicitly saved for this exact question is the
+    # most authoritative source there is, so it is consulted before any
+    # type-based heuristic. This used to be missing entirely: resolve_answer is
+    # what the form filler calls, but it never looked at profile
+    # ["screeningAnswers"] — so questions the candidate HAD answered (age, the
+    # truthfulness certification, English level, GPA) came back UNKNOWN, were
+    # left blank in the browser, and the application was staged for review as
+    # though the answer had never been given. Worse, a question like "Does your
+    # salary fall within our estimated range?" was classified SALARY and
+    # resolved to a dollar figure, which can never be selected in a Yes/No
+    # dropdown, so the field stayed empty either way.
+    from app.services.application_assistant.answer_classification import match_screening_answer
+
+    screening = match_screening_answer(question_text, profile)
+    if screening:
+        _sid, saved = screening
+        answer = str(saved).strip()
+        # With a fixed option list, map the saved answer onto a real option —
+        # writing a value the control doesn't offer leaves it blank in the DOM.
+        if opts:
+            matched = _match_option(opts, answer)
+            if matched is None and len(opts) == 1:
+                # Single-option acknowledgements ("I Acknowledge") carry no
+                # choice; a saved "Yes" means take the only option there is.
+                matched = opts[0]
+            if matched is None:
+                matched = _match_option(opts, "Yes") if answer.lower() in ("yes", "true", "y") else None
+            if matched is None:
+                matched = _match_option(opts, "No") if answer.lower() in ("no", "false", "n") else None
+            if matched is not None:
+                answer = matched
+        if answer:
+            resolution.answer = answer
+            resolution.resolution_method = PROFILE_SCREENING_ANSWER
+            resolution.confidence = 1.0
+            resolution.profile_key = f"screeningAnswers.{_sid}"
+            resolution.source_value = saved
+            return resolution
+
+    # "What is your preferred office location?" is a pick-from-their-list
+    # question, so no stored string can answer it — the valid answers differ per
+    # posting. Resolve it positionally against the options actually offered:
+    # the candidate's own metro first, then any other US office. Observed live on
+    # three Robinhood postings, whose office list (Menlo Park / New York) has no
+    # Seattle entry and which therefore sat in review with nothing to review.
+    if opts and re.search(r"preferred\s+office\s+location|which office|office (?:location )?preference",
+                          question_text, re.I):
+        preferred = _match_preferred_office(opts, profile)
+        if preferred:
+            resolution.answer = preferred
+            resolution.resolution_method = DETERMINISTIC_RULE
+            resolution.confidence = 0.9
+        else:
+            # Every office offered is outside the United States. Return
+            # unresolved rather than falling through to the generic LOCATION
+            # resolver, which would answer with the candidate's own city — a
+            # value this dropdown does not offer, so it would either stay blank
+            # or select something nonsensical.
+            resolution.resolution_method = UNKNOWN_METHOD
+        return resolution
 
     # A candidate's own prior approval outranks a fresh guess — but never for
     # sensitive factual fields (visa, citizenship, clearance, etc.), which must
@@ -368,6 +455,17 @@ def _resolve_current_company(res: AnswerResolution, profile: dict, opts: list[st
 def _resolve_current_title(res: AnswerResolution, profile: dict, opts: list[str]) -> None:
     _resolve_from_profile(res, profile, opts, "currentTitle")
 
+def _resolve_preferred_name(res: AnswerResolution, profile: dict, opts: list[str]) -> None:
+    # Preferred name should always be a first/preferred name (e.g. "Akshay"),
+    # NEVER a full name ("Akshay Borse").
+    pref = profile.get("preferredName") or profile.get("firstName") or ""
+    if pref:
+        res.answer = str(pref).strip()
+        res.resolution_method = PROFILE_EXACT
+        res.profile_key = "preferredName"
+        res.source_value = pref
+        res.confidence = 1.0
+
 def _resolve_linkedin(res: AnswerResolution, profile: dict, opts: list[str]) -> None:
     _resolve_from_profile(res, profile, opts, "linkedin")
 
@@ -375,6 +473,26 @@ def _resolve_github(res: AnswerResolution, profile: dict, opts: list[str]) -> No
     _resolve_from_profile(res, profile, opts, "github")
 
 def _resolve_website(res: AnswerResolution, profile: dict, opts: list[str]) -> None:
+    # Check if question is asking for additional/other links
+    q_low = res.question.lower()
+    is_other_link = any(term in q_low for term in ["other link", "other website", "additional link", "additional website"])
+    
+    if is_other_link:
+        # If candidate has explicit custom otherLinks, use it; otherwise leave empty/None
+        custom_links = profile.get("otherLinks") or (profile.get("customFields") or {}).get("otherLinks")
+        if custom_links:
+            res.answer = str(custom_links).strip()
+            res.resolution_method = PROFILE_EXACT
+            res.profile_key = "otherLinks"
+            res.source_value = custom_links
+            res.confidence = 1.0
+        else:
+            # Explicitly blank: do NOT fall back to website or essay text
+            res.answer = ""
+            res.resolution_method = DETERMINISTIC_RULE
+            res.confidence = 1.0
+        return
+
     val = profile.get("portfolio") or profile.get("website")
     if val:
         res.answer = str(val)
@@ -391,6 +509,22 @@ def _resolve_years_experience(res: AnswerResolution, profile: dict, opts: list[s
         yoe_int = 8
 
     if opts:
+        # Check if this is a boolean Yes/No question (e.g. "Are you in your early career?")
+        # A senior engineer with 8+ years of experience is not "early career".
+        opt_lowers = [o.strip().lower() for o in opts]
+        if set(opt_lowers) <= {"yes", "no", "n/a", "prefer not to answer"} and ("yes" in opt_lowers or "no" in opt_lowers):
+            q_low = res.question.lower()
+            if "early career" in q_low or "entry level" in q_low or "new grad" in q_low:
+                # 8+ years is not early career
+                matched = _match_option(opts, "No")
+                res.answer = matched or "No"
+            else:
+                matched = _match_option(opts, "Yes") if yoe_int >= 3 else _match_option(opts, "No")
+                res.answer = matched or ("Yes" if yoe_int >= 3 else "No")
+            res.confidence = 1.0
+            res.resolution_method = PROFILE_OPTION_MAPPING
+            return
+
         for opt in opts:
             nums = [int(n) for n in re.findall(r"\d+", opt)]
             if len(nums) == 1:
@@ -1131,7 +1265,7 @@ _RESOLVERS: dict[QuestionType, Any] = {
     QuestionType.FIRST_NAME: _resolve_first_name,
     QuestionType.LAST_NAME: _resolve_last_name,
     QuestionType.FULL_NAME: _resolve_full_name,
-    QuestionType.PREFERRED_NAME: lambda r, p, o: _resolve_from_profile(r, p, o, "preferredName"),
+    QuestionType.PREFERRED_NAME: _resolve_preferred_name,
     QuestionType.EMAIL: _resolve_email,
     QuestionType.PHONE: _resolve_phone,
     QuestionType.PHONE_COUNTRY: _resolve_phone_country,

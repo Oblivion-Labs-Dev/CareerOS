@@ -18,6 +18,91 @@
   --duration-fast: 140ms;
   --duration-normal: 260ms;
   --duration-slow: 480ms;
+
+  /* ─── CareerOS design tokens ───────────────────────────────────────────
+     One canonical scale for the whole app. Pages and components should
+     reference these rather than inventing one-off rem values — that drift is
+     what previously made each page feel like a different product. Older
+     --cos-* tokens in cos-design-system.css remain valid aliases.
+     ------------------------------------------------------------------- */
+
+  /* Spacing — 4px base, the rhythm every layout should snap to. */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.25rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+  --space-10: 2.5rem;
+  --space-12: 3rem;
+  --space-16: 4rem;
+
+  /* Type scale — deliberately compact; hierarchy comes from weight and
+     colour as much as size, so headings never shout. */
+  --font-display-size: clamp(1.75rem, 3vw, 2.25rem);
+  --font-title: clamp(1.35rem, 2.2vw, 1.6rem);
+  --font-section: 1.05rem;
+  --font-card-title: 0.95rem;
+  --font-body: 0.875rem;
+  --font-secondary: 0.8125rem;
+  --font-meta: 0.75rem;
+  --font-label: 0.6875rem;
+  --font-caption: 0.625rem;
+
+  --weight-normal: 400;
+  --weight-medium: 500;
+  --weight-semibold: 600;
+  --weight-bold: 700;
+  --weight-heavy: 800;
+
+  --tracking-tight: -0.02em;
+  --tracking-label: 0.06em;
+
+  /* Elevation — depth via contrast and hairlines first, shadow last. */
+  --elevation-0: none;
+  --elevation-1: 0 1px 2px rgba(0, 0, 0, 0.16);
+  --elevation-2: 0 2px 8px rgba(0, 0, 0, 0.2);
+  --elevation-3: 0 8px 24px rgba(0, 0, 0, 0.24);
+  --elevation-4: 0 16px 40px rgba(0, 0, 0, 0.3);
+
+  /* Motion — micro for feedback, layout for structural change. */
+  --motion-micro: 140ms;
+  --motion-interactive: 200ms;
+  --motion-layout: 280ms;
+  --motion-panel: 340ms;
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --ease-decelerate: cubic-bezier(0, 0, 0, 1);
+
+  /* Semantic status — paired with an icon/label in UI, never colour alone. */
+  --status-success: var(--success);
+  --status-active: var(--accent-tertiary);
+  --status-attention: var(--warning);
+  --status-danger: var(--danger);
+  --status-info: var(--accent);
+  --status-neutral: var(--muted);
+
+  /* Interaction surfaces shared by every control. */
+  --control-bg: var(--bg-elevated);
+  --control-border: var(--border);
+  --control-border-hover: var(--border-strong);
+  --control-ring: 0 0 0 3px color-mix(in srgb, var(--accent) 30%, transparent);
+}
+
+[data-theme="light"] {
+  --elevation-1: 0 1px 2px rgba(15, 23, 42, 0.06);
+  --elevation-2: 0 2px 8px rgba(15, 23, 42, 0.07);
+  --elevation-3: 0 8px 24px rgba(15, 23, 42, 0.08);
+  --elevation-4: 0 16px 40px rgba(15, 23, 42, 0.1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --motion-micro: 0ms;
+    --motion-interactive: 0ms;
+    --motion-layout: 0ms;
+    --motion-panel: 0ms;
+  }
 }
 
 /* Dark theme (default) — jade & copper studio */

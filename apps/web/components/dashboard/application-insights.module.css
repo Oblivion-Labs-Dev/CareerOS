@@ -1,0 +1,242 @@
+/* Insight cards for the dashboard.
+   Everything here is width-proportional (flex/percentage bars) rather than a
+   fixed-size drawing, so a card can never render outside its own box the way
+   the old fixed-diameter status donut did in its 280px column. */
+
+.grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1rem;
+}
+
+@media (min-width: 900px) {
+  .grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 1280px) {
+  .gridThree {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+.card {
+  min-width: 0;
+  overflow: hidden;
+  padding: 1.15rem 1.25rem 1.25rem;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border);
+  background: var(--card);
+  box-shadow: var(--shadow-card, var(--shadow-sm));
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+}
+
+.cardHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.cardTitle {
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: var(--text);
+  letter-spacing: -0.01em;
+}
+
+.cardNote {
+  font-size: 0.72rem;
+  color: var(--muted-dim);
+  white-space: nowrap;
+}
+
+.empty {
+  font-size: 0.78rem;
+  color: var(--muted-dim);
+  padding: 0.5rem 0 0.75rem;
+}
+
+/* ── Outcome mix: one proportional bar, legend below ───────────────────── */
+
+.mixBar {
+  display: flex;
+  width: 100%;
+  height: 0.85rem;
+  border-radius: 999px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--muted) 14%, transparent);
+}
+
+.mixSeg {
+  display: block;
+  height: 100%;
+  min-width: 2px;
+  transition: filter 0.15s var(--ease-out, ease);
+}
+
+.mixSeg:hover { filter: brightness(1.25); }
+
+.legend {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.45rem 1rem;
+}
+
+.legendRow {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.76rem;
+  min-width: 0;
+}
+
+.legendDot {
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.legendName {
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.legendValue {
+  margin-left: auto;
+  font-weight: 700;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.legendPct {
+  color: var(--muted-dim);
+  font-size: 0.7rem;
+  font-variant-numeric: tabular-nums;
+  min-width: 2.6rem;
+  text-align: right;
+}
+
+/* ── Funnel: narrowing stages, read top to bottom ──────────────────────── */
+
+.funnel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+}
+
+.stage { display: flex; flex-direction: column; gap: 0.3rem; }
+
+.stageTop {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+  font-size: 0.78rem;
+}
+
+.stageName { color: var(--muted); }
+
+.stageValue {
+  font-weight: 700;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.stageTrack {
+  height: 0.6rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--muted) 12%, transparent);
+  overflow: hidden;
+}
+
+.stageFill {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg,
+    color-mix(in srgb, var(--stage-color, var(--accent)) 85%, transparent),
+    var(--stage-color, var(--accent)));
+}
+
+.stageDrop {
+  font-size: 0.7rem;
+  color: var(--muted-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Ranked horizontal bars (companies, blockers) ──────────────────────── */
+
+.rankList {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.rankRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 2.2rem;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.rankLabel {
+  font-size: 0.78rem;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rankCount {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--text);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.rankTrack {
+  grid-column: 1 / -1;
+  /* Both of these are <span>s. A span is inline by default and an inline box
+     ignores height, so without an explicit display the track collapsed and the
+     fill inside it never painted at all. */
+  display: block;
+  height: 0.4rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--muted) 12%, transparent);
+  overflow: hidden;
+}
+
+.rankFill {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--rank-color, var(--accent));
+}
+
+/* ── Big proportional split (Seattle vs rest) ──────────────────────────── */
+
+.splitValue {
+  font-size: 2rem;
+  font-weight: 800;
+  color: var(--text);
+  line-height: 1;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+
+.splitCaption {
+  font-size: 0.76rem;
+  color: var(--muted);
+  margin-top: 0.3rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mixSeg { transition: none; }
+}

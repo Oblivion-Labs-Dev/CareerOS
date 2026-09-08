@@ -140,7 +140,7 @@ function KanbanColumn({ column }: { column: PipelineColumn }) {
   const style = COLUMN_STYLE[column.key];
   return (
     <div
-      className="flex min-h-[220px] flex-col gap-3 rounded-xl border p-3.5"
+      className="flex min-h-[220px] max-h-[32rem] flex-col gap-3 overflow-hidden rounded-xl border p-3.5"
       style={{ borderColor: style.border, background: "rgba(255,255,255,0.02)" }}
     >
       <div className="flex items-center justify-between">
@@ -158,7 +158,9 @@ function KanbanColumn({ column }: { column: PipelineColumn }) {
       {column.items.length === 0 ? (
         <p className="text-xs text-slate-500">Nothing here.</p>
       ) : (
-        <div className="flex flex-col gap-2">
+        // Scrolls within the column rather than growing it: with a thousand
+        // applications in one stage the board itself must stay a fixed height.
+        <div className="flex flex-col gap-2 overflow-y-auto overscroll-contain pr-1">
           {column.items.map((item) => (
             <a
               key={item.id}

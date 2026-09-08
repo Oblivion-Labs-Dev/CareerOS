@@ -104,19 +104,22 @@ def _normalize_company_key(name: str) -> str:
     return re.sub(r"[^a-z0-9]", "", name.lower())
 
 
-def _existing_autopilot_companies(db: Session) -> set[str]:
-    """Companies already tracked via Autopilot — skip these to avoid double-counting
-    a submission CareerOS itself made, which sends the same kind of confirmation email."""
-    companies = set()
-    for job in list_entities(db, "aa_autopilot_job"):
-        company = job.get("company") or job.get("companyName")
-        if company:
-            companies.add(_normalize_company_key(str(company)))
-    return companies
+_CAREEROS_ALIAS_MARKERS = ("+career@", "+careeros@")
+
+
+def _is_careeros_recipient(to_address: str) -> bool:
+    """True when the email was delivered to a CareerOS plus-alias
+    (e.g. amsborse+career@gmail.com), meaning CareerOS itself submitted it."""
+    addr = (to_address or "").lower().strip()
+    return any(marker in addr for marker in _CAREEROS_ALIAS_MARKERS)
 
 
 def sync_gmail_applications(db: Session, limit: int = 100) -> dict[str, Any]:
     """Scan Gmail for application-confirmation emails and track genuinely new ones.
+
+    Categorisation uses the recipient address (To / Delivered-To header):
+      • amsborse+career@gmail.com  → source "careeros"  (applied through CareerOS)
+      • amsborse@gmail.com (plain) → source "gmail_manual" (applied manually)
 
     Idempotent: each tracked application is keyed by its Gmail UID, so re-running
     this only adds emails it hasn't seen before.
@@ -154,9 +157,10 @@ def sync_gmail_applications(db: Session, limit: int = 100) -> dict[str, Any]:
     threads = client._fetch_uids(uids, include_body=False)  # noqa: SLF001 — headers are enough; body isn't needed for company/role extraction
 
     already_tracked = {a.get("id") for a in list_entities(db, ENTITY_TYPE)}
-    autopilot_companies = _existing_autopilot_companies(db)
 
     added = 0
+    added_careeros = 0
+    added_manual = 0
     skipped = 0
     for thread in threads:
         uid = thread.get("uid")
@@ -169,11 +173,14 @@ def sync_gmail_applications(db: Session, limit: int = 100) -> dict[str, Any]:
             skipped += 1
             continue
 
-        if _normalize_company_key(company) in autopilot_companies:
-            # Already tracked as an Autopilot submission — this is that
-            # submission's own confirmation email, not a separate manual one.
-            skipped += 1
-            continue
+        # Categorise by recipient: +career alias = CareerOS, plain = manual
+        to_address = thread.get("toAddress", "")
+        if _is_careeros_recipient(to_address):
+            source = "careeros"
+            added_careeros += 1
+        else:
+            source = SOURCE_TAG  # "gmail_manual"
+            added_manual += 1
 
         submitted_at = thread.get("date") or now_iso()
         upsert_entity(
@@ -184,13 +191,21 @@ def sync_gmail_applications(db: Session, limit: int = 100) -> dict[str, Any]:
                 "companyName": company,
                 "roleTitle": "Unknown role",
                 "status": "submitted",
-                "source": SOURCE_TAG,
+                "source": source,
                 "submittedAt": submitted_at,
                 "createdAt": submitted_at,
                 "updatedAt": now_iso(),
                 "notes": thread.get("subject", ""),
+                "toAddress": to_address,
             },
         )
         added += 1
 
-    return {"success": True, "added": added, "skipped": skipped, "checked": len(threads)}
+    return {
+        "success": True,
+        "added": added,
+        "addedCareeros": added_careeros,
+        "addedManual": added_manual,
+        "skipped": skipped,
+        "checked": len(threads),
+    }

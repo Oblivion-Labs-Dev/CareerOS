@@ -4,12 +4,9 @@
   gap: 1rem;
 }
 
-@media (min-width: 1024px) {
-  .wrap {
-    grid-template-columns: minmax(0, 1fr) 280px;
-    align-items: start;
-  }
-}
+/* Single column now. The old second column was a fixed 280px track holding a
+   fixed-diameter donut, which drew outside the card whenever the track was
+   narrower than the drawing - the overflow the candidate reported. */
 
 /* ---------- Stat tiles ---------- */
 
@@ -21,7 +18,13 @@
 
 @media (min-width: 640px) {
   .statRow {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 1024px) {
+  .statRow {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
   }
 }
 
@@ -47,8 +50,10 @@
 
 .statTile[data-tone="accent"] { --tile-color: var(--accent); }
 .statTile[data-tone="success"] { --tile-color: var(--success); }
-.statTile[data-tone="violet"] { --tile-color: var(--accent-tertiary); }
-.statTile[data-tone="amber"] { --tile-color: var(--warning); }
+.statTile[data-tone="violet"] { --tile-color: var(--accent-tertiary, #8b5cf6); }
+.statTile[data-tone="amber"] { --tile-color: var(--warning, #f59e0b); }
+.statTile[data-tone="cyan"] { --tile-color: #06b6d4; }
+.statTile[data-tone="blue"] { --tile-color: #3b82f6; }
 
 .statLabel {
   display: flex;

@@ -1,0 +1,469 @@
+/* CareerOS primitives — the shared visual language.
+   Everything here reads from the canonical tokens in globals.css so a page
+   built from these components is automatically consistent with every other.
+   Calm at rest, alive on interaction: depth comes from hairlines and tonal
+   separation, motion is short and purposeful, glow appears only to signal
+   state rather than for decoration. */
+
+/* ══════════════════════════ Button ══════════════════════════ */
+
+.btn {
+  --btn-h: 2.25rem;
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  height: var(--btn-h);
+  padding: 0 var(--space-4);
+  font-family: inherit;
+  font-size: var(--font-secondary);
+  font-weight: var(--weight-semibold);
+  line-height: 1;
+  white-space: nowrap;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  user-select: none;
+  transition:
+    background var(--motion-micro) var(--ease-standard),
+    border-color var(--motion-micro) var(--ease-standard),
+    color var(--motion-micro) var(--ease-standard),
+    box-shadow var(--motion-micro) var(--ease-standard),
+    transform var(--motion-micro) var(--ease-standard);
+}
+
+.btn:focus-visible {
+  outline: none;
+  box-shadow: var(--control-ring);
+}
+
+.btn:disabled,
+.btn[aria-disabled="true"] {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none !important;
+}
+
+/* Press: fast and slightly compressed so clicks feel physical. */
+.btn:not(:disabled):active {
+  transform: translateY(0.5px) scale(0.985);
+  transition-duration: 60ms;
+}
+
+.btnPrimary {
+  color: var(--btn-primary-text);
+  background: var(--btn-primary-bg);
+  box-shadow: var(--elevation-1), inset 0 1px 0 rgba(255, 255, 255, 0.14);
+}
+
+.btnPrimary:not(:disabled):hover {
+  transform: translateY(-1px);
+  box-shadow: var(--elevation-2), 0 0 16px var(--accent-glow), inset 0 1px 0 rgba(255, 255, 255, 0.2);
+}
+
+.btnSecondary {
+  color: var(--text-secondary);
+  background: var(--card);
+  border-color: var(--border-strong);
+}
+
+.btnSecondary:not(:disabled):hover {
+  color: var(--text);
+  background: var(--card-hover);
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--border-strong));
+}
+
+.btnGhost {
+  color: var(--muted);
+  background: transparent;
+}
+
+.btnGhost:not(:disabled):hover {
+  color: var(--text);
+  background: var(--bg-elevated);
+}
+
+.btnDanger {
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+  border-color: color-mix(in srgb, var(--danger) 32%, transparent);
+}
+
+.btnDanger:not(:disabled):hover {
+  color: #fff;
+  background: var(--danger);
+  border-color: var(--danger);
+}
+
+.btnSm { --btn-h: 1.85rem; padding: 0 var(--space-3); font-size: var(--font-meta); }
+.btnLg { --btn-h: 2.6rem; padding: 0 var(--space-5); font-size: var(--font-body); }
+
+.btnIcon { width: var(--btn-h); padding: 0; }
+.btnBlock { width: 100%; }
+
+/* Icons drift a touch on hover — a small sign of life, not a bounce. */
+.btn svg { transition: transform var(--motion-micro) var(--ease-standard); }
+.btn:not(:disabled):hover svg { transform: translateX(1px); }
+.btnIcon:not(:disabled):hover svg { transform: none; }
+
+.btnSpinner {
+  width: 0.85em;
+  height: 0.85em;
+  border-radius: 50%;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  animation: ui-spin 0.6s linear infinite;
+}
+
+@keyframes ui-spin { to { transform: rotate(360deg); } }
+
+/* ══════════════════════════ Card ══════════════════════════ */
+
+.card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--card);
+  box-shadow: var(--elevation-1);
+  transition:
+    border-color var(--motion-interactive) var(--ease-standard),
+    box-shadow var(--motion-interactive) var(--ease-standard),
+    transform var(--motion-interactive) var(--ease-standard),
+    background var(--motion-interactive) var(--ease-standard);
+}
+
+.cardPadded { padding: var(--space-5); }
+.cardCompact { padding: var(--space-4); }
+
+/* Interactive: lifts, brightens its edge, warms its surface. */
+.cardInteractive { cursor: pointer; text-align: left; width: 100%; }
+
+.cardInteractive:hover {
+  transform: translateY(-2px);
+  border-color: color-mix(in srgb, var(--accent) 32%, var(--border));
+  background: var(--card-hover);
+  box-shadow: var(--elevation-3);
+}
+
+.cardInteractive:focus-visible {
+  outline: none;
+  box-shadow: var(--control-ring), var(--elevation-2);
+}
+
+.cardSelected {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 6%, var(--card));
+}
+
+/* Status cards carry a hairline accent rail rather than a coloured fill. */
+.cardStatus { --card-accent: var(--status-neutral); overflow: hidden; }
+
+.cardStatus::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 2px;
+  background: var(--card-accent);
+}
+
+.cardStatus[data-status="success"] { --card-accent: var(--status-success); }
+.cardStatus[data-status="active"] { --card-accent: var(--status-active); }
+.cardStatus[data-status="attention"] { --card-accent: var(--status-attention); }
+.cardStatus[data-status="danger"] { --card-accent: var(--status-danger); }
+.cardStatus[data-status="info"] { --card-accent: var(--status-info); }
+
+/* Metric card: the number is the hero. */
+.cardMetric { padding: var(--space-4) var(--space-5); gap: var(--space-1); }
+.metricLabel {
+  font-size: var(--font-label);
+  font-weight: var(--weight-semibold);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.metricValue {
+  font-size: 1.75rem;
+  font-weight: var(--weight-heavy);
+  letter-spacing: var(--tracking-tight);
+  line-height: 1.05;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+.metricHint { font-size: var(--font-meta); color: var(--muted-dim); }
+
+/* AI insight: the one place a soft violet wash is earned. */
+.cardInsight {
+  border-color: color-mix(in srgb, var(--accent-tertiary) 28%, var(--border));
+  background:
+    radial-gradient(120% 100% at 0% 0%, color-mix(in srgb, var(--accent-tertiary) 9%, transparent), transparent 60%),
+    var(--card);
+}
+
+.cardHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-5);
+  border-bottom: 1px solid var(--border);
+}
+
+.cardTitle {
+  font-size: var(--font-card-title);
+  font-weight: var(--weight-semibold);
+  color: var(--text);
+}
+
+.cardEyebrow {
+  font-size: var(--font-label);
+  font-weight: var(--weight-bold);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.cardBody { padding: var(--space-5); }
+.cardFooter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-5);
+  border-top: 1px solid var(--border);
+  font-size: var(--font-meta);
+  color: var(--muted-dim);
+}
+
+/* ══════════════════════════ Inputs ══════════════════════════ */
+
+.field { display: flex; flex-direction: column; gap: var(--space-2); min-width: 0; }
+
+.label {
+  font-size: var(--font-label);
+  font-weight: var(--weight-semibold);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.input,
+.textarea,
+.select {
+  width: 100%;
+  min-height: 2.25rem;
+  padding: 0 var(--space-3);
+  font-family: inherit;
+  font-size: var(--font-body);
+  color: var(--text);
+  background: var(--control-bg);
+  border: 1px solid var(--control-border);
+  border-radius: var(--radius-sm);
+  outline: none;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.08);
+  transition:
+    border-color var(--motion-micro) var(--ease-standard),
+    box-shadow var(--motion-micro) var(--ease-standard),
+    background var(--motion-micro) var(--ease-standard);
+}
+
+.textarea { min-height: 6rem; padding: var(--space-3); resize: vertical; line-height: 1.55; }
+.select { padding-right: var(--space-2); cursor: pointer; }
+
+.input::placeholder,
+.textarea::placeholder { color: var(--muted-dim); }
+
+.input:hover:not(:disabled),
+.textarea:hover:not(:disabled),
+.select:hover:not(:disabled) { border-color: var(--control-border-hover); }
+
+.input:focus,
+.textarea:focus,
+.select:focus {
+  border-color: var(--accent);
+  background: var(--card);
+  box-shadow: var(--control-ring);
+}
+
+.input:disabled,
+.textarea:disabled,
+.select:disabled { opacity: 0.55; cursor: not-allowed; }
+
+.inputInvalid,
+.inputInvalid:focus {
+  border-color: var(--danger);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--danger) 25%, transparent);
+}
+
+.fieldError { font-size: var(--font-meta); color: var(--danger); }
+.fieldHint { font-size: var(--font-meta); color: var(--muted-dim); }
+
+/* Search gets extra care — it's the control people reach for most. */
+.search { position: relative; display: flex; align-items: center; min-width: 0; }
+.searchIcon {
+  position: absolute;
+  left: var(--space-3);
+  display: grid;
+  place-items: center;
+  color: var(--muted-dim);
+  pointer-events: none;
+  transition: color var(--motion-micro) var(--ease-standard);
+}
+.searchInput { padding-left: 2.05rem; }
+.search:focus-within .searchIcon { color: var(--accent); }
+.searchClear {
+  position: absolute;
+  right: var(--space-2);
+  display: grid;
+  place-items: center;
+  width: 1.25rem;
+  height: 1.25rem;
+  border: none;
+  border-radius: var(--radius-full);
+  background: transparent;
+  color: var(--muted-dim);
+  cursor: pointer;
+}
+.searchClear:hover { color: var(--text); background: var(--bg-elevated); }
+
+/* ══════════════════════════ Badge ══════════════════════════ */
+
+.badge {
+  --badge-color: var(--status-neutral);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 0.15rem var(--space-2);
+  font-size: var(--font-caption);
+  font-weight: var(--weight-bold);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  color: var(--badge-color);
+  background: color-mix(in srgb, var(--badge-color) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--badge-color) 26%, transparent);
+  border-radius: var(--radius-full);
+}
+
+.badge[data-tone="success"] { --badge-color: var(--status-success); }
+.badge[data-tone="active"] { --badge-color: var(--status-active); }
+.badge[data-tone="attention"] { --badge-color: var(--status-attention); }
+.badge[data-tone="danger"] { --badge-color: var(--status-danger); }
+.badge[data-tone="info"] { --badge-color: var(--status-info); }
+
+.badgeDot {
+  width: 0.4rem;
+  height: 0.4rem;
+  border-radius: 50%;
+  background: currentColor;
+  flex-shrink: 0;
+}
+
+/* Live states breathe; everything else stays still. */
+.badgeLive .badgeDot { animation: ui-breathe 2.4s var(--ease-standard) infinite; }
+
+@keyframes ui-breathe {
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--badge-color) 55%, transparent); }
+  50% { box-shadow: 0 0 0 4px color-mix(in srgb, var(--badge-color) 0%, transparent); }
+}
+
+/* ══════════════════════════ Tabs ══════════════════════════ */
+
+.tabs {
+  display: inline-flex;
+  gap: var(--space-1);
+  padding: var(--space-1);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--card);
+}
+
+.tab {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--font-secondary);
+  font-weight: var(--weight-semibold);
+  color: var(--muted);
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition:
+    color var(--motion-micro) var(--ease-standard),
+    background var(--motion-micro) var(--ease-standard);
+}
+
+.tab:hover { color: var(--text); background: var(--bg-elevated); }
+.tab:focus-visible { outline: none; box-shadow: var(--control-ring); }
+.tabActive { color: var(--text); background: var(--bg-elevated); box-shadow: inset 0 0 0 1px var(--border-strong); }
+
+/* ══════════════════════════ Skeleton ══════════════════════════ */
+
+.skeleton {
+  position: relative;
+  overflow: hidden;
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--muted) 12%, transparent);
+}
+
+.skeleton::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in srgb, var(--muted) 12%, transparent),
+    transparent
+  );
+  transform: translateX(-100%);
+  animation: ui-shimmer 1.4s ease-in-out infinite;
+}
+
+@keyframes ui-shimmer { to { transform: translateX(100%); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton::after { animation: none; }
+  .badgeLive .badgeDot { animation: none; }
+  .btnSpinner { animation-duration: 1.5s; }
+}
+
+.skeletonText { height: 0.75rem; }
+.skeletonTitle { height: 1.1rem; width: 45%; }
+.skeletonBlock { height: 100%; }
+
+/* ══════════════════════════ Empty state ══════════════════════════ */
+
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+  padding: var(--space-12) var(--space-6);
+  text-align: center;
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-md);
+  background:
+    radial-gradient(80% 60% at 50% 0%, color-mix(in srgb, var(--accent) 4%, transparent), transparent 70%),
+    var(--card);
+}
+
+.emptyIcon {
+  display: grid;
+  place-items: center;
+  width: 2.75rem;
+  height: 2.75rem;
+  border-radius: var(--radius-md);
+  color: var(--accent);
+  background: var(--accent-soft);
+  border: 1px solid color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+.emptyTitle { font-size: var(--font-section); font-weight: var(--weight-semibold); color: var(--text); }
+.emptyBody { max-width: 34rem; font-size: var(--font-secondary); line-height: 1.6; color: var(--muted); }
+.emptyActions { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-top: var(--space-1); }

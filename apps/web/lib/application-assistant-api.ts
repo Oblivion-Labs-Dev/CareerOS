@@ -209,6 +209,16 @@ export async function getAutopilotStatus() {
       lastError: string;
       patchHistory: any[];
     };
+    // Lifetime counters the backend already returns; the dashboard activity
+    // card reads these to draw its status breakdown.
+    cumulative?: {
+      submitted?: number;
+      staged?: number;
+      skipped?: number;
+      failed?: number;
+      processed?: number;
+      queueRemaining?: number;
+    };
   }>("/autopilot/status");
 }
 

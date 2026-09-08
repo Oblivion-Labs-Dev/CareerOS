@@ -8,6 +8,9 @@ import "./cos-refine.css";
 import "./product-polish.css";
 import "./reference-match.css";
 import "./cos-light-mode.css";
+// Last: re-expresses the global classes the 37 pages already use in the shared
+// token language, so the whole app inherits one design language at once.
+import "./design-language.css";
 
 const inter = Inter({
   subsets: ["latin"],

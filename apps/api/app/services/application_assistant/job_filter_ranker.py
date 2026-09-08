@@ -42,6 +42,60 @@ def generate_composite_job_key(company: str, title: str, app_url: str = "", exte
     return f"{norm_c}::{norm_t}"
 
 
+def role_location_priority_bonus(job: dict[str, Any]) -> float:
+    """Candidate-preference ranking bonus, separate from the LLM match score.
+
+    Two stated preferences, in order:
+
+    1. **Senior over Staff/Principal.** The candidate wants Senior-level
+       individual-contributor roles, not Staff/Principal/Director titles. The
+       bonus and penalty here are deliberately large relative to the LLM match
+       score, because that score routinely spans 25-97 and would otherwise decide
+       the queue order on its own - which is exactly what happened before, when a
+       97%-matching Staff posting was applied to ahead of a Senior one in Seattle.
+    2. **Seattle first**, then the rest of the United States. (Anything outside
+       the US is rejected by the hard filters, never merely deprioritized.)
+
+    Used both when ranking discovered postings into the queue and when the
+    autopilot runner picks which queued jobs to claim next, so the preference
+    survives all the way to the browser worker instead of being lost to storage
+    order.
+    """
+    title_l = (job.get("title") or "").lower()
+    loc_l = (job.get("location") or "").lower()
+    bonus = 0.0
+
+    # Levels above Senior are demoted rather than filtered out: they stay
+    # eligible if the queue runs dry, they just never outrank a Senior role.
+    above_senior = (
+        "staff", "principal", "distinguished", "fellow", "architect",
+        "director", "head of", "vp ", "vice president",
+    )
+    is_above_senior = any(k in title_l for k in above_senior)
+
+    is_senior = any(
+        k in title_l
+        for k in ("senior software engineer", "sr. software engineer",
+                  "sr software engineer", "senior swe")
+    )
+
+    if is_senior and not is_above_senior:
+        # "Senior Staff Software Engineer" contains both markers and is a level
+        # above Senior, so it must not collect the Senior bonus.
+        bonus += 40.0
+    elif is_above_senior:
+        bonus -= 40.0
+    elif "senior" in title_l and "software engineer" in title_l:
+        bonus += 30.0
+    elif "software engineer" in title_l or "software developer" in title_l:
+        bonus += 10.0
+
+    if any(k in loc_l for k in ("seattle", "bellevue", "redmond", "kirkland",
+                                ", wa", "washington")):
+        bonus += 25.0
+    return bonus
+
+
 def evaluate_hard_filters(
     job: dict[str, Any],
     profile: dict[str, Any],
@@ -281,19 +335,7 @@ def filter_and_rank_jobs(
         score = match_result.get("overallScore", 0.0)
         reasons = match_result.get("strongMatches", []) + match_result.get("potentialConcerns", [])
 
-        # Ranking priority (separate from the LLM-derived matchScore shown to
-        # the user): "Senior Software Engineer" titles and Seattle-area
-        # locations get queued ahead of otherwise-similar matches, per
-        # candidate preference — Seattle first, then the rest of the US.
-        title_l = (job.get("title") or "").lower()
-        loc_l = (job.get("location") or "").lower()
-        priority_bonus = 0.0
-        if "senior software engineer" in title_l:
-            priority_bonus += 15.0
-        elif "software engineer" in title_l:
-            priority_bonus += 5.0
-        if any(k in loc_l for k in ("seattle", ", wa", "washington")):
-            priority_bonus += 20.0
+        priority_bonus = role_location_priority_bonus(job)
 
         ranked_job = {
             **job,

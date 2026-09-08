@@ -119,16 +119,18 @@ export function AppTopbar() {
     router.push(href);
   };
 
-  const contextLabel = pathname === "/dashboard" ? "CareerOS" : current?.label ?? "CareerOS";
-  const contextHref = pathname === "/dashboard" ? "/dashboard" : current?.href ?? "/dashboard";
+  // Breadcrumb reads "CareerOS / <current page>". The trailing segment used to be
+  // hardcoded to "Dashboard", so every page rendered a wrong trail such as
+  // "Resume & Profile / Dashboard".
+  const pageLabel = current?.label ?? "Dashboard";
 
   return (
     <>
       <header className="app-topbar">
         <div className="app-topbar-context">
-          <Link href={contextHref}>{contextLabel}</Link>
+          <Link href="/dashboard">CareerOS</Link>
           <span aria-hidden>/</span>
-          <strong className="app-topbar-page-title">Dashboard</strong>
+          <strong className="app-topbar-page-title">{pageLabel}</strong>
           <span className={`app-topbar-live-state${backendOnline === false ? " is-offline" : ""}`}>
             <BackendStatusDot />
             {backendOnline === false ? "Offline" : backendOnline === true ? "Running" : "Checking"}

@@ -11,6 +11,8 @@ from typing import Any
 
 from playwright.async_api import Browser, BrowserContext, Page, async_playwright
 
+from app.db.store import now_iso
+
 from app.services.application_assistant.ats_plugin_reference import (
     ATS_CONFIGS,
     classify_canonical_key,
@@ -420,6 +422,29 @@ async def _select_radio_option(page_or_frame: Any, field_id: str, value: str) ->
     return False
 
 
+# Categories the candidate should never volunteer into an OPTIONAL field.
+# Per an explicit standing instruction: CareerOS fills a field only when the
+# application actually requires it. These are all legally-voluntary or
+# negotiation-sensitive disclosures — demographics, pay, academic scores — and
+# offering them unprompted just hands the employer extra grounds to screen on.
+# A REQUIRED field of the same type is still answered normally; the rule is
+# about volunteering, not about refusing to answer.
+VOLUNTEER_ONLY_TYPES = frozenset({
+    QuestionType.GENDER,
+    QuestionType.PRONOUNS,
+    QuestionType.TRANSGENDER,
+    QuestionType.SEXUAL_ORIENTATION,
+    QuestionType.ETHNICITY_HISPANIC_LATINO,
+    QuestionType.RACE,
+    QuestionType.VETERAN_STATUS,
+    QuestionType.DISABILITY,
+    QuestionType.FIRST_GEN_PROFESSIONAL,
+    QuestionType.SALARY,
+    QuestionType.GPA,
+    QuestionType.TEST_SCORE,
+})
+
+
 async def _fill_all_greenhouse_comboboxes(
     page: Any,
     profile: dict[str, Any],
@@ -481,6 +506,17 @@ async def _fill_all_greenhouse_comboboxes(
                 return el.getAttribute('aria-label') || el.name || el.id || '';
             }""")
             if not (lbl_text or "").strip():
+                continue
+
+            # Skip optional demographic/pay/academic dropdowns entirely.
+            # Greenhouse marks required fields with a "*" in the label and/or
+            # aria-required on the input; anything without either is genuinely
+            # optional, so a voluntary disclosure there stays blank.
+            is_required = "*" in lbl_text or bool(await el.evaluate(
+                "el => el.required || el.getAttribute('aria-required') === 'true'"
+            ))
+            if not is_required and classify_question(lbl_text, cid, None) in VOLUNTEER_ONLY_TYPES:
+                logger.info("Skipping optional voluntary field '%s' (not required)", lbl_text[:60])
                 continue
 
             # Locate surrounding React-Select container or the input itself
@@ -1316,7 +1352,7 @@ async def _execute_live_playwright_submission_impl(
     if not app_url:
         return {"submitted": False, "error": "Missing application URL", "evidence": {}}
 
-    # If URL is a career hub containing gh_jid parameter, resolve to direct Greenhouse job URL for 100% reliable submission
+    # If URL is a career hub containing gh_jid parameter, resolve to direct Greenhouse embed/job URL for 100% reliable submission
     if "gh_jid=" in app_url and not ("greenhouse.io" in app_url and "/jobs/" in app_url):
         import urllib.parse
         parsed = urllib.parse.urlparse(app_url)
@@ -1324,8 +1360,9 @@ async def _execute_live_playwright_submission_impl(
         gh_jid = qs.get("gh_jid", [None])[0]
         if gh_jid:
             comp_slug = re.sub(r"[^a-zA-Z0-9]", "", company.lower())
-            direct_board_url = f"https://job-boards.greenhouse.io/{comp_slug}/jobs/{gh_jid}"
-            logger.info("Resolved career hub gh_jid URL %s -> direct Greenhouse URL: %s", app_url, direct_board_url)
+            # Use direct embed URL so custom company career portals don't redirect or require complex nested iframe switching
+            direct_board_url = f"https://job-boards.greenhouse.io/embed/job_app?for={comp_slug}&token={gh_jid}"
+            logger.info("Resolved career hub gh_jid URL %s -> direct Greenhouse embed URL: %s", app_url, direct_board_url)
             app_url = direct_board_url
 
     # api.smartrecruiters.com/v1/... is the raw JSON REST endpoint the
@@ -1348,7 +1385,18 @@ async def _execute_live_playwright_submission_impl(
     async with async_playwright() as p:
         browser: Browser = await p.chromium.launch(
             headless=headless,
-            args=["--disable-blink-features=AutomationControlled", "--no-sandbox", "--disable-dev-shm-usage"],
+            args=[
+                "--disable-blink-features=AutomationControlled",
+                "--no-sandbox",
+                "--disable-dev-shm-usage",
+                # Some Greenhouse-hosted boards reset the HTTP/2 connection mid-
+                # handshake, which Chromium surfaces as a hard
+                # net::ERR_HTTP2_PROTOCOL_ERROR on page.goto and which retrying
+                # never clears — observed deterministically on all three Roblox
+                # postings, whose URLs load fine over HTTP/1.1. Forcing HTTP/1.1
+                # costs a little connection reuse and makes those pages reachable.
+                "--disable-http2",
+            ],
         )
         context: BrowserContext = await browser.new_context(
             viewport={"width": 1280, "height": 900},
@@ -1411,6 +1459,18 @@ async def _execute_live_playwright_submission_impl(
                     if log_callback:
                         log_callback(f"Switched to application iframe ({frame.url[:40]}...)")
                     break
+
+            if target_frame == page:
+                try:
+                    iframe_elem = page.locator('iframe[src*="greenhouse.io"], iframe[src*="lever.co"], iframe[src*="ashby"]').first
+                    if await iframe_elem.count() > 0:
+                        content_fr = await iframe_elem.content_frame()
+                        if content_fr:
+                            target_frame = content_fr
+                            if log_callback:
+                                log_callback(f"Switched to application frame via element locator ({target_frame.url[:40]}...)")
+                except Exception:
+                    pass
 
             # If application form is not yet visible, check for matching job links or "Apply" buttons
             try:
@@ -1711,15 +1771,48 @@ async def _execute_live_playwright_submission_impl(
             # 2. Run cross-field deterministic validation
             cross_field_report = validate_answers(form_resolutions, profile)
 
+            # 2b. Record any NEW high-risk contradictions as persistent blocks.
+            # These persist on the job_item so retries cannot bypass them.
+            from app.services.application_assistant.cross_field_validator import RULE_DOMAIN_MAP
+            from app.services.application_assistant.submission_policy import HIGH_RISK_CONTRADICTION_DOMAINS
+            existing_contradictions: list[dict[str, Any]] = list(job_item.get("blockingContradictions") or [])
+            existing_rules = {bc.get("rule") for bc in existing_contradictions}
+            for err in cross_field_report.blocking_errors:
+                domain = getattr(err, 'domain', '') or RULE_DOMAIN_MAP.get(err.rule, '')
+                if domain in HIGH_RISK_CONTRADICTION_DOMAINS and err.rule not in existing_rules:
+                    existing_contradictions.append({
+                        "domain": domain,
+                        "rule": err.rule,
+                        "fieldId": err.field_id,
+                        "question": err.question,
+                        "reason": err.reason,
+                        "answer": str(err.answer) if hasattr(err, 'answer') else "",
+                        "recordedAt": now_iso(),
+                    })
+                    existing_rules.add(err.rule)
+            if existing_contradictions:
+                job_item["blockingContradictions"] = existing_contradictions
+                logger.warning(
+                    "Recorded %d blocking contradiction(s) on job %s",
+                    len(existing_contradictions), job_id,
+                )
+
             # 3. Read back live browser DOM state
             dom_verification = await verify_browser_dom_state(target_frame, form_resolutions, profile)
 
-            # 4. Evaluate centralized SubmissionPolicy
+            # 3b. Compute field verification status from DOM read-back
+            field_verification_status = "FIELD_VALUES_VERIFIED"
+            if dom_verification and (not dom_verification.passed or dom_verification.issues):
+                has_blocking_dom = any(i.severity == "BLOCKING" for i in (dom_verification.issues or []))
+                field_verification_status = "FIELD_VALUES_MISMATCH" if has_blocking_dom else "FIELD_VALUES_VERIFIED"
+
+            # 4. Evaluate centralized SubmissionPolicy (with persistent blocks)
             policy_result = SubmissionPolicy.evaluate(
                 resolutions=form_resolutions,
                 validation_report=cross_field_report,
                 dom_verification=dom_verification,
                 profile=profile,
+                blocking_contradictions=job_item.get("blockingContradictions"),
             )
 
             # 5. Persist pre-submit audit report
@@ -1976,6 +2069,7 @@ async def _execute_live_playwright_submission_impl(
                 tailoring_mode=job_item.get("tailoringMode"),
                 resume_file_used=job_item.get("resumeFileUsed"),
                 match_score_at_submission=job_item.get("matchScoreAtSubmission"),
+                field_verification_status=field_verification_status,
             )
 
             return {

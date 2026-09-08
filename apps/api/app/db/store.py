@@ -354,12 +354,32 @@ def entity_count(db: Session, entity_type: str) -> int:
 def tracker_summary(db: Session) -> dict[str, Any]:
     """Lightweight tracker payload for the web dashboard (no resume binary)."""
     applications = [enrich_application_record(app) for app in list_entities(db, "application")]
+
+    # Split counts: Autopilot-submitted vs Gmail-synced manual applications
+    # Autopilot jobs tracked internally in aa_autopilot_job
+    autopilot_job_count = sum(
+        1 for j in list_entities(db, "aa_autopilot_job") if j.get("status") == "SUBMITTED"
+    )
+    # Gmail-synced applications sent via CareerOS (+career alias) also count as autopilot
+    careeros_gmail_count = sum(
+        1 for a in applications if a.get("source") == "careeros"
+    )
+    autopilot_submitted = autopilot_job_count + careeros_gmail_count
+
+    manual_submitted = sum(
+        1 for a in applications if a.get("source") == "gmail_manual"
+    )
+    total_submitted = autopilot_submitted + manual_submitted
+
     return {
         "applications": applications,
         "jobsCount": entity_count(db, "job"),
         "mappingsCount": entity_count(db, "field_mapping"),
         "learnedAnswersCount": entity_count(db, "learned_answer"),
         "sessionsCount": entity_count(db, "autofill_session"),
+        "autopilotSubmittedCount": autopilot_submitted,
+        "manualSubmittedCount": manual_submitted,
+        "totalSubmittedCount": total_submitted,
     }
 
 

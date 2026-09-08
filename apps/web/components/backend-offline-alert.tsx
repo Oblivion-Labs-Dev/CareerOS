@@ -2,7 +2,7 @@
 
 import { BackendIcon } from "@/components/backend-icon";
 import { BACKEND_BANNER_OFFLINE, BACKEND_START_COMMAND } from "@/lib/nav-config";
-import { getClientApiBaseUrl } from "@/lib/api";
+import { getApiOriginForDisplay } from "@/lib/api";
 import { useBackendStatus } from "@/hooks/use-backend-status";
 
 export function BackendOfflineAlert() {
@@ -12,7 +12,8 @@ export function BackendOfflineAlert() {
     return null;
   }
 
-  const apiUrl = getClientApiBaseUrl();
+  // Show the real API origin here, not the proxy path the browser fetches through.
+  const apiUrl = getApiOriginForDisplay();
 
   return (
     <div className="backend-offline-alert" role="alert" aria-live="assertive">

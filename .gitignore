@@ -37,3 +37,6 @@ apps/api/test_start.py
 .claude/
 scratch/
 apps/web/public/resumes/test_*.pdf
+
+# Playwright session state (contains an auth cookie)
+apps/web/e2e/.auth/

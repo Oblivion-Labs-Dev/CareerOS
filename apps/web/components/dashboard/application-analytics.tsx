@@ -2,8 +2,16 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { getAutopilotJobs } from "@/lib/application-assistant-api";
-import { IconCheckCircle, IconClock, IconSend, IconTrendUp } from "@/components/application-assistant/autopilot/icons";
-import { AutopilotActivityCard } from "@/components/dashboard/autopilot-activity-card";
+import { getClientApiBaseUrl } from "@/lib/api";
+import { fetchCachedJson } from "@/lib/client-fetch-cache";
+import {
+  IconBolt,
+  IconCheckCircle,
+  IconClock,
+  IconInbox,
+  IconSend,
+  IconTrendUp,
+} from "@/components/application-assistant/autopilot/icons";
 import styles from "./application-analytics.module.css";
 
 const DAYS_SHOWN = 14;
@@ -25,33 +33,75 @@ function jobTimestamp(job: any): number {
   return Number.isNaN(time) ? NaN : time;
 }
 
-export function ApplicationAnalytics() {
+function appTimestamp(app: any): number {
+  const raw = app.submittedAt || app.createdAt || app.updatedAt;
+  const time = raw ? Date.parse(raw) : NaN;
+  return Number.isNaN(time) ? NaN : time;
+}
+
+type TrackerSummaryResponse = {
+  applications?: any[];
+  autopilotSubmittedCount?: number;
+  manualSubmittedCount?: number;
+  totalSubmittedCount?: number;
+};
+
+export function ApplicationAnalytics({ refreshKey = 0 }: { refreshKey?: number }) {
   const [jobs, setJobs] = useState<any[] | null>(null);
+  const [tracker, setTracker] = useState<TrackerSummaryResponse | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    getAutopilotJobs("SUBMITTED", 200)
+
+    // 1. Fetch Autopilot submitted jobs
+    getAutopilotJobs("SUBMITTED", 500)
       .then((res) => {
         if (!cancelled) setJobs(res.jobs || []);
       })
       .catch(() => {
         if (!cancelled) setJobs([]);
       });
+
+    // 2. Fetch Tracker summary (includes Gmail manual applications and server-computed split counts)
+    const api = getClientApiBaseUrl();
+    fetchCachedJson<TrackerSummaryResponse>(`${api}/tracker/summary`, { staleMs: 5_000 })
+      .then((data) => {
+        if (!cancelled) setTracker(data || null);
+      })
+      .catch(() => {
+        if (!cancelled) setTracker(null);
+      });
+
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [refreshKey]);
 
   const stats = useMemo(() => {
-    if (!jobs) return null;
+    if (jobs === null && tracker === null) return null;
+
+    const autopilotList = jobs || [];
+    const allApps = tracker?.applications || [];
+    const manualApps = allApps.filter((a) => a.source === "gmail_manual");
+
+    const autopilotCount =
+      tracker?.autopilotSubmittedCount ??
+      autopilotList.filter((j) => j.status === "SUBMITTED" || !j.status).length;
+    const manualCount = tracker?.manualSubmittedCount ?? manualApps.length;
+    const total = tracker?.totalSubmittedCount ?? autopilotCount + manualCount;
+
     const today = startOfDay(new Date());
-    const timestamps = jobs.map(jobTimestamp).filter((t) => !Number.isNaN(t));
+
+    // Collect timestamps from both autopilot jobs and manual applications
+    const autopilotTimestamps = autopilotList.map(jobTimestamp).filter((t) => !Number.isNaN(t));
+    const manualTimestamps = manualApps.map(appTimestamp).filter((t) => !Number.isNaN(t));
+    const allTimestamps = [...autopilotTimestamps, ...manualTimestamps];
 
     const buckets = new Map<string, number>();
     for (let i = DAYS_SHOWN - 1; i >= 0; i -= 1) {
       buckets.set(dayKey(new Date(today.getTime() - i * DAY_MS)), 0);
     }
-    for (const t of timestamps) {
+    for (const t of allTimestamps) {
       const key = dayKey(startOfDay(new Date(t)));
       if (buckets.has(key)) buckets.set(key, (buckets.get(key) || 0) + 1);
     }
@@ -60,8 +110,8 @@ export function ApplicationAnalytics() {
     const max = Math.max(1, ...days.map((d) => d.count));
 
     const todayCount = buckets.get(dayKey(today)) || 0;
-    const last7 = timestamps.filter((t) => t >= today.getTime() - 6 * DAY_MS).length;
-    const prev7 = timestamps.filter(
+    const last7 = allTimestamps.filter((t) => t >= today.getTime() - 6 * DAY_MS).length;
+    const prev7 = allTimestamps.filter(
       (t) => t >= today.getTime() - 13 * DAY_MS && t < today.getTime() - 6 * DAY_MS,
     ).length;
     const trendPct = prev7 > 0 ? Math.round(((last7 - prev7) / prev7) * 100) : last7 > 0 ? 100 : 0;
@@ -70,18 +120,21 @@ export function ApplicationAnalytics() {
     return {
       days,
       max,
-      total: jobs.length,
+      total,
+      autopilotCount,
+      manualCount,
       todayCount,
       last7,
       trendPct,
       dailyAvg,
     };
-  }, [jobs]);
+  }, [jobs, tracker]);
 
   return (
     <div className={styles.wrap}>
       <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
         <div className={styles.statRow}>
+          {/* Card 1: Total Summed Up */}
           <div className={styles.statTile} data-tone="accent">
             <span className={styles.statLabel}>
               <IconSend className="w-3.5 h-3.5" /> Total submitted
@@ -89,9 +142,34 @@ export function ApplicationAnalytics() {
             <div className={styles.statValueRow}>
               <span className={styles.statValue}>{stats ? stats.total : "—"}</span>
             </div>
-            <p className={styles.statSub}>All-time Autopilot submissions</p>
+            <p className={styles.statSub}>
+              {stats ? `${stats.autopilotCount} Autopilot + ${stats.manualCount} Manual` : "All-time applications"}
+            </p>
           </div>
 
+          {/* Card 2: Autopilot Applied */}
+          <div className={styles.statTile} data-tone="violet">
+            <span className={styles.statLabel}>
+              <IconBolt className="w-3.5 h-3.5" /> CareerOS Autopilot
+            </span>
+            <div className={styles.statValueRow}>
+              <span className={styles.statValue}>{stats ? stats.autopilotCount : "—"}</span>
+            </div>
+            <p className={styles.statSub}>Automated submissions</p>
+          </div>
+
+          {/* Card 3: Manual Gmail Synced */}
+          <div className={styles.statTile} data-tone="cyan">
+            <span className={styles.statLabel}>
+              <IconInbox className="w-3.5 h-3.5" /> Manual (Gmail)
+            </span>
+            <div className={styles.statValueRow}>
+              <span className={styles.statValue}>{stats ? stats.manualCount : "—"}</span>
+            </div>
+            <p className={styles.statSub}>Detected from thank-you emails</p>
+          </div>
+
+          {/* Card 4: Today */}
           <div className={styles.statTile} data-tone="success">
             <span className={styles.statLabel}>
               <IconCheckCircle className="w-3.5 h-3.5" /> Today
@@ -102,7 +180,8 @@ export function ApplicationAnalytics() {
             <p className={styles.statSub}>Applications submitted today</p>
           </div>
 
-          <div className={styles.statTile} data-tone="violet">
+          {/* Card 5: This week */}
+          <div className={styles.statTile} data-tone="amber">
             <span className={styles.statLabel}>
               <IconClock className="w-3.5 h-3.5" /> This week
             </span>
@@ -111,7 +190,11 @@ export function ApplicationAnalytics() {
               {stats && (
                 <span
                   className={`${styles.statTrend} ${
-                    stats.trendPct > 0 ? styles.statTrendUp : stats.trendPct < 0 ? styles.statTrendDown : styles.statTrendFlat
+                    stats.trendPct > 0
+                      ? styles.statTrendUp
+                      : stats.trendPct < 0
+                      ? styles.statTrendDown
+                      : styles.statTrendFlat
                   }`}
                 >
                   {stats.trendPct > 0 ? "▲" : stats.trendPct < 0 ? "▼" : "–"} {Math.abs(stats.trendPct)}%
@@ -120,27 +203,23 @@ export function ApplicationAnalytics() {
             </div>
             <p className={styles.statSub}>vs. the previous 7 days</p>
           </div>
-
-          <div className={styles.statTile} data-tone="amber">
-            <span className={styles.statLabel}>
-              <IconTrendUp className="w-3.5 h-3.5" /> Daily average
-            </span>
-            <div className={styles.statValueRow}>
-              <span className={styles.statValue}>{stats ? stats.dailyAvg : "—"}</span>
-            </div>
-            <p className={styles.statSub}>Applications per day (7d)</p>
-          </div>
         </div>
 
+        {/* Daily chart panel */}
         <div className={styles.chartPanel}>
           <div className={styles.chartHead}>
-            <span className={styles.chartTitle}>Applications per day</span>
+            <div>
+              <span className={styles.chartTitle}>Applications per day</span>
+              <span className={styles.chartSubtitle} style={{ marginLeft: "0.5rem" }}>
+                (Autopilot + Manual Gmail)
+              </span>
+            </div>
             <span className={styles.chartSubtitle}>Last {DAYS_SHOWN} days</span>
           </div>
           {!stats ? (
             <div className={styles.emptyChart}>Loading activity…</div>
           ) : stats.total === 0 ? (
-            <div className={styles.emptyChart}>No submissions yet — start a run on the Autopilot page.</div>
+            <div className={styles.emptyChart}>No submissions yet — sync Gmail or start an Autopilot run.</div>
           ) : (
             <div className={styles.chart}>
               {stats.days.map((day, index) => {
@@ -151,7 +230,11 @@ export function ApplicationAnalytics() {
                   day: "numeric",
                 });
                 return (
-                  <div key={day.key} className={`${styles.barCol} ${isToday ? styles["barCol--today"] : ""}`} title={`${day.count} on ${label}`}>
+                  <div
+                    key={day.key}
+                    className={`${styles.barCol} ${isToday ? styles["barCol--today"] : ""}`}
+                    title={`${day.count} application${day.count === 1 ? "" : "s"} on ${label}`}
+                  >
                     <span className={styles.barCount}>{day.count > 0 ? day.count : ""}</span>
                     <div className={styles.barTrack}>
                       <div className={styles.bar} style={{ height: `${heightPct}%` }} />
@@ -163,11 +246,6 @@ export function ApplicationAnalytics() {
             </div>
           )}
         </div>
-      </div>
-
-      <div className={styles.breakdownCard}>
-        <span className={styles.breakdownTitle}>Status breakdown</span>
-        <AutopilotActivityCard />
       </div>
     </div>
   );

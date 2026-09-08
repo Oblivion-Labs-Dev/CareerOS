@@ -24,8 +24,21 @@ test.describe("CareerOS web health", () => {
     await expect(page).toHaveTitle(/CareerOS/i);
     await expectStylesLoaded(page);
 
-    const bodyBg = await page.evaluate(() => getComputedStyle(document.body).backgroundColor);
-    expect(bodyBg).not.toBe("rgba(0, 0, 0, 0)");
+    // The canvas is painted on <html> (reference-match.css layers gradients
+    // there) rather than on <body>, so assert *something* paints the page
+    // rather than pinning the implementation to one element.
+    const painted = await page.evaluate(() => {
+      const opaque = (v: string) => Boolean(v) && v !== "rgba(0, 0, 0, 0)" && v !== "transparent";
+      const html = getComputedStyle(document.documentElement);
+      const body = getComputedStyle(document.body);
+      return (
+        opaque(html.backgroundColor) ||
+        opaque(body.backgroundColor) ||
+        html.backgroundImage !== "none" ||
+        body.backgroundImage !== "none"
+      );
+    });
+    expect(painted, "page should have a painted background").toBe(true);
   });
 
   test("app shell renders sidebar layout", async ({ page }) => {
@@ -35,10 +48,25 @@ test.describe("CareerOS web health", () => {
     const shell = page.locator(".shell");
     await expect(shell).toBeVisible();
 
-    const display = await shell.evaluate((el) => getComputedStyle(el).display);
-    expect(display).toBe("grid");
-
+    // The shell moved from CSS Grid to a fixed sidebar + offset main column, so
+    // assert the outcome that actually matters to a user — the sidebar and the
+    // main content sit side by side without overlapping — rather than a
+    // particular `display` value that changes with the layout strategy.
     await expect(page.locator(".sidebar")).toBeVisible();
+    const geometry = await page.evaluate(() => {
+      const sidebar = document.querySelector(".sidebar") as HTMLElement | null;
+      const main = document.querySelector("main.main, .main") as HTMLElement | null;
+      if (!sidebar || !main) return null;
+      const s = sidebar.getBoundingClientRect();
+      const m = main.getBoundingClientRect();
+      return { sidebarRight: s.right, mainLeft: m.left, sidebarWidth: s.width };
+    });
+    expect(geometry, "sidebar and main should both render").not.toBeNull();
+    expect(geometry!.sidebarWidth, "sidebar should have width").toBeGreaterThan(100);
+    expect(
+      geometry!.mainLeft,
+      "main content should start at or after the sidebar, not underneath it",
+    ).toBeGreaterThanOrEqual(geometry!.sidebarRight - 2);
     await expect(page.getByRole("navigation", { name: "CareerOS sections" })).toBeVisible();
     await expect(page.getByRole("heading", { name: "Profile", level: 1 })).toBeVisible();
   });

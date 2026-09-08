@@ -30,6 +30,18 @@ from app.services.application_assistant.question_classifier import (
 
 logger = logging.getLogger("career_os.submission_policy")
 
+# Contradiction domains that are PERMANENTLY blocking once detected.
+# Automated retries MUST NOT clear these — only explicit human resolution
+# (custom answers or profile field fix + re-verification) can.
+HIGH_RISK_CONTRADICTION_DOMAINS = frozenset({
+    "demographics",         # gender, ethnicity, race identity mismatches
+    "visa_work_auth",       # H1B vs sponsorship, citizenship contradictions
+    "location",             # state/city mismatch with profile
+    "legal_acknowledgement",# ITAR, export control, legal consent
+    "compensation",         # salary expectation contradictions
+    "factual_experience",   # false claims about skills/experience
+})
+
 
 class RiskTier(str, Enum):
     LOW_RISK = "LOW_RISK"                    # Auto-submit
@@ -75,6 +87,7 @@ class SubmissionPolicy:
         dom_verification: DOMVerificationResult | None = None,
         profile: dict[str, Any] | None = None,
         qwen_review: dict[str, Any] | None = None,
+        blocking_contradictions: list[dict[str, Any]] | None = None,
     ) -> PolicyEvaluationResult:
         """
         Evaluate application safety using a risk-based policy:
@@ -83,10 +96,45 @@ class SubmissionPolicy:
           - MEDIUM RISK: New phrasing, LLM synthesized text, lower confidence with no contradictions -> AUTO-SUBMIT + Warning.
           - HIGH RISK: Concrete factual contradiction (H1B + no sponsorship), unsupported critical fact,
                        demographic cross-domain error, location mismatch, or required critical field unresolved -> NEEDS_REVIEW.
+
+        Args:
+            blocking_contradictions: Pre-recorded high-risk contradictions from
+                previous attempts.  When present, these PERMANENTLY block
+                auto-submission — automated retries cannot clear them.  Only
+                explicit human resolution (custom answers or profile fix) clears
+                the block.
         """
         reasons: list[str] = []
         blocking_issues: list[dict[str, Any]] = []
         warnings: list[str] = []
+
+        # ── 0. Persistent Blocking Contradictions Gate ───────────────────────
+        # If any previous attempt recorded a high-risk contradiction, this
+        # application is PERMANENTLY blocked from auto-submission.  Retries
+        # MUST NOT bypass this gate merely because a subsequent DOM
+        # interaction succeeds or the cross-field validator happens to pass
+        # on a re-read.  The block can only be lifted by explicit human
+        # resolution (custom answers provided via the review UI).
+        if blocking_contradictions:
+            for bc in blocking_contradictions:
+                domain = bc.get("domain", "unknown")
+                msg = f"PERSISTENT BLOCK ({domain}): {bc.get('reason', 'High-risk contradiction detected on prior attempt')}"
+                reasons.append(msg)
+                blocking_issues.append({
+                    "gate": "PERSISTENT_CONTRADICTION_BLOCK",
+                    "domain": domain,
+                    "rule": bc.get("rule", "PRIOR_ATTEMPT_CONTRADICTION"),
+                    "fieldId": bc.get("fieldId", ""),
+                    "question": bc.get("question", ""),
+                    "reason": msg,
+                    "risk": "HIGH_RISK",
+                    "recordedAt": bc.get("recordedAt", ""),
+                    "persistent": True,
+                })
+            logger.warning(
+                "Persistent blocking contradictions detected (%d). Auto-submission permanently blocked.",
+                len(blocking_contradictions),
+            )
 
         # ── 1. Concrete Cross-Field Contradiction Gate ──────────────────────
         # Only true blocking contradictions (e.g. H1B vs sponsorship=No, Citizen=No vs ITAR=Citizen) halt submission
