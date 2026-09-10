@@ -224,6 +224,31 @@ def list_entities(db: Session, entity_type: str) -> list[dict[str, Any]]:
     return [row.payload for row in rows]
 
 
+def list_entities_where_json(
+    db: Session, entity_type: str, json_path: str, *, truthy: bool = True
+) -> list[dict[str, Any]]:
+    """Entities filtered by a JSON field, without deserialising every row.
+
+    `list_entities` loads and parses the whole table for its type and then
+    filters in Python. That is fine for a handful of rows, but the discovered-job
+    table is large and the dashboard was paying ~0.5s per page load to find the
+    two dozen rows flagged as added-to-assistant. Push the predicate into SQLite
+    via json_extract so only the matching rows come back.
+
+    `json_path` is a JSON path such as "$.addedToAssistant".
+    """
+    from sqlalchemy import func
+
+    extracted = func.json_extract(EntityStore.payload, json_path)
+    query = db.query(EntityStore).filter(EntityStore.entity_type == entity_type)
+    query = query.filter(extracted.isnot(None)) if truthy else query
+    if truthy:
+        # SQLite json_extract yields 1/0 for booleans and the raw value
+        # otherwise; both "false" spellings must be excluded.
+        query = query.filter(extracted != 0).filter(extracted != "false")
+    return [row.payload for row in query.all()]
+
+
 def get_entity(db: Session, entity_type: str, entity_id: str) -> dict[str, Any] | None:
     row = (
         db.query(EntityStore)

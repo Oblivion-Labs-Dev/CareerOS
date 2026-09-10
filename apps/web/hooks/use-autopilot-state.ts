@@ -84,6 +84,7 @@ export type OperationalState = "running" | "recovering" | "paused" | "completed"
 export function resolveOperationalState(state: AutopilotState | null, connectionError: boolean): OperationalState {
   if (connectionError) return "error";
   if (!state) return "unknown";
+  if (["analyzing", "patching", "requeuing"].includes(state.selfHealing?.status || "")) return "recovering";
   const raw = (state.status || "").toUpperCase();
   if (raw === "RUNNING") return "running";
   if (raw === "RECOVERING") return "recovering";
@@ -138,7 +139,13 @@ export function useAutopilotState(pollMs = 10_000) {
           /* malformed frame — the poll below still corrects it */
         }
       });
-      es.addEventListener("log", () => {
+      es.addEventListener("log", (event: MessageEvent) => {
+        try {
+          const log = JSON.parse(event.data) as AutopilotLog;
+          if (log.id && typeof log.message === "string") setState(previous => previous ? {
+            ...previous, recentLogs: [...previous.recentLogs.filter(item => item.id !== log.id), log].slice(-25),
+          } : previous);
+        } catch { /* The scheduled snapshot still refreshes malformed events. */ }
         // A burst of granular events shouldn't mean one request each.
         if (refreshTimer.current) return;
         refreshTimer.current = setTimeout(() => {

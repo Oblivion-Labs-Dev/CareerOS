@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { CountUp } from "@/components/count-up";
 import { useRouter } from "next/navigation";
 import { getAutopilotJobs } from "@/lib/application-assistant-api";
 import styles from "./application-insights.module.css";
@@ -230,9 +231,9 @@ export function ApplicationInsights() {
             <span key={o.key} className={styles.legendRow}>
               <span className={styles.legendDot} style={{ background: o.color }} />
               <span className={styles.legendName}>{o.name}</span>
-              <span className={styles.legendValue}>{o.count}</span>
+              <span className={styles.legendValue}><CountUp value={o.count} locale /></span>
               <span className={styles.legendPct}>
-                {Math.round((o.count / mixTotal) * 100)}%
+                <CountUp value={Math.round((o.count / mixTotal) * 100)} suffix="%" />
               </span>
             </span>
           ))}
@@ -254,7 +255,7 @@ export function ApplicationInsights() {
               <div key={stage.name} className={styles.stage}>
                 <div className={styles.stageTop}>
                   <span className={styles.stageName}>{stage.name}</span>
-                  <span className={styles.stageValue}>{stage.value}</span>
+                  <span className={styles.stageValue}><CountUp value={stage.value} locale delayMs={i * 80} /></span>
                 </div>
                 <div className={styles.stageTrack}>
                   <div
@@ -268,7 +269,7 @@ export function ApplicationInsights() {
                   />
                 </div>
                 {drop !== null && (
-                  <span className={styles.stageDrop}>{drop}% carried through</span>
+                  <span className={styles.stageDrop}><CountUp value={drop} suffix="%" delayMs={i * 80} /> carried through</span>
                 )}
               </div>
             );
@@ -283,7 +284,7 @@ export function ApplicationInsights() {
           <span className={styles.cardNote}>of submitted</span>
         </div>
         <div>
-          <div className={styles.splitValue}>{seattleShare}%</div>
+          <div className={styles.splitValue}><CountUp value={seattleShare} suffix="%" /></div>
           <p className={styles.splitCaption}>
             {data.inSeattle} of {data.submittedTotal} submitted applications are in the
             Seattle area. The rest are elsewhere in the United States.

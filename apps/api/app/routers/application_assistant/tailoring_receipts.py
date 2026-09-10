@@ -5,6 +5,29 @@ from ._common import *  # noqa: F401,F403
 router = APIRouter(prefix="/application-assistant", tags=["application-assistant"])
 
 
+@router.get("/jobs/{job_id}/journey")
+def application_journey_endpoint(job_id: str) -> dict[str, Any]:
+    from app.services.application_assistant.application_journey import get_application_journey
+    journey = get_application_journey(job_id)
+    if journey is None:
+        raise HTTPException(status_code=404, detail="Application not found")
+    return journey
+
+
+@router.get("/jobs/{job_id}/journey/evidence/{kind}")
+def application_journey_evidence(job_id: str, kind: str):
+    from fastapi.responses import FileResponse
+    from app.services.application_assistant.application_journey import evidence_path
+    from app.services.application_assistant.submission_receipt_service import get_submission_receipt
+    if kind not in {"presubmitScreenshot", "confirmationScreenshot"}:
+        raise HTTPException(status_code=404, detail="Evidence not found")
+    receipt = get_submission_receipt(job_id)
+    path = evidence_path(str((receipt or {}).get(kind) or ""))
+    if not receipt or receipt.get("jobId") != job_id or not path:
+        raise HTTPException(status_code=404, detail="Evidence not found")
+    return FileResponse(path)
+
+
 # ─── TSENTA SUITE: VISUAL DIFFS, PRE-FLIGHT APPROVAL, RECEIPTS & EMAIL SYNC ───
 
 @router.get("/jobs/{id}/tailor-diff")
@@ -150,11 +173,10 @@ async def approve_preflight_submission(
 
     runner = AutopilotRunner.get_instance()
     # concurrency=1 is deliberate: this is the single-job "Apply" click path, not
-    # the bulk /autopilot/start runner. Without it, start() falls back to
-    # DEFAULT_CONCURRENCY (5) and the batch loop picks up every other job already
-    # sitting at QUEUED status too, silently turning one Apply click into a
-    # 5-way-parallel headed-browser run — the exact concurrency blowup the memory-
-    # constrained autopilot workflow must avoid.
+    # the bulk /autopilot/start runner. The runner now pins every run to
+    # APPLY_CONCURRENCY (1) regardless, but passing it here keeps the intent
+    # explicit at the call site — one Apply click must never turn into a
+    # multi-way-parallel headed-browser run.
     #
     # priorityJobId matters just as much: without it, the batch loop's queue
     # selection claims whichever QUEUED job happens to come first in

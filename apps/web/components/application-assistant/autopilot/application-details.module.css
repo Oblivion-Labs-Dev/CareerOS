@@ -1,0 +1,87 @@
+/* Wider than the default drawer: this panel now carries the full answer
+   list and the outstanding-question form, which were cramped at 560px. */
+.panel { width:min(760px,100vw)!important; background:var(--card)!important; padding:0!important; }
+.detail { --tone:#648ac6; color:var(--text); height:100%; overflow-y:auto; background:var(--card); }
+.detail[data-status=submitted] { --tone:#249d7a; }.detail[data-status=failed] { --tone:#d45360; }.detail[data-status=review] { --tone:#cda12d; }.detail[data-status=ineligible] { --tone:#8894a8; }
+.hero { position:relative; isolation:isolate; overflow:hidden; padding:24px 28px 26px; border-bottom:1px solid var(--border); background:radial-gradient(ellipse at 100% 0,color-mix(in srgb,var(--tone) 22%,transparent),transparent 70%),color-mix(in srgb,var(--tone) 4%,var(--card)); }
+.topline { display:flex; justify-content:space-between; align-items:center; font-size:8px; letter-spacing:.16em; color:var(--muted); margin-bottom:23px; }.topline button { display:grid; place-items:center; width:32px; height:32px; border:1px solid var(--border); background:var(--card); color:var(--text); border-radius:10px; font-size:22px; cursor:pointer; }
+.identity { display:flex; gap:15px; align-items:center; }.monogram { display:grid; place-items:center; width:56px; height:56px; border-radius:16px; border:1px solid var(--border); box-shadow:0 6px 18px #0000000a; background:var(--card); font-size:20px; font-weight:650; }.identity h2 { margin:7px 0 0; font-family:var(--font-outfit),sans-serif; font-size:27px; font-weight:550; letter-spacing:-.04em; }.badge { display:inline-flex; align-items:center; gap:5px; color:var(--tone); font-size:10px; font-weight:650; }.badge i { width:6px; height:6px; background:currentColor; border-radius:50%; }.hero>h3 { margin:20px 0 7px; font-size:17px; font-weight:550; line-height:1.5; max-width:90%; }.location { font-size:11px; color:var(--muted); margin:0; }.heroArt { position:absolute; right:-45px; top:50px; width:180px; height:180px; z-index:-1; color:var(--tone); opacity:.18; }.heroArt i { position:absolute; inset:0; border:1px solid currentColor; border-radius:50%; }.heroArt i+i { inset:20px; }.heroArt>span { position:absolute; top:60px; left:50px; font-size:60px; animation:float 6s ease-in-out infinite; }
+.body { padding:24px; }.fit { display:flex; align-items:center; gap:18px; background:color-mix(in srgb,var(--tone) 5%,var(--card)); border:1px solid var(--border); border-radius:16px; padding:18px; }.dial { position:relative; width:76px; height:76px; flex-shrink:0; }.dial svg { fill:none; stroke:var(--border); stroke-width:4; transform:rotate(-90deg); }.dial circle+circle { stroke:var(--tone); stroke-linecap:round; }.dial strong { position:absolute; inset:0; display:flex; justify-content:center; align-items:center; font-size:22px; font-weight:600; }.dial small { font-size:10px; }.eyebrow { font-size:8px; letter-spacing:.1em; font-weight:650; color:var(--muted); }.fit h3 { margin:6px 0; font-size:16px; font-weight:550; }.fit p { margin:0; font-size:10px; color:var(--muted); }
+.facts { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin:13px 0 20px; }.facts>div { border:1px solid var(--border); border-radius:11px; padding:14px; }.facts span { display:block; font-size:8px; letter-spacing:.06em; color:var(--muted); margin-bottom:8px; }.facts strong { font-size:11px; font-weight:550; }.reason { border-left:3px solid var(--tone); border-radius:0 12px 12px 0; background:color-mix(in srgb,var(--tone) 8%,var(--card)); padding:15px; margin-bottom:24px; }.reason p { font-size:12px; line-height:1.75; overflow-wrap:anywhere; }.reason small { font-size:9px; color:var(--muted); }
+.section { margin:26px 0; }.sectionTitle { display:flex; align-items:center; gap:9px; margin-bottom:14px; }.sectionTitle>span { display:grid; place-items:center; width:27px; height:27px; border:1px solid var(--border); border-radius:8px; color:var(--tone); }.sectionTitle h3 { margin:0; font-size:13px; font-weight:600; }.sectionTitle b { font-size:10px; margin-left:auto; color:var(--muted); }.document { display:flex; align-items:center; gap:12px; padding:15px; border:1px solid var(--border); border-radius:13px; color:var(--text); text-decoration:none; background:var(--card); transition:transform .2s,border-color .2s; }.document:hover { border-color:var(--tone); transform:translateY(-2px); }.paper { display:grid; place-items:center; flex-shrink:0; width:34px; height:42px; border:1px solid var(--border); border-radius:5px; font-size:24px; color:var(--tone); }.document>span:nth-child(2) { min-width:0; }.document strong { display:block; font-size:12px; }.document small { display:block; color:var(--muted); font-size:10px; overflow-wrap:anywhere; margin-top:5px; }.document b { margin-left:auto; }.posting { display:flex; justify-content:space-between; margin-top:12px; padding:10px 2px; text-decoration:none; font-size:11px; color:var(--accent); }.muted { color:var(--muted); font-size:10px; line-height:1.6; }.prose { font-size:12px; line-height:1.8; color:var(--muted); }.skills { display:flex; flex-wrap:wrap; gap:6px; margin-bottom:18px; }.skills span { font-size:10px; border:1px solid color-mix(in srgb,#249d7a 25%,var(--border)); background:color-mix(in srgb,#249d7a 7%,var(--card)); padding:6px 9px; border-radius:7px; }.gaps span { border-color:color-mix(in srgb,#cda12d 25%,var(--border)); background:color-mix(in srgb,#cda12d 7%,var(--card)); }
+.answers { display:grid; gap:8px; }.answers details { border:1px solid var(--border); border-radius:10px; padding:12px; }.answers summary { cursor:pointer; font-size:11px; line-height:1.6; }.answers p { font-size:12px; line-height:1.75; color:var(--muted); padding-top:10px; border-top:1px solid var(--border); overflow-wrap:anywhere; }.timeline { list-style:none; padding:0 0 0 7px; }.timeline li { position:relative; border-left:1px solid var(--border); padding:0 0 22px 20px; }.timeline li:last-child { border-color:transparent; }.node { position:absolute; width:7px; height:7px; border-radius:50%; background:var(--tone); left:-4px; top:5px; box-shadow:0 0 0 4px var(--card); }.timeline strong { font-size:11px; text-transform:capitalize; }.timeline time { display:block; font-size:9px; color:var(--muted); margin-top:5px; }.timeline p { font-size:11px; color:var(--muted); line-height:1.7; overflow-wrap:anywhere; }.detail a:focus-visible,.detail button:focus-visible,.detail summary:focus-visible { outline:2px solid var(--accent); outline-offset:3px; }
+@keyframes float { 50% { transform:translate(4px,-7px); } } @media(prefers-reduced-motion:reduce) { .detail * { animation:none!important; transition:none!important; } } :global([data-motion=paused]) .detail * { animation:none!important; transition:none!important; }
+@media(max-width:440px) { .hero { padding:18px; }.body { padding:16px; }.identity h2 { font-size:23px; }.fit { padding:13px; gap:12px; } }
+.detailTabs { position:sticky; top:0; z-index:2; display:flex; gap:6px; padding:12px 24px; border-bottom:1px solid var(--border); background:var(--card); }
+.detailTabs button { flex:1; padding:9px 12px; color:var(--muted); background:transparent; border:1px solid transparent; border-radius:9px; font-size:12px; cursor:pointer; }
+.detailTabs button[aria-pressed=true] { color:var(--text); border-color:var(--border); background:color-mix(in srgb,var(--accent) 9%,var(--card)); }
+.detail .heroArt { display:none; }
+.detail .hero { padding-bottom:18px; }.detail .topline { margin-bottom:12px; }
+
+/* ── Questions Autopilot could not answer ───────────────────────────────── */
+.pendingQuestion { margin: 0.75rem 0; }
+.pendingQuestion + .pendingQuestion { border-top: 1px solid var(--hairline, rgba(255,255,255,.08)); padding-top: 0.75rem; }
+
+.answerInput {
+  width: 100%;
+  margin-top: 0.5rem;
+  padding: 0.5rem 0.65rem;
+  border-radius: 0.5rem;
+  border: 1px solid var(--hairline, rgba(255,255,255,.16));
+  background: var(--surface-2, rgba(255,255,255,.04));
+  color: inherit;
+  font: inherit;
+}
+
+.pendingActions { display: flex; gap: 0.5rem; margin-top: 0.9rem; flex-wrap: wrap; }
+
+.primaryAction,
+.secondaryAction {
+  padding: 0.45rem 0.9rem;
+  border-radius: 999px;
+  font: inherit;
+  font-size: 0.82rem;
+  cursor: pointer;
+  border: 1px solid var(--hairline, rgba(255,255,255,.16));
+}
+
+.primaryAction { background: var(--state, #b97b24); border-color: transparent; color: #fff; }
+.secondaryAction { background: transparent; color: inherit; }
+.primaryAction[disabled],
+.secondaryAction[disabled] { opacity: .55; cursor: default; }
+
+
+/* ── Recorded answers, shown open ───────────────────────────────────────── */
+/* These used to be one <details> per answer, so reading a submitted
+   application meant clicking every row. They are read far more often than they
+   are ignored, so they render expanded. */
+.answers { display: grid; gap: 0; margin: 0; }
+
+.answerRow {
+  display: grid;
+  grid-template-columns: minmax(9rem, 34%) 1fr;
+  gap: 14px;
+  padding: 11px 12px;
+  border-radius: 9px;
+  align-items: baseline;
+}
+
+.answerRow:nth-child(odd) { background: color-mix(in srgb, var(--tone) 4%, transparent); }
+
+.answerRow dt {
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.answerRow dd {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 620px) {
+  .answerRow { grid-template-columns: 1fr; gap: 4px; }
+}

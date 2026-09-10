@@ -66,10 +66,10 @@ class GreenhouseAdapter(ApplicationAdapter):
 
         # Fill standard text inputs
         text_mappings = {
-            "#first_name, input[name='job_application[first_name]']": resolved_answers.get("firstName") or "Akshay",
-            "#last_name, input[name='job_application[last_name]']": resolved_answers.get("lastName") or "Borse",
-            "#email, input[name='job_application[email]']": resolved_answers.get("email") or "amsborse@gmail.com",
-            "#phone, input[name='job_application[phone]']": resolved_answers.get("phone") or "425-336-9852",
+            "#first_name, input[name='job_application[first_name]']": resolved_answers.get("firstName") or "",
+            "#last_name, input[name='job_application[last_name]']": resolved_answers.get("lastName") or "",
+            "#email, input[name='job_application[email]']": resolved_answers.get("email") or "",
+            "#phone, input[name='job_application[phone]']": resolved_answers.get("phone") or "",
         }
 
         for sel, val in text_mappings.items():
@@ -111,7 +111,7 @@ class GreenhouseAdapter(ApplicationAdapter):
 
                 val_to_fill = ""
                 if "linkedin" in inp_lbl_lower:
-                    val_to_fill = resolved_answers.get("linkedin") or "https://www.linkedin.com/in/amsborse/"
+                    val_to_fill = resolved_answers.get("linkedin") or ""
                     filled["LinkedIn"] = val_to_fill
                 elif "current company" in inp_lbl_lower or "most recent company" in inp_lbl_lower or "your current company" in inp_lbl_lower or "employer" in inp_lbl_lower:
                     val_to_fill = resolved_answers.get("currentCompany") or "Microsoft"
@@ -120,7 +120,7 @@ class GreenhouseAdapter(ApplicationAdapter):
                     val_to_fill = resolved_answers.get("currentTitle") or "Senior Software Engineer"
                     filled["Current Title"] = val_to_fill
                 elif "portfolio" in inp_lbl_lower or "website" in inp_lbl_lower:
-                    val_to_fill = resolved_answers.get("portfolio") or resolved_answers.get("website") or "https://amsborse.github.io/resume"
+                    val_to_fill = resolved_answers.get("portfolio") or resolved_answers.get("website") or resolved_answers.get("github") or resolved_answers.get("linkedin") or ""
                     filled["Website"] = val_to_fill
 
                 if val_to_fill:

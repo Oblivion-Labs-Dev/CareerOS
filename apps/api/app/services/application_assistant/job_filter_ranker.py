@@ -45,10 +45,15 @@ def generate_composite_job_key(company: str, title: str, app_url: str = "", exte
 def role_location_priority_bonus(job: dict[str, Any]) -> float:
     """Candidate-preference ranking bonus implementing strict 4-tier priority:
 
-    Tier 1 (+100.0): Senior Software Engineer in Washington State (Seattle, Bellevue, Redmond, Kirkland, WA)
-    Tier 2 (+70.0):  Senior Software Engineer in United States (Remote US / Nationwide)
-    Tier 3 (+30-40): Staff or Principal Software Engineer (WA/US fallback when Senior is exhausted)
-    Tier 4 (+10-15): Rest / Other qualifying software engineering roles (e.g. SWE II, Platform)
+    Tier 1 (+120.0): Senior Software Engineer in Washington State (Seattle, Bellevue, Redmond, Kirkland, WA)
+    Tier 2 (+90.0):  Related Washington SWE/backend/platform role at any level
+    Tier 3 (+60.0):  Senior Software Engineer elsewhere in the United States (Remote US / Nationwide)
+    Tier 4 (+25.0):  Rest / other qualifying US software engineering roles (e.g. SWE II, Platform)
+
+    Location outranks seniority inside Washington deliberately: a related
+    Washington engineering role is preferred over a Senior title somewhere else
+    in the country. The bonus is added to the Mistral resume-match score, so
+    within a tier the highest-matching posting still applies first.
     """
     title_l = (job.get("title") or "").lower()
     loc_l = (job.get("location") or "").lower()
@@ -67,12 +72,19 @@ def role_location_priority_bonus(job: dict[str, Any]) -> float:
     if any(m in title_l for m in non_swe_markers):
         return 0.0
 
-    # Location classification
-    is_wa = any(k in loc_l for k in (
+    # Location classification. "Washington, D.C." / "Washington, District of
+    # Columbia" are the opposite side of the country from Washington State and
+    # must never earn the top location tier — matching the bare substring
+    # "washington" previously put D.C. postings at the head of the queue.
+    is_dc = any(k in loc_l for k in (
+        "district of columbia", "washington, d.c", "washington d.c",
+        "washington, dc", "washington dc",
+    ))
+    is_wa = not is_dc and any(k in loc_l for k in (
         "seattle", "bellevue", "redmond", "kirkland", "spokane",
         "tacoma", ", wa", "wa,", "wa ", "washington",
     ))
-    is_us = is_wa or any(k in loc_l for k in (
+    is_us = is_wa or is_dc or any(k in loc_l for k in (
         "united states", "usa", "u.s.", "remote", "us", "remote - us", "remote, us",
     ))
 
@@ -100,26 +112,31 @@ def role_location_priority_bonus(job: dict[str, Any]) -> float:
     )
 
     is_other_swe = (
-        any(k in title_l for k in ("software", "backend", "full stack", "frontend", "engineer", "developer"))
-        and not is_above_senior
+        any(k in title_l for k in (
+            "software", "backend", "back end", "full stack", "fullstack", "frontend",
+            "front end", "platform", "infrastructure", "systems", "distributed",
+            "engineer", "developer",
+        ))
         and not is_senior
     )
 
     # Tier 1: Senior Software Engineer in Washington State
     if is_senior and is_wa:
-        return 100.0
+        return 120.0
 
-    # Tier 2: Senior Software Engineer in United States (Remote / Nationwide)
+    # Tier 2: Any related Washington engineering role — Staff/Principal, SWE II,
+    # backend/platform/infrastructure. Preferred over an out-of-state Senior
+    # title because relocation is the harder constraint here, not the level.
+    if is_wa and (is_staff_or_principal or is_other_swe):
+        return 90.0
+
+    # Tier 3: Senior Software Engineer elsewhere in the United States
     if is_senior and is_us:
-        return 70.0
+        return 60.0
 
-    # Tier 3: Staff or Principal Software Engineer (WA / US)
-    if is_staff_or_principal:
-        return 40.0 if is_wa else 30.0
-
-    # Tier 4: Rest / Other engineering roles (e.g. SWE II, general SWE)
-    if is_other_swe:
-        return 15.0 if is_wa else 10.0
+    # Tier 4: Rest / other US engineering roles (Staff/Principal, SWE II, general SWE)
+    if is_us and (is_staff_or_principal or is_other_swe):
+        return 25.0
 
     return 0.0
 
@@ -144,6 +161,20 @@ def evaluate_hard_filters(
 
     if not company or not title:
         return False, "Missing company or job title"
+
+    # A posting with no URL — or one pointing at a careers *index* rather than a
+    # specific job — can never be applied to. Without this the executor opens
+    # the listing page, fills nothing, and fails with "Submit button not found",
+    # burning a full browser session per attempt.
+    if not app_url:
+        return False, "Posting has no application URL"
+    url_path, _, url_query = app_url.partition("?")
+    if re.search(r"/(?:jobs|careers|openings|positions)/?$", url_path, flags=re.I):
+        # Many boards keep the index path and identify the posting in the query
+        # instead (`/en/jobs/?gh_jid=7849003`), so only a URL that names no job
+        # anywhere is an index.
+        if not re.search(r"=\d{3,}", url_query):
+            return False, f"Application URL '{app_url}' is a careers index, not a specific posting"
 
     # 1. Duplicate Application Protection
     if not opts.get("allowDuplicates", False):
@@ -284,28 +315,35 @@ def evaluate_hard_filters(
     )
     is_us_citizen = str(profile.get("usCitizen", "")).strip().lower() in ("yes", "true", "1")
 
+    norm_c = normalize_company(company)
+    # Defense / aerospace contractors known to strictly require US citizenship under ITAR / EAR
+    known_itar_defense_companies = {
+        "anduril",
+        "anduril industries",
+        "spacex",
+        "lockheed",
+        "lockheed martin",
+        "northrop",
+        "northrop grumman",
+        "raytheon",
+        "rtx",
+        "general dynamics",
+        "boeing defense",
+        "l3harris",
+        "bae systems",
+        "sierra nevada",
+        "palantir defense",
+    }
+    if any(c in norm_c for c in known_itar_defense_companies):
+        return False, f"Company '{company}' is a Defense/ITAR contractor (excluded per user preference)"
+
+    # Exclude boards with hard bot protection that block automated headless runs
+    if "roblox" in norm_c:
+        return False, "Roblox uses Cloudflare Turnstile bot challenges"
+    if "okta" in norm_c:
+        return False, "Okta uses reCAPTCHA verification"
+
     if needs_sponsorship and not is_us_citizen:
-        norm_c = normalize_company(company)
-        # Defense / aerospace contractors known to strictly require US citizenship under ITAR / EAR
-        known_itar_defense_companies = {
-            "anduril",
-            "anduril industries",
-            "spacex",
-            "lockheed",
-            "lockheed martin",
-            "northrop",
-            "northrop grumman",
-            "raytheon",
-            "rtx",
-            "general dynamics",
-            "boeing defense",
-            "l3harris",
-            "bae systems",
-            "sierra nevada",
-            "palantir defense",
-        }
-        if any(c in norm_c for c in known_itar_defense_companies):
-            return False, f"Company '{company}' requires U.S. Citizenship / ITAR clearance (no visa sponsorship provided)"
 
         # Check job description and title text for ITAR and citizenship restrictions
         full_text = f"{title} {job.get('description', '')} {job.get('requirements', '')}".lower()
@@ -330,24 +368,89 @@ def evaluate_hard_filters(
     return True, ""
 
 
+# How much a brand-new posting outranks an otherwise identical old one, and how
+# quickly that advantage decays. Freshness is worth less than the
+# location/level tier (hundreds of points) but comparable to a few points of
+# match score, so it breaks ties between similar jobs without ever promoting a
+# poorly-matched posting over a well-matched one.
+RECENCY_BONUS_MAX = 12.0
+RECENCY_HALF_LIFE_HOURS = 48.0
+
+
+def posting_recency_bonus(job: dict[str, Any]) -> float:
+    """Extra priority for a recently discovered/posted job.
+
+    Stale postings are the single biggest source of wasted attempts: a job
+    discovered a day or two ago is frequently already closed by the time
+    Autopilot reaches it, which burns a full browser session to learn the link
+    now redirects to a careers directory. Ordering the freshest postings first
+    means the queue spends its attempts where they can still succeed, and older
+    entries are worked through afterwards rather than never.
+    """
+    from datetime import datetime, timezone
+
+    stamp = (
+        job.get("postedAt")
+        or job.get("discoveredAt")
+        or job.get("queuedAt")
+        or job.get("createdAt")
+    )
+    if not stamp:
+        return 0.0
+    try:
+        parsed = datetime.fromisoformat(str(stamp).replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return 0.0
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    age_hours = (datetime.now(timezone.utc) - parsed).total_seconds() / 3600.0
+    if age_hours <= 0:
+        return RECENCY_BONUS_MAX
+    # Halve the bonus for every half-life the posting has aged.
+    return RECENCY_BONUS_MAX * (0.5 ** (age_hours / RECENCY_HALF_LIFE_HOURS))
+
+
+def queue_priority_score(job: dict[str, Any]) -> float:
+    """The single number the persistent queue is ordered by.
+
+    Location/level tier dominates (see ``role_location_priority_bonus``), the
+    Mistral resume-match score orders postings inside a tier, and a decaying
+    recency bonus puts the freshest postings first so the queue does not spend
+    its attempts on links that have already closed.
+    """
+    return (
+        role_location_priority_bonus(job)
+        + float(job.get("matchScore") or 0.0)
+        + posting_recency_bonus(job)
+    )
+
+
 def filter_and_rank_jobs(
     db: Session | list[dict[str, Any]],
     raw_jobs: list[dict[str, Any]],
     profile: dict[str, Any],
     settings: dict[str, Any] | None = None,
+    *,
+    precomputed_matches: dict[str, dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
     """Process a list of discovered jobs:
 
     1. Run hard filters (deterministic)
-    2. Run Qwen/Ollama match scoring
+    2. Attach the Mistral/Ollama resume-vs-JD match (precomputed by the queue
+       preprocessor, or scored inline here when the caller has none)
     3. Filter by min match score threshold (with fallback so batch queue never starves)
-    4. Sort by match score & date posted
+    4. Sort by location/level tier, then match score, then date posted
+
+    ``maxApplicationsPerRun``/``targetProcessCount`` of 0 (or absent) means *no
+    limit* — the persistent queue is deliberately unbounded, and only the E2E
+    submission count is capped.
     """
     opts = settings or {}
     min_score = float(opts.get("minMatchScore") or 0.0)
-    max_apps = int(opts.get("maxApplicationsPerRun") or opts.get("targetProcessCount") or DEFAULT_MAX_APPLICATIONS_PER_RUN)
+    max_apps = int(opts.get("maxApplicationsPerRun") or opts.get("targetProcessCount") or 0)
 
     existing_jobs = db if isinstance(db, list) else list_autopilot_jobs(db)
+    matches = precomputed_matches or {}
     all_passing: list[dict[str, Any]] = []
 
     for job in raw_jobs:
@@ -355,33 +458,49 @@ def filter_and_rank_jobs(
         if not passed:
             continue
 
-        # Match Scoring
-        match_result = evaluate_job_match(
-            job=job,
-            profile=profile,
-        )
-        score = match_result.get("overallScore", 0.0)
-        reasons = match_result.get("strongMatches", []) + match_result.get("potentialConcerns", [])
+        match = matches.get(str(job.get("id") or "")) or job.get("mistralMatch")
+        if isinstance(match, dict) and match.get("matchScore") is not None:
+            score = float(match.get("matchScore") or 0.0)
+            ranked_job = {
+                **job,
+                "matchScore": score,
+                "matchReason": match.get("matchReason", ""),
+                "keyMatchingSkills": match.get("keyMatchingSkills") or [],
+                "missingSkills": match.get("missingSkills") or [],
+                "matchMethod": match.get("matchMethod", "ollama-local"),
+                "matchModel": match.get("matchModel", ""),
+                # Kept so existing UI/reporting that reads matchReasons still
+                # renders something meaningful now that the real explanation is
+                # a sentence rather than a bag of keywords.
+                "matchReasons": (match.get("keyMatchingSkills") or [])[:8],
+                "status": AutopilotJobStatus.SCORED.value,
+            }
+        else:
+            # No Mistral score available (Ollama down, or not preprocessed yet).
+            # Fall back to the deterministic heuristic and label it honestly so
+            # nothing downstream reports a heuristic number as a model match.
+            match_result = evaluate_job_match(job=job, profile=profile)
+            score = float(match_result.get("overallScore", 0.0))
+            ranked_job = {
+                **job,
+                "matchScore": score,
+                "matchReason": match_result.get("explanation", "") or "Heuristic keyword match (Mistral unavailable).",
+                "keyMatchingSkills": match_result.get("strongMatches", [])[:8],
+                "missingSkills": match_result.get("missingQualifications", [])[:8],
+                "matchMethod": "heuristic",
+                "matchReasons": match_result.get("strongMatches", []) + match_result.get("potentialConcerns", []),
+                "status": AutopilotJobStatus.SCORED.value,
+            }
 
-        priority_bonus = role_location_priority_bonus(job)
-
-        ranked_job = {
-            **job,
-            "matchScore": score,
-            "matchReasons": reasons,
-            "status": AutopilotJobStatus.SCORED.value,
-            "_priorityScore": score + priority_bonus,
-        }
+        ranked_job["queuePriority"] = queue_priority_score(ranked_job)
         all_passing.append(ranked_job)
 
-    # Sort descending by priority (matchScore + Seattle/Senior boost), then datePosted
-    all_passing.sort(key=lambda j: (j.get("_priorityScore", 0.0), j.get("datePosted") or ""), reverse=True)
-    for j in all_passing:
-        j.pop("_priorityScore", None)
+    # Sort descending by queue priority (tier bonus + match score), then datePosted
+    all_passing.sort(key=lambda j: (j.get("queuePriority", 0.0), j.get("datePosted") or ""), reverse=True)
 
     if min_score > 0:
         qualified = [j for j in all_passing if j.get("matchScore", 0.0) >= min_score]
         if qualified:
-            return qualified[:max_apps]
+            return qualified[:max_apps] if max_apps > 0 else qualified
 
-    return all_passing[:max_apps]
+    return all_passing[:max_apps] if max_apps > 0 else all_passing

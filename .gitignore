@@ -7,6 +7,7 @@ out/
 .env
 .env.local
 .env.*.local
+.env.e2e
 __pycache__/
 *.py[cod]
 .venv/
@@ -60,3 +61,7 @@ apps/api/stop_autopilot.py
 
 # Playwright session state (contains an auth cookie)
 apps/web/e2e/.auth/
+apps/web/.scratch/
+
+# Kiro scratch/diagnostic files (repo root)
+kiro_*

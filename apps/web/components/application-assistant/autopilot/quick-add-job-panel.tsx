@@ -12,7 +12,7 @@ export function QuickAddJobPanel({ onAdded }: { onAdded?: () => void }) {
   const [title, setTitle] = useState("");
   const [location, setLocation] = useState("");
   const [applicationUrl, setApplicationUrl] = useState("");
-  const [tailoringMode, setTailoringMode] = useState<TailoringMode>("honest");
+  const [tailoringMode, setTailoringMode] = useState<TailoringMode>("off");
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState<{ tone: "success" | "error"; text: string } | null>(null);
 
@@ -21,7 +21,7 @@ export function QuickAddJobPanel({ onAdded }: { onAdded?: () => void }) {
     setTitle("");
     setLocation("");
     setApplicationUrl("");
-    setTailoringMode("honest");
+    setTailoringMode("off");
   };
 
   const handleSubmit = async () => {

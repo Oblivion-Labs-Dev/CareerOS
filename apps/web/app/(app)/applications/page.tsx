@@ -31,6 +31,7 @@ const CONTROL_CENTER_TABS: Record<string, "overview" | "applications" | "review"
   autopilot: "overview",
   overview: "overview",
   applications: "applications",
+  queued: "applications",
   submitted: "applications",
   failed: "applications",
   skipped: "applications",

@@ -61,6 +61,13 @@ class AutopilotJobStatus(str, Enum):
     APPLYING = "APPLYING"
     STAGED = "STAGED"
     NEEDS_REVIEW = "NEEDS_REVIEW"
+    # The posting is live and worth applying to, but automation will never
+    # complete it — a CAPTCHA guards the board, or its form cannot be driven.
+    # Distinct from NEEDS_REVIEW, where answering a question lets Autopilot
+    # carry on, and from INELIGIBLE, which means there is nothing to apply to.
+    # The candidate can still open these and submit them by hand, so they are
+    # real opportunities and must stay visible.
+    MANUAL_REVIEW = "MANUAL_REVIEW"
     SUBMITTED = "SUBMITTED"
     SKIPPED = "SKIPPED"
     FAILED = "FAILED"
@@ -85,6 +92,13 @@ class IneligibilityReason(str, Enum):
     POSTING_EXPIRED = "POSTING_EXPIRED"
     NOT_A_REAL_POSTING = "NOT_A_REAL_POSTING"
     DUPLICATE_APPLICATION = "DUPLICATE_APPLICATION"
+    # The board itself blocks automation (CAPTCHA, Turnstile, bot detection).
+    # Nothing about the candidate or a retry changes this.
+    BOT_PROTECTED_BOARD = "BOT_PROTECTED_BOARD"
+    # The form demands a fact the profile genuinely does not hold (a GPA, a
+    # specific unverifiable experience claim). Permanent until the candidate
+    # supplies it — and never something to invent.
+    REQUIRES_UNAVAILABLE_INFORMATION = "REQUIRES_UNAVAILABLE_INFORMATION"
 
 
 class ApplicationErrorType(str, Enum):

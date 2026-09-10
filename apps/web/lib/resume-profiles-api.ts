@@ -72,7 +72,7 @@ export async function fetchTailoringMode(): Promise<TailoringMode> {
   const res = await fetch(`${getClientApiBaseUrl()}/application-assistant/settings`, { cache: "no-store" });
   if (!res.ok) throw new Error("Failed to load tailoring settings");
   const data = (await res.json()) as { settings?: { tailoringMode?: TailoringMode } };
-  return data.settings?.tailoringMode ?? "honest";
+  return data.settings?.tailoringMode ?? "off";
 }
 
 export async function setTailoringMode(mode: TailoringMode): Promise<TailoringMode> {

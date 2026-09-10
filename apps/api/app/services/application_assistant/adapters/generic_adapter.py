@@ -1,10 +1,22 @@
-"""Generic Fallback ATS Application Adapter."""
+"""Fallback adapter for career sites with no dedicated implementation.
+
+`can_handle` returns True for everything, so this is what `resolve_adapter`
+returns for every employer-hosted careers page. That makes it the most dangerous
+place in the package to fake a result: a stub that answered "submitted" here
+would fabricate a submission for *every* unrecognised site.
+
+It therefore reports honestly that it cannot drive the page. Filling an unknown
+form is the `playwright_autopilot_executor`'s job, not this adapter's.
+"""
 
 from __future__ import annotations
 
 from typing import Any
 
-from app.services.application_assistant.adapters.base_adapter import ApplicationAdapter
+from app.services.application_assistant.adapters.base_adapter import (
+    AdapterNotImplementedError,
+    ApplicationAdapter,
+)
 
 
 class GenericAdapter(ApplicationAdapter):
@@ -16,26 +28,15 @@ class GenericAdapter(ApplicationAdapter):
         return True  # Fallback for all career forms
 
     async def inspect_fields(self, url: str, html_content: str = "") -> list[dict[str, Any]]:
-        return [
-            {"id": "gen_fname", "label": "First Name", "type": "text", "required": True, "canonicalKey": "firstName"},
-            {"id": "gen_lname", "label": "Last Name", "type": "text", "required": True, "canonicalKey": "lastName"},
-            {"id": "gen_email", "label": "Email", "type": "text", "required": True, "canonicalKey": "email"},
-            {"id": "gen_phone", "label": "Phone", "type": "text", "required": True, "canonicalKey": "phone"},
-            {"id": "gen_resume", "label": "Resume", "type": "file", "required": True, "canonicalKey": "resume"},
-        ]
+        raise AdapterNotImplementedError(
+            "No dedicated adapter for this site; its form shape is unknown."
+        )
 
     async def fill_fields(self, page_context: Any, resolved_answers: dict[str, Any]) -> dict[str, Any]:
-        filled_count = len([v for v in resolved_answers.values() if v])
-        return {"filledCount": filled_count, "skipped": []}
+        raise AdapterNotImplementedError("Generic form filling is not implemented.")
 
     async def verify_pre_submit(self, page_context: Any, fields: list[dict[str, Any]]) -> tuple[bool, str]:
-        return True, ""
+        return False, "No dedicated adapter for this site."
 
     async def submit_application(self, page_context: Any) -> dict[str, Any]:
-        return {
-            "submitted": True,
-            "evidence": {
-                "confirmationText": "Application submitted successfully",
-                "confirmationUrl": page_context.url if hasattr(page_context, "url") else "",
-            },
-        }
+        raise AdapterNotImplementedError("Generic submission is not implemented.")

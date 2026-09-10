@@ -8,7 +8,8 @@ const SESSION_COOKIE_NAME = "co_session";
 
 // Same env resolution as app/api/backend/[...path]/route.ts, so this always
 // talks to the same API instance the rest of the app is proxying to.
-const API_BASE = process.env.CAREER_OS_API_PUBLIC_URL || process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:4000";
+const rawBase = process.env.CAREER_OS_API_PUBLIC_URL || process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:4000";
+const API_BASE = rawBase.replace("//localhost:", "//127.0.0.1:");
 
 export async function middleware(request: NextRequest) {
   // Auth is opt-in (CAREER_OS_ADMIN_PASSWORD unset = gate is off entirely) — a

@@ -90,16 +90,7 @@ async def classify_review_issue(
     try:
         from app.services.application_assistant.llm_client import create_llm_client
 
-        client = create_llm_client({
-            "llm": {
-                "enabled": True,
-                "provider": "ollama",
-                "model": "mistral-small3.2:24b",
-                "baseUrl": "http://localhost:11434/v1",
-                "timeout": 45,
-                "maxRetries": 1,
-            }
-        })
+        client = create_llm_client()
 
         prompt = (
             "A browser-automation job-application filler hit this raw error while filling a form:\n"

@@ -15,7 +15,7 @@ from app.db.store import new_id, now_iso, session_scope, upsert_entity
 
 ENTITY_MODEL_USAGE_EVENT = "model_usage_event"
 
-Provider = Literal["ollama", "openrouter", "freetoken", "gemini", "openai"] | str
+Provider = Literal["ollama", "openrouter", "gemini", "openai"] | str
 
 
 def log_model_usage(

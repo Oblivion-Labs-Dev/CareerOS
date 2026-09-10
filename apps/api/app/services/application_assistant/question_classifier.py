@@ -49,6 +49,8 @@ class QuestionType(str, Enum):
     SCHOOL = "SCHOOL"
     DEGREE = "DEGREE"
     DISCIPLINE = "DISCIPLINE"
+    EDUCATION_START_YEAR = "EDUCATION_START_YEAR"
+    EDUCATION_END_YEAR = "EDUCATION_END_YEAR"
     GPA = "GPA"
     TEST_SCORE = "TEST_SCORE"
 
@@ -83,6 +85,8 @@ class QuestionType(str, Enum):
     ACCURACY_CONFIRMATION = "ACCURACY_CONFIRMATION"
     BACKGROUND_CHECK = "BACKGROUND_CHECK"
     COMPANY_HISTORY = "COMPANY_HISTORY"
+    LEGAL_AGE = "LEGAL_AGE"
+
 
     # ── Availability ──
     NOTICE_PERIOD = "NOTICE_PERIOD"
@@ -93,6 +97,7 @@ class QuestionType(str, Enum):
 
     # ── Miscellaneous ──
     HOW_HEARD = "HOW_HEARD"
+    REFERRAL = "REFERRAL"
     COMPANY_FAMILIARITY = "COMPANY_FAMILIARITY"
     ENGLISH_PROFICIENCY = "ENGLISH_PROFICIENCY"
     LOCATION_CONFIRMATION = "LOCATION_CONFIRMATION"
@@ -137,6 +142,17 @@ SENSITIVE_FACTUAL_TYPES: frozenset[QuestionType] = frozenset({
     QuestionType.EMAIL,
     QuestionType.FIRST_NAME,
     QuestionType.LAST_NAME,
+    # The candidate's own address is profile data, not a per-question opinion.
+    # Without these, a stale learned answer captured from an old application
+    # outranked the profile: the postcode on file was 98092 in a learned answer
+    # and 98101 on the profile, and forms were being filled from whichever the
+    # library happened to hold. The profile is the single source of truth for
+    # who the candidate is and where they live.
+    QuestionType.FULL_NAME,
+    QuestionType.ADDRESS,
+    QuestionType.ADDRESS_LINE_2,
+    QuestionType.ZIP,
+    QuestionType.COUNTRY,
 })
 
 
@@ -206,6 +222,8 @@ _CLASSIFICATION_RULES: list[tuple[QuestionType, list[str]]] = [
         r"procurement\s+or\s+contract\s+award",
         r"oversight.*(business|company|contract)",
         r"conflict\s*of\s*interest",
+        r"outside\s+business\s+activit",
+        r"secondary\s+employment",
     ]),
     # Work authorization questions that mention country ("authorized to work in the country outlined", etc.)
     # must be classified as WORK_AUTHORIZED rather than falling into CITIZENSHIP.
@@ -213,8 +231,9 @@ _CLASSIFICATION_RULES: list[tuple[QuestionType, list[str]]] = [
         r"authorized\s+to\s+work",
         r"authorization\s+to\s+work",
         r"right\s+to\s+work",
-        r"eligible\s+to\s+work",
-        r"legally\s+(authorized|able)\s+to\s+work",
+        r"eligible\s+to\s+(?:legally\s+)?work",
+        r"legally\s+(authorized|able|eligible)\s+to\s+work",
+        r"eligible\s+for\s+employment",
         r"work\s+authoriz",
         r"work\s+status",
         r"permit\s+to\s+work",
@@ -287,6 +306,13 @@ _CLASSIFICATION_RULES: list[tuple[QuestionType, list[str]]] = [
     ]),
 
     # ── Identity ──
+    # A question asking for first AND last name wants the whole name. This
+    # used to fall through to LAST_NAME, so "What is your preferred first and
+    # last name?" was answered "Borse" on a submitted application.
+    (QuestionType.FULL_NAME, [
+        r"first\s+and\s+last\s+name",
+        r"name\s+as\s+it\s+appears",
+    ]),
     (QuestionType.PREFERRED_NAME, [r"preferred\s*(first\s*)?name", r"preferred\s*name", r"nickname", r"what.*call\s*you"]),
     (QuestionType.FIRST_NAME, [r"first[\s_-]*name", r"^fname$", r"given[\s_-]*name"]),
     (QuestionType.LAST_NAME, [r"last[\s_-]*name", r"^lname$", r"family[\s_-]*name", r"surname"]),
@@ -330,7 +356,22 @@ _CLASSIFICATION_RULES: list[tuple[QuestionType, list[str]]] = [
         r"are\s+you\s+(currently\s+)?based\s+in",
         r"current\s+country\s+of\s+residence",
         r"do\s+you\s+live\s+in\s+(one\s+of\s+the\s+following\s+)?(states|countries|locations)",
-        r"do\s+you\s+(currently\s+)?reside\s+in",
+        # "Do you permanently reside within the United States?" — a physical
+        # residence question, which the profile answers (country/state/city).
+        # The old pattern only matched "reside in", so an adverb or "within"
+        # dropped it to UNKNOWN and left a required field blank. This must not
+        # swallow "are you a lawful permanent resident" (immigration status,
+        # handled by the work-authorization category), so "resident" alone is
+        # deliberately not matched here.
+        r"do\s+you\s+(currently\s+|permanently\s+)?reside\s+(in|within)",
+        r"(permanently|currently)\s+reside\s+(in|within)",
+        r"do\s+you\s+(currently\s+)?live\s+(in|within)\s+the\s+(united\s+states|u\.?s\.?a?)",
+        # Compound office-location questions ("...based in SF/NYC and willing
+        # to come in 2-3x per week, or 2) based out of Seattle?"). These are a
+        # yes/no about where the candidate already lives, which the profile
+        # answers; with no rule they fell to UNKNOWN and left the field empty.
+        r"are\s+you\s+currently\s+\d?\)?\s*based\s+in",
+        r"based\s+out\s+of\s+\w+",
         r"are\s+you\s+located\s+in",
         r"live\s+in\s+one\s+of\s+the\s+following",
         r"based\s+in\s+any\s+of\s+these",
@@ -376,6 +417,22 @@ _CLASSIFICATION_RULES: list[tuple[QuestionType, list[str]]] = [
         r"which\s+technolog",
         r"technologies.*experience",
     ]),
+    # Referral questions. CareerOS records no referral for any application, so
+    # the honest answer is always "no referral" — but with no rule at all these
+    # landed in UNKNOWN, left a required Greenhouse field blank and staged the
+    # whole application for review. Placed before HOW_HEARD because phrasings
+    # like "were you referred by a current team member" overlap with it.
+    (QuestionType.REFERRAL, [
+        r"were\s+you\s+referred",
+        r"are\s+you\s+being\s+referred",
+        r"referred\s+(to\s+)?(this|the)\s+(position|role|job|opening)",
+        r"referred\s+by\s+(a|an|any|someone|a\s+current)",
+        r"who\s+referred\s+you",
+        r"name\s+of\s+(the\s+)?(person|employee|team\s+member)\s+who\s+referred",
+        r"referral\s+(name|source)",
+        r"employee\s+referral",
+        r"if\s+you\s+answered\s+.?yes.?\s+to\s+the\s+question\s+above,\s+please\s+list\s+the\s+company\s+or\s+partner\s+agency",
+    ]),
     (QuestionType.PREFERRED_LANGUAGE, [
         r"preferred\s+programming\s+language",
         r"favorite\s+programming\s+language",
@@ -404,6 +461,21 @@ _CLASSIFICATION_RULES: list[tuple[QuestionType, list[str]]] = [
     (QuestionType.SCHOOL, [r"school", r"university", r"college", r"institution"]),
     (QuestionType.DEGREE, [r"degree", r"level\s*of\s*education", r"highest\s*degree"]),
     (QuestionType.DISCIPLINE, [r"major", r"discipline", r"field\s*of\s*study"]),
+    # Greenhouse's education block asks for the years a degree was studied.
+    # These must be matched here, ahead of NOTICE_PERIOD: its r"start\s*date"
+    # pattern otherwise claims "Start date year" and answers an education
+    # field with the candidate's availability to start a job.
+    (QuestionType.EDUCATION_START_YEAR, [
+        r"start\s*date\s*year",
+        r"start\s*year",
+        r"start-year",
+    ]),
+    (QuestionType.EDUCATION_END_YEAR, [
+        r"end\s*date\s*year",
+        r"end\s*year",
+        r"end-year",
+        r"graduation\s*year",
+    ]),
     (QuestionType.GPA, [r"\bgpa\b", r"grade\s*point\s*average"]),
     (QuestionType.TEST_SCORE, [
         r"\bact\s*score",
@@ -419,15 +491,29 @@ _CLASSIFICATION_RULES: list[tuple[QuestionType, list[str]]] = [
 
     # ── Availability / Compliance ──
     (QuestionType.SALARY, [r"salary", r"compensation", r"desired\s*pay", r"expected\s*salary"]),
-    (QuestionType.NOTICE_PERIOD, [r"notice\s*period", r"start\s*date", r"available\s*to\s*start", r"how\s*soon"]),
+    (QuestionType.NOTICE_PERIOD, [
+        r"notice\s*period",
+        r"start\s*date",
+        r"available\s*to\s*start",
+        r"how\s*soon",
+        # "When can you start a new role?" (seen on every OpenAI posting)
+        # matched none of the patterns above and fell through to UNKNOWN,
+        # leaving a required field empty on seventeen applications.
+        r"when\s+(?:can|could|would)\s+you\s+start",
+        r"earliest\s+(?:possible\s+)?start",
+        r"availability\s+to\s+start",
+    ]),
     (QuestionType.WORK_ARRANGEMENT, [
         r"hybrid",
         r"\bremote\b",
         r"on-?site",
         r"in[- ]?person",
         r"work\s*from\s*home",
-        r"\d+\s*days?\s*(a|per|/)\s*week.*(office|in-?person|on-?site)",
-        r"(office|in-?person|on-?site).*\d+\s*days?\s*(a|per|/)\s*week",
+        # The day count is as often spelled out as it is a digit — OpenAI asks
+        # "work from our US office three days per week", which matched neither
+        # of these and fell through to UNKNOWN, leaving a required Yes/No blank.
+        r"(\d+|one|two|three|four|five)\s*days?\s*(a|per|/)\s*week.*(office|in-?person|on-?site)",
+        r"(office|in-?person|on-?site).*(\d+|one|two|three|four|five)\s*days?\s*(a|per|/)\s*week",
         r"days?\s*(in|per)\s*(the\s*)?office",
         r"work\s*arrangement",
         r"working\s*environment",
@@ -469,6 +555,15 @@ _CLASSIFICATION_RULES: list[tuple[QuestionType, list[str]]] = [
     (QuestionType.ENGLISH_PROFICIENCY, [r"english\s*proficiency", r"english\s*language", r"fluent\s*in\s*english"]),
     (QuestionType.BACKGROUND_CHECK, [r"background\s*check"]),
     (QuestionType.COMPANY_HISTORY, [
+        # Personal/familial relationship and IP-retention disclosures. The
+        # profile records no relatives at these employers and no IP the
+        # candidate wishes to carve out, so "no" is the truthful answer — but
+        # with no rule these fell to UNKNOWN and blocked the whole application.
+        r"personal\s*/?\s*familial\s+relationship",
+        r"familial\s+relationship",
+        r"relationships?\s*\(current\s+\w+\s+employees",
+        r"(inventions?|trademarks?|copyrights?|patents?).*(retain|carve\s*out|exclude)",
+        r"wish\s+to\s+retain\s+and/?or\s+create",
         r"previously\s*(worked|employed|consulted|been\s+employed)",
         r"previously\s+been\s+employed",
         r"worked\s+at\s+or\s+consulted",
@@ -494,6 +589,13 @@ _CLASSIFICATION_RULES: list[tuple[QuestionType, list[str]]] = [
         r"restrictive\s+covenant",
         r"post-employment\s+restriction",
     ]),
+    (QuestionType.TECH_STACK_EXPERIENCE, [
+        r"which\s+of\s+the\s+following.*(experience|familiar|use)",
+        r"which\s+technolog",
+        r"technologies.*experience",
+        r"(do\s+you\s+have\s+)?(at\s+least|\d+\+?)\s+years?.*(experience|working\s+with)",
+        r"experience\s+(with|in|using)\s+[a-zA-Z0-9#+]+",
+    ]),
     (QuestionType.ACCURACY_CONFIRMATION, [
         r"essential\s+functions",
         r"reasonable\s+accommodation",
@@ -502,6 +604,19 @@ _CLASSIFICATION_RULES: list[tuple[QuestionType, list[str]]] = [
         r"accuracy\s+is\s+crucial",
         r"errors\s+or\s+omissions",
         r"\baccurate\b",
+        r"certif(y|ied|ication)",
+        r"true\s+and\s+complete",
+        r"to\s+the\s+best\s+of\s+my\s+knowledge",
+        r"at-will",
+        r"authorize.*references",
+    ]),
+    (QuestionType.LEGAL_AGE, [
+        r"18\s+years",
+        r"over\s+18",
+        r"at\s+least\s+18",
+        r"under\s+18",
+        r"are\s+you\s+18",
+        r"legal\s+age\s+to\s+work",
     ]),
 ]
 
@@ -558,7 +673,12 @@ _LOCATION_FAMILY = frozenset({
     QuestionType.ZIP,
     QuestionType.ADDRESS,
     QuestionType.LOCATION,
-    QuestionType.LOCATION_CONFIRMATION,
+    # LOCATION_CONFIRMATION is deliberately NOT in this set. The types above all
+    # answer with a place name, which is nonsense in a Yes/No control — but
+    # LOCATION_CONFIRMATION *is* the Yes/No location type ("Do you reside in the
+    # United States?"), and its resolver already returns Yes/No when the field
+    # has boolean options. Excluding it here sent every such question to UNKNOWN,
+    # leaving a required field blank and staging the whole application for review.
 })
 
 _BOOLEAN_OPTION_WORDS = frozenset({
@@ -566,6 +686,16 @@ _BOOLEAN_OPTION_WORDS = frozenset({
     "decline to answer", "prefer not to answer",
     "i don't wish to answer", "i do not wish to answer",
 })
+
+
+_INVISIBLE_CHARS = dict.fromkeys(
+    [0x200B, 0x200C, 0x200D, 0x2060, 0xFEFF, 0x00AD, 0x180E], None
+)
+
+
+def _strip_invisibles(text: str) -> str:
+    """Remove zero-width/word-joiner characters that break literal matching."""
+    return text.translate(_INVISIBLE_CHARS)
 
 
 def _is_boolean_options(options: list[str] | None) -> bool:
@@ -594,7 +724,10 @@ def classify_question(
     if not question_text and not field_id:
         return QuestionType.UNKNOWN
 
-    text = f"{question_text} {field_id}".lower().strip()
+    # Some boards (observed on Epic Games) embed word-joiner and zero-width
+    # characters inside the label, sitting between the very words a pattern
+    # expects and making every regex miss. Strip them before matching.
+    text = _strip_invisibles(f"{question_text} {field_id}").lower().strip()
     is_boolean = _is_boolean_options(options)
 
     for qtype, patterns in _CLASSIFICATION_RULES:

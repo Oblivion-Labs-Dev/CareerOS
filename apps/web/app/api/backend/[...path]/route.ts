@@ -2,7 +2,8 @@ import { NextRequest } from "next/server";
 
 export const dynamic = "force-dynamic";
 
-const API_BASE = process.env.CAREER_OS_API_PUBLIC_URL || process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:4000";
+const rawBase = process.env.CAREER_OS_API_PUBLIC_URL || process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:4000";
+const API_BASE = rawBase.replace("//localhost:", "//127.0.0.1:");
 
 async function proxy(request: NextRequest, context: { params: Promise<{ path: string[] }> }) {
   const { path } = await context.params;

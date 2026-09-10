@@ -126,16 +126,73 @@ def _poll_gmail_for_code_once(
                         except Exception:
                             pass
 
-                    # Only consider emails received around or after the start of this application
-                    if msg_ts > 0 and msg_ts < (since_timestamp - 90):
+                    # Only consider emails received around or after the start of this application (strict 10s buffer)
+                    if msg_ts > 0 and msg_ts < (since_timestamp - 10):
                         continue
 
                     # Check if this email is for the target company
-                    company_words = [w.lower() for w in clean_company.split() if len(w) > 2]
-                    is_for_company = any(w in sub_low or w in body.lower() for w in company_words)
+                    # Greenhouse's live subject is "Security code for your
+                    # application to <Company>", so the boilerplate has to come
+                    # off before anything is compared — capturing it left
+                    # subj_co as "your application to box", which matches no
+                    # company name and made every subject look like a different
+                    # employer's.
+                    subj_co_match = re.search(
+                        r"security code for\s+(?:your\s+application\s+to\s+)?(.+)$", sub_low
+                    )
+                    subj_co = subj_co_match.group(1).strip().lower() if subj_co_match else ""
+
+                    comp_clean_lower = re.sub(r"[^a-zA-Z0-9]", "", company).lower()
+                    # Generate search tokens (e.g., 'extrahopnetworks' -> 'extrahop', 'networks')
+                    company_words = [w.lower() for w in re.sub(r"[^a-zA-Z0-9 ]", " ", company).split() if len(w) > 2]
                     
-                    # If fresh email arrived after since_timestamp - 15 and from greenhouse, accept it
-                    if not is_for_company and (msg_ts >= (since_timestamp - 15) or msg_ts == 0.0) and "greenhouse" in from_.lower():
+                    is_for_company = False
+                    if subj_co:
+                        subj_clean = re.sub(r"[^a-zA-Z0-9]", "", subj_co)
+                        # The job board's slug and the employer's real name often
+                        # differ by a suffix — "boxinc" vs "Box", "encora10" vs
+                        # "Encora" — so a shared stem counts as the same company.
+                        stem_match = bool(
+                            subj_clean
+                            and comp_clean_lower
+                            and (
+                                subj_clean.startswith(comp_clean_lower[:4])
+                                or comp_clean_lower.startswith(subj_clean[:4])
+                            )
+                            and min(len(subj_clean), len(comp_clean_lower)) >= 3
+                        )
+                        if subj_clean in comp_clean_lower or comp_clean_lower in subj_clean:
+                            is_for_company = True
+                        elif any(w in subj_co for w in company_words):
+                            is_for_company = True
+                        elif stem_match:
+                            is_for_company = True
+                        elif msg_ts > since_timestamp:
+                            # The subject names a company that is not this job's
+                            # at all. That is normal for a subsidiary: Segment's
+                            # code arrives as "your application to Twilio", and
+                            # no name comparison can bridge that. Autopilot runs
+                            # applications strictly one at a time
+                            # (APPLY_CONCURRENCY = 1), so a Greenhouse
+                            # security-code email that arrived *after* this
+                            # attempt began can only belong to this attempt.
+                            logger.info(
+                                "Accepting Greenhouse code addressed to '%s' for %s: it arrived "
+                                "after this attempt started and no other application is in flight.",
+                                subj_co[:40], company,
+                            )
+                            is_for_company = True
+                        else:
+                            # A different company's code, from before this
+                            # attempt began — never reuse it.
+                            continue
+                    else:
+                        is_for_company = any(w in sub_low or w in body.lower() for w in company_words)
+                        if not is_for_company and comp_clean_lower[:6] in re.sub(r"[^a-zA-Z0-9]", "", body).lower():
+                            is_for_company = True
+
+                    # Fallback for generic greenhouse emails only if no other company was named
+                    if not is_for_company and not subj_co and (msg_ts >= (since_timestamp - 5) or msg_ts == 0.0) and "greenhouse" in from_.lower():
                         is_for_company = True
 
                     if not is_for_company:
@@ -165,7 +222,15 @@ def _poll_gmail_for_code_once(
 async def fetch_latest_greenhouse_verification_code(
     company: str,
     since_timestamp: float,
-    timeout_sec: float = 45.0,
+    # 45s was under-cutting real delivery. Greenhouse sends the code the moment
+    # the form is submitted, but the mail's trip through Gmail — delivery plus
+    # IMAP indexing before a search can see it — routinely runs past that:
+    # Twilio/Segment's code landed 65s after the click and the poller had
+    # already given up, leaving a fully-filled application stranded at the code
+    # prompt and reported as "submit button still active". This only ever waits
+    # when a code prompt is actually on screen, so a longer ceiling costs
+    # nothing on the runs that never see one.
+    timeout_sec: float = 150.0,
     poll_interval: float = 2.5,
     log_callback: Callable[[str, str], None] | None = None,
 ) -> str | None:
@@ -199,10 +264,26 @@ async def handle_greenhouse_verification_flow(
     target_frame: Any,
     company: str,
     candidate_email: str,
-    timeout_sec: float = 45.0,
+    # 45s was under-cutting real delivery. Greenhouse sends the code the moment
+    # the form is submitted, but the mail's trip through Gmail — delivery plus
+    # IMAP indexing before a search can see it — routinely runs past that:
+    # Twilio/Segment's code landed 65s after the click and the poller had
+    # already given up, leaving a fully-filled application stranded at the code
+    # prompt and reported as "submit button still active". This only ever waits
+    # when a code prompt is actually on screen, so a longer ceiling costs
+    # nothing on the runs that never see one.
+    timeout_sec: float = 150.0,
     log_callback: Callable[[str, str], None] | None = None,
 ) -> bool:
     """Detect if Greenhouse 8-character verification modal is active, fetch code via Gmail IMAP, and submit."""
+    # Anchor "recent enough" to the submit click, not to the moment the modal is
+    # found. This function is called immediately after the final submit click,
+    # which is exactly when Greenhouse sends the code — but detecting the modal
+    # and scanning frames takes seconds to tens of seconds afterwards. Starting
+    # the clock down there made the code email look *older* than the attempt, so
+    # a correctly-delivered code was discarded as belonging to something else.
+    start_time = time.time()
+
     # Check if page has verification code prompt. Greenhouse's application form
     # (and this modal) usually render inside an embedded iframe rather than the
     # top-level document, so the top-level page body alone won't contain the
@@ -236,7 +317,6 @@ async def handle_greenhouse_verification_flow(
     if log_callback:
         log_callback(f"Greenhouse verification modal detected. Polling {candidate_email} for 8-character security code...", "info")
 
-    start_time = time.time()
     code = await fetch_latest_greenhouse_verification_code(
         company=company,
         since_timestamp=start_time,

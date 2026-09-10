@@ -1,31 +1,36 @@
 "use client";
 
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import React, { useEffect, useRef, useState } from "react";
 import { SidePanelPortal } from "@/components/side-panel-portal";
 import {
+  assistedFillAutopilotJob,
   approvePreflightSubmission,
   approveStagedAnswer,
   getAutopilotJobs,
+  markAutopilotJobSubmitted,
   resetSubmittedAutopilotJobs,
   skipStagedApplication,
 } from "@/lib/application-assistant-api";
 import { LatencyDiagnosticsCenter } from "@/components/application-assistant/latency-diagnostics-center";
 import type { AutopilotJobRow } from "./job-types";
-import { FILTERS, SORTS, INELIGIBILITY_LABELS, priorityRank, statusView, matchBand, relativeTime, type StatusFilter, type SortMode } from "./job-presentation";
+import { FILTERS, SORTS, type StatusFilter, type SortMode } from "./job-presentation";
+import { useApplicationPages } from "./use-application-pages";
+import { ApplicationDetails } from "./application-details";
+import detailStyles from "./application-details.module.css";
+import { ApplicationCard } from "./application-card";
+import { QuickAddJobPanel } from "./quick-add-job-panel";
 import styles from "./control-center.module.css";
 
 type Section = "applications" | "review" | "diagnostics";
 export function AutopilotApplicationsView({
   section,
-  jobs,
-  loading,
   onJobsChanged,
 }: {
   section: Section;
-  jobs: AutopilotJobRow[];
-  loading: boolean;
   onJobsChanged: () => void;
 }) {
+  const linkedFilter = useSearchParams().get("tab");
   const [filter, setFilter] = useState<StatusFilter>("all");
   const [sortMode, setSortMode] = useState<SortMode>("priority");
   const [query, setQuery] = useState("");
@@ -40,7 +45,8 @@ export function AutopilotApplicationsView({
   useEffect(() => {
     if (section === "review") setFilter("review");
     else if (section === "diagnostics") setFilter("failed");
-  }, [section]);
+    else if (FILTERS.some(item => item.id === linkedFilter)) setFilter(linkedFilter as StatusFilter);
+  }, [section, linkedFilter]);
 
   useEffect(() => {
     if (!menuOpen) return undefined;
@@ -51,33 +57,14 @@ export function AutopilotApplicationsView({
     return () => document.removeEventListener("mousedown", onDown);
   }, [menuOpen]);
 
-  const counts = useMemo(() => {
-    const c: Record<string, number> = {};
-    for (const f of FILTERS) c[f.id] = jobs.filter(f.match).length;
-    return c;
-  }, [jobs]);
-
-  const visible = useMemo(() => {
-    const active = FILTERS.find((f) => f.id === filter) ?? FILTERS[0];
-    const q = query.trim().toLowerCase();
-    return jobs
-      .filter(active.match)
-      .filter((j) =>
-        !q ||
-        [j.company, j.title, j.location, j.status, j.lastErrorType].some((v) =>
-          String(v || "").toLowerCase().includes(q),
-        ),
-      )
-      .sort((a, b) => {
-        if (sortMode === "match") return Number(b.matchScore || 0) - Number(a.matchScore || 0);
-        if (sortMode === "company") return String(a.company || "").localeCompare(String(b.company || ""));
-        if (sortMode === "recent") {
-          return String(b.submittedAt || b.updatedAt || "")
-            .localeCompare(String(a.submittedAt || a.updatedAt || ""));
-        }
-        return priorityRank(b) - priorityRank(a);
-      });
-  }, [jobs, filter, query, sortMode]);
+  const pages = useApplicationPages(section === "review" ? "review" : filter, sortMode, query);
+  const { jobs, counts } = pages;
+  const visible = jobs;
+  const loading = pages.loading && jobs.length === 0;
+  const pagination = <div ref={pages.sentinel} style={{ padding: "20px", textAlign: "center" }}>
+    <p role="status">{pages.error || (pages.loading ? "Loading applications…" : `${jobs.length} of ${pages.total} applications`)}</p>
+    {(pages.hasMore || pages.error) && <button className={styles.filterChip} disabled={pages.loading} onClick={pages.loadMore}>{pages.error ? "Retry" : "Load 20 more"}</button>}
+  </div>;
 
   const downloadJson = async () => {
     setMenuOpen(false);
@@ -118,13 +105,15 @@ export function AutopilotApplicationsView({
   const resetAll = async () => {
     setMenuOpen(false);
     const confirmed = window.confirm(
-      "Reset ALL submitted and processed jobs back to unapplied?\n\nThis clears their submitted state so Autopilot can apply again. This cannot be undone.",
+      "Reset staged, failed and in-flight jobs back to unapplied?" +
+      "\n\nSubmitted, skipped and ineligible applications are left alone. This cannot be undone.",
     );
     if (!confirmed) return;
     setBusy("reset");
     try {
       await resetSubmittedAutopilotJobs("ALL");
       setNote("Reset complete.");
+      pages.refresh();
       onJobsChanged();
     } catch (err) {
       setNote(err instanceof Error ? err.message : "Reset failed");
@@ -145,9 +134,10 @@ export function AutopilotApplicationsView({
     setBusy(job.id);
     try {
       for (const p of pairs) await approveStagedAnswer(job.id, p.key, p.value);
-      await approvePreflightSubmission(job.id, undefined, "honest");
+      await approvePreflightSubmission(job.id);
       setNote(`Approved — applying to ${job.company}.`);
       setDetail(null);
+      pages.refresh();
       onJobsChanged();
     } catch (err) {
       setNote(err instanceof Error ? err.message : "Could not approve");
@@ -163,13 +153,49 @@ export function AutopilotApplicationsView({
     setBusy(job.id);
     setNote(null);
     try {
-      const res = await approvePreflightSubmission(job.id, undefined, "honest");
+      // No tailoring mode is passed: clicking Apply must honour whatever mode
+      // the job (or the global Autopilot setting) already has. Hardcoding
+      // "honest" here silently overrode a global "off" and made every
+      // application re-tailor the resume through the local LLM.
+      const res = await approvePreflightSubmission(job.id);
       setNote(res?.message || `Applying to ${job.company} — this can take a minute.`);
+      pages.refresh();
       onJobsChanged();
     } catch (err) {
       setNote(err instanceof Error ? err.message : "Failed to apply");
     } finally {
       applyInFlight.current = false;
+      setBusy(null);
+    }
+  };
+
+  /** Fill the form in a visible browser and hand it over for the user to finish. */
+  const assistedFill = async (job: AutopilotJobRow) => {
+    setBusy(job.id);
+    setNote(`Opening ${job.company} and filling what we can…`);
+    try {
+      const res = await assistedFillAutopilotJob(job.id);
+      setNote(res?.message || `Filled the ${job.company} form — finish it in the browser window.`);
+    } catch (err) {
+      setNote(err instanceof Error ? err.message : "Could not open this application");
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const markSubmitted = async (job: AutopilotJobRow) => {
+    setBusy(job.id);
+    setNote(null);
+    try {
+      const res = await markAutopilotJobSubmitted(job.id);
+      setNote(res?.submitted
+        ? `Marked ${job.company} as submitted.`
+        : `Moved ${job.company} back to review.`);
+      pages.refresh();
+      onJobsChanged();
+    } catch (err) {
+      setNote(err instanceof Error ? err.message : "Could not update this application");
+    } finally {
       setBusy(null);
     }
   };
@@ -180,6 +206,7 @@ export function AutopilotApplicationsView({
       await skipStagedApplication(job.id, "Skipped from Autopilot review");
       setNote(`Skipped ${job.company}.`);
       setDetail(null);
+      pages.refresh();
       onJobsChanged();
     } catch (err) {
       setNote(err instanceof Error ? err.message : "Could not skip");
@@ -274,6 +301,7 @@ export function AutopilotApplicationsView({
             );
           })
         )}
+        {pagination}
       </div>
     );
   }
@@ -284,6 +312,15 @@ export function AutopilotApplicationsView({
       {section === "diagnostics" && (
         <div style={{ marginBottom: "1rem" }}>
           <LatencyDiagnosticsCenter />
+        </div>
+      )}
+
+      {/* Add Job by URL lived only on ApplyBoard, which the control-center
+          redesign stopped rendering — so there was no way to queue a specific
+          posting from the UI at all. */}
+      {section === "applications" && (
+        <div style={{ marginBottom: "1rem" }}>
+          <QuickAddJobPanel onAdded={() => { pages.refresh(); onJobsChanged(); }} />
         </div>
       )}
 
@@ -343,158 +380,35 @@ export function AutopilotApplicationsView({
         <div className={styles.empty}>No applications match this filter.</div>
       ) : (
         <div className={styles.appGrid}>
-          {visible.map((job) => {
-            const sv = statusView(job.status);
-            const score = typeof job.matchScore === "number" ? Math.round(job.matchScore) : null;
-            const band = score != null ? matchBand(score) : null;
-            return (
-              <article key={job.id} className={styles.appCard} data-status={sv.key} data-job-id={job.id}>
-                <div className={styles.appTop}>
-                  <span className={styles.appCompany}>{job.company || "Unknown"}</span>
-                  <span className={styles.statusBadge}>{sv.label}</span>
-                </div>
-
-                <button type="button" className={styles.appDetailsButton} onClick={() => setDetail(job)}>
-                  {job.title || "Unknown role"}
-                  <span className={styles.appDetailsHint}>View details ↗</span>
-                </button>
-                {job.location && <div className={styles.appLocation}>{job.location}</div>}
-
-                {job.status === "INELIGIBLE" && (
-                  <div className={styles.ineligibleReason}>
-                    {INELIGIBILITY_LABELS[String(job.ineligibilityReason)] ||
-                      job.ineligibilityDetail ||
-                      "Cannot be applied to"}
-                  </div>
-                )}
-
-                {score != null && band && (
-                  <div className={styles.matchRow}>
-                    <span className={styles.matchBadge} data-band={band.band}>
-                      {score}% {band.label}
-                    </span>
-                    <span className={styles.matchTrack}>
-                      <span className={styles.matchFill} style={{ width: `${Math.min(100, Math.max(0, score))}%` }} />
-                    </span>
-                  </div>
-                )}
-
-                {job.salary && <div className={styles.appLocation}>{job.salary}</div>}
-
-                <div className={styles.appFoot}>
-                  <span>
-                    {job.status === "SUBMITTED" && job.submittedAt
-                      ? `✓ Submitted ${relativeTime(job.submittedAt)}`
-                      : relativeTime(job.updatedAt) || "—"}
-                  </span>
-                  {job.status === "QUEUED" || (job.status === "SKIPPED" && job.skipReason?.startsWith("Match score stayed below")) ? (
-                    <button
-                      type="button"
-                      disabled={busy !== null}
-                      className={styles.appFootLink}
-                      onClick={() => void applyNow(job)}
-                    >
-                      {busy === job.id ? "Applying…" : "Apply →"}
-                    </button>
-                  ) : (
-                    <button type="button" className={styles.appFootLink} onClick={() => setDetail(job)}>View →</button>
-                  )}
-                </div>
-              </article>
-            );
-          })}
+          {visible.map((job) => (
+            <ApplicationCard key={job.id} job={job} busy={busy}
+              onDetails={() => setDetail(job)} onApply={() => void applyNow(job)}
+              onMarkSubmitted={() => void markSubmitted(job)}
+              onAssistedFill={() => void assistedFill(job)} />
+          ))}
         </div>
       )}
 
+      {pagination}
       <SidePanelPortal
         open={Boolean(detail)}
         onClose={() => setDetail(null)}
-        panelClassName="aac-details-panel"
+        panelClassName={detailStyles.panel}
+        ariaLabelledBy="application-details-title"
         backdropAriaLabel="Close application details"
       >
         {detail && (
-          <div className="aa-wizard-panel-inner">
-            <header className="aa-wizard-header">
-              <div>
-                <p className="aa-wizard-eyebrow">{statusView(detail.status).label}</p>
-                <h2>{detail.company || "Unknown company"}</h2>
-                <p className="aac-drawer-role">{detail.title}</p>
-              </div>
-              <button type="button" className="aa-wizard-close" aria-label="Close" onClick={() => setDetail(null)}>×</button>
-            </header>
-
-            <div className="aa-wizard-body aac-drawer-body">
-              <section className="aac-drawer-section">
-                <h4>Application</h4>
-                <ul className="aac-drawer-stats aac-drawer-details">
-                  {detail.location && <li>Location · {detail.location}</li>}
-                  {typeof detail.matchScore === "number" && <li>Match · {Math.round(detail.matchScore)}%</li>}
-                  {detail.resumeFileUsed && (
-                    <li>
-                      Resume ·{" "}
-                      <a
-                        href={`/api/backend/application-assistant/autopilot/jobs/${detail.id}/resume`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        style={{ color: "var(--accent)", textDecoration: "underline" }}
-                      >
-                        {detail.resumeFileUsed}
-                      </a>
-                    </li>
-                  )}
-                  {detail.submittedAt && <li>Submitted · {new Date(detail.submittedAt).toLocaleString()}</li>}
-                  {detail.applicationUrl && (
-                    <li>
-                      Posting ·{" "}
-                      <a href={detail.applicationUrl} target="_blank" rel="noopener noreferrer" style={{ color: "var(--accent)" }}>
-                        open
-                      </a>
-                    </li>
-                  )}
-                </ul>
-              </section>
-
-              {detail.lastError && (
-                <section className="aac-drawer-section">
-                  <h4>Why it stopped</h4>
-                  <p style={{ margin: 0, fontSize: "12px", lineHeight: 1.5, color: "var(--text-secondary)" }}>
-                    {detail.lastErrorType ? `[${detail.lastErrorType}] ` : ""}
-                    {detail.lastError}
-                  </p>
-                </section>
-              )}
-
-              {detail.answers && Object.keys(detail.answers).length > 0 && (
-                <section className="aac-drawer-section">
-                  <h4>Answers submitted ({Object.keys(detail.answers).length})</h4>
-                  <div style={{ maxHeight: 300, overflowY: "auto", display: "flex", flexDirection: "column", gap: 6 }}>
-                    {Object.entries(detail.answers).map(([k, v]) => (
-                      <div key={k} style={{ padding: "0.5rem 0.6rem", borderRadius: 8, background: "var(--bg-elevated)", border: "1px solid var(--border)" }}>
-                        <div style={{ fontSize: 11, fontWeight: 600, color: "var(--text)" }}>{k}</div>
-                        <div style={{ fontSize: 11, fontFamily: "monospace", color: "var(--accent)", wordBreak: "break-word" }}>
-                          {String(v ?? "—")}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </section>
-              )}
-
-              {(detail.checkpointHistory || []).length > 0 && (
-                <section className="aac-drawer-section">
-                  <h4>Pipeline history</h4>
-                  <ul className="aac-drawer-stats aac-drawer-details">
-                    {(detail.checkpointHistory || []).slice(-12).map((ck, i) => (
-                      <li key={i}>
-                        <strong>{ck.step}</strong>
-                        {ck.details ? ` — ${String(ck.details).slice(0, 160)}` : ""}
-                      </li>
-                    ))}
-                  </ul>
-                </section>
-              )}
-            </div>
-          </div>
+          <ApplicationDetails
+            job={detail}
+            onClose={() => setDetail(null)}
+            answerDrafts={answerDrafts}
+            onDraftChange={(question, value) =>
+              setAnswerDrafts((prev) => ({ ...prev, [`${detail.id}:${question}`]: value }))
+            }
+            onApprove={() => void approveAnswers(detail)}
+            onSkip={() => void skipJob(detail)}
+            busy={busy === detail.id}
+          />
         )}
       </SidePanelPortal>
     </div>

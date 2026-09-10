@@ -24,6 +24,7 @@ export function CareerWorkspaceStrip({ active }: CareerWorkspaceStripProps) {
           className={`career-workspace-chip${active === "dashboard" ? " career-workspace-chip--active" : ""}`}
           aria-current={active === "dashboard" ? "page" : undefined}
         >
+          <span className="career-workspace-chip-icon" aria-hidden="true">◈</span>
           <span className="career-workspace-chip-label">Dashboard</span>
           <strong>{loading ? "…" : `${apps} applications`}</strong>
         </Link>
@@ -32,6 +33,7 @@ export function CareerWorkspaceStrip({ active }: CareerWorkspaceStripProps) {
           className={`career-workspace-chip${active === "discover" ? " career-workspace-chip--active" : ""}`}
           aria-current={active === "discover" ? "page" : undefined}
         >
+          <span className="career-workspace-chip-icon" aria-hidden="true">⌕</span>
           <span className="career-workspace-chip-label">Browse Jobs</span>
           <strong>{loading ? "…" : `${total.toLocaleString()} roles · ${strong} strong`}</strong>
         </Link>
@@ -40,6 +42,7 @@ export function CareerWorkspaceStrip({ active }: CareerWorkspaceStripProps) {
           className={`career-workspace-chip${active === "profile" ? " career-workspace-chip--active" : ""}`}
           aria-current={active === "profile" ? "page" : undefined}
         >
+          <span className="career-workspace-chip-icon" aria-hidden="true">◎</span>
           <span className="career-workspace-chip-label">Profile</span>
           <strong>{loading ? "…" : `${completeness}% · ${targetLabel}`}</strong>
         </Link>

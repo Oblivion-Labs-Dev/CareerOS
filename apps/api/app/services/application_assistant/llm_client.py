@@ -14,6 +14,22 @@ import httpx
 
 logger = logging.getLogger("careeros.llm")
 
+# Ollama serves every model at OLLAMA_CONTEXT_LENGTH (default 4096) regardless
+# of the context length on the model card. Keep this in step with the env var
+# the dev stack sets, so prompt budgeting reflects what the server will really
+# accept rather than what the model could theoretically handle.
+DEFAULT_CONTEXT_WINDOW = int(os.environ.get("OLLAMA_CONTEXT_LENGTH", "16384"))
+
+
+def estimate_tokens(text: str) -> int:
+    """Cheap token estimate (~4 chars/token) for prompt budgeting.
+
+    Deliberately not a real tokenizer: this is used to decide how much of a
+    job description to keep, where being approximately right and free beats
+    being exact and pulling in a tokenizer dependency per model.
+    """
+    return max(1, len(text or "") // 4)
+
 
 class LLMCallMetrics:
     """Process-wide, in-memory counters for which model actually answered each
@@ -28,6 +44,10 @@ class LLMCallMetrics:
         self._by_provider: dict[str, dict[str, int]] = {}
         self.fallback_rescues = 0  # primary failed, fallback succeeded
         self.total_calls = 0
+        # Every hand-off from a primary model to its fallback, with the reason.
+        # Kept bounded so a long-running process cannot grow this unboundedly.
+        self.fallback_events: list[dict[str, Any]] = []
+        self.retries = 0
 
     def record(
         self,
@@ -62,6 +82,20 @@ class LLMCallMetrics:
             latency_ms=latency_ms,
         )
 
+    def record_fallback(self, primary_model: str, fallback_model: str, reason: str) -> None:
+        with self._lock:
+            self.fallback_events.append({
+                "from": primary_model,
+                "to": fallback_model,
+                "reason": reason,
+                "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            })
+            del self.fallback_events[:-50]
+
+    def record_retry(self, model: str) -> None:
+        with self._lock:
+            self.retries += 1
+
     def to_dict(self) -> dict[str, Any]:
         with self._lock:
             return {
@@ -73,6 +107,8 @@ class LLMCallMetrics:
                 "byProvider": {
                     provider: dict(counts) for provider, counts in self._by_provider.items()
                 },
+                "retries": self.retries,
+                "fallbackEvents": list(self.fallback_events[-20:]),
             }
 
     def reset(self) -> None:
@@ -81,6 +117,8 @@ class LLMCallMetrics:
             self._by_provider.clear()
             self.fallback_rescues = 0
             self.total_calls = 0
+            self.retries = 0
+            self.fallback_events.clear()
 
 
 llm_call_metrics = LLMCallMetrics()
@@ -100,6 +138,8 @@ class LLMClient:
         confidence_threshold: float = 0.7,
         fallback: "LLMClient | None" = None,
         provider: str = "ollama",
+        context_window: int = DEFAULT_CONTEXT_WINDOW,
+        max_output_tokens: int = 2000,
     ):
         self.base_url = base_url.rstrip("/")
         self.model = model
@@ -110,6 +150,12 @@ class LLMClient:
         # Secondary client tried when this one is unavailable or every retry fails.
         self.fallback = fallback
         self.provider = provider
+        # How many tokens this model is actually being served with. Ollama
+        # serves OLLAMA_CONTEXT_LENGTH, not the model card maximum, and a
+        # prompt that overflows it is silently truncated — callers that build
+        # large prompts (resume tailoring) size themselves against this.
+        self.context_window = context_window
+        self.max_output_tokens = max_output_tokens
 
     @property
     def enabled(self) -> bool:
@@ -234,6 +280,7 @@ class LLMClient:
         *,
         system: str = "",
         response_schema: dict[str, Any] | None = None,
+        task: str = "unspecified",
     ) -> dict[str, Any]:
         """Structured completion, falling back to `self.fallback` if this client fails."""
         start_t = time.monotonic()
@@ -249,30 +296,33 @@ class LLMClient:
                 bool(result.get("success")),
                 provider=self.provider,
                 latency_ms=latency_ms,
+                task=task,
             )
-            logger.info(
-                "LLM complete call: provider=%s model=%s success=%s latency=%.1fms",
-                self.provider,
-                self.model,
-                bool(result.get("success")),
-                latency_ms,
-            )
+            self._log_call("complete", result, latency_ms, prompt=prompt, system=system, task=task)
         if not result.get("success") and self.fallback is not None and self.fallback.enabled:
             logger.warning(
-                "LLM complete failed on provider=%s model=%s (%s). Falling back to provider=%s model=%s",
+                "LLM fallback: task=%s provider=%s model=%s failed (%s) -> provider=%s model=%s",
+                task,
                 self.provider,
                 self.model,
                 result.get("error"),
                 self.fallback.provider,
                 self.fallback.model,
             )
+            llm_call_metrics.record_fallback(self.model, self.fallback.model, str(result.get("error"))[:200])
             fallback_result = await self.fallback.complete(
                 prompt,
                 system=system,
                 response_schema=response_schema,
+                task=task,
             )
             if fallback_result.get("success"):
                 fallback_result["usedFallbackModel"] = fallback_result.get("usedFallbackModel") or self.fallback.model
+                # Count the rescue here. record() is called by the *fallback*
+                # client for its own call and has no way to know it was acting
+                # as a fallback, which is why this counter read 0 through a real
+                # Qwen -> Mistral rescue while fallbackEvents recorded it.
+                llm_call_metrics.fallback_rescues += 1
                 return fallback_result
         return result
 
@@ -298,11 +348,23 @@ class LLMClient:
                 "content": (system or prompt) + "\n\nRespond with valid JSON matching the requested schema.",
             }
 
+        # Leave room for the answer inside the context the server actually
+        # serves. Asking for a flat 2000 on top of a large prompt is how a
+        # request silently overflows and comes back truncated.
+        prompt_tokens = estimate_tokens("".join(m["content"] for m in messages))
+        headroom = self.context_window - prompt_tokens - 128
+        max_out = max(256, min(self.max_output_tokens, headroom))
+        if headroom < 256:
+            logger.warning(
+                "LLM complete: prompt ~%d tokens leaves only %d of a %d-token context "
+                "for the answer; the caller should shrink the prompt",
+                prompt_tokens, headroom, self.context_window,
+            )
         payload = {
             "model": self.model,
             "messages": messages,
             "temperature": 0.1,
-            "max_tokens": 2000,
+            "max_tokens": max_out,
         }
         if response_schema and self._is_ollama_compat():
             payload["format"] = "json"
@@ -324,14 +386,47 @@ class LLMClient:
                     data = resp.json()
                     message = data.get("choices", [{}])[0].get("message", {}) or {}
                     content = str(message.get("content") or "")
+                    raw_usage = data.get("usage") or {}
+                    usage = {
+                        "promptTokens": raw_usage.get("prompt_tokens", 0),
+                        "completionTokens": raw_usage.get("completion_tokens", 0),
+                        "totalTokens": raw_usage.get("total_tokens", 0),
+                    }
+                    finish_reason = data.get("choices", [{}])[0].get("finish_reason", "")
+                    if finish_reason == "length":
+                        logger.warning(
+                            "LLM complete: model=%s hit the output cap (%d tokens) — "
+                            "the answer is truncated",
+                            self.model, max_out,
+                        )
 
                     if response_schema:
                         parsed = self._parse_json_response(content)
                         if parsed is None:
-                            return {"success": False, "error": "Invalid JSON response", "raw": content[:500]}
-                        return {"success": True, "data": parsed, "confidence": parsed.get("confidence", 0.5)}
+                            return {
+                                "success": False,
+                                "error": "Invalid JSON response",
+                                "raw": content[:500],
+                                "usage": usage,
+                                "attempts": attempt + 1,
+                                "finishReason": finish_reason,
+                            }
+                        return {
+                            "success": True,
+                            "data": parsed,
+                            "confidence": parsed.get("confidence", 0.5),
+                            "usage": usage,
+                            "attempts": attempt + 1,
+                            "finishReason": finish_reason,
+                        }
 
-                    return {"success": True, "data": content}
+                    return {
+                        "success": True,
+                        "data": content,
+                        "usage": usage,
+                        "attempts": attempt + 1,
+                        "finishReason": finish_reason,
+                    }
 
             except httpx.TimeoutException:
                 if attempt < self.max_retries:
@@ -343,6 +438,52 @@ class LLMClient:
                 return {"success": False, "error": str(exc)}
 
         return {"success": False, "error": "Max retries exceeded"}
+
+    def _log_call(
+        self,
+        kind: str,
+        result: dict[str, Any],
+        latency_ms: float,
+        *,
+        prompt: str = "",
+        system: str = "",
+        task: str = "unspecified",
+    ) -> None:
+        """One structured line per LLM call: model, tokens, latency, context use.
+
+        Token counts come from the provider's own `usage` block when it sends
+        one and fall back to an estimate otherwise, so the context-usage figure
+        is always populated — an overflowing prompt is silently truncated by
+        Ollama, and this line is what makes that visible.
+        """
+        usage = result.get("usage") or {}
+        prompt_tokens = usage.get("promptTokens") or estimate_tokens(system + prompt)
+        completion_tokens = usage.get("completionTokens") or estimate_tokens(str(result.get("raw") or ""))
+        total = prompt_tokens + completion_tokens
+        pct = (total / self.context_window * 100) if self.context_window else 0.0
+        logger.info(
+            "LLM %s: task=%s provider=%s model=%s success=%s latency=%.0fms "
+            "tokens_in=%d tokens_out=%d ctx=%d/%d (%.0f%%) retries=%d%s",
+            kind,
+            task,
+            self.provider,
+            self.model,
+            bool(result.get("success")),
+            latency_ms,
+            prompt_tokens,
+            completion_tokens,
+            total,
+            self.context_window,
+            pct,
+            int(result.get("attempts", 1)) - 1,
+            "" if result.get("success") else f" error={str(result.get('error'))[:120]}",
+        )
+        if pct >= 90:
+            logger.warning(
+                "LLM %s: task=%s model=%s used %.0f%% of its %d-token context — "
+                "the prompt may have been truncated server-side",
+                kind, task, self.model, pct, self.context_window,
+            )
 
     async def normalize_field_label(self, label: str, known_keys: list[str]) -> dict[str, Any]:
         """Use LLM to map unfamiliar field label to known profile key."""
@@ -467,146 +608,6 @@ class LLMClient:
         return LLMClient._parse_json_object(text)
 
 
-class FreeTokenProvider(LLMClient):
-    """FreeToken OpenAI-compatible local LLM provider.
-
-    Connects to FreeToken server (typically http://127.0.0.1:1919/v1).
-    Performs fast health checks before sending requests to prevent blocking
-    when the FreeToken server is not running, and falls back to Mistral / Gemini.
-    """
-
-    def __init__(
-        self,
-        *,
-        base_url: str = "http://127.0.0.1:1919/v1",
-        model: str = "Qwen3.6-35B-A3B",
-        api_key: str = "",
-        timeout: int = 60,
-        max_retries: int = 0,
-        confidence_threshold: float = 0.7,
-        fallback: LLMClient | None = None,
-        health_check_ttl: float = 5.0,
-        health_check_timeout: float = 1.5,
-    ):
-        super().__init__(
-            base_url=base_url,
-            model=model,
-            api_key=api_key,
-            timeout=timeout,
-            max_retries=max_retries,
-            confidence_threshold=confidence_threshold,
-            fallback=fallback,
-            provider="freetoken",
-        )
-        self.health_check_ttl = health_check_ttl
-        self.health_check_timeout = health_check_timeout
-        self._last_health_check_time: float = 0.0
-        self._last_health_status: bool = False
-        self._health_lock = asyncio.Lock()
-
-    async def check_health(self, timeout: float | None = None) -> dict[str, Any]:
-        """Probe FreeToken server health via GET /models."""
-        t = timeout or self.health_check_timeout
-        try:
-            async with httpx.AsyncClient(timeout=t) as client:
-                headers = self._headers()
-                resp = await client.get(f"{self.base_url}/models", headers=headers)
-                if resp.status_code == 200:
-                    data = resp.json()
-                    models = [m.get("id", "") for m in data.get("data", [])] if isinstance(data, dict) else []
-                    return {"healthy": True, "models": models}
-                return {"healthy": False, "error": f"HTTP {resp.status_code}"}
-        except Exception as exc:
-            return {"healthy": False, "error": str(exc)}
-
-    async def is_healthy(self, force: bool = False) -> bool:
-        """Cached health check to avoid spamming the endpoint before every request."""
-        now = time.monotonic()
-        if not force and (now - self._last_health_check_time < self.health_check_ttl):
-            return self._last_health_status
-
-        async with self._health_lock:
-            now = time.monotonic()
-            if not force and (now - self._last_health_check_time < self.health_check_ttl):
-                return self._last_health_status
-
-            health = await self.check_health()
-            self._last_health_status = bool(health.get("healthy"))
-            self._last_health_check_time = now
-            return self._last_health_status
-
-    async def chat(
-        self,
-        messages: list[dict[str, str]],
-        *,
-        system: str = "",
-    ) -> dict[str, Any]:
-        if not self.enabled:
-            return await self._fallback_chat(messages, system=system, reason="FreeToken not enabled")
-
-        healthy = await self.is_healthy()
-        if not healthy:
-            logger.warning("FreeToken is unreachable at %s; bypassing to fallback", self.base_url)
-            return await self._fallback_chat(messages, system=system, reason="FreeToken unreachable or unhealthy")
-
-        return await super().chat(messages, system=system)
-
-    async def complete(
-        self,
-        prompt: str,
-        *,
-        system: str = "",
-        response_schema: dict[str, Any] | None = None,
-    ) -> dict[str, Any]:
-        if not self.enabled:
-            return await self._fallback_complete(prompt, system=system, response_schema=response_schema, reason="FreeToken not enabled")
-
-        healthy = await self.is_healthy()
-        if not healthy:
-            logger.warning("FreeToken is unreachable at %s; bypassing to fallback", self.base_url)
-            return await self._fallback_complete(prompt, system=system, response_schema=response_schema, reason="FreeToken unreachable or unhealthy")
-
-        return await super().complete(prompt, system=system, response_schema=response_schema)
-
-    async def _fallback_chat(self, messages: list[dict[str, str]], *, system: str = "", reason: str = "") -> dict[str, Any]:
-        if self.fallback is not None and self.fallback.enabled:
-            res = await self.fallback.chat(messages, system=system)
-            if res.get("success"):
-                res["usedFallbackModel"] = res.get("usedFallbackModel") or self.fallback.model
-            return res
-        return {"success": False, "error": reason or "FreeToken unavailable and no fallback configured"}
-
-    async def _fallback_complete(
-        self,
-        prompt: str,
-        *,
-        system: str = "",
-        response_schema: dict[str, Any] | None = None,
-        reason: str = "",
-    ) -> dict[str, Any]:
-        if self.fallback is not None and self.fallback.enabled:
-            res = await self.fallback.complete(prompt, system=system, response_schema=response_schema)
-            if res.get("success"):
-                res["usedFallbackModel"] = res.get("usedFallbackModel") or self.fallback.model
-            return res
-        return {"success": False, "error": reason or "FreeToken unavailable and no fallback configured"}
-
-
-def _is_freetoken_enabled(settings: dict[str, Any]) -> bool:
-    from app.config import settings as app_settings
-
-    ft_cfg = settings.get("freetoken") or {}
-    if "enabled" in ft_cfg:
-        return bool(ft_cfg["enabled"])
-    llm_cfg = settings.get("llm") or {}
-    if str(llm_cfg.get("provider") or "").lower() == "freetoken":
-        return True
-
-    if getattr(app_settings, "freetoken_enabled", False):
-        return True
-    return os.environ.get("FREETOKEN_ENABLED", "").lower() in ("true", "1", "yes")
-
-
 def _resolve_llm_config(llm_config: dict[str, Any], default_model: str = "qwen3:8b") -> tuple[str, str, str]:
     """Resolve base_url, model, and api_key based on provider or explicit settings."""
     provider = str(llm_config.get("provider") or "").lower().strip()
@@ -614,11 +615,7 @@ def _resolve_llm_config(llm_config: dict[str, Any], default_model: str = "qwen3:
     api_key = str(llm_config.get("apiKey") or "").strip()
     base_url = str(llm_config.get("baseUrl") or "").strip()
 
-    if provider in ("freetoken",) or (not provider and "1919" in base_url):
-        base_url = base_url or os.environ.get("FREETOKEN_BASE_URL", "http://127.0.0.1:1919/v1")
-        model = model or os.environ.get("FREETOKEN_MODEL", "Qwen3.6-35B-A3B")
-        api_key = api_key or os.environ.get("FREETOKEN_API_KEY", "")
-    elif provider in ("openai", "chatgpt") or (not provider and ("gpt" in model.lower() or "o1" in model.lower() or "o3" in model.lower())):
+    if provider in ("openai", "chatgpt") or (not provider and ("gpt" in model.lower() or "o1" in model.lower() or "o3" in model.lower())):
         base_url = base_url or "https://api.openai.com/v1"
         model = model or "gpt-4o-mini"
         api_key = api_key or os.environ.get("OPENAI_API_KEY", "")
@@ -637,6 +634,47 @@ def _resolve_llm_config(llm_config: dict[str, Any], default_model: str = "qwen3:
         api_key = api_key
 
     return base_url, model, api_key
+
+
+# CareerOS's default local model. Qwen3 4B-instruct is the non-thinking variant
+# (capabilities: completion, tools — no `thinking`), which is what makes its
+# JSON mode reliable: there is no reasoning block to strip before parsing.
+DEFAULT_LOCAL_MODEL = os.environ.get("CAREEROS_LOCAL_MODEL", "qwen3:4b-instruct")
+# Kept as the local second opinion when the primary local model fails, so a bad
+# response falls back to another local model before any cloud provider is used.
+LOCAL_FALLBACK_MODEL = os.environ.get("CAREEROS_LOCAL_FALLBACK_MODEL", "mistral:7b-instruct")
+OLLAMA_BASE_URL = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434/v1")
+
+
+def _build_local_fallback(
+    *,
+    primary_model: str,
+    timeout: int,
+    max_retries: int,
+    confidence_threshold: float,
+    gemini_fallback: "LLMClient | None",
+    context_window: int,
+) -> "LLMClient | None":
+    """Mistral as the local backstop behind the primary local model.
+
+    Returns None when the primary already *is* the fallback model, so a client
+    never falls back to itself. The chain is deliberately
+    local-primary -> local-fallback -> cloud: a second local model is both
+    cheaper and more private than reaching for Gemini on the first failure.
+    """
+    if LOCAL_FALLBACK_MODEL.lower() in primary_model.lower():
+        return gemini_fallback
+    return LLMClient(
+        base_url=OLLAMA_BASE_URL,
+        model=LOCAL_FALLBACK_MODEL,
+        api_key="",
+        timeout=timeout,
+        max_retries=max_retries,
+        confidence_threshold=confidence_threshold,
+        fallback=gemini_fallback,
+        provider="ollama",
+        context_window=context_window,
+    )
 
 
 def _build_gemini_fallback(*, timeout: int, max_retries: int, confidence_threshold: float) -> LLMClient | None:
@@ -662,69 +700,44 @@ def _build_gemini_fallback(*, timeout: int, max_retries: int, confidence_thresho
 def create_llm_client(settings: dict[str, Any]) -> LLMClient:
     """Create default LLM client from application assistant settings.
 
-    Defaults to local Mistral via Ollama, automatically falling back to
-    Gemini Flash when Mistral is unreachable or every retry fails.
-    When FreeToken is enabled and healthy, FreeToken takes precedence as the
-    primary local provider with automatic fallback to Mistral and Gemini.
+    Defaults to local Qwen3 via Ollama, falling back to local Mistral and then
+    to Gemini Flash when the primary is unreachable or every retry fails.
     """
     llm_config = settings.get("llm", {})
     provider = str(llm_config.get("provider") or "").lower().strip()
-    base_url, model, api_key = _resolve_llm_config(llm_config, default_model="mistral-small3.2:24b")
+    base_url, model, api_key = _resolve_llm_config(llm_config, default_model=DEFAULT_LOCAL_MODEL)
     timeout = llm_config.get("timeout", 60)
     max_retries = llm_config.get("maxRetries", 2)
     confidence_threshold = llm_config.get("confidenceThreshold", 0.7)
     gemini_fallback = None if "gemini" in model.lower() else _build_gemini_fallback(
         timeout=timeout, max_retries=max_retries, confidence_threshold=confidence_threshold
     )
-    primary_max_retries = 0 if gemini_fallback is not None else max_retries
+    context_window = int(llm_config.get("contextWindow") or DEFAULT_CONTEXT_WINDOW)
+    local_fallback = _build_local_fallback(
+        primary_model=model,
+        timeout=timeout,
+        max_retries=max_retries,
+        confidence_threshold=confidence_threshold,
+        gemini_fallback=gemini_fallback,
+        context_window=context_window,
+    )
+    primary_max_retries = 0 if local_fallback is not None else max_retries
 
     mistral_provider_name = "ollama" if ("11434" in base_url or "ollama" in provider) else (provider or "ollama")
-    mistral_client = LLMClient(
+    primary_client = LLMClient(
         base_url=base_url,
         model=model,
         api_key=api_key,
         timeout=timeout,
         max_retries=primary_max_retries,
         confidence_threshold=confidence_threshold,
-        fallback=gemini_fallback,
+        fallback=local_fallback,
         provider=mistral_provider_name,
+        context_window=context_window,
     )
 
-    if _is_freetoken_enabled(settings):
-        from app.config import settings as app_settings
 
-        ft_cfg = settings.get("freetoken") or {}
-        ft_base_url = (
-            ft_cfg.get("baseUrl")
-            or getattr(app_settings, "freetoken_base_url", None)
-            or os.environ.get("FREETOKEN_BASE_URL", "http://127.0.0.1:1919/v1")
-        )
-        ft_model = (
-            ft_cfg.get("model")
-            or getattr(app_settings, "freetoken_model", None)
-            or os.environ.get("FREETOKEN_MODEL", "Qwen3.6-35B-A3B")
-        )
-        ft_timeout = int(
-            ft_cfg.get("timeout")
-            or getattr(app_settings, "freetoken_timeout", 60)
-            or os.environ.get("FREETOKEN_TIMEOUT", 60)
-        )
-        ft_api_key = (
-            ft_cfg.get("apiKey")
-            or getattr(app_settings, "freetoken_api_key", "")
-            or os.environ.get("FREETOKEN_API_KEY", "")
-        )
-        return FreeTokenProvider(
-            base_url=ft_base_url,
-            model=ft_model,
-            api_key=ft_api_key,
-            timeout=ft_timeout,
-            max_retries=0,
-            confidence_threshold=confidence_threshold,
-            fallback=mistral_client,
-        )
-
-    return mistral_client
+    return primary_client
 
 
 def create_mapping_client(settings: dict[str, Any]) -> LLMClient:
@@ -737,63 +750,40 @@ def create_mapping_client(settings: dict[str, Any]) -> LLMClient:
     if model_override:
         cfg["model"] = model_override
 
-    base_url, model, api_key = _resolve_llm_config(cfg, default_model="mistral-small3.2:24b")
+    base_url, model, api_key = _resolve_llm_config(cfg, default_model=DEFAULT_LOCAL_MODEL)
     timeout = llm_config.get("timeout", 90)
     max_retries = llm_config.get("maxRetries", 2)
     confidence_threshold = llm_config.get("confidenceThreshold", 0.7)
     gemini_fallback = None if "gemini" in model.lower() else _build_gemini_fallback(
         timeout=timeout, max_retries=max_retries, confidence_threshold=confidence_threshold
     )
-    primary_max_retries = 0 if gemini_fallback is not None else max_retries
+    context_window = int(llm_config.get("contextWindow") or DEFAULT_CONTEXT_WINDOW)
+    local_fallback = _build_local_fallback(
+        primary_model=model,
+        timeout=timeout,
+        max_retries=max_retries,
+        confidence_threshold=confidence_threshold,
+        gemini_fallback=gemini_fallback,
+        context_window=context_window,
+    )
+    primary_max_retries = 0 if local_fallback is not None else max_retries
 
     provider = str(cfg.get("provider") or "").lower().strip()
     mistral_provider_name = "ollama" if ("11434" in base_url or "ollama" in provider) else (provider or "ollama")
-    mistral_client = LLMClient(
+    primary_client = LLMClient(
         base_url=base_url,
         model=model,
         api_key=api_key,
         timeout=timeout,
         max_retries=primary_max_retries,
         confidence_threshold=confidence_threshold,
-        fallback=gemini_fallback,
+        fallback=local_fallback,
         provider=mistral_provider_name,
+        context_window=context_window,
     )
 
-    if _is_freetoken_enabled(settings):
-        from app.config import settings as app_settings
 
-        ft_cfg = settings.get("freetoken") or {}
-        ft_base_url = (
-            ft_cfg.get("baseUrl")
-            or getattr(app_settings, "freetoken_base_url", None)
-            or os.environ.get("FREETOKEN_BASE_URL", "http://127.0.0.1:1919/v1")
-        )
-        ft_model = (
-            ft_cfg.get("model")
-            or getattr(app_settings, "freetoken_model", None)
-            or os.environ.get("FREETOKEN_MODEL", "Qwen3.6-35B-A3B")
-        )
-        ft_timeout = int(
-            ft_cfg.get("timeout")
-            or getattr(app_settings, "freetoken_timeout", 90)
-            or os.environ.get("FREETOKEN_TIMEOUT", 90)
-        )
-        ft_api_key = (
-            ft_cfg.get("apiKey")
-            or getattr(app_settings, "freetoken_api_key", "")
-            or os.environ.get("FREETOKEN_API_KEY", "")
-        )
-        return FreeTokenProvider(
-            base_url=ft_base_url,
-            model=ft_model,
-            api_key=ft_api_key,
-            timeout=ft_timeout,
-            max_retries=0,
-            confidence_threshold=confidence_threshold,
-            fallback=mistral_client,
-        )
-
-    return mistral_client
+    return primary_client
 
 
 def create_vision_client(settings: dict[str, Any]) -> LLMClient:

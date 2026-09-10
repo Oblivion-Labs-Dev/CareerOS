@@ -233,13 +233,23 @@ async def verify_browser_dom_state(
             const elements = document.querySelectorAll('input:not([type="hidden"]), select, textarea, div.select__control, div[class*="select__control"]');
             
             elements.forEach(el => {
+                if (el.getAttribute('aria-hidden') === 'true' || (el.className && typeof el.className === 'string' && el.className.includes('requiredInput'))) {
+                    return;
+                }
                 const wrapper = el.closest('div.select__control, div[class*="select__control"], .field, .custom-question');
                 const isInsideSelect = el.tagName === 'INPUT' && !!el.closest('div.select__control, div[class*="select__control"]');
-                const isCombobox = el.getAttribute('role') === 'combobox' || el.classList.contains('select__control') || (el.className && el.className.includes && el.className.includes('select__')) || isInsideSelect;
                 
+                // If this is a nested input inside a react-select control, skip it — the parent container
+                // div.select__control represents the full combobox field and will extract the combined value.
+                if (isInsideSelect) {
+                    return;
+                }
+                const isCombobox = el.getAttribute('role') === 'combobox' || el.classList.contains('select__control') || (el.className && typeof el.className === 'string' && el.className.includes('select__'));
+
                 let label = '';
-                const id = el.id || '';
-                const name = el.getAttribute('name') || '';
+                const innerInput = el.querySelector ? el.querySelector('input') : null;
+                const id = el.id || (innerInput ? (innerInput.id || innerInput.getAttribute('name')) : '') || '';
+                const name = el.getAttribute('name') || (innerInput ? innerInput.getAttribute('name') : '') || '';
                 const type = (el.type || el.getAttribute('type') || el.tagName.toLowerCase()).toLowerCase();
                 
                 // Label lookup
@@ -266,14 +276,12 @@ async def verify_browser_dom_state(
                     const searchRoot = wrapper || (el.closest ? el.closest('div.select__control, div[class*="select__control"], div[class*="control"]') : null) || el;
                     const valContainer = searchRoot ? searchRoot.querySelector('.select__single-value, .select__multi-value, [class*="singleValue"], [class*="single-value"], [class*="multiValue"], div[class*="ValueContainer"]') : null;
                     val = valContainer ? valContainer.innerText.trim() : (el.value || '');
+                    if (!val && searchRoot) {
+                        const childInput = searchRoot.querySelector('input');
+                        if (childInput && childInput.value) val = childInput.value.trim();
+                    }
                 } else {
                     val = el.value || '';
-                }
-
-                // If this is a nested input inside a select container that has a value, sync it
-                if (isInsideSelect && !val && wrapper) {
-                    const valContainer = wrapper.querySelector('.select__single-value, .select__multi-value, [class*="singleValue"], [class*="single-value"], [class*="multiValue"], div[class*="ValueContainer"]');
-                    if (valContainer) val = valContainer.innerText.trim();
                 }
 
                 // Checkboxes in a group should not be individually marked required unless the element itself is required
@@ -290,7 +298,18 @@ async def verify_browser_dom_state(
                     const groupRequired = group.includes('*');
                     required = isExplicitlyRequired || groupRequired;
                 } else {
-                    required = el.required || el.getAttribute('aria-required') === 'true' || label.includes('*');
+                    const isExplicitlyRequired = el.required || el.getAttribute('aria-required') === 'true' || (innerInput && (innerInput.required || innerInput.getAttribute('aria-required') === 'true'));
+                    required = isExplicitlyRequired || label.includes('*');
+                }
+
+                // A disabled input cannot be filled and the form will not enforce
+                // it, so it is not an unresolved required field. Greenhouse leaves
+                // aria-required="true" on an Employment row's end-date inputs after
+                // "Current role" is ticked and merely disables them — reading those
+                // as required-but-empty blocked submissions whose form was in fact
+                // complete and correctly filled.
+                if (required && (el.disabled || el.getAttribute('aria-disabled') === 'true' || (innerInput && innerInput.disabled))) {
+                    required = false;
                 }
 
                 let options = [];
@@ -387,6 +406,9 @@ async def verify_browser_dom_state(
             if "location" in lbl_low or "city" in lbl_low:
                 actual_loc = f.get("value", "").lower()
                 if not actual_loc:
+                    continue
+                # If the field specifically asks for City (and not State/Region), containing the profile city is fully valid
+                if "city" in lbl_low and not ("state" in lbl_low or "region" in lbl_low):
                     continue
                 # Only flag when the field DOES contain the candidate's actual
                 # city but is missing their state — a field that autocompleted

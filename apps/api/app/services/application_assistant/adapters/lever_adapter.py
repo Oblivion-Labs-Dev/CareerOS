@@ -38,14 +38,17 @@ class LeverAdapter(ApplicationAdapter):
         page = page_context
 
         # Text mappings
-        full_name = f"{resolved_answers.get('firstName', 'Akshay')} {resolved_answers.get('lastName', 'Borse')}".strip()
+        # No hardcoded identity fallbacks: an unresolved field must stay empty so
+        # the pre-submit check catches it, never be quietly filled with a name
+        # and contact details baked into the source.
+        full_name = f"{resolved_answers.get('firstName') or ''} {resolved_answers.get('lastName') or ''}".strip()
         text_inputs = {
             'input[name="name"]': full_name,
-            'input[name="email"]': resolved_answers.get("email", "amsborse@gmail.com"),
-            'input[name="phone"]': resolved_answers.get("phone", "425-336-9852"),
+            'input[name="email"]': resolved_answers.get("email") or "",
+            'input[name="phone"]': resolved_answers.get("phone") or "",
             'input[name="org"]': resolved_answers.get("currentCompany", ""),
-            'input[name="urls[LinkedIn]"]': resolved_answers.get("linkedin", "https://www.linkedin.com/in/amsborse/"),
-            'input[name="urls[Portfolio]"], input[name="urls[Website]"]': resolved_answers.get("portfolio") or resolved_answers.get("website", "https://amsborse.github.io/resume"),
+            'input[name="urls[LinkedIn]"]': resolved_answers.get("linkedin") or "",
+            'input[name="urls[Portfolio]"], input[name="urls[Website]"]': resolved_answers.get("portfolio") or resolved_answers.get("website") or resolved_answers.get("github") or resolved_answers.get("linkedin") or "",
         }
 
         for sel, val in text_inputs.items():

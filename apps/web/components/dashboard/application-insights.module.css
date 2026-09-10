@@ -240,3 +240,15 @@
 @media (prefers-reduced-motion: reduce) {
   .mixSeg { transition: none; }
 }
+
+
+/* Horizontal fills appeared already at their final width, which read as a jump
+   next to the figures counting up beside them. Scale each out from the left. */
+.mixSeg,
+.stageFill { transform-origin: left; animation: insight-sweep .9s ease-out both; }
+
+@keyframes insight-sweep { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+
+@media (prefers-reduced-motion: reduce) { .mixSeg, .stageFill { animation: none; } }
+:global([data-motion=paused]) .mixSeg,
+:global([data-motion=paused]) .stageFill { animation: none; }

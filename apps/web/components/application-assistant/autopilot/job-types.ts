@@ -6,7 +6,19 @@ export type AutopilotJobRow = {
   location?: string;
   status?: string;
   matchScore?: number | null;
+  /** Mistral/Ollama resume-vs-JD comparison stored alongside the score. */
+  matchReason?: string;
+  keyMatchingSkills?: string[];
+  missingSkills?: string[];
+  matchMethod?: string;
+  matchModel?: string;
+  /** Backend's own ordering key: location/level tier bonus + match score. */
+  queuePriority?: number;
+  queuePosition?: number;
   submittedAt?: string;
+  /** "manual" when the user applied by hand and marked it submitted themselves. */
+  submissionSource?: string | null;
+  previousStatus?: string | null;
   updatedAt?: string;
   queuedAt?: string;
   applicationUrl?: string;

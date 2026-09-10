@@ -108,7 +108,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { href: "/applications?tab=inbox", label: "Inbox", icon: "applications", requiresBackend: true, enabled: true },
       { href: "/applications?tab=pipeline", label: "Pipeline", icon: "applications", requiresBackend: true, enabled: true },
       { href: "/jobs/discover", label: "Browse Jobs", icon: "search", requiresBackend: true, enabled: true },
-      { href: "/intelligence/auto-apply", label: "Auto Apply", icon: "applypilot", requiresBackend: true, enabled: true },
+      { href: "/intelligence/auto-apply", label: "Auto Apply", icon: "applypilot", requiresBackend: true, enabled: false },
       { href: "/applications?tab=tracker", label: "All Applications", icon: "applications", requiresBackend: true, enabled: false },
       { href: "/applications?tab=review", label: "Review Center", icon: "review", requiresBackend: true, enabled: false },
       { href: "/analytics", label: "Analytics", icon: "insights", requiresBackend: true, enabled: false },

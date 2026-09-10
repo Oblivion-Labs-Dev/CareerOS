@@ -309,8 +309,39 @@ def _write_snapshot_file(snapshot: dict[str, Any]) -> None:
     SNAPSHOT_FILE.write_text(json.dumps(snapshot, ensure_ascii=False), encoding="utf-8")
 
 
+SUMMARY_KV_KEY = "job_discover_summary"
+
+
+def _build_summary(snapshot: dict[str, Any]) -> dict[str, Any]:
+    jobs = snapshot.get("jobs") or []
+    return {
+        "jobCount": len(jobs),
+        "scrapedAt": snapshot.get("scrapedAt"),
+        "jobIds": [str(j.get("id")) for j in jobs if j.get("id")],
+    }
+
+
+def get_snapshot_summary(db: Session) -> dict[str, Any]:
+    """Counts and job ids for the discovery snapshot, without parsing all of it.
+
+    The snapshot itself is a single ~23MB JSON value; deserialising it costs
+    roughly 0.7s, and the dashboard was paying that on every page load merely to
+    show four numbers. The summary is written next to the snapshot on every
+    persist and is a few hundred KB, so reading it is effectively free.
+
+    Falls back to deriving the summary from the full snapshot when the key is
+    missing — an instance whose snapshot predates this cache still works, it is
+    just slow until the next scrape writes one.
+    """
+    cached = get_kv(db, SUMMARY_KV_KEY)
+    if isinstance(cached, dict) and "jobIds" in cached:
+        return cached
+    return _build_summary(_load_snapshot(db))
+
+
 def _persist_snapshot(db: Session, snapshot: dict[str, Any]) -> None:
     set_kv(db, KV_KEY, snapshot)
+    set_kv(db, SUMMARY_KV_KEY, _build_summary(snapshot))
     _write_snapshot_file(snapshot)
     db.commit()
 
@@ -363,7 +394,21 @@ async def _append_scraped_batch(
             accomplishments=accomplishments,
         )
         snapshot = _load_snapshot(db)
-        merged = _prune_stale_jobs(_merge_jobs(snapshot.get("jobs") or [], scored))
+        # Deduplicating the whole snapshot is pure CPU over thousands of rows,
+        # and it used to run inline in this coroutine — which does not merely
+        # slow the event loop down, it stops it. A py-spy dump taken while an
+        # Autopilot submission hung showed the loop's MainThread parked in
+        # canonicalize_url under cross_source_deduplicate: every other task,
+        # including the live Playwright submission, was frozen for the duration
+        # and the job died on its 480s watchdog having never reached submit.
+        #
+        # Only the pure computation moves to a thread. The SQLAlchemy session
+        # stays on this thread, since a Session is not safe to share across
+        # threads.
+        existing_jobs = snapshot.get("jobs") or []
+        merged = await asyncio.to_thread(
+            lambda: _prune_stale_jobs(_merge_jobs(existing_jobs, scored))
+        )
         partial_at = _utc_now()
         updated = {
             **snapshot,

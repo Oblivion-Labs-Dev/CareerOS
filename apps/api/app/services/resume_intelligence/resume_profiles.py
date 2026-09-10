@@ -87,11 +87,30 @@ def create_resume_profile(db: Session, name: str, resume: dict[str, Any] | None 
     return profile
 
 
+# A resume profile is a named resume variant, nothing more. It must never carry
+# its own copy of the candidate's identity, address or screening answers: those
+# live on the canonical profile, and a second copy here silently goes stale —
+# this row still said "Seattle" long after the profile said "Auburn".
+_PROFILE_OWNED_KEYS = frozenset({
+    "city", "state", "country", "zip", "postalCode", "streetAddress", "address",
+    "location", "email", "phone", "fullName", "firstName", "lastName",
+    "sponsorship", "workAuthorization", "workAuth", "raceEthnicity", "hispanic",
+    "veteran", "disability", "gender", "pronouns", "noticePeriod", "relocate",
+    "school", "degree", "discipline", "customFields",
+})
+
+
+def strip_profile_owned_keys(profile: dict[str, Any]) -> dict[str, Any]:
+    """Drop any canonical-profile fields that leaked onto a resume profile."""
+    return {k: v for k, v in profile.items() if k not in _PROFILE_OWNED_KEYS}
+
+
 def update_resume_profile(db: Session, profile_id: str, patch: dict[str, Any]) -> dict[str, Any] | None:
     current = get_resume_profile(db, profile_id)
     if not current:
         return None
-    merged = {**current, **patch, "id": profile_id, "updatedAt": now_iso()}
+    merged = strip_profile_owned_keys({**current, **patch})
+    merged.update({"id": profile_id, "updatedAt": now_iso()})
     saved = upsert_entity(db, ENTITY_RESUME_PROFILE, merged)
     if saved.get("isDefault"):
         _sync_default_document(db, saved)

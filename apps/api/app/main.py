@@ -102,6 +102,19 @@ logger.addHandler(file_handler)
 logging.getLogger("uvicorn.error").addHandler(file_handler)
 logging.getLogger("uvicorn.access").addHandler(file_handler)
 
+# The LLM client logs under "careeros.*" (no underscore), a different tree from
+# "career_os" above, so without this its per-call telemetry — model, token
+# counts, latency, context usage, retries and fallback events — was written to a
+# logger with no handler and silently discarded. Everything CareerOS logs should
+# land in the same file regardless of which spelling the module picked.
+careeros_logger = logging.getLogger("careeros")
+careeros_logger.setLevel(logging.INFO)
+careeros_logger.addHandler(file_handler)
+console_handler = logging.StreamHandler()
+console_handler.setFormatter(logging.Formatter("[%(levelname)s] [%(name)s]: %(message)s"))
+careeros_logger.addHandler(console_handler)
+logger.addHandler(console_handler)
+
 app = FastAPI(
     title="CareerOS API",
     description="Backend for CareerOS / ApplyPilot",

@@ -42,6 +42,48 @@ async def stop_autopilot(
     return {"success": True, "run": run}
 
 
+@router.get("/autopilot/queue-preparation")
+def get_queue_preparation_status() -> dict[str, Any]:
+    """Live state of the background queue pipeline.
+
+    Reports what the continuous scrape -> dedupe -> eligibility -> Mistral match
+    -> queue preparation has actually done, so the operational view never has to
+    infer progress from the size of the queue alone.
+    """
+    from app.services.application_assistant.queue_preprocessor import get_preprocessor, get_stats
+
+    preprocessor = get_preprocessor()
+    stats = get_stats()
+    stats["running"] = preprocessor.is_running()
+    return {"success": True, "preparation": stats}
+
+
+@router.post("/autopilot/queue-preparation/start")
+async def start_queue_preparation() -> dict[str, Any]:
+    from app.services.application_assistant.queue_preprocessor import get_preprocessor
+
+    return await get_preprocessor().start()
+
+
+@router.post("/autopilot/queue-preparation/stop")
+async def stop_queue_preparation() -> dict[str, Any]:
+    from app.services.application_assistant.queue_preprocessor import get_preprocessor
+
+    return await get_preprocessor().stop()
+
+
+# A live run's counters should still look like they are moving, so this is
+# deliberately shorter than the dashboard aggregate TTL.
+AUTOPILOT_STATUS_TTL_SECONDS = 3.0
+
+# The job list is invalidated on every write, so this TTL only governs how
+# quickly a change made by the background runner (not by the user) appears.
+AUTOPILOT_JOBS_TTL_SECONDS = 5.0
+
+# How long an assisted fill leaves the browser open for the candidate. It ends
+# as soon as they close the window, so this is only the ceiling.
+ASSISTED_HANDOFF_SECONDS = 600.0
+
 @router.get("/autopilot/status")
 def get_autopilot_status() -> dict[str, Any]:
     # No Depends(db_session): this is one of the most frequently polled endpoints
@@ -54,9 +96,18 @@ def get_autopilot_status() -> dict[str, Any]:
     from app.services.application_assistant.autopilot_runner import AutopilotRunner
     from app.db.store import session_scope
 
-    runner = AutopilotRunner.get_instance()
-    with session_scope() as db:
-        return runner.get_status(db)
+    # Also served from the background-refreshed read cache: the dashboard polls
+    # this every few seconds from several components at once, and the status is
+    # an aggregate that is allowed to be a beat behind. A short TTL keeps a live
+    # run's progress visibly moving while taking the recompute off every poll.
+    from app.services.read_cache import read_cache
+
+    def _load() -> dict[str, Any]:
+        runner = AutopilotRunner.get_instance()
+        with session_scope() as db:
+            return runner.get_status(db)
+
+    return read_cache.get("autopilot_status", AUTOPILOT_STATUS_TTL_SECONDS, _load)
 
 
 @router.get("/autopilot/events")
@@ -164,9 +215,31 @@ def get_self_healing_log() -> dict[str, Any]:
     }
 
 
+# Per-job fields no card or side panel reads, and which dominate the response:
+# across a sample of rows, checkpointHistory and submissionEvidence alone were
+# about seven eighths of the bytes. A page of 20 jobs was 185KB, which is what
+# made the All tab feel slow — the backend was already answering in ~20ms. The
+# journey view fetches checkpoints on its own when a job is opened.
+_LIST_OMITTED_FIELDS = (
+    "checkpointHistory",
+    "submissionEvidence",
+    "fieldsFilled",
+    "confirmationScreenshot",
+    "presubmitScreenshot",
+    "matchReasons",
+    "aiExplanation",
+)
+
+
+def _lean_job(job: dict[str, Any]) -> dict[str, Any]:
+    """A job row trimmed to what the applications list actually renders."""
+    return {k: v for k, v in job.items() if k not in _LIST_OMITTED_FIELDS}
+
+
 @router.get("/autopilot/jobs")
 def get_autopilot_jobs_list(
     status: str | None = Query(default=None, description="Single status, or comma-separated list (e.g. QUEUED,NEEDS_REVIEW,STAGED)"),
+    search: str | None = Query(default=None),
     role: str | None = Query(default=None, description="Case-insensitive substring match against job title"),
     location: str | None = Query(default=None, description="Case-insensitive substring match against job location"),
     company: str | None = Query(default=None, description="Case-insensitive substring match against company name"),
@@ -190,15 +263,34 @@ def get_autopilot_jobs_list(
     each request's full lifetime is how the pool gets exhausted under load. See
     get_autopilot_status above.
     """
-    from app.services.application_assistant.persistence import list_autopilot_jobs
+    from app.services.application_assistant.persistence import (
+        AUTOPILOT_JOBS_CACHE_KEY,
+        list_autopilot_jobs,
+    )
     from app.db.store import session_scope
+    from app.services.read_cache import read_cache
 
-    statuses = [s.strip() for s in status.split(",")] if status else [None]
-    jobs: list[dict[str, Any]] = []
-    with session_scope() as db:
-        for s in statuses:
-            jobs.extend(list_autopilot_jobs(db, status=s))
+    statuses = {s.strip() for s in status.split(",")} if status else None
 
+    # The whole job list is cached, rather than one cache entry per query-string
+    # combination: the filters below are cheap once the rows are in memory, and
+    # a shared list means a search box that fires on every keystroke does not
+    # each time re-parse every row of the table. Writes invalidate it, so the
+    # user's own Apply / Mark submitted still shows up immediately.
+    def _load_all_jobs() -> list[dict[str, Any]]:
+        with session_scope() as db:
+            return list_autopilot_jobs(db)
+
+    all_jobs = read_cache.get(AUTOPILOT_JOBS_CACHE_KEY, AUTOPILOT_JOBS_TTL_SECONDS, _load_all_jobs)
+    jobs = [job for job in all_jobs if not statuses or job.get("status") in statuses]
+    status_counts: dict[str, int] = {}
+    for job in all_jobs:
+        key = str(job.get("status") or "QUEUED")
+        status_counts[key] = status_counts.get(key, 0) + 1
+    if search and search.strip():
+        needle = search.strip().lower()
+        jobs = [j for j in jobs if any(needle in str(j.get(k) or "").lower()
+                for k in ("company", "title", "location", "status", "lastErrorType"))]
     role_q = (role or "").strip().lower()
     location_q = (location or "").strip().lower()
     company_q = (company or "").strip().lower()
@@ -210,18 +302,25 @@ def get_autopilot_jobs_list(
         jobs = [j for j in jobs if company_q in str(j.get("company") or "").lower()]
 
     reverse = sortDir.lower() != "asc"
-    if sortBy in ("submittedAt", "updatedAt"):
+    jobs.sort(key=lambda j: str(j.get("id") or ""))
+    if sortBy == "company":
+        jobs.sort(key=lambda j: str(j.get("company") or "").lower(), reverse=reverse)
+    elif sortBy == "priority":
+        from app.services.application_assistant.application_list_priority import application_list_priority
+        jobs.sort(key=application_list_priority, reverse=reverse)
+    elif sortBy in ("submittedAt", "updatedAt"):
         jobs.sort(key=lambda j: str(j.get(sortBy) or j.get("updatedAt") or ""), reverse=reverse)
     else:
         jobs.sort(key=lambda j: j.get("matchScore") or 0, reverse=reverse)
 
     total = len(jobs)
-    page = jobs[offset:offset + limit]
+    page = [_lean_job(job) for job in jobs[offset:offset + limit]]
     return {
         "success": True,
         "jobs": page,
         "count": len(page),
         "total": total,
+        "statusCounts": status_counts,
         "hasMore": offset + limit < total,
     }
 
@@ -276,11 +375,21 @@ def get_autopilot_job_resume(
 @router.get("/autopilot/staged")
 def get_staged_applications() -> dict[str, Any]:
     # No Depends(db_session) — see get_autopilot_status above.
-    from app.services.application_assistant.persistence import list_autopilot_jobs
+    # Shares the cached job list with /autopilot/jobs rather than re-reading the
+    # table: the dashboard polls both together, so this was parsing every row a
+    # second time for a filter it can do in memory.
+    from app.services.application_assistant.persistence import (
+        AUTOPILOT_JOBS_CACHE_KEY,
+        list_autopilot_jobs,
+    )
     from app.db.store import session_scope
+    from app.services.read_cache import read_cache
 
-    with session_scope() as db:
-        jobs = list_autopilot_jobs(db)
+    def _load_all_jobs() -> list[dict[str, Any]]:
+        with session_scope() as db:
+            return list_autopilot_jobs(db)
+
+    jobs = read_cache.get(AUTOPILOT_JOBS_CACHE_KEY, AUTOPILOT_JOBS_TTL_SECONDS, _load_all_jobs)
     staged = [j for j in jobs if j.get("status") in ("STAGED", "NEEDS_REVIEW")]
     return {"staged": staged, "count": len(staged)}
 
@@ -456,14 +565,21 @@ def reset_submitted_autopilot_jobs(
     status_filter = payload.get("status")  # Optional: "SUBMITTED", "ALL", etc.
     all_jobs = list_autopilot_jobs(db)
 
+    # Statuses this bulk action must never touch. It deletes the autopilot row
+    # so the posting can be applied to again, which is destructive for all
+    # three: a submitted application already reached a real employer, and
+    # skipped/ineligible jobs are the list the user works through by hand.
+    # Excluded whether the caller asks for "ALL" or names the status directly.
+    BULK_RESET_EXCLUDED = ("SUBMITTED", "SKIPPED", "INELIGIBLE")
+
     reset_count = 0
     for job in all_jobs:
         job_status = job.get("status", "")
         should_reset = False
         if not status_filter or status_filter == "ALL":
-            should_reset = job_status in ("SUBMITTED", "STAGED", "FAILED", "SKIPPED", "PROCESSED", "APPLYING")
-        elif status_filter == "SUBMITTED":
-            should_reset = job_status == "SUBMITTED"
+            should_reset = job_status in ("STAGED", "FAILED", "PROCESSED", "APPLYING")
+        elif status_filter in BULK_RESET_EXCLUDED:
+            should_reset = False
         elif job_status == status_filter:
             should_reset = True
 
@@ -607,6 +723,143 @@ async def reprocess_single_autopilot_job(id: str) -> dict[str, Any]:
         "id": id,
         "message": f"Queued '{job_title}'. Press Start Run when you are ready to process it.",
     }
+
+
+@router.post("/autopilot/reconcile-manual-submissions")
+def reconcile_manual_submissions_route() -> dict[str, Any]:
+    """Mark manually-completed applications submitted from their confirmation email.
+
+    Employers do not send webhooks, but they all email the candidate, and
+    CareerOS already reads that inbox — so the confirmation is the signal that a
+    manually-finished application actually went out.
+    """
+    from app.services.application_assistant.manual_submission_reconciler import (
+        reconcile_manual_submissions,
+    )
+
+    return reconcile_manual_submissions()
+
+
+@router.post("/autopilot/jobs/{id}/assisted-fill")
+async def assisted_fill(id: str) -> dict[str, Any]:
+    """Autofill this application in a visible browser and hand it to the user.
+
+    For postings automation can reach but must not finish — a CAPTCHA guards the
+    board, or a question only the candidate can answer. Everything the profile
+    can answer gets typed in, then the window is left open so the person does
+    only the part that actually needs them, instead of re-typing the whole form.
+    """
+    from app.db.store import session_scope
+    from app.services.application_assistant.persistence import (
+        get_autopilot_job,
+        get_settings,
+        list_answer_library,
+    )
+    from app.services.application_assistant.playwright_autopilot_executor import (
+        execute_live_playwright_submission,
+    )
+    from app.db.store import get_kv
+
+    with session_scope() as db:
+        job = get_autopilot_job(db, id)
+        if not job:
+            raise HTTPException(status_code=404, detail="Application not found")
+        profile = get_kv(db, "profile") or {}
+        try:
+            answer_lib = list_answer_library(db)
+        except Exception:
+            answer_lib = []
+        settings_row = get_settings(db) or {}
+
+    browser_settings = settings_row.get("browser") or {}
+    result = await execute_live_playwright_submission(
+        job_item=job,
+        profile=profile,
+        answer_lib=answer_lib,
+        # Always visible: the whole point is that a person finishes it.
+        headless=False,
+        timeout_sec=float(browser_settings.get("timeout") or 60000) / 1000.0,
+        fill_only=True,
+        hand_off_seconds=ASSISTED_HANDOFF_SECONDS,
+    )
+
+    filled = result.get("fieldsFilled") or {}
+
+    # If they submitted it in the window we opened, record that here — the whole
+    # point is that they should not have to come back and press "Mark submitted"
+    # for something they just did.
+    if result.get("submitted"):
+        from app.db.store import now_iso
+        from app.services.application_assistant.persistence import save_autopilot_job
+
+        with session_scope() as db:
+            job = get_autopilot_job(db, id) or job
+            job["previousStatus"] = job.get("status")
+            job["status"] = "SUBMITTED"
+            job["submittedAt"] = now_iso()
+            job["submissionSource"] = "manual-assisted"
+            job["hasPersistentBlock"] = False
+            job["answers"] = {**(job.get("answers") or {}), **filled}
+            job["submissionEvidence"] = result.get("evidence") or {}
+            save_autopilot_job(db, job)
+        return {
+            "success": True,
+            "assisted": True,
+            "submitted": True,
+            "filledCount": len(filled),
+            "message": f"You submitted the {job.get('company')} application — marked as submitted.",
+        }
+
+    return {
+        "success": True,
+        "assisted": True,
+        "submitted": False,
+        "filledCount": len(filled),
+        "fieldsFilled": filled,
+        "message": (
+            f"Filled {len(filled)} field(s). Finish the challenge and press Submit "
+            "in the browser window that opened."
+        ),
+    }
+
+
+@router.post("/autopilot/jobs/{id}/mark-submitted")
+def mark_autopilot_job_submitted(
+    id: str,
+    payload: dict[str, Any] = Body(default_factory=dict),
+) -> dict[str, Any]:
+    """Record that the user submitted this application by hand.
+
+    Attempts Autopilot could not complete stay in NEEDS_REVIEW/FAILED so the
+    user can open the posting and apply themselves; this is how they then take
+    the job off that list. Marking is reversible — the prior status is kept so
+    the card can be restored if it was pressed by mistake.
+    """
+    from app.services.application_assistant.persistence import get_autopilot_job, save_autopilot_job
+    from app.db.store import session_scope, now_iso
+
+    with session_scope() as db:
+        job = get_autopilot_job(db, id)
+        if not job:
+            raise HTTPException(status_code=404, detail="Application not found")
+
+        if job.get("status") == "SUBMITTED" and job.get("submissionSource") == "manual":
+            restored = job.get("previousStatus") or "NEEDS_REVIEW"
+            job["status"] = restored
+            job["previousStatus"] = None
+            job["submittedAt"] = None
+            job["submissionSource"] = None
+            saved = save_autopilot_job(db, job)
+            return {"success": True, "job": saved, "submitted": False}
+
+        job["previousStatus"] = job.get("status")
+        job["status"] = "SUBMITTED"
+        job["submittedAt"] = now_iso()
+        job["submissionSource"] = "manual"
+        job["hasPersistentBlock"] = False
+        job["lastError"] = None
+        saved = save_autopilot_job(db, job)
+        return {"success": True, "job": saved, "submitted": True}
 
 
 @router.post("/autopilot/jobs/{id}/reset")

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { CountUp } from "@/components/count-up";
 import { getAutopilotJobs } from "@/lib/application-assistant-api";
 import { getClientApiBaseUrl } from "@/lib/api";
 import { fetchCachedJson } from "@/lib/client-fetch-cache";
@@ -130,6 +131,51 @@ export function ApplicationAnalytics({ refreshKey = 0 }: { refreshKey?: number }
   return (
     <div className={styles.wrap}>
       <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+        {/* Daily chart panel */}
+        <div className={styles.chartPanel}>
+          <div className={styles.chartHead}>
+            <div>
+              <h2 className={styles.chartTitle}>Applications per day</h2>
+              <span className={styles.chartSubtitle} style={{ marginLeft: "0.5rem" }}>
+                Autopilot submissions
+              </span>
+            </div>
+            <span className={styles.chartSubtitle}>Last {DAYS_SHOWN} days{stats ? ` · ${stats.dailyAvg} / day this week` : ""}</span>
+          </div>
+          {!stats ? (
+            <div className={styles.emptyChart}>Loading activity…</div>
+          ) : stats.total === 0 ? (
+            <div className={styles.emptyChart}>Your daily activity will appear after your first submission.</div>
+          ) : (
+            <div className={styles.chart}>
+              {stats.days.map((day, index) => {
+                const isToday = index === stats.days.length - 1;
+                const heightPct = Math.round((day.count / stats.max) * 100);
+                const label = new Date(`${day.key}T00:00:00`).toLocaleDateString(undefined, {
+                  month: "numeric",
+                  day: "numeric",
+                });
+                return (
+                  <div
+                    key={day.key}
+                    className={`${styles.barCol} ${isToday ? styles["barCol--today"] : ""}`}
+                    tabIndex={0}
+                    aria-label={`${day.count} applications on ${label}`}
+                    title={`${day.count} application${day.count === 1 ? "" : "s"} on ${label}`}
+                  >
+                    <span className={styles.barCount}>
+                      {day.count > 0 ? <CountUp value={day.count} delayMs={index * 35} durationMs={800} /> : ""}
+                    </span>
+                    <div className={styles.barTrack}>
+                      <div className={styles.bar} style={{ height: `${heightPct}%`, minHeight: day.count ? undefined : 0, animationDelay: `${index * 35}ms` }} />
+                    </div>
+                    <span className={styles.barLabel}>{label}</span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
         <div className={styles.statRow}>
           {/* Card 1: Total Summed Up */}
           <div className={styles.statTile} data-tone="accent">
@@ -137,7 +183,7 @@ export function ApplicationAnalytics({ refreshKey = 0 }: { refreshKey?: number }
               <IconSend className="w-3.5 h-3.5" /> Total submitted
             </span>
             <div className={styles.statValueRow}>
-              <span className={styles.statValue}>{stats ? stats.total : "—"}</span>
+              <span className={styles.statValue}><CountUp value={stats ? stats.total : null} locale /></span>
             </div>
             <p className={styles.statSub}>
               {stats ? `${stats.autopilotCount} Autopilot verified` : "All-time applications"}
@@ -150,7 +196,7 @@ export function ApplicationAnalytics({ refreshKey = 0 }: { refreshKey?: number }
               <IconBolt className="w-3.5 h-3.5" /> CareerOS Autopilot
             </span>
             <div className={styles.statValueRow}>
-              <span className={styles.statValue}>{stats ? stats.autopilotCount : "—"}</span>
+              <span className={styles.statValue}><CountUp value={stats ? stats.autopilotCount : null} locale delayMs={60} /></span>
             </div>
             <p className={styles.statSub}>Automated submissions</p>
           </div>
@@ -161,7 +207,7 @@ export function ApplicationAnalytics({ refreshKey = 0 }: { refreshKey?: number }
               <IconInbox className="w-3.5 h-3.5" /> Manual (Gmail)
             </span>
             <div className={styles.statValueRow}>
-              <span className={styles.statValue}>{stats ? stats.manualCount : "—"}</span>
+              <span className={styles.statValue}><CountUp value={stats ? stats.manualCount : null} locale delayMs={120} /></span>
             </div>
             <p className={styles.statSub}>Sync disabled (avoid duplicates)</p>
           </div>
@@ -172,7 +218,7 @@ export function ApplicationAnalytics({ refreshKey = 0 }: { refreshKey?: number }
               <IconCheckCircle className="w-3.5 h-3.5" /> Today
             </span>
             <div className={styles.statValueRow}>
-              <span className={styles.statValue}>{stats ? stats.todayCount : "—"}</span>
+              <span className={styles.statValue}><CountUp value={stats ? stats.todayCount : null} locale delayMs={180} /></span>
             </div>
             <p className={styles.statSub}>Applications submitted today</p>
           </div>
@@ -183,7 +229,7 @@ export function ApplicationAnalytics({ refreshKey = 0 }: { refreshKey?: number }
               <IconClock className="w-3.5 h-3.5" /> This week
             </span>
             <div className={styles.statValueRow}>
-              <span className={styles.statValue}>{stats ? stats.last7 : "—"}</span>
+              <span className={styles.statValue}><CountUp value={stats ? stats.last7 : null} locale delayMs={240} /></span>
               {stats && (
                 <span
                   className={`${styles.statTrend} ${
@@ -194,7 +240,8 @@ export function ApplicationAnalytics({ refreshKey = 0 }: { refreshKey?: number }
                       : styles.statTrendFlat
                   }`}
                 >
-                  {stats.trendPct > 0 ? "▲" : stats.trendPct < 0 ? "▼" : "–"} {Math.abs(stats.trendPct)}%
+                  {stats.trendPct > 0 ? "▲" : stats.trendPct < 0 ? "▼" : "–"}{" "}
+                  <CountUp value={Math.abs(stats.trendPct)} suffix="%" locale delayMs={300} />
                 </span>
               )}
             </div>
@@ -202,47 +249,7 @@ export function ApplicationAnalytics({ refreshKey = 0 }: { refreshKey?: number }
           </div>
         </div>
 
-        {/* Daily chart panel */}
-        <div className={styles.chartPanel}>
-          <div className={styles.chartHead}>
-            <div>
-              <span className={styles.chartTitle}>Applications per day</span>
-              <span className={styles.chartSubtitle} style={{ marginLeft: "0.5rem" }}>
-                (Autopilot + Manual Gmail)
-              </span>
-            </div>
-            <span className={styles.chartSubtitle}>Last {DAYS_SHOWN} days</span>
-          </div>
-          {!stats ? (
-            <div className={styles.emptyChart}>Loading activity…</div>
-          ) : stats.total === 0 ? (
-            <div className={styles.emptyChart}>No submissions yet — sync Gmail or start an Autopilot run.</div>
-          ) : (
-            <div className={styles.chart}>
-              {stats.days.map((day, index) => {
-                const isToday = index === stats.days.length - 1;
-                const heightPct = Math.max(4, Math.round((day.count / stats.max) * 100));
-                const label = new Date(`${day.key}T00:00:00`).toLocaleDateString(undefined, {
-                  month: "numeric",
-                  day: "numeric",
-                });
-                return (
-                  <div
-                    key={day.key}
-                    className={`${styles.barCol} ${isToday ? styles["barCol--today"] : ""}`}
-                    title={`${day.count} application${day.count === 1 ? "" : "s"} on ${label}`}
-                  >
-                    <span className={styles.barCount}>{day.count > 0 ? day.count : ""}</span>
-                    <div className={styles.barTrack}>
-                      <div className={styles.bar} style={{ height: `${heightPct}%` }} />
-                    </div>
-                    <span className={styles.barLabel}>{label}</span>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
+
       </div>
     </div>
   );

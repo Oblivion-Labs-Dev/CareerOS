@@ -223,22 +223,31 @@ def sync_scraper_jobs(
 
 
 def scraper_sync_status(db: Session) -> dict[str, Any]:
-    snap = jd_store.get_snapshot(db)
-    scraper_jobs = snap.get("jobs") or []
-    scraper_total = len(scraper_jobs)
-    scraper_ids = {str(j.get("id")) for j in scraper_jobs if j.get("id")}
+    # Reads the small summary rather than the full ~23MB discovery snapshot.
+    # This runs on every dashboard load, and parsing the whole snapshot for four
+    # numbers was ~0.7s of the ~1.2s the endpoint took — the visible lag when
+    # switching pages.
+    summary = jd_store.get_snapshot_summary(db)
+    scraper_total = int(summary.get("jobCount") or 0)
+    scraper_ids = set(summary.get("jobIds") or [])
     synced_ids = {sid for sid in get_synced_scraper_job_ids(db) if sid in scraper_ids}
     return {
         "scraperTotal": scraper_total,
         "syncedTotal": len(synced_ids),
-        "lastScrapedAt": snap.get("scrapedAt"),
+        "lastScrapedAt": summary.get("scrapedAt"),
         "pendingSync": max(0, scraper_total - len(synced_ids)),
     }
 
 
 def get_synced_scraper_job_ids(db: Session) -> set[str]:
+    # Filtered in SQLite rather than by loading and parsing every discovered-job
+    # row: only a couple of dozen are flagged addedToAssistant, but the unfiltered
+    # scan cost ~0.5s on every dashboard load.
+    from app.db.store import list_entities_where_json
+    from app.services.application_assistant.persistence import ENTITY_DISCOVERED_JOB
+
     return {
         str(j.get("scraperJobId"))
-        for j in list_discovered_jobs(db, active_only=False, exclude_demo=False)
+        for j in list_entities_where_json(db, ENTITY_DISCOVERED_JOB, "$.addedToAssistant")
         if is_added_to_assistant(j) and j.get("scraperJobId")
     }

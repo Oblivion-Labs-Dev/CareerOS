@@ -238,3 +238,26 @@
   font-size: 0.78rem;
   color: var(--muted-dim);
 }
+.statRow { gap:0; border:1px solid var(--border); border-radius:18px; overflow:hidden; background:var(--card); }
+.statRow .statTile { border:0; border-right:1px solid var(--border); border-radius:0; background:transparent; box-shadow:none; padding:24px 20px; }
+.statRow .statTile:last-child { border-right:0; }
+.statRow .statTile:hover { transform:none; background:color-mix(in srgb,var(--accent) 4%,var(--card)); box-shadow:none; }
+.statRow .statValue { font-family:var(--font-outfit),sans-serif; font-size:36px; font-weight:500; letter-spacing:-.05em; }
+.statRow .statLabel { font-size:9px; letter-spacing:.06em; }
+.statRow .statSub { font-size:10px; line-height:1.5; margin-top:9px; }
+.wrap .chartPanel { border-radius:20px; box-shadow:none; padding:26px; }
+.chartPanel .chart { height:210px; background:repeating-linear-gradient(to top,transparent 0,transparent 49px,var(--border) 50px,transparent 51px); }
+.chartPanel .barTrack { max-width:36px; background:transparent; }
+.chartPanel .bar { box-shadow:none; border-radius:5px 5px 2px 2px; background:linear-gradient(to top,var(--accent),color-mix(in srgb,var(--accent) 45%,#dce9b7)); transform-origin:bottom; animation:grow .8s ease-out both; }
+.chartPanel .chartTitle { font-size:15px; font-weight:600; }
+@keyframes grow { from { transform:scaleY(.05); } to { transform:scaleY(1); } }
+@media(prefers-reduced-motion:reduce) { .chartPanel .bar { animation:none; } }
+:global([data-motion=paused]) .chartPanel .bar { animation:none; }
+.wrap .chartPanel { margin-top:4px; background:radial-gradient(ellipse at 90% 0,color-mix(in srgb,var(--accent) 6%,transparent),transparent 60%),var(--card); }
+.chartPanel .chartHead { align-items:center; flex-wrap:wrap; margin-bottom:26px; }
+.chartPanel h2.chartTitle { display:inline; margin:0; font-family:var(--font-outfit),sans-serif; font-size:21px; letter-spacing:-.02em; }
+.chartPanel .chart { height:250px; }
+.chartPanel .barCol:focus-visible { outline:2px solid var(--accent); outline-offset:3px; border-radius:6px; }
+.chartPanel .barCol:hover .bar,.chartPanel .barCol:focus-visible .bar { filter:brightness(1.13); box-shadow:0 0 18px color-mix(in srgb,var(--accent) 20%,transparent); }
+.chartPanel .barCol:hover .barCount,.chartPanel .barCol:focus-visible .barCount { color:var(--accent); }
+@media(max-width:600px) { .chartPanel .chart { height:190px; }.chartPanel .chartHead { gap:10px; }.chartPanel .chartSubtitle { display:block; margin-left:0!important; margin-top:6px; } }

@@ -2,6 +2,14 @@
 
 from ._common import *  # noqa: F401,F403
 
+from app.db.store import session_scope
+from app.services.read_cache import read_cache
+
+# How stale a dashboard aggregate may get before a background refresh is
+# kicked off. The page polls every 15s, so a few seconds of drift is
+# invisible, and it keeps the expensive recompute off the request path.
+DASHBOARD_STATS_TTL_SECONDS = 10.0
+
 router = APIRouter(prefix="/application-assistant", tags=["application-assistant"])
 
 
@@ -141,7 +149,28 @@ def scraper_jobs_status(db: Session = Depends(db_session)) -> dict[str, Any]:
 
 
 @router.get("/dashboard/stats")
-def dashboard_stats(db: Session = Depends(db_session)) -> dict[str, Any]:
+def dashboard_stats() -> dict[str, Any]:
+    # Served from a background-refreshed cache. Every number here is an
+    # aggregate over the drafts table and the discovery snapshot, and none of
+    # them has to be exact at the instant the page renders — so the request
+    # returns whatever was last computed and a refresh runs on its own thread.
+    # Recomputing inline made this endpoint take ~1.2s, which is what the user
+    # felt as a lag when switching pages.
+    return read_cache.get("dashboard_stats", DASHBOARD_STATS_TTL_SECONDS, _compute_dashboard_stats)
+
+
+def _compute_dashboard_stats() -> dict[str, Any]:
+    from app.services.application_assistant.qwen_activity import get_active_prep_from_logs, get_logs, get_metrics
+    from app.services.application_assistant.agent import get_agent_run
+    from app.services.application_assistant.scraper_import import scraper_sync_status
+
+    # Opens its own session: this runs on a background thread, and a SQLAlchemy
+    # Session belongs to the thread that created it.
+    with session_scope() as db:
+        return _dashboard_stats_payload(db)
+
+
+def _dashboard_stats_payload(db: Session) -> dict[str, Any]:
     from app.services.application_assistant.qwen_activity import get_active_prep_from_logs, get_logs, get_metrics
     from app.services.application_assistant.agent import get_agent_run
     from app.services.application_assistant.scraper_import import scraper_sync_status

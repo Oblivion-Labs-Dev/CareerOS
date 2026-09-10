@@ -13,7 +13,23 @@ import json
 import logging
 import re
 from typing import Any
+from app.services.application_assistant.llm_client import (
+    DEFAULT_CONTEXT_WINDOW,
+    DEFAULT_LOCAL_MODEL,
+    estimate_tokens,
+)
 from app.services.application_assistant.tailoring_metadata import authorization_summary, job_match_score
+
+# Rough size of the fixed instruction block in the tailoring prompt (mode
+# rules, formatting rules, the absolute-rule paragraph). Measured, not
+# guessed: shrink it and this allowance should shrink with it.
+INSTRUCTION_TOKEN_ALLOWANCE = 900
+# The answer is 17 rewritten bullets, each roughly the length of the original
+# plus the <b> markup, so budget the master-bullet size again plus slack.
+OUTPUT_TOKEN_HEADROOM = 400
+# Never plan to fill the context exactly; chat templates and tokenizer drift
+# both cost tokens this estimator cannot see.
+CONTEXT_SAFETY_MARGIN = 512
 
 logger = logging.getLogger("career_os.resume_diff_service")
 
@@ -301,6 +317,8 @@ async def generate_role_tailoring_diff(
 
     tailored_bullets: list[str] = []
     tailoring_failed = False
+    tailoring_model = ""
+    tailoring_error = ""
 
     if valid_mode == "off":
         # Off: passthrough exact master bullets with zero alteration
@@ -313,6 +331,9 @@ async def generate_role_tailoring_diff(
             "llm": {
                 "enabled": True,
                 "provider": "ollama",
+                # Context the server actually serves; the prompt below is sized
+                # against this rather than against the model card maximum.
+                "contextWindow": DEFAULT_CONTEXT_WINDOW,
                 # mistral-small3.2:24b needs ~16GB and this box has an 8GB
                 # RTX 2070 Super Max-Q, so only ~5.8GB ever loaded and the rest
                 # ran on CPU at ~2.6 tok/s - a 17-bullet completion never
@@ -320,7 +341,7 @@ async def generate_role_tailoring_diff(
                 # template and every "tailored" resume came out byte-identical.
                 # mistral:7b-instruct fits entirely in VRAM and does the same
                 # 17-bullet pass in ~9s measured.
-                "model": "mistral:7b-instruct",
+                "model": DEFAULT_LOCAL_MODEL,
                 "baseUrl": "http://localhost:11434/v1",
                                 # Deliberately short. mistral-small3.2:24b runs mostly on CPU here
                 # (~2.6 tok/s measured), so a 17-bullet completion never finishes no
@@ -355,9 +376,29 @@ async def generate_role_tailoring_diff(
             for i, b in enumerate(master_bullets)
         )
 
-        # 800 chars truncated most postings before their requirements section -
-        # exactly the part worth tailoring against. Keep enough to include it.
-        jd_text = description.strip()[:6000] or "(no job description available)"
+        # The job description is the only elastic part of this prompt: the 17
+        # master bullets, the instructions and the per-bullet length targets are
+        # all fixed, and the answer needs room for 17 rewritten bullets. Size the
+        # JD against whatever is left instead of a flat 6000 characters, so the
+        # request cannot overflow the context and come back truncated (which is
+        # what silently produced untailored resumes before).
+        fixed_prompt_tokens = estimate_tokens(
+            chr(10).join(master_bullets) + length_targets
+        ) + INSTRUCTION_TOKEN_ALLOWANCE
+        expected_output_tokens = estimate_tokens(chr(10).join(master_bullets)) + OUTPUT_TOKEN_HEADROOM
+        jd_token_budget = (
+            DEFAULT_CONTEXT_WINDOW - fixed_prompt_tokens - expected_output_tokens - CONTEXT_SAFETY_MARGIN
+        )
+        jd_char_budget = max(800, jd_token_budget * 4)
+        full_jd = description.strip()
+        jd_text = full_jd[:jd_char_budget] or "(no job description available)"
+        if len(full_jd) > jd_char_budget:
+            logger.info(
+                "Tailoring prompt budget: JD trimmed %d -> %d chars "
+                "(fixed ~%d tok, output ~%d tok, context %d tok)",
+                len(full_jd), jd_char_budget, fixed_prompt_tokens,
+                expected_output_tokens, DEFAULT_CONTEXT_WINDOW,
+            )
 
         prompt = (
             f"You are an expert resume tailoring assistant.\n"
@@ -393,7 +434,13 @@ async def generate_role_tailoring_diff(
         )
 
         try:
-            res = await client.complete(prompt, system="You are an expert ATS resume optimizer. Respond only with a JSON array of strings.")
+            res = await client.complete(
+                prompt,
+                system="You are an expert ATS resume optimizer. Respond only with a JSON array of strings.",
+                task="resume_tailoring",
+            )
+            if not res.get("success"):
+                tailoring_error = str(res.get("error") or "unknown LLM failure")[:300]
             if res.get("success") and res.get("data"):
                 from app.services.application_assistant.resume_response import parse_resume_bullets
                 parsed = parse_resume_bullets(res["data"])
@@ -423,8 +470,17 @@ async def generate_role_tailoring_diff(
                         )
                         for idx, p in enumerate(parsed)
                     ]
-                    logger.info(f"Resume tailored successfully with model: {res.get('usedFallbackModel') or client.model}")
+                    tailoring_model = res.get("usedFallbackModel") or client.model
+                    usage = res.get("usage") or {}
+                    logger.info(
+                        "Resume tailored successfully: model=%s tokens_in=%s tokens_out=%s finish=%s",
+                        tailoring_model,
+                        usage.get("promptTokens"),
+                        usage.get("completionTokens"),
+                        res.get("finishReason"),
+                    )
         except Exception as e:
+            tailoring_error = str(e)[:300]
             logger.warning(f"LLM resume tailoring failed, using template fallback: {e}")
 
         if not tailored_bullets:
@@ -573,6 +629,11 @@ async def generate_role_tailoring_diff(
         # True when the LLM rewrite failed and the generic static template was used,
         # i.e. this resume is NOT actually tailored to this posting.
         "tailoringFailed": tailoring_failed,
+        # Which model actually produced the bullets, and why it did not when
+        # it did not — callers must be able to tell a real tailored resume
+        # from the generic static template without re-deriving it.
+        "tailoringModel": tailoring_model,
+        "tailoringError": tailoring_error,
         "jobDescriptionChars": len(description or ""),
     }
 

@@ -3,11 +3,12 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { ApplicationAnalytics } from "@/components/dashboard/application-analytics";
+import { SearchIntelligence } from "./search-intelligence";
 import { ApplicationInsights } from "@/components/dashboard/application-insights";
 import { useCareerWorkspace } from "@/hooks/use-career-workspace";
-import { getApiOriginForDisplay, getClientApiBaseUrl, postJson } from "@/lib/api";
+import { getApiOriginForDisplay, getClientApiBaseUrl } from "@/lib/api";
 import { discoverHref } from "@/lib/career-workspace";
-import { fetchCachedJson, getCachedStale, invalidateCachedByPrefix } from "@/lib/client-fetch-cache";
+import { fetchCachedJson, getCachedStale } from "@/lib/client-fetch-cache";
 import { DEFAULT_ROLE_FILTER, DEFAULT_TARGET_SEARCH } from "@/lib/career-workspace";
 import styles from "./minimal-dashboard.module.css";
 
@@ -63,8 +64,7 @@ export function MinimalDashboard() {
     return !getCachedStale(`${api}/jobs/discover?${params}`);
   });
   const [error, setError] = useState("");
-  const [gmailSync, setGmailSync] = useState<{ busy: boolean; note: string }>({ busy: false, note: "" });
-  const [refreshKey, setRefreshKey] = useState(0);
+
 
 
   const loadData = useCallback(async () => {
@@ -92,10 +92,6 @@ export function MinimalDashboard() {
     }
   }, [prefs.searchQuery, prefs.location, prefs.roleFilter, prefs.freshness]);
 
-  const syncGmail = useCallback(async () => {
-    setGmailSync({ busy: false, note: "Gmail sync is disabled for now." });
-  }, []);
-
   useEffect(() => {
     void loadData();
   }, [loadData]);
@@ -105,38 +101,13 @@ export function MinimalDashboard() {
 
   return (
     <div className={styles.minimal}>
-      <header className={styles.pageHeader}>
-        <div>
-          <p className={styles.heroEyebrow}>YOUR NEXT CHAPTER</p>
-          <h1 className={styles.pageTitle}>Make your next move.</h1>
-          <p className={styles.pageSubtitle}>A little momentum, every day. Discover your next role, shape your story, and keep your applications moving.</p>
-          <Link className={styles.heroLink} href="/applications">Step into Autopilot <span aria-hidden="true">↗</span></Link>
-        </div>
-        <div className={styles.orbitArt} aria-hidden="true"><span>↗</span></div>
-      </header>
+      <h1 className={styles.pageTitle}>Dashboard</h1>
       {error ? <p className={styles.errorBanner}>{error}</p> : null}
 
       <section className={styles.matchesSection}>
-        <div className={styles.sectionHeader}>
-          <h2>Application analytics</h2>
-          <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", flexWrap: "wrap" }}>
-            {gmailSync.note ? <span className={styles.muted}>{gmailSync.note}</span> : null}
-            <button
-              type="button"
-              className={styles.btnPass}
-              onClick={() => void syncGmail()}
-              disabled={gmailSync.busy}
-              title="Scan Gmail for applications you submitted outside CareerOS and track them here"
-            >
-              {gmailSync.busy ? "Syncing Gmail…" : "Sync Gmail"}
-            </button>
-            <Link href="/applications?tab=autopilot" className={styles.linkAction}>
-              Open Autopilot →
-            </Link>
-          </div>
-        </div>
-        <ApplicationAnalytics refreshKey={refreshKey} />
+        <ApplicationAnalytics />
       </section>
+      <SearchIntelligence />
 
       <section className={styles.matchesSection}>
         <div className={styles.sectionHeader}>

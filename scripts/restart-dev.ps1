@@ -191,7 +191,7 @@ Import-DotEnvFile (Join-Path $RepoRoot '.env')
 Import-DotEnvFile (Join-Path $ApiDir '.env')
 Import-DotEnvFile (Join-Path $WebDir '.env.local')
 
-$apiUrl = 'http://localhost:' + $ApiPort
+$apiUrl = 'http://127.0.0.1:' + $ApiPort
 $webUrl = 'http://localhost:' + $WebPort
 $env:NEXT_PUBLIC_API_URL = $apiUrl
 $env:CAREER_OS_API_PUBLIC_URL = $apiUrl

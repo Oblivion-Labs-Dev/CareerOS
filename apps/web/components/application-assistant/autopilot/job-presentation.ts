@@ -1,6 +1,14 @@
 import type { AutopilotJobRow } from "./job-types";
 
-export type StatusFilter = "all" | "submitted" | "review" | "failed" | "skipped" | "queued" | "ineligible";
+export type StatusFilter =
+  | "all"
+  | "submitted"
+  | "review"
+  | "manual"
+  | "failed"
+  | "skipped"
+  | "queued"
+  | "ineligible";
 
 export type SortMode = "priority" | "match" | "recent" | "company";
 
@@ -8,6 +16,11 @@ export const FILTERS: { id: StatusFilter; label: string; match: (j: AutopilotJob
   { id: "all", label: "All", match: () => true },
   { id: "submitted", label: "Submitted", match: (j) => j.status === "SUBMITTED" },
   { id: "review", label: "Review", match: (j) => j.status === "NEEDS_REVIEW" || j.status === "STAGED" },
+  // Live postings the automation can never finish (a CAPTCHA guards the board,
+  // or its form cannot be driven) but the user can submit by hand. Kept apart
+  // from Review, where answering a question lets Autopilot carry on, and from
+  // Ineligible, which means there is nothing left to apply to.
+  { id: "manual", label: "Manual", match: (j) => j.status === "MANUAL_REVIEW" },
   { id: "failed", label: "Failed", match: (j) => j.status === "FAILED" },
   { id: "skipped", label: "Skipped", match: (j) => j.status === "SKIPPED" },
   { id: "queued", label: "Queued", match: (j) => j.status === "QUEUED" || j.status === "APPLYING" },
@@ -25,23 +38,42 @@ export const SORTS: { id: SortMode; label: string }[] = [
   { id: "company", label: "Company A-Z" },
 ];
 
-/** Mirrors role_location_priority_bonus in the API's job_filter_ranker, so the
- *  order shown here is the order Autopilot actually applies in: Senior-level
- *  roles ahead of Staff/Principal, Seattle ahead of the rest of the US. */
+/** Mirrors role_location_priority_bonus + queue_priority_score in the API's
+ *  job_filter_ranker, so the order shown here is the order Autopilot actually
+ *  applies in: Washington Senior SWE, then any related Washington engineering
+ *  role, then Senior SWE elsewhere in the US, then the rest.
+ *
+ *  The backend writes its own computed `queuePriority` onto queued rows; when
+ *  that is present it is authoritative and used as-is, so the list can never
+ *  drift from the real claim order. The local computation below is the fallback
+ *  for rows written before that field existed. */
 export function priorityRank(j: AutopilotJobRow): number {
+  if (typeof j.queuePriority === "number" && Number.isFinite(j.queuePriority)) {
+    return j.queuePriority;
+  }
   const t = String(j.title || "").toLowerCase();
   const loc = String(j.location || "").toLowerCase();
-  let score = Number(j.matchScore || 0);
+  const score = Number(j.matchScore || 0);
+
   const aboveSenior = ["staff", "principal", "distinguished", "fellow",
     "architect", "director", "head of", "vp ", "vice president"].some((k) => t.includes(k));
-  const isSenior = ["senior software engineer", "sr. software engineer",
-    "sr software engineer", "senior swe"].some((k) => t.includes(k));
-  if (isSenior && !aboveSenior) score += 40;
-  else if (aboveSenior) score -= 40;
-  else if (t.includes("senior") && t.includes("software engineer")) score += 30;
-  else if (t.includes("software engineer") || t.includes("software developer")) score += 10;
-  if (["seattle", "bellevue", "redmond", "kirkland", ", wa", "washington"]
-      .some((k) => loc.includes(k))) score += 25;
+  const isSenior = t.includes("senior") || t.includes("sr. ") || t.includes("sr ");
+  const isEngineering = ["software", "backend", "back end", "full stack", "fullstack",
+    "frontend", "front end", "platform", "infrastructure", "systems", "distributed",
+    "engineer", "developer"].some((k) => t.includes(k));
+  // "Washington, D.C." is not Washington State — see the same guard in the
+  // API's role_location_priority_bonus.
+  const isDc = ["district of columbia", "washington, d.c", "washington d.c",
+    "washington, dc", "washington dc"].some((k) => loc.includes(k));
+  const isWa = !isDc && ["seattle", "bellevue", "redmond", "kirkland", "spokane",
+    "tacoma", ", wa", "wa,", "washington"].some((k) => loc.includes(k));
+  const isUs = isWa || isDc || ["united states", "usa", "u.s.", "remote"].some((k) => loc.includes(k));
+
+  const seniorSwe = isSenior && isEngineering && !aboveSenior;
+  if (seniorSwe && isWa) return score + 120;
+  if (isWa && isEngineering) return score + 90;
+  if (seniorSwe && isUs) return score + 60;
+  if (isUs && isEngineering) return score + 25;
   return score;
 }
 
@@ -53,6 +85,8 @@ export const INELIGIBILITY_LABELS: Record<string, string> = {
   POSTING_EXPIRED: "Posting expired or was removed",
   NOT_A_REAL_POSTING: "Not a real posting",
   DUPLICATE_APPLICATION: "Already applied",
+  BOT_PROTECTED_BOARD: "Board blocks automation (CAPTCHA)",
+  REQUIRES_UNAVAILABLE_INFORMATION: "Needs a detail your profile doesn’t have",
 };
 
 export function statusView(status: string | undefined): { key: string; label: string } {
@@ -60,6 +94,7 @@ export function statusView(status: string | undefined): { key: string; label: st
     case "SUBMITTED": return { key: "submitted", label: "Submitted" };
     case "NEEDS_REVIEW":
     case "STAGED": return { key: "review", label: "In review" };
+    case "MANUAL_REVIEW": return { key: "manual", label: "Apply by hand" };
     case "FAILED": return { key: "failed", label: "Failed" };
     case "SKIPPED": return { key: "skipped", label: "Skipped" };
     case "APPLYING": return { key: "applying", label: "Applying" };

@@ -101,7 +101,7 @@ export function ApplyBoard() {
     return () => clearInterval(interval);
   }, []);
 
-  const modeFor = (job: any): TailoringMode => modeByJob[job.id] || job.tailoringMode || "honest";
+  const modeFor = (job: any): TailoringMode => modeByJob[job.id] || job.tailoringMode || "off";
 
   const filteredJobs = jobs.filter((job) => {
     const role = roleFilter.trim().toLowerCase();

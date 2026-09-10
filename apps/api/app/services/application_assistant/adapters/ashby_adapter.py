@@ -33,13 +33,16 @@ class AshbyAdapter(ApplicationAdapter):
         filled: dict[str, str] = {}
         page = page_context
 
-        full_name = f"{resolved_answers.get('firstName', 'Akshay')} {resolved_answers.get('lastName', 'Borse')}".strip()
+        # No hardcoded identity fallbacks: an unresolved field must stay empty so
+        # the pre-submit check catches it, never be quietly filled with a name
+        # and contact details baked into the source.
+        full_name = f"{resolved_answers.get('firstName') or ''} {resolved_answers.get('lastName') or ''}".strip()
         text_inputs = {
             'input[name*="name" i], input[id*="name" i]': full_name,
-            'input[name*="email" i], input[type="email"]': resolved_answers.get("email", "amsborse@gmail.com"),
-            'input[name*="phone" i], input[type="tel"]': resolved_answers.get("phone", "425-336-9852"),
-            'input[name*="linkedin" i], input[id*="linkedin" i]': resolved_answers.get("linkedin", "https://www.linkedin.com/in/amsborse/"),
-            'input[name*="website" i], input[name*="portfolio" i]': resolved_answers.get("portfolio") or resolved_answers.get("website", "https://amsborse.github.io/resume"),
+            'input[name*="email" i], input[type="email"]': resolved_answers.get("email") or "",
+            'input[name*="phone" i], input[type="tel"]': resolved_answers.get("phone") or "",
+            'input[name*="linkedin" i], input[id*="linkedin" i]': resolved_answers.get("linkedin") or "",
+            'input[name*="website" i], input[name*="portfolio" i]': resolved_answers.get("portfolio") or resolved_answers.get("website") or resolved_answers.get("github") or resolved_answers.get("linkedin") or "",
         }
 
         for sel, val in text_inputs.items():
@@ -82,10 +85,32 @@ class AshbyAdapter(ApplicationAdapter):
                 break
 
         url = page.url if hasattr(page, "url") else ""
+        # Clicking submit is not evidence that the submission was accepted.
+        # Ashby keeps the form mounted and shows inline errors when it refuses,
+        # so re-check for those and for a confirmation state before claiming
+        # success — reporting `submitted: True` off the click alone is how a job
+        # gets recorded SUBMITTED with nothing behind it.
+        accepted, why = await self.verify_pre_submit(page, None)
+        confirmed = False
+        try:
+            confirmed = await page.locator(
+                'text=/application (has been )?(submitted|received)/i, '
+                '[class*="confirmation" i], [data-testid*="confirmation" i]'
+            ).count() > 0
+        except Exception:
+            confirmed = False
+        if not accepted:
+            return {"submitted": False, "error": why, "evidence": {"confirmationUrl": url}}
+        if not confirmed:
+            return {
+                "submitted": False,
+                "error": "Submit was clicked but Ashby showed no confirmation",
+                "evidence": {"confirmationUrl": url},
+            }
         return {
             "submitted": True,
             "evidence": {
-                "confirmationText": "Application submitted via Ashby Adapter",
+                "confirmationText": "Ashby confirmation shown after submit",
                 "confirmationUrl": url,
             },
         }

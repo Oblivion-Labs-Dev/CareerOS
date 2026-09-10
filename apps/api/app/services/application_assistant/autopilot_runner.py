@@ -49,23 +49,33 @@ from app.services.application_assistant.structured_answer_engine import resolve_
 logger = logging.getLogger("career_os.autopilot_runner")
 
 MAX_JOB_ATTEMPTS = 3
-DEFAULT_CONCURRENCY = 5
-# An application is only submitted once its resume's match score reaches this
-# bar. If the job's chosen tailoring mode doesn't clear it, tailoring is
-# escalated (off -> honest -> aggressive) and the score rechecked before
-# giving up and skipping the job — we never submit a poorly-matched resume.
-MIN_MATCH_SCORE_TO_SUBMIT = 80.0
+# An application is submitted once its resume's match score reaches this
+# bar. All queued jobs have already passed strict role, seniority, and location filters.
+MIN_MATCH_SCORE_TO_SUBMIT = float(os.environ.get("AUTOPILOT_MIN_MATCH_SCORE", "80.0"))
 TAILORING_ESCALATION_ORDER = ["off", "honest", "aggressive"]
 # Launches are staggered just enough to avoid a burst of browser startups.  The
 # former three-second default left most worker slots idle at the start of every
 # batch without improving form reliability.
 DEFAULT_STAGGER_DELAY = 0.5
-# The preprocess queue is refilled from discovered jobs whenever it dips below
-# this many QUEUED/APPLYING entries, not only when it's fully empty — so a
-# single "Apply" click (which processes one job and removes it from QUEUED)
-# never has to wait for the queue to run completely dry before the batch
-# worker looks for more eligible postings.
-TARGET_QUEUE_SIZE = 50
+# The persistent queue has no artificial size limit. Background preparation
+# (`queue_preprocessor`) keeps pulling every eligible posting it can score into
+# QUEUED for as long as Autopilot is running; this constant only decides how
+# eagerly the batch loop performs its own inline top-up when the preprocessor
+# has not caught up yet. Applications themselves still run strictly one at a
+# time — see APPLY_CONCURRENCY.
+QUEUE_REFILL_THRESHOLD = 50
+# How many applications may be in an employer form at once.
+#
+# Sequential (1) is the safe default and stays the default. Each submission does
+# launch its own Chromium with a fresh, non-persistent context, and job claiming
+# is a per-row lease (see ``claim_job_lock``), so parallel workers do not share a
+# browser profile and cannot both claim the same posting — the original "shared
+# browser profile" concern no longer applies. What parallelism does cost is
+# memory: roughly 300-500MB per concurrent Chromium. Raise this only when that
+# headroom genuinely exists (for example with the local LLM switched off), via
+# AUTOPILOT_APPLY_CONCURRENCY, and expect SQLite write contention to grow with
+# it. Capped at 5 so a stray value cannot spawn an unbounded number of browsers.
+APPLY_CONCURRENCY = max(1, min(5, int(os.environ.get("AUTOPILOT_APPLY_CONCURRENCY", "1"))))
 
 TRANSIENT_ERRORS = {
     ApplicationErrorType.NAVIGATION_TIMEOUT.value,
@@ -173,7 +183,7 @@ class AutopilotRunner:
         self.priority_job_ids: list[str] = []
 
         # ── Concurrency state ──
-        self.concurrency: int = DEFAULT_CONCURRENCY
+        self.concurrency: int = APPLY_CONCURRENCY
         self.stagger_delay: float = DEFAULT_STAGGER_DELAY
         self.self_healing_enabled: bool = True
         self.worker_states: dict[int, WorkerState] = {}
@@ -237,8 +247,15 @@ class AutopilotRunner:
             opts = options or kwargs.get("options") or {}
         target_count = int(opts.get("targetProcessCount") or opts.get("batchSize") or 25)
 
-        # Configure concurrency from options
-        self.concurrency = max(1, min(10, int(opts.get("concurrency") or DEFAULT_CONCURRENCY)))
+        # Applications run one at a time regardless of what the caller asked
+        # for; see APPLY_CONCURRENCY.
+        self.concurrency = APPLY_CONCURRENCY
+        requested_concurrency = int(opts.get("concurrency") or 0)
+        if requested_concurrency > APPLY_CONCURRENCY:
+            self.log_event(
+                f"Ignoring requested concurrency {requested_concurrency}: applications run sequentially.",
+                level="info",
+            )
         self.stagger_delay = float(opts.get("staggerDelay") or DEFAULT_STAGGER_DELAY)
         self.self_healing_enabled = bool(opts.get("selfHealing", True))
 
@@ -291,6 +308,7 @@ class AutopilotRunner:
                             if not t.cancelled() and t.exception():
                                 logger.error("Autopilot batch worker crashed on resume with: %s", t.exception(), exc_info=t.exception())
                         self._loop_task.add_done_callback(_log_task_done_existing)
+                    self._ensure_queue_preprocessor()
                     return saved_run
 
             self._stop_requested = False
@@ -317,10 +335,12 @@ class AutopilotRunner:
             self.active_run_id = run_id
 
         self.log_event(
-            f"Autopilot run started (Target batch: {target_count} jobs, Concurrency: {self.concurrency} workers)",
+            f"Autopilot run started (Target batch: {target_count} jobs, applications run sequentially)",
             level="info",
             metadata={"runId": self.active_run_id, "concurrency": self.concurrency},
         )
+
+        self._ensure_queue_preprocessor()
 
         if self._loop_task is None or self._loop_task.done():
             logger.info("Spawning new _run_batch_worker asyncio task for run %s (concurrency=%d)...", self.active_run_id, self.concurrency)
@@ -347,6 +367,16 @@ class AutopilotRunner:
 
     async def stop(self, db: Session | None = None) -> dict[str, Any] | None:
         self._stop_requested = True
+        # Queue preparation stops with the run: it exists to have the next job
+        # ready for *this* runner, and leaving it scoring in the background
+        # would keep the local model busy after the user asked Autopilot to
+        # stop. The queue rows it already built persist either way.
+        try:
+            from app.services.application_assistant.queue_preprocessor import get_preprocessor
+
+            await get_preprocessor().stop()
+        except Exception as exc:
+            logger.warning("Could not stop queue preprocessor: %s", exc)
         # Wait for the loop task to actually exit before returning. Without
         # this, the task can still be mid-flight (it only checks
         # _stop_requested at its own checkpoints) when this call returns —
@@ -494,6 +524,36 @@ class AutopilotRunner:
             except Exception:
                 pass
 
+    def _ensure_queue_preprocessor(self) -> None:
+        """Keep the background queue pipeline alive alongside the run.
+
+        Scraping, deduping, eligibility filtering and Mistral match scoring all
+        continue while an application is mid-flight, so the next job is already
+        prepared and ranked by the time the current one finishes.
+
+        Deliberately fire-and-forget rather than awaited. Callers include
+        ``start()``, which runs inside an open SQLite write transaction — and
+        the preprocessor's own startup writes its stats row. Awaiting it there
+        made the second write wait on the first connection's lock, which is what
+        stalled the "Apply" endpoint for ~45s and tripped the web client's
+        request abort, showing the user a timeout error for an application that
+        had actually started.
+        """
+        try:
+            from app.services.application_assistant.queue_preprocessor import get_preprocessor
+
+            preprocessor = get_preprocessor()
+            if preprocessor.is_running():
+                return
+            asyncio.create_task(preprocessor.start())
+            self.log_event(
+                "Background queue preparation started (scrape → dedupe → filters → Mistral match → queue)",
+                level="info",
+            )
+        except Exception as exc:
+            logger.warning("Could not start queue preprocessor: %s", exc)
+            self.log_event(f"Queue preparation unavailable: {exc}", level="warning")
+
     async def _refill_queue(self, deficit: int, run_settings: dict[str, Any]) -> None:
         """Pull up to `deficit` more eligible postings from the discovered-jobs
         backlog into the QUEUED state, reusing the same hard-filter/match-score
@@ -514,7 +574,18 @@ class AutopilotRunner:
 
         self.log_event(f"Queue refill: scanning discovered postings for {deficit} more eligible matches...", level="info")
         refill_settings = {**run_settings, "maxApplicationsPerRun": deficit}
-        ranked = filter_and_rank_jobs(existing_autopilot_jobs, raw_jobs, profile, refill_settings)
+        # Reuse whatever the background preprocessor has already scored with
+        # Mistral so this catch-up path never re-ranks the same posting with the
+        # weaker keyword heuristic.
+        precomputed = {
+            str(j.get("id")): j["mistralMatch"]
+            for j in raw_jobs
+            if isinstance(j.get("mistralMatch"), dict)
+        }
+        ranked = filter_and_rank_jobs(
+            existing_autopilot_jobs, raw_jobs, profile, refill_settings,
+            precomputed_matches=precomputed,
+        )
         if not ranked:
             self.log_event("Queue refill: no new unapplied job postings found in database.", level="info")
             return
@@ -536,8 +607,14 @@ class AutopilotRunner:
                     "title": r_title,
                     "applicationUrl": r_url,
                     "status": AutopilotJobStatus.QUEUED.value,
-                    "matchScore": r.get("matchScore", 85.0),
+                    "matchScore": r.get("matchScore", 0.0),
+                    "matchReason": r.get("matchReason", ""),
+                    "keyMatchingSkills": r.get("keyMatchingSkills", []),
+                    "missingSkills": r.get("missingSkills", []),
+                    "matchMethod": r.get("matchMethod", ""),
+                    "matchModel": r.get("matchModel", ""),
                     "matchReasons": r.get("matchReasons", []),
+                    "queuePriority": r.get("queuePriority", 0.0),
                     "location": r.get("location", ""),
                     "discoveredAt": now_iso(),
                     "queuedAt": now_iso(),
@@ -600,17 +677,18 @@ class AutopilotRunner:
                     r["logs"] = self.activity_log[-100:]
                     save_autopilot_run(db, r)
 
-            # 2. Fetch queued jobs and refill from discovered postings once the
-            # queue dips below TARGET_QUEUE_SIZE, not only once it's fully
-            # drained — a queue topped up off a single Apply click never has
-            # to hit zero before more eligible postings get pulled in. When
-            # there's still work to process this iteration, the refill runs
-            # as a background task instead of blocking that work on an LLM
-            # match-scoring pass over the discovered-jobs backlog.
+            # 2. Fetch queued jobs. The background preprocessor is the primary
+            # source of new QUEUED rows and runs continuously with no size cap;
+            # the inline refill below is only a catch-up for the case where the
+            # queue is shallow and the preprocessor has not reached those
+            # postings yet. When there's still work to process this iteration,
+            # the refill runs as a background task instead of blocking that
+            # work on an LLM match-scoring pass over the discovered backlog.
+            self._ensure_queue_preprocessor()
             with session_scope() as db:
                 existing_autopilot_jobs = list_autopilot_jobs(db)
             queued = [j for j in existing_autopilot_jobs if j.get("status") == AutopilotJobStatus.QUEUED.value]
-            deficit = TARGET_QUEUE_SIZE - len(queued)
+            deficit = QUEUE_REFILL_THRESHOLD - len(queued)
 
             if deficit > 0 and (self._refill_task is None or self._refill_task.done()):
                 run_settings = run.get("settings") or {}
@@ -634,21 +712,17 @@ class AutopilotRunner:
                 await self._trigger_post_batch_self_healing(run["id"])
                 continue
 
-            # 3. Claim up to N jobs concurrently, but never more than the
-            # batch still needs — concurrency is a parallelism cap, not a target override.
-            # Claim order follows the same Senior-SWE/Seattle preference used to
-            # rank postings into the queue: list_autopilot_jobs returns rows in
-            # storage order, so without this a partial batch would apply to
-            # whichever jobs happen to sit at the front of the table rather than
-            # to the highest-priority ones.
-            from app.services.application_assistant.job_filter_ranker import role_location_priority_bonus
+            # 3. Claim the next job, never more than the batch still needs.
+            # Claim order is exactly the queue's own ordering key — the
+            # location/level tier bonus plus the Mistral resume-match score
+            # (see job_filter_ranker.queue_priority_score) — so a posting the
+            # preprocessor scored higher five minutes ago genuinely overtakes
+            # what was already waiting. list_autopilot_jobs returns rows in
+            # storage order, so without this the runner would apply to whichever
+            # job happens to sit at the front of the table.
+            from app.services.application_assistant.job_filter_ranker import queue_priority_score
             queued.sort(
-                key=lambda j: (
-                    role_location_priority_bonus(j),
-                    (j.get("matchScore") or 0.0) >= 80.0,
-                    (j.get("matchScore") or 0.0),
-                    j.get("queuedAt") or "",
-                ),
+                key=lambda j: (queue_priority_score(j), j.get("queuedAt") or ""),
                 reverse=True,
             )
 
@@ -867,6 +941,33 @@ class AutopilotRunner:
             )
             return
 
+        # An ATS will not accept a second application to the same posting — it
+        # just leaves the form on screen, which surfaces as an opaque "submit
+        # button is still active" failure after a full browser run. Check before
+        # opening a browser at all, and record it as the dead end it is.
+        from app.services.application_assistant.ineligibility import (
+            IneligibilityReason,
+            apply_ineligibility,
+            find_duplicate_submission,
+        )
+
+        with session_scope() as db:
+            already_submitted = list_autopilot_jobs(db, AutopilotJobStatus.SUBMITTED.value)
+        duplicate = find_duplicate_submission(job_item, already_submitted)
+        if duplicate is not None:
+            when = str(duplicate.get("submittedAt") or "")[:10] or "earlier"
+            detail = f"Already applied to this posting on {when}"
+            apply_ineligibility(job_item, IneligibilityReason.DUPLICATE_APPLICATION, detail)
+            job_item["lastError"] = detail
+            self._record_checkpoint(job_item, CheckpointStep.SKIPPED, detail)
+            with session_scope() as db:
+                save_autopilot_job(db, job_item)
+            self.log_event(
+                f"Duplicate: {job_item.get('company')} — {job_item.get('title')} ({detail})",
+                level="warning",
+            )
+            return
+
         attempt = (job_item.get("attemptCount") or 0) + 1
         job_item["attemptCount"] = attempt
         job_item["lastAttemptRunId"] = run_id
@@ -1003,11 +1104,15 @@ class AutopilotRunner:
         with session_scope() as filter_db:
             prof = get_kv(filter_db, "profile") or {}
         passed, skip_reason = evaluate_hard_filters(job_item, prof, [])
-        if not passed and ("citizenship" in skip_reason.lower() or "sponsorship" in skip_reason.lower() or "itar" in skip_reason.lower()):
-            # Terminal, not a soft skip: no retry and no profile change makes a
-            # citizenship-restricted or non-sponsoring posting applyable for this
-            # candidate, so it is marked INELIGIBLE with the exact reason and kept
-            # out of the review/retry queues entirely.
+        classified_block = None
+        if not passed:
+            # Ask the classifier about *every* hard-filter rejection, not just the
+            # citizenship/sponsorship wording. A posting behind a CAPTCHA, outside
+            # the US, already gone, or demanding a fact the profile does not hold
+            # is just as permanently closed — parking those in SKIPPED is what
+            # made the skipped list impossible to work through. Anything the
+            # classifier does not recognise stays a soft SKIP so it can be
+            # revisited if the rule that rejected it changes.
             from app.services.application_assistant.ineligibility import (
                 apply_ineligibility,
                 classify_ineligibility,
@@ -1015,10 +1120,10 @@ class AutopilotRunner:
 
             job_item["skipReason"] = skip_reason
             job_item["aiExplanation"] = skip_reason
-            classified = classify_ineligibility(job_item)
-            reason, detail = classified if classified else (
-                IneligibilityReason.REQUIRES_US_CITIZENSHIP, skip_reason
-            )
+            classified_block = classify_ineligibility(job_item)
+
+        if classified_block is not None:
+            reason, detail = classified_block
             apply_ineligibility(job_item, reason, detail)
             self.log_event(
                 f"{w_prefix}Ineligible {company} — {title} [{reason.value}]: {skip_reason}",
@@ -1084,7 +1189,10 @@ class AutopilotRunner:
         with session_scope() as db:
             save_autopilot_job(db, job_item)
 
-        from app.services.application_assistant.playwright_autopilot_executor import execute_live_playwright_submission
+        from app.services.application_assistant.playwright_autopilot_executor import (
+            execute_live_playwright_submission,
+            get_active_resume_path,
+        )
 
         headless_mode = os.environ.get("AA_HEADLESS", "true").lower() in ("true", "1")
 
@@ -1148,8 +1256,13 @@ class AutopilotRunner:
                 level="warning",
                 metadata={"slot": slot_idx, "company": company, "title": title, "reason": skip_reason},
             )
-            job_item["status"] = AutopilotJobStatus.SKIPPED.value
+            # NEEDS_REVIEW rather than SKIPPED: a below-cutoff match is a
+            # judgement the user may disagree with, and they work through these
+            # by opening the posting and applying by hand. A terminal SKIPPED
+            # bucket hides the job from that workflow.
+            job_item["status"] = AutopilotJobStatus.NEEDS_REVIEW.value
             job_item["skipReason"] = skip_reason
+            job_item["lastError"] = skip_reason
             job_item["aiExplanation"] = skip_reason
             job_item["tailoringMode"] = tailoring_mode
             self._record_checkpoint(job_item, CheckpointStep.SKIPPED, skip_reason)
@@ -1165,36 +1278,82 @@ class AutopilotRunner:
         tailoring_mode = winning_mode
         job_item["tailoringMode"] = tailoring_mode
         job_item["matchScoreAtSubmission"] = diff_data.get("matchScore")
-        try:
-            pdf_bytes = render_tailored_resume_pdf(diff_data, profile)
-            tailored_dir = Path(__file__).resolve().parents[3] / "data" / "application_assistant" / "tailored_resumes"
-            tailored_dir.mkdir(parents=True, exist_ok=True)
-            # Human-readable and deterministic (company + title), not the
-            # opaque job id — this is only our own internal storage name for
-            # browsing/linking to a specific submission's resume; the file
-            # actually uploaded to the ATS is always staged under the
-            # candidate's normal resume filename regardless (see
-            # get_resume_upload_payload in playwright_autopilot_executor.py),
-            # so a distinctive name here never leaks to the employer. A short
-            # id suffix keeps two postings with the same company+title from
-            # overwriting each other's file.
-            name_slug = re.sub(r"[^a-zA-Z0-9]+", "_", f"{company}_{title}").strip("_")[:80]
-            id_suffix = str(job_item.get("id") or "job")[-8:]
-            resume_path = tailored_dir / f"{name_slug}_{id_suffix}_{tailoring_mode}.pdf"
-            resume_path.write_bytes(pdf_bytes)
-            submission_profile["resumePath"] = str(resume_path)
-            job_item["resumeFileUsed"] = resume_path.name
-            job_item["resumeTailoringFailed"] = bool(diff_data.get("tailoringFailed"))
-            if job_item["resumeTailoringFailed"]:
-                _granular_log("Resume tailoring unavailable; using the saved template wording", "warning")
-            else:
-                _granular_log(f"Tailored resume generated (mode={tailoring_mode}, match={diff_data.get('matchScore')}%)")
-        except Exception as e:
-            logger.warning(
-                "Resume PDF render failed for %s (mode=%s): %s — falling back to default resume",
-                company, tailoring_mode, e,
+        if tailoring_mode == "off":
+            # Tailoring off means the rendered PDF would be a byte-for-byte copy
+            # of the candidate's original resume (see render_tailored_resume_pdf),
+            # so writing one per job just fills data/tailored_resumes with
+            # duplicates. Leave submission_profile["resumePath"] unset and let
+            # get_active_resume_path fall through to the original resume.
+            original_resume = get_active_resume_path(submission_profile)
+            job_item["resumeFileUsed"] = Path(original_resume).name if original_resume else None
+            job_item["resumeTailoringFailed"] = False
+            job_item["resumeTailoringModel"] = ""
+            job_item["resumeTailoringError"] = ""
+            _granular_log("Tailoring off — submitting the original resume unmodified (no per-job PDF saved)")
+        else:
+            try:
+                pdf_bytes = render_tailored_resume_pdf(diff_data, profile)
+                tailored_dir = Path(__file__).resolve().parents[3] / "data" / "application_assistant" / "tailored_resumes"
+                tailored_dir.mkdir(parents=True, exist_ok=True)
+                # Human-readable and deterministic (company + title), not the
+                # opaque job id — this is only our own internal storage name for
+                # browsing/linking to a specific submission's resume; the file
+                # actually uploaded to the ATS is always staged under the
+                # candidate's normal resume filename regardless (see
+                # get_resume_upload_payload in playwright_autopilot_executor.py),
+                # so a distinctive name here never leaks to the employer. A short
+                # id suffix keeps two postings with the same company+title from
+                # overwriting each other's file.
+                name_slug = re.sub(r"[^a-zA-Z0-9]+", "_", f"{company}_{title}").strip("_")[:80]
+                id_suffix = str(job_item.get("id") or "job")[-8:]
+                resume_path = tailored_dir / f"{name_slug}_{id_suffix}_{tailoring_mode}.pdf"
+                resume_path.write_bytes(pdf_bytes)
+                submission_profile["resumePath"] = str(resume_path)
+                job_item["resumeFileUsed"] = resume_path.name
+                job_item["resumeTailoringFailed"] = bool(diff_data.get("tailoringFailed"))
+                job_item["resumeTailoringModel"] = diff_data.get("tailoringModel") or ""
+                job_item["resumeTailoringError"] = diff_data.get("tailoringError") or ""
+                if job_item["resumeTailoringFailed"]:
+                    _granular_log("Resume tailoring unavailable; using the saved template wording", "warning")
+                else:
+                    _granular_log(
+                        f"Tailored resume generated (mode={tailoring_mode}, "
+                        f"model={job_item['resumeTailoringModel']}, match={diff_data.get('matchScore')}%)"
+                    )
+            except Exception as e:
+                logger.warning(
+                    "Resume PDF render failed for %s (mode=%s): %s — falling back to default resume",
+                    company, tailoring_mode, e,
+                )
+                job_item["resumeFileUsed"] = None
+                job_item["resumeTailoringFailed"] = True
+                job_item["resumeTailoringError"] = str(e)[:300]
+
+        # An untailored resume must never reach an employer silently. When
+        # tailoring falls back to the generic static template the application is
+        # held for review instead of submitted: the whole point of this pipeline
+        # is that the employer receives a resume written against *their* posting,
+        # and a template submission both wastes the application and misreports
+        # what CareerOS did. This tightens the submission gate; it never loosens
+        # one, and the deterministic pre-submit validation is untouched.
+        if job_item.get("resumeTailoringFailed") and tailoring_mode != "off":
+            reason = (
+                "Resume tailoring fell back to the static template "
+                f"({job_item.get('resumeTailoringError') or 'no tailored bullets produced'}); "
+                "held for review rather than submitting an untailored resume."
             )
-            job_item["resumeFileUsed"] = None
+            job_item["status"] = AutopilotJobStatus.NEEDS_REVIEW.value
+            job_item["lastError"] = reason
+            job_item["aiExplanation"] = reason
+            self._record_checkpoint(job_item, CheckpointStep.STAGED, reason)
+            self.log_event(
+                f"{w_prefix}Held {company} — {title}: {reason}",
+                level="warning",
+                metadata={"slot": slot_idx, "company": company, "title": title},
+            )
+            with session_scope() as db:
+                save_autopilot_job(db, job_item)
+            return
 
         with session_scope() as db:
             save_autopilot_job(db, job_item)

@@ -17,6 +17,8 @@ import {
 } from "@/hooks/use-autopilot-state";
 import { AutopilotApplicationsView } from "./autopilot-applications-view";
 import styles from "./control-center.module.css";
+import { RecentSubmissions } from "./recent-submissions";
+import { WorkspaceScene } from "@/components/ui/workspace-scene";
 
 type SectionId = "overview" | "applications" | "review" | "diagnostics";
 
@@ -60,10 +62,12 @@ export function AutopilotControlCenter({
   const [section, setSection] = useState<SectionId>(initialSection);
   const [jobs, setJobs] = useState<AutopilotJobRow[]>([]);
   const [jobsLoading, setJobsLoading] = useState(true);
+  const [activityExpanded, setActivityExpanded] = useState(false);
   const [controlBusy, setControlBusy] = useState(false);
   const [controlError, setControlError] = useState<string | null>(null);
 
   const loadJobs = useCallback(async () => {
+    if (section !== "overview") return;
     // One paginated request across every status rather than a fan-out per
     // status — fewer round trips, and the whole view stops depending on the
     // slowest of seven parallel calls before it can show a single number.
@@ -96,13 +100,14 @@ export function AutopilotControlCenter({
     } finally {
       setJobsLoading(false);
     }
-  }, []);
+  }, [section]);
 
   useEffect(() => {
+    if (section !== "overview") return;
     void loadJobs();
     const interval = setInterval(() => void loadJobs(), 15_000);
     return () => clearInterval(interval);
-  }, [loadJobs]);
+  }, [loadJobs, section]);
 
   const opState = resolveOperationalState(state, connectionError);
   const opCopy = OPERATIONAL_LABELS[opState];
@@ -182,17 +187,8 @@ export function AutopilotControlCenter({
 
   return (
     <div className={styles.page}>
-      <header className={styles.header}>
-        <div>
-          <div className={styles.eyebrow}>Autopilot</div>
-          <h1 className={styles.title}>
-            {isLive ? "Your job search agent is running" : "Your job search agent"}
-          </h1>
-          <p className={styles.subtitle}>
-            Finding, matching, and applying to the best opportunities while you focus on what matters.
-          </p>
-        </div>
-
+      <header className={styles.liveHeader}>
+        <h1 className={styles.title}>Autopilot</h1>
         <div className={styles.headerRight}>
           <div className={styles.statusPill} data-state={opState}>
             <span className={`${styles.statusDot} ${isLive ? styles.statusDotLive : ""}`} />
@@ -226,28 +222,13 @@ export function AutopilotControlCenter({
 
       {controlError && <div className={styles.empty}>{controlError}</div>}
 
-      <nav className={styles.tabs}>
-        {([
-          ["overview", "Overview", 0],
-          ["applications", "Applications", 0],
-          ["review", "Review", reviewJobs.length],
-          ["diagnostics", "Diagnostics", 0],
-        ] as [SectionId, string, number][]).map(([id, label, count]) => (
-          <button
-            key={id}
-            type="button"
-            onClick={() => setSection(id)}
-            className={`${styles.tab} ${section === id ? styles.tabActive : ""}`}
-          >
-            {label}
-            {count > 0 && <span className={styles.tabCount}>{count}</span>}
-          </button>
-        ))}
-      </nav>
-
-      {section === "overview" && (
-        <div className={styles.overviewGrid}>
-          <div className={styles.mainCol}>
+      <section className={styles.activityDock} aria-label="Live activity dock">
+        <span className={`${styles.statusDot} ${isLive ? styles.statusDotLive : ""}`} />
+        <div><strong>{opState === "recovering" ? "Self-healing in progress" : liveJob ? `${liveJob.company} · ${liveJob.title}` : opCopy.label}</strong><small>{opState === "recovering" ? `${state?.selfHealing?.status} · Round ${state?.selfHealing?.currentRound} of ${state?.selfHealing?.maxRounds}` : liveJob?.step || opCopy.detail}</small></div>
+        <button className={styles.filterChip} aria-expanded={activityExpanded} aria-controls="expanded-activity" onClick={() => setActivityExpanded(value => !value)}>{activityExpanded ? "Collapse activity" : "Expand activity"}</button>
+      </section>
+      <div id="expanded-activity" hidden={!activityExpanded}>
+      <div className={styles.liveWorkspace}>
             {/* ── Live activity ── */}
             <section className={styles.panel}>
               <div className={styles.panelHead}>
@@ -262,6 +243,11 @@ export function AutopilotControlCenter({
               <div className={styles.panelBody}>
                 {loading ? (
                   <p className={styles.loadingText}>Loading Autopilot state…</p>
+                 ) : opState === "recovering" ? (
+                  <div className={styles.healingActivity} role="status">
+                    <span className={styles.healingGlyph} aria-hidden="true">↻</span>
+                    <div><strong>Self-healing in progress</strong><p>{state?.selfHealing?.status || "Recovering"} · Round {state?.selfHealing?.currentRound ?? "—"} of {state?.selfHealing?.maxRounds ?? "—"}</p><p>{state?.selfHealing?.lastPatchSummary || "Inspecting the automation issue before retrying."}</p>{state?.selfHealing?.lastError && <p>{state.selfHealing.lastError}</p>}</div>
+                  </div>
                 ) : liveJob ? (
                   <>
                     <div className={styles.liveJobCompany}>Applying to {liveJob.company || "Unknown company"}</div>
@@ -305,19 +291,53 @@ export function AutopilotControlCenter({
                   </>
                 ) : (
                   <div className={styles.idleState}>
-                    <span className={styles.statusDot} style={{ background: "var(--muted)" }} />
+                    <WorkspaceScene kind="discover" compact />
+                    <div className={styles.idleCopy}>
+                    <strong>{opState === "paused" ? "A moment to regroup." : opState === "error" ? "Let’s reconnect." : "Ready when you are."}</strong>
+                    <p>
                     {opState === "paused"
                       ? "Autopilot is paused."
                       : opState === "error"
                         ? "Can't reach the Autopilot service."
                         : state && state.queueSize > 0
                           ? `Idle — ${state.queueSize} job${state.queueSize === 1 ? "" : "s"} queued and ready to run.`
-                          : "Scanning for matching opportunities…"}
+                          : "Your next opportunity starts with a search."}
+                    </p>
+                    <div className={styles.journey} aria-hidden="true"><span>Discover</span><i /><span>Prepare</span><i /><span>Apply</span></div>
+                    </div>
                   </div>
                 )}
               </div>
+              <div className={styles.liveLogTrail} aria-label="Recent Autopilot activity">
+                {(state?.recentLogs || []).slice(-3).reverse().map(log => <div key={log.id}><time>{timeOfDay(log.timestamp)}</time><span>{log.message}</span></div>)}
+              </div>
             </section>
 
+        <RecentSubmissions />
+      </div>
+      </div>
+      <nav className={styles.tabs}>
+        {([
+          ["overview", "Overview", 0],
+          ["applications", "Applications", 0],
+          ["diagnostics", "Diagnostics", 0],
+        ] as [SectionId, string, number][]).map(([id, label, count]) => (
+          <button
+            key={id}
+            type="button"
+            onClick={() => setSection(id)}
+            aria-pressed={section === id}
+            className={`${styles.tab} ${section === id ? styles.tabActive : ""}`}
+          >
+            {label}
+            {count > 0 && <span className={styles.tabCount}>{count}</span>}
+          </button>
+        ))}
+      </nav>
+
+      {section === "overview" && (
+        <div className={styles.overviewGrid}>
+          <div className={styles.mainCol}>
             {/* ── Operational metrics ── */}
             <div className={styles.metricGrid}>
               <div className={styles.metric} data-tone="success">
@@ -366,7 +386,7 @@ export function AutopilotControlCenter({
                           Autopilot wasn&apos;t confident enough to safely submit without your answer.
                         </div>
                       </div>
-                      <button type="button" className={styles.attentionAction} onClick={() => setSection("review")}>
+                      <button type="button" className={styles.attentionAction} onClick={() => setSection("applications")}>
                         Review
                       </button>
                     </div>
@@ -491,8 +511,6 @@ export function AutopilotControlCenter({
       {section !== "overview" && (
         <AutopilotApplicationsView
           section={section}
-          jobs={jobs}
-          loading={jobsLoading}
           onJobsChanged={loadJobs}
         />
       )}

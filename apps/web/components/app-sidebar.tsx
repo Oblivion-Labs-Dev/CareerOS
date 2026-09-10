@@ -7,6 +7,7 @@ import { BackendStatusDot } from "@/components/backend-status-dot";
 import { CareerIcon } from "@/components/ui/career-icon";
 import { useBackendStatus } from "@/hooks/use-backend-status";
 import { formatNavCount, sidebarCountForHref, useSidebarJobCounts } from "@/hooks/use-sidebar-job-counts";
+import styles from "./app-sidebar.module.css";
 import { NAV_GROUPS } from "@/lib/nav-config";
 import { getAuthStatus, logout } from "@/lib/auth-api";
 
@@ -23,7 +24,7 @@ function isItemActive(pathname: string, searchParams: URLSearchParams, href: str
   if (section) return searchParams.get("section") === section;
   if (target.pathname === "/applications") {
     const activeTab = searchParams.get("tab");
-    return !activeTab || activeTab === "autopilot";
+    return !activeTab || !["inbox", "pipeline", "tracker"].includes(activeTab);
   }
   if (target.pathname === "/settings") return !searchParams.get("section");
   return true;
@@ -77,7 +78,7 @@ export function AppSidebar() {
       }
       if (event.key !== "Tab" || !drawerRef.current) return;
       const focusable = [...drawerRef.current.querySelectorAll<HTMLElement>(
-        'a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])',
+        'a[href], button:not([disabled]), summary, [tabindex]:not([tabindex="-1"])',
       )];
       if (!focusable.length) return;
       const first = focusable[0];
@@ -135,7 +136,7 @@ export function AppSidebar() {
       <aside
         ref={drawerRef}
         id="careeros-primary-navigation"
-        className={`sidebar${mobileOpen ? " sidebar--mobile-open" : ""}`}
+        className={`${styles.rail} sidebar${mobileOpen ? " sidebar--mobile-open" : ""}`}
         role={mobileViewport && mobileOpen ? "dialog" : undefined}
         aria-modal={mobileViewport && mobileOpen ? true : undefined}
         aria-label={mobileViewport && mobileOpen ? "CareerOS navigation" : undefined}
@@ -162,32 +163,18 @@ export function AppSidebar() {
           {NAV_GROUPS.map((group) => (
             <div className="nav-group" key={group.label}>
               <div className="nav-group-label">{group.label}</div>
-              {group.items.map((item) => {
+              {group.items.filter(item => item.enabled !== false).map((item) => {
                 const isDisabled = item.enabled === false;
                 const active = !isDisabled && isItemActive(pathname, searchParams, item.href);
                 const count = sidebarCountForHref(item.href, counts);
                 const showCount = !isDisabled && backendOnline !== false && loaded && count !== null && count > 0;
-
-                if (isDisabled) {
-                  return (
-                    <div
-                      key={item.href}
-                      className="nav-link nav-link--disabled"
-                      aria-disabled="true"
-                      title={`${item.label} (Disabled)`}
-                    >
-                      <span className="nav-icon" aria-hidden><CareerIcon name={item.icon} size={18} /></span>
-                      <span className="nav-link-label">{item.label}</span>
-                      <span className="nav-coming-soon-tag">Disabled</span>
-                    </div>
-                  );
-                }
 
                 return (
                   <Link
                     key={item.href}
                     href={item.href}
                     className={`nav-link${active ? " active" : ""}`}
+                    aria-current={active ? "page" : undefined}
                     title={showCount ? `${item.label} — ${count.toLocaleString()} items` : item.label}
                     onClick={() => setMobileOpen(false)}
                   >
@@ -201,42 +188,20 @@ export function AppSidebar() {
           ))}
         </nav>
 
-        <footer className="sidebar-footer">
-          <div className="sidebar-profile-card">
-            <div className="sidebar-profile-head">
-              <span className="sidebar-avatar">C</span>
-              <span className="sidebar-profile-copy">
-                <strong>Career workspace</strong>
-                <small>Private local operator</small>
-              </span>
+        <div className={styles.bottom}>
+          <details className={styles.archived}>
+            <summary><span className={styles.archiveIcon} aria-hidden="true">◫</span><span>Disabled pages</span><span className={styles.archiveCount}>{NAV_GROUPS.flatMap(group => group.items).filter(item => item.enabled === false).length}</span><span className={styles.chevron} aria-hidden="true">⌄</span></summary>
+            <div className={styles.archiveList}>
+              {NAV_GROUPS.flatMap(group => group.items).filter(item => item.enabled === false).map(item => (
+                <div key={item.href} className={styles.disabledItem} aria-disabled="true"><CareerIcon name={item.icon} size={15} /><span>{item.label}</span><span className={styles.disabledTag}>Off</span></div>
+              ))}
             </div>
-            <div className="sidebar-profile-meter" aria-hidden><span /></div>
-            <p className="sidebar-profile-status" title={backendText}>
-              <BackendStatusDot />
-              <span>{backendText}</span>
-            </p>
-            {authRequired && (
-              <button
-                type="button"
-                onClick={() => void handleLogout()}
-                style={{
-                  marginTop: 8,
-                  width: "100%",
-                  padding: "6px 10px",
-                  fontSize: 11,
-                  fontWeight: 700,
-                  borderRadius: 8,
-                  border: "1px solid rgba(255,255,255,0.1)",
-                  background: "rgba(255,255,255,0.04)",
-                  color: "rgba(226,232,240,0.75)",
-                  cursor: "pointer",
-                }}
-              >
-                Sign out
-              </button>
-            )}
-          </div>
-        </footer>
+          </details>
+          <footer className={styles.footer}>
+            <span className={styles.connection} title={backendText}><BackendStatusDot /><span>{backendText}</span></span>
+            {authRequired && <button type="button" onClick={() => void handleLogout()}>Sign out ↗</button>}
+          </footer>
+        </div>
       </aside>
     </>
   );

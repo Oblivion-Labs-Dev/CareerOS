@@ -22,6 +22,7 @@ async function aaFetch<T>(path: string, init?: RequestInit, timeoutMs = 45000): 
     const res = await fetch(`${aaBaseUrl()}/application-assistant${path}`, {
       ...init,
       signal: controller.signal,
+      credentials: "include",
       headers: { "Content-Type": "application/json", ...init?.headers },
       cache: "no-store",
     });
@@ -234,11 +235,12 @@ export async function getAutopilotJobs(status?: string, limit = 200) {
 }
 
 export interface AutopilotJobsPageParams {
+  search?: string;
   status?: string; // comma-separated, e.g. "QUEUED,NEEDS_REVIEW,STAGED"
   role?: string;
   location?: string;
   company?: string;
-  sortBy?: "matchScore" | "submittedAt" | "updatedAt";
+  sortBy?: "matchScore" | "submittedAt" | "updatedAt" | "priority" | "company";
   sortDir?: "asc" | "desc";
   limit?: number;
   offset?: number;
@@ -246,6 +248,7 @@ export interface AutopilotJobsPageParams {
 
 export async function getAutopilotJobsPage(params: AutopilotJobsPageParams) {
   const qs = new URLSearchParams();
+  if (params.search) qs.set("search", params.search);
   if (params.status) qs.set("status", params.status);
   if (params.role) qs.set("role", params.role);
   if (params.location) qs.set("location", params.location);
@@ -254,7 +257,7 @@ export async function getAutopilotJobsPage(params: AutopilotJobsPageParams) {
   if (params.sortDir) qs.set("sortDir", params.sortDir);
   qs.set("limit", String(params.limit ?? 24));
   qs.set("offset", String(params.offset ?? 0));
-  return aaFetch<{ success: boolean; jobs: any[]; count: number; total: number; hasMore: boolean }>(
+  return aaFetch<{ success: boolean; jobs: any[]; count: number; total: number; hasMore: boolean; statusCounts: Record<string, number> }>(
     `/autopilot/jobs?${qs.toString()}`
   );
 }
@@ -326,6 +329,25 @@ export async function reprocessSkippedAutopilotJobs() {
   return aaFetch<{ success: boolean; reprocessedCount: number; message: string; run?: any }>("/autopilot/reprocess-skipped", {
     method: "POST",
   });
+}
+
+/** Record that the user submitted this application by hand (toggles back off). */
+export async function markAutopilotJobSubmitted(id: string) {
+  return aaFetch<{ success: boolean; job: any; submitted: boolean }>(`/autopilot/jobs/${id}/mark-submitted`, {
+    method: "POST",
+  });
+}
+
+/** Autofill a posting in a visible browser and leave it for the user to finish.
+ *  Used for boards Autopilot can reach but must not submit (CAPTCHA, or a
+ *  question only the candidate can answer). Long timeout: the request stays
+ *  open while the browser window is handed over. */
+export async function assistedFillAutopilotJob(id: string) {
+  return aaFetch<{ success: boolean; filledCount: number; message: string }>(
+    `/autopilot/jobs/${id}/assisted-fill`,
+    { method: "POST" },
+    660_000,
+  );
 }
 
 export async function reprocessSingleAutopilotJob(id: string) {
@@ -823,10 +845,17 @@ export async function approvePreflightSubmission(
   customAnswers?: Record<string, string>,
   tailoringMode?: "off" | "honest" | "aggressive",
 ) {
-  return aaFetch<{ success: boolean; message: string; job: any; run: any }>(`/jobs/${jobId}/preflight-approve`, {
-    method: "POST",
-    body: JSON.stringify({ customAnswers, tailoringMode }),
-  });
+  // Longer than the 45s default on purpose. This endpoint hands the job to the
+  // Autopilot runner, which can spend a while claiming and starting the run
+  // when the queue is busy — and a client-side abort here is actively
+  // misleading: the submission has already started server-side, so the user (or
+  // an E2E run) sees "timed out, please retry" for an application that is in
+  // fact running, and a retry would double-submit.
+  return aaFetch<{ success: boolean; message: string; job: any; run: any }>(
+    `/jobs/${jobId}/preflight-approve`,
+    { method: "POST", body: JSON.stringify({ customAnswers, tailoringMode }) },
+    180_000,
+  );
 }
 
 export async function getSubmissionReceipt(id: string) {

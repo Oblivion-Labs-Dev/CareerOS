@@ -30,12 +30,6 @@ class Settings(BaseSettings):
     application_assistant_llm_api_key: str = ""
     gemini_api_key: str = ""
 
-    # FreeToken local provider
-    freetoken_enabled: bool = False
-    freetoken_base_url: str = "http://127.0.0.1:1919/v1"
-    freetoken_model: str = "Qwen3.6-35B-A3B"
-    freetoken_timeout: int = 60
-    freetoken_api_key: str = ""
 
     # Lightweight single-user login gate (not multi-tenant auth — see docs/auth.md)
     career_os_admin_username: str = "admin"

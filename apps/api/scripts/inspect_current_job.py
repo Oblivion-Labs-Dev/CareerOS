@@ -4,15 +4,20 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from app.db.store import session_scope
 from app.services.application_assistant.persistence import get_autopilot_job
 
+import json
 with session_scope() as db:
-    job = get_autopilot_job(db, "apjob_248a9323-ab0a-4948-9355-4b77ee3efab3")
-    if job:
-        print("Job ID:", job.get("id"))
-        print("Company:", job.get("company"))
-        print("Title:", job.get("title"))
-        print("Status:", job.get("status"))
-        print("Updated:", job.get("updatedAt"))
+    from app.db.store import Entity
+    rows = db.query(Entity).filter(Entity.entity_type == "aa_autopilot_job").order_by(Entity.updated_at.desc()).limit(5).all()
+    for row in rows:
+        job = json.loads(row.payload)
+        print("=" * 60)
+        print("Job ID:", job.get("id"), "|", job.get("company"), "|", job.get("title"))
+        print("Status:", job.get("status"), "| Updated:", job.get("updatedAt"))
         print("Last Error:", job.get("lastError"))
-        print("Apply URL:", job.get("applyUrl"))
-    else:
-        print("Job not found")
+        sub = job.get("submissionEvidence") or {}
+        dom = sub.get("domVerification") or {}
+        if dom.get("issues"):
+            print("Issues:")
+            for iss in dom["issues"]:
+                print("  *", iss.get("issueType"), "|", iss.get("label"), "| details:", iss.get("details"))
+        print("DOM Values sample:", {k: v for k, v in list(dom.get("domValues", {}).items())[:8]})

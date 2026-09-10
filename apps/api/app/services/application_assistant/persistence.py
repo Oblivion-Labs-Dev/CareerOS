@@ -54,7 +54,7 @@ def default_settings() -> dict[str, Any]:
 
     return {
         "enabled": True,
-        "tailoringMode": "honest",
+        "tailoringMode": "off",
         "allowInferredAnswers": False,
         "llm": {
             "enabled": True,
@@ -65,13 +65,6 @@ def default_settings() -> dict[str, Any]:
             "maxRetries": 2,
             "confidenceThreshold": 0.7,
             "provider": "ollama",
-        },
-        "freetoken": {
-            "enabled": getattr(app_settings, "freetoken_enabled", False),
-            "baseUrl": getattr(app_settings, "freetoken_base_url", "http://127.0.0.1:1919/v1"),
-            "model": getattr(app_settings, "freetoken_model", "Qwen3.6-35B-A3B"),
-            "apiKey": getattr(app_settings, "freetoken_api_key", ""),
-            "timeout": getattr(app_settings, "freetoken_timeout", 60),
         },
         "browser": {
             "headed": True,
@@ -104,8 +97,6 @@ def get_settings(db: Session) -> dict[str, Any]:
     merged = {**defaults, **stored}
     if "llm" in stored:
         merged["llm"] = {**defaults["llm"], **stored["llm"]}
-    if "freetoken" in stored:
-        merged["freetoken"] = {**defaults["freetoken"], **stored["freetoken"]}
     if "browser" in stored:
         merged["browser"] = {**defaults["browser"], **stored["browser"]}
     if "fieldMapping" in stored:
@@ -558,12 +549,32 @@ def get_active_autopilot_run(db: Session) -> dict[str, Any] | None:
     return active[0]
 
 
+AUTOPILOT_JOBS_CACHE_KEY = "autopilot_jobs_all"
+
+
+def _invalidate_autopilot_jobs_cache() -> None:
+    """Drop the cached job list so the next read rebuilds it.
+
+    The list endpoint serves from a background-refreshed cache, which is fine
+    for polling but not for the moment right after the user clicks Apply or
+    Mark submitted — they must see their own action immediately, not up to a
+    TTL later. Every write goes through save/delete below, so invalidating here
+    is enough to keep the user's own changes instant while still absorbing the
+    polling load.
+    """
+    from app.services.read_cache import read_cache
+
+    read_cache.invalidate(AUTOPILOT_JOBS_CACHE_KEY)
+
+
 def save_autopilot_job(db: Session, payload: dict[str, Any]) -> dict[str, Any]:
     if "id" not in payload:
         payload["id"] = new_id("apjob_")
     if "discoveredAt" not in payload:
         payload["discoveredAt"] = now_iso()
-    return upsert_entity(db, ENTITY_AUTOPILOT_JOB, payload)
+    saved = upsert_entity(db, ENTITY_AUTOPILOT_JOB, payload)
+    _invalidate_autopilot_jobs_cache()
+    return saved
 
 
 def get_autopilot_job(db: Session, job_app_id: str) -> dict[str, Any] | None:
@@ -571,7 +582,9 @@ def get_autopilot_job(db: Session, job_app_id: str) -> dict[str, Any] | None:
 
 
 def delete_autopilot_job(db: Session, job_app_id: str) -> bool:
-    return delete_entity(db, ENTITY_AUTOPILOT_JOB, job_app_id)
+    deleted = delete_entity(db, ENTITY_AUTOPILOT_JOB, job_app_id)
+    _invalidate_autopilot_jobs_cache()
+    return deleted
 
 
 

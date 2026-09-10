@@ -6,6 +6,7 @@ import asyncio
 import logging
 import os
 import re
+from urllib.parse import urlparse
 from pathlib import Path
 from typing import Any
 
@@ -258,6 +259,22 @@ async def _extract_dom_form_state(page: Page) -> tuple[list[dict[str, Any]], lis
         return [], []
 
 
+def _keyboard(page: Any) -> Any:
+    """Return a real Keyboard for either a Page or a Frame.
+
+    Greenhouse's application form is frequently reached as a Frame, and Frame
+    has no `.keyboard` — only Page does. Every `page.keyboard...` call in the
+    fill path therefore raised AttributeError the moment the form lived in a
+    frame, and those raises were caught and logged at debug level, so whole
+    passes (notably the searchable-combobox typing pass that fills School and
+    Discipline) silently did nothing at all rather than failing loudly.
+    """
+    kb = getattr(page, "keyboard", None)
+    if kb is not None:
+        return kb
+    return page.page.keyboard
+
+
 async def _select_react_combobox(page: Any, cb_id: str, search_text: str) -> str:
     """Safely and reliably select an option from a React Select combobox or custom dropdown."""
     try:
@@ -270,17 +287,40 @@ async def _select_react_combobox(page: Any, cb_id: str, search_text: str) -> str
 
         await cb_el.scroll_into_view_if_needed()
 
-        # Locate the surrounding control or wrapper
-        wrapper = page.locator(f'div.select__control:has([id="{cb_id}"]), div[class*="control"]:has([id="{cb_id}"]), div:has(> div > [id="{cb_id}"]), div:has(> [id="{cb_id}"])').first
-        target = wrapper if await wrapper.count() > 0 else cb_el
+        # Locate the surrounding control or wrapper, or check inside cb_el if cb_el is a container
+        inner_control = cb_el.locator('div.select__control, div[class*="control"], [role="combobox"]').first
+        if await inner_control.count() > 0:
+            target = inner_control
+        else:
+            wrapper = page.locator(f'div.select__control:has([id="{cb_id}"]), div[class*="control"]:has([id="{cb_id}"]), div:has(> div > [id="{cb_id}"]), div:has(> [id="{cb_id}"])').first
+            target = wrapper if await wrapper.count() > 0 else cb_el
 
         # Click to open the dropdown menu
         await target.click(force=True)
         await asyncio.sleep(0.3)
 
-        # Look for visible options in the document
+        # Look for visible options in the document.
+        #
+        # Read every option's text in ONE evaluate rather than walking the
+        # locator with .nth(i) + is_visible() + inner_text(). That loop cost two
+        # browser round-trips per option and was unbounded, and the selector
+        # below is deliberately broad ('div[class*="option"]' matches a lot on a
+        # real page). On a Greenhouse embed carrying a 240-entry country
+        # dropdown it meant hundreds of round-trips for a single field, which is
+        # what pushed Coinbase and Samsara past the 480s submission watchdog
+        # while they sat in the self-healing loop.
         options_loc = page.locator('.select__option, div[class*="option"], [role="option"]')
-        opt_count = await options_loc.count()
+        try:
+            option_texts: list[str] = await page.eval_on_selector_all(
+                '.select__option, div[class*="option"], [role="option"]',
+                "els => els.map(el => ("
+                "  (el.offsetWidth || el.offsetHeight || el.getClientRects().length)"
+                "    ? (el.innerText || '').trim() : ''"
+                "))",
+            )
+        except Exception:
+            option_texts = []
+        opt_count = len(option_texts)
 
         if opt_count > 0:
             # 1. Look for exact or partial case-insensitive match
@@ -290,14 +330,12 @@ async def _select_react_combobox(page: Any, cb_id: str, search_text: str) -> str
 
             fallback_opt = None
             fallback_text = ""
-            for i in range(opt_count):
-                opt = options_loc.nth(i)
-                if not await opt.is_visible():
-                    continue
-                opt_text = (await opt.inner_text()).strip()
+            for i, opt_text in enumerate(option_texts):
+                opt_text = (opt_text or "").strip()
                 opt_text_lower = opt_text.lower()
                 if not opt_text or opt_text_lower in ("select...", "select", "--", "choose"):
                     continue
+                opt = options_loc.nth(i)
 
                 if clean_search and opt_text_lower == clean_search:
                     best_opt = opt
@@ -311,7 +349,22 @@ async def _select_react_combobox(page: Any, cb_id: str, search_text: str) -> str
                     (clean_search == "male" and "female" in opt_text_lower)
                     or (clean_search == "female" and opt_text_lower == "male")
                 )
-                if clean_search and not is_gender_collision and fallback_opt is None and (clean_search in opt_text_lower or opt_text_lower in clean_search):
+                # Containment alone is not a match when both sides are
+                # comma-separated place names: "seattle, wa" is a substring of
+                # "South Seattle, Washington, United States", which is a
+                # different city. Require the leading segment to agree before
+                # accepting a containment hit.
+                heads_agree = (
+                    opt_text_lower.split(",")[0].strip() == clean_search.split(",")[0].strip()
+                    or "," not in opt_text_lower
+                )
+                if (
+                    clean_search
+                    and not is_gender_collision
+                    and heads_agree
+                    and fallback_opt is None
+                    and (clean_search in opt_text_lower or opt_text_lower in clean_search)
+                ):
                     fallback_opt = opt
                     fallback_text = opt_text
 
@@ -331,7 +384,7 @@ async def _select_react_combobox(page: Any, cb_id: str, search_text: str) -> str
                 await best_opt.click(force=True)
                 await asyncio.sleep(0.2)
                 return best_text
-            await page.keyboard.press("Escape")
+            await _keyboard(page).press("Escape")
             return ""
 
         # Fallback: type only if text-fillable (never on file or hidden inputs)
@@ -341,9 +394,9 @@ async def _select_react_combobox(page: Any, cb_id: str, search_text: str) -> str
                 await cb_el.fill("")
                 await cb_el.type(str(search_text), delay=20)
                 await asyncio.sleep(0.2)
-                await page.keyboard.press("ArrowDown")
+                await _keyboard(page).press("ArrowDown")
                 await asyncio.sleep(0.1)
-                await page.keyboard.press("Enter")
+                await _keyboard(page).press("Enter")
                 await asyncio.sleep(0.2)
                 return search_text
         except Exception:
@@ -378,6 +431,10 @@ async def _select_radio_option(page_or_frame: Any, field_id: str, value: str) ->
         if await source.count() == 0:
             return False
         name = await source.get_attribute("name")
+        if not name:
+            inner_radio = source.locator('input[type="radio"]').first
+            if await inner_radio.count() > 0:
+                name = await inner_radio.get_attribute("name")
         if not name:
             return False
         radios = page_or_frame.locator(f'input[type="radio"][name="{name}"]')
@@ -537,32 +594,130 @@ async def _fill_all_greenhouse_comboboxes(
                 return sv ? sv.textContent.trim() : '';
             }""") or "").strip()
 
-            # Collect available options by opening the dropdown
+            # Collect available options by opening the dropdown.
+            #
+            # Confirm THIS control actually opened (aria-expanded on its own
+            # input) rather than waiting on a document-wide menu selector,
+            # which matches any other field's open menu and made a failed open
+            # look like a success. React-Select also opens on ArrowDown, so a
+            # click that lands on a non-interactive part of the control gets a
+            # keyboard retry before we give up on the field.
             await target_to_open.scroll_into_view_if_needed()
-            await target_to_open.click(force=True)
-            await asyncio.sleep(0.2)
 
-            # Fast evaluate to get all option texts in 1 ms without slow per-element Playwright RPCs
-            opt_data: list[str] = await page.evaluate("""() => {
-                var opts = document.querySelectorAll('.select__menu .select__option, div[class*="-menu"] div[class*="-option"], .select__option, [role="option"]');
+            async def _is_open() -> bool:
+                try:
+                    return await el.evaluate("e => e.getAttribute('aria-expanded') === 'true'")
+                except Exception:
+                    return False
+
+            # Three attempts, not two: React-Select controls further down a long
+            # Greenhouse form are routinely still mounting when their turn comes,
+            # and both the click and the ArrowDown retry then land on a control
+            # that is not listening yet. Observed live on Robinhood's "preferred
+            # office location" and "disability status" — two *required* fields
+            # that read zero options and were dropped without a trace. The third
+            # pass re-clicks after a longer settle.
+            for attempt in range(3):
+                try:
+                    if attempt == 1:
+                        await el.focus()
+                        await _keyboard(page).press("ArrowDown")
+                    else:
+                        if attempt == 2:
+                            await asyncio.sleep(0.6)
+                            await target_to_open.scroll_into_view_if_needed()
+                        await target_to_open.click(force=True)
+                except Exception:
+                    pass
+                for _ in range(12):
+                    if await _is_open():
+                        break
+                    await asyncio.sleep(0.1)
+                if await _is_open():
+                    break
+
+            # Fast evaluate to get all option texts in 1 ms without slow per-element Playwright RPCs.
+            #
+            # SCOPED TO THIS COMBOBOX ONLY. This used to run a document-wide
+            # querySelectorAll for '.select__option, [role="option"]', which
+            # silently read *another* field's open menu whenever this control
+            # failed to open — and Greenhouse renders its phone country-code
+            # picker as a React-Select (.select__option), so the old
+            # '.iti, .iti__country-list' exclusion never caught it. Observed
+            # live: "In which country/region do you have citizenship?" was
+            # answered "Lebanon" and "Do you permanently reside within the
+            # United States?" was handed a 240-country list for a Yes/No
+            # question. Reading the wrong field's options doesn't just leave a
+            # field blank, it puts a fabricated fact on a real application, so
+            # options now come only from this input's own menu (via
+            # aria-controls/aria-owns, else its own React-Select container).
+            opt_data: list[str] = await page.evaluate("""(cid) => {
+                var el = document.getElementById(cid);
+                if (!el) return [];
+                var scope = null;
+                var owned = el.getAttribute('aria-controls') || el.getAttribute('aria-owns');
+                if (owned) scope = document.getElementById(owned);
+                if (!scope) {
+                    // React-Select renders .select__menu as a sibling of
+                    // .select__control inside the same container.
+                    var container = el.closest('.select__container, [class*="select__container"]')
+                        || (el.closest('.select__control, [class*="select__control"]') || {}).parentElement
+                        || el.parentElement;
+                    for (var up = 0; up < 4 && container; up++) {
+                        var m = container.querySelector('.select__menu, div[class*="-menu"], [role="listbox"]');
+                        if (m) { scope = m; break; }
+                        container = container.parentElement;
+                    }
+                }
+                if (!scope) return [];
+                var opts = scope.querySelectorAll('.select__option, div[class*="-option"], [role="option"]');
                 var res = [];
                 for (var i = 0; i < opts.length; i++) {
+                    if (opts[i].closest('.iti, .iti__country-list')) continue;
                     var t = (opts[i].innerText || '').trim();
-                    if (t && opts[i].offsetParent !== null && t.toLowerCase().indexOf('select...') === -1 && t.toLowerCase().indexOf('choose') === -1) {
+                    var isVis = !!(opts[i].offsetWidth || opts[i].offsetHeight || opts[i].getClientRects().length || opts[i].offsetParent !== null);
+                    if (t && isVis && t.toLowerCase().indexOf('select...') === -1 && t.toLowerCase().indexOf('choose') === -1) {
                         res.push(t);
                     }
                 }
                 return res;
-            }""")
+            }""", cid)
 
             available_options: list[str] = opt_data or []
 
             if not available_options:
-                await page.keyboard.press("Escape")
-                await asyncio.sleep(0.05)
-                continue
-
-            if len(available_options) == 1:
+                # A searchable/async React-Select renders its menu only once
+                # something has been typed — Greenhouse's School and Discipline
+                # fields are exactly this. An empty menu here therefore does not
+                # mean the control is broken or optional; it means the option
+                # list does not exist until a search runs. Resolve without an
+                # option list and let the dynamic typing pass below perform that
+                # search. Bailing out here was why a required "School*" stayed
+                # permanently empty and staged every education-collecting
+                # application for review.
+                probe = resolve_answer(
+                    question_text=lbl_text,
+                    profile=profile,
+                    options=None,
+                    answer_lib=answer_lib,
+                    field_id=cid,
+                )
+                if not probe.answer:
+                    # Never drop a control silently. A required dropdown that yields
+                    # no options is indistinguishable, in the logs, from one that was
+                    # deliberately skipped — which is exactly why two required
+                    # Robinhood fields sat empty with nothing recorded anywhere to
+                    # say why the run had not touched them.
+                    logger.warning(
+                        "Combobox '%s' (id=%s) opened no options%s — leaving it empty",
+                        lbl_text[:60], cid, " [REQUIRED]" if is_required else "",
+                    )
+                    await _keyboard(page).press("Escape")
+                    await asyncio.sleep(0.05)
+                    continue
+                all_resolutions.append(probe)
+                resolution = probe
+            elif len(available_options) == 1:
                 # A field with exactly one real option (e.g. a GDPR/data-
                 # processing "Acknowledge/Confirm" disclosure) isn't a
                 # judgment call — there's nothing to classify or guess,
@@ -612,20 +767,20 @@ async def _fill_all_greenhouse_comboboxes(
             target_text = resolution.answer
             if not target_text:
                 logger.info("Combobox '%s' unresolved (type=%s), skipping", lbl_text[:50], resolution.question_type)
-                await page.keyboard.press("Escape")
+                await _keyboard(page).press("Escape")
                 await asyncio.sleep(0.05)
                 continue
 
             if preexisting_value and preexisting_value.lower() == target_text.strip().lower():
                 filled[lbl_text[:50]] = preexisting_value
                 filled_ids[lbl_text[:50]] = cid
-                await page.keyboard.press("Escape")
+                await _keyboard(page).press("Escape")
                 await asyncio.sleep(0.05)
                 continue
 
             if resolution.blocking_errors:
                 logger.warning("Combobox '%s' blocked: %s", lbl_text[:50], resolution.blocking_errors)
-                await page.keyboard.press("Escape")
+                await _keyboard(page).press("Escape")
                 await asyncio.sleep(0.05)
                 continue
 
@@ -646,6 +801,7 @@ async def _fill_all_greenhouse_comboboxes(
                     candidate_str = opt_str
                     break
             if candidate_str is None:
+                target_head = target_lower.split(",")[0].strip()
                 for opt_str in available_options:
                     opt_lower = opt_str.strip().lower()
                     is_gender_collision = (
@@ -654,12 +810,25 @@ async def _fill_all_greenhouse_comboboxes(
                     )
                     if is_gender_collision:
                         continue
+                    # Containment across comma-separated place names picks the
+                    # wrong place: "seattle, wa" is a substring of "South
+                    # Seattle, Washington, United States", and whichever such
+                    # option happens to come first in the menu was accepted —
+                    # which is how a correctly-selected "Seattle, Washington,
+                    # United States" got replaced with a city the candidate
+                    # does not live in. Require the leading segment to agree
+                    # before a containment hit counts.
+                    if "," in opt_lower and "," in target_lower:
+                        if opt_lower.split(",")[0].strip() != target_head:
+                            continue
+                    elif "," in opt_lower and target_head and opt_lower.split(",")[0].strip() != target_head:
+                        continue
                     if target_lower in opt_lower or opt_lower in target_lower:
                         candidate_str = opt_str
                         break
             if candidate_str is not None:
                 exact_pattern = re.compile(rf"^\s*{re.escape(candidate_str.strip())}\s*$", re.IGNORECASE)
-                opt_to_click = page.locator('.select__option, [role="option"]').filter(has_text=exact_pattern).first
+                opt_to_click = page.locator('.select__menu .select__option, div[class*="-menu"] div[class*="-option"], .select__option, [role="option"]:not(.iti__country)').filter(has_text=exact_pattern).first
                 if await opt_to_click.count() > 0:
                     await opt_to_click.click(force=True)
                     filled[lbl_text[:50]] = candidate_str
@@ -671,33 +840,58 @@ async def _fill_all_greenhouse_comboboxes(
             if not matched and target_text:
                 try:
                     await el.click(force=True)
-                    await page.keyboard.type(target_text, delay=20)
-                    await asyncio.sleep(0.3)
+                    await _keyboard(page).type(target_text, delay=20)
 
                     visible_opts = page.locator('.select__menu .select__option, div[class*="-menu"] div[class*="-option"], .select__option')
-                    opt_count = await visible_opts.count()
+                    # A searchable React-Select queries the server for its
+                    # options; Greenhouse's School field takes ~1.5s to answer,
+                    # and until it does the menu still shows the *pre-typing*
+                    # default list. Waiting for a non-empty menu is therefore
+                    # not enough — that list was never empty. Re-scan until a
+                    # real match for what we typed shows up, and only settle
+                    # for a positional fallback once the search has had time.
                     chosen = None
                     fallback = None
-                    for oi in range(min(opt_count, 20)):
-                        cand = visible_opts.nth(oi)
-                        if not await cand.is_visible():
-                            continue
-                        c_txt = (await cand.inner_text()).strip()
-                        c_txt_lower = c_txt.lower()
-                        if not c_txt or c_txt_lower in ("no options", "select..."):
-                            continue
-                        is_gender_collision = (
-                            (target_lower == "male" and "female" in c_txt_lower)
-                            or (target_lower == "female" and c_txt_lower == "male")
-                        )
-                        if is_gender_collision:
-                            continue
-                        if fallback is None:
-                            fallback = (cand, c_txt)
-                        if c_txt_lower == target_lower:
-                            chosen = (cand, c_txt)
+                    # A location typeahead answers "Seattle, WA" with a list
+                    # whose first entry can be a *different* city ("South
+                    # Seattle, Washington, United States"). Taking the first
+                    # option put a city the candidate does not live in onto real
+                    # applications, so an option whose own leading segment
+                    # equals ours outranks mere document order.
+                    segment_match = None
+                    prefix_match = None
+                    target_head = target_lower.split(",")[0].strip()
+                    opt_count = 0
+                    for _attempt in range(30):
+                        await asyncio.sleep(0.1)
+                        chosen = segment_match = prefix_match = fallback = None
+                        opt_count = await visible_opts.count()
+                        for oi in range(min(opt_count, 20)):
+                            cand = visible_opts.nth(oi)
+                            if not await cand.is_visible():
+                                continue
+                            c_txt = (await cand.inner_text()).strip()
+                            c_txt_lower = c_txt.lower()
+                            if not c_txt or c_txt_lower in ("no options", "select..."):
+                                continue
+                            is_gender_collision = (
+                                (target_lower == "male" and "female" in c_txt_lower)
+                                or (target_lower == "female" and c_txt_lower == "male")
+                            )
+                            if is_gender_collision:
+                                continue
+                            if fallback is None:
+                                fallback = (cand, c_txt)
+                            if c_txt_lower == target_lower:
+                                chosen = (cand, c_txt)
+                                break
+                            if segment_match is None and target_head and c_txt_lower.split(",")[0].strip() == target_head:
+                                segment_match = (cand, c_txt)
+                            if prefix_match is None and target_lower and c_txt_lower.startswith(target_lower):
+                                prefix_match = (cand, c_txt)
+                        if chosen or segment_match or prefix_match:
                             break
-                    pick = chosen or fallback
+                    pick = chosen or segment_match or prefix_match or fallback
                     if pick:
                         await pick[0].click(force=True)
                         filled[lbl_text[:50]] = pick[1]
@@ -705,18 +899,382 @@ async def _fill_all_greenhouse_comboboxes(
                         matched = True
                         await asyncio.sleep(0.1)
                 except Exception as dyn_err:
-                    logger.debug("Combobox dynamic search error: %s", dyn_err)
+                    logger.warning("Combobox dynamic search error on %s: %s", cid, dyn_err)
 
             if not matched:
                 logger.warning(
                     "Combobox '%s': target '%s' not found in %d options, skipping (NO random fallback)",
                     lbl_text[:50], target_text, len(available_options),
                 )
-                await page.keyboard.press("Escape")
+                await _keyboard(page).press("Escape")
                 await asyncio.sleep(0.05)
 
         except Exception as ex:
             logger.debug("Combobox error: %s", ex)
+
+    return filled, filled_ids
+
+
+async def _fill_greenhouse_employment_rows(
+    page: Any,
+    profile: dict[str, Any],
+    answer_lib: list[dict[str, Any]] | None = None,
+) -> tuple[dict[str, str], dict[str, str]]:
+    """Fill Greenhouse's structured Employment rows from the candidate's history.
+
+    These are required text inputs with stable, index-suffixed ids
+    (company-name-0, title-0, start-date-year-0, ...) and no question wording the
+    generic label-keyword pass recognises, so the whole block was being left
+    empty and the application staged for review. The month fields are
+    comboboxes and are handled by the existing combobox pass; only the text
+    inputs and the "Current role" checkbox are driven here.
+
+    Every value comes from profile["workExperience"] via resolve_answer — a row
+    the profile does not have stays empty rather than being invented.
+    """
+    filled: dict[str, str] = {}
+    filled_ids: dict[str, str] = {}
+
+    field_ids: list[str] = await page.eval_on_selector_all(
+        'input[id^="company-name-"], input[id^="title-"], '
+        'input[id^="start-date-year-"], input[id^="end-date-year-"]',
+        "els => els.map(e => e.id)",
+    )
+
+    # Tick "Current role" first. It is what makes an ongoing job truthful on this
+    # form, and Greenhouse disables that row's end-date inputs once it is set —
+    # so doing it before anything else also stops the verifier from reporting
+    # those (now inapplicable) required fields as unfilled.
+    current_ids: list[str] = await page.eval_on_selector_all(
+        'input[type="checkbox"][id^="current-role-"]', "els => els.map(e => e.id)"
+    )
+    history = profile.get("workExperience") or []
+    for cid in current_ids:
+        try:
+            m = re.match(r"^current-role-(\d+)", cid)
+            if not m:
+                continue
+            idx = int(m.group(1))
+            if idx >= len(history) or not (history[idx] or {}).get("currentlyEmployed"):
+                continue
+            box = page.locator(f'[id="{cid}"]').first
+            if await box.count() == 0 or not await box.is_visible():
+                continue
+            if not await box.is_checked():
+                await box.check(force=True)
+                await asyncio.sleep(0.2)
+            filled[f"Current role {idx}"] = "checked"
+            filled_ids[f"Current role {idx}"] = cid
+        except Exception as ex:
+            logger.debug("Employment current-role checkbox error: %s", ex)
+
+    for fid in field_ids:
+        try:
+            el = page.locator(f'[id="{fid}"]').first
+            if await el.count() == 0 or not await el.is_visible():
+                continue
+            if await el.is_disabled():
+                continue
+            if (await el.input_value()).strip():
+                continue
+
+            lbl = ""
+            lbl_el = page.locator(f'label[for="{fid}"]').first
+            if await lbl_el.count() > 0:
+                lbl = (await lbl_el.inner_text()).strip()
+            if not lbl:
+                continue
+
+            resolution = resolve_answer(
+                question_text=lbl,
+                profile=profile,
+                options=None,
+                answer_lib=answer_lib,
+                field_id=fid,
+            )
+            if not resolution.answer:
+                continue
+
+            await el.fill(resolution.answer)
+            await asyncio.sleep(0.1)
+            filled[lbl[:50]] = resolution.answer
+            filled_ids[lbl[:50]] = fid
+        except Exception as ex:
+            logger.debug("Employment field '%s' error: %s", fid, ex)
+
+    return filled, filled_ids
+
+
+_STATE_ABBREVIATIONS = {
+    "alabama": "al", "alaska": "ak", "arizona": "az", "arkansas": "ar",
+    "california": "ca", "colorado": "co", "connecticut": "ct", "delaware": "de",
+    "florida": "fl", "georgia": "ga", "hawaii": "hi", "idaho": "id",
+    "illinois": "il", "indiana": "in", "iowa": "ia", "kansas": "ks",
+    "kentucky": "ky", "louisiana": "la", "maine": "me", "maryland": "md",
+    "massachusetts": "ma", "michigan": "mi", "minnesota": "mn",
+    "mississippi": "ms", "missouri": "mo", "montana": "mt", "nebraska": "ne",
+    "nevada": "nv", "new hampshire": "nh", "new jersey": "nj",
+    "new mexico": "nm", "new york": "ny", "north carolina": "nc",
+    "north dakota": "nd", "ohio": "oh", "oklahoma": "ok", "oregon": "or",
+    "pennsylvania": "pa", "rhode island": "ri", "south carolina": "sc",
+    "south dakota": "sd", "tennessee": "tn", "texas": "tx", "utah": "ut",
+    "vermont": "vt", "virginia": "va", "washington": "wa",
+    "west virginia": "wv", "wisconsin": "wi", "wyoming": "wy",
+}
+
+
+def _state_tokens(profile: dict[str, Any]) -> set[str]:
+    """Every spelling of the candidate's state, lowercased."""
+    tokens: set[str] = set()
+    raw = str(profile.get("state") or "").strip().lower()
+    if raw:
+        tokens.add(raw)
+        abbreviation = _STATE_ABBREVIATIONS.get(raw)
+        if abbreviation:
+            tokens.add(abbreviation)
+        if len(raw) == 2:
+            tokens.add(raw)
+            for name, code in _STATE_ABBREVIATIONS.items():
+                if code == raw:
+                    tokens.add(name)
+    location = str(profile.get("location") or "")
+    tail = [part.strip().lower() for part in location.split(",")[1:]]
+    tokens.update(part for part in tail if part)
+    return {t for t in tokens if t}
+
+
+def _pick_location_option(
+    option_texts: list[str], answer: str, profile: dict[str, Any]
+) -> int | None:
+    """Index of the suggestion that really is the candidate's home town.
+
+    City names are not unique across states: typing "Auburn" for a candidate in
+    Auburn, Washington offers Auburn, Alabama first, and a match on the leading
+    segment alone happily takes it — which is how a real application went out
+    saying the candidate lives in Alabama. So the state has to agree too, and a
+    city-only match is accepted only when nothing better exists and the
+    candidate's state is unknown.
+    """
+    target = answer.strip().lower()
+    city = target.split(",")[0].strip()
+    states = _state_tokens(profile)
+
+    city_only: int | None = None
+    for index, raw in enumerate(option_texts):
+        text = (raw or "").strip().lower()
+        if not text:
+            continue
+        if text == target:
+            return index
+        if text.split(",")[0].strip() != city:
+            continue
+        segments = {seg.strip() for seg in text.split(",")[1:]}
+        if states and segments & states:
+            return index
+        if city_only is None:
+            city_only = index
+    if states:
+        # The candidate's state is known and no suggestion matched it, so every
+        # remaining candidate is a different place with the same name. Better to
+        # leave the field empty and have it reviewed than to claim the wrong one.
+        return None
+    return city_only
+
+
+async def _fill_ashby_fields(
+    page: Any,
+    profile: dict[str, Any],
+    answer_lib: list[dict[str, Any]] | None = None,
+) -> tuple[dict[str, str], dict[str, str]]:
+    """Fill an Ashby application form.
+
+    Ashby needs its own pass because nothing about its DOM matches the
+    Greenhouse-shaped selectors used elsewhere:
+
+    * every custom question's id and name is a bare UUID, so the only thing that
+      identifies a field is its label text;
+    * a Yes/No question is a pair of button elements carrying
+      data-option="yes|no" with a hidden checkbox behind them, not a radio group;
+    * the location field is an autocomplete input with role="combobox" and no id
+      at all, so a label[for=...] lookup cannot reach it.
+
+    Every field is walked through its .ashby-application-form-field-entry
+    container, the one stable hook Ashby does provide, and answered via the
+    central resolver. Anything the resolver declines is left empty so the
+    required-field check stages it for review rather than guessing.
+    """
+    filled: dict[str, str] = {}
+    filled_ids: dict[str, str] = {}
+
+    entries = page.locator(".ashby-application-form-field-entry")
+    try:
+        count = await entries.count()
+    except Exception:
+        return filled, filled_ids
+
+    for index in range(count):
+        entry = entries.nth(index)
+        try:
+            label_el = entry.locator("label").first
+            if await label_el.count() == 0:
+                continue
+            label = (await label_el.inner_text()).strip().rstrip("*").strip()
+            if not label:
+                continue
+            key = label[:50]
+            field_path = await entry.get_attribute("data-field-path") or ""
+
+            yes_no = entry.locator(".ashby-application-form-input-yesno-option")
+            autocomplete = entry.locator('input[role="combobox"]')
+            radios = entry.locator('input[type="radio"]')
+            text_like = entry.locator(
+                'input[type="text"], input[type="email"], input[type="tel"], '
+                'input[type="url"], input[type="number"], textarea'
+            )
+
+            if await yes_no.count() > 0:
+                pressed = await yes_no.evaluate_all(
+                    "els => els.some(el => el.getAttribute('aria-pressed') === 'true')"
+                )
+                if pressed:
+                    continue
+                resolution = resolve_answer(
+                    question_text=label, profile=profile, options=["Yes", "No"],
+                    field_id=field_path, answer_lib=answer_lib,
+                )
+                answer = str(resolution.answer or "").strip().lower()
+                if answer not in ("yes", "no"):
+                    continue
+                button = entry.locator(
+                    '.ashby-application-form-input-yesno-option[data-option="' + answer + '"]'
+                ).first
+                if await button.count() > 0:
+                    await button.click(force=True)
+                    filled[key] = "Yes" if answer == "yes" else "No"
+                    filled_ids[key] = field_path
+                    await asyncio.sleep(0.15)
+                continue
+
+            if await autocomplete.count() > 0:
+                box = autocomplete.first
+                if (await box.input_value()).strip():
+                    continue
+                resolution = resolve_answer(
+                    question_text=label, profile=profile, options=None,
+                    field_id=field_path, answer_lib=answer_lib,
+                )
+                answer = str(resolution.answer or "").strip()
+                if not answer:
+                    continue
+                await box.click()
+                # Type the city alone: Ashby keys its location list on city, so a
+                # full "Seattle, Washington, United States" matches nothing in it.
+                head = answer.split(",")[0].strip() or answer
+                await box.press_sequentially(head, delay=40)
+                options = page.locator('[role="option"]')
+                chosen_text = ""
+                for _ in range(30):
+                    await asyncio.sleep(0.1)
+                    texts = await options.evaluate_all(
+                        "els => els.map(el => (el.innerText || '').trim())"
+                    )
+                    if not texts:
+                        continue
+                    pick = _pick_location_option(texts, answer, profile)
+                    if pick is not None:
+                        await options.nth(pick).click(force=True)
+                        chosen_text = texts[pick]
+                        break
+                if chosen_text:
+                    filled[key] = chosen_text
+                    filled_ids[key] = field_path
+                    await asyncio.sleep(0.2)
+                continue
+
+            if await radios.count() > 0:
+                checked = await radios.evaluate_all("els => els.some(el => el.checked)")
+                if checked:
+                    continue
+                option_texts = await entry.locator("label").evaluate_all(
+                    "els => els.slice(1).map(el => (el.innerText || '').trim())"
+                )
+                option_texts = [t for t in option_texts if t]
+                if not option_texts:
+                    continue
+                resolution = resolve_answer(
+                    question_text=label, profile=profile, options=option_texts,
+                    field_id=field_path, answer_lib=answer_lib,
+                )
+                answer = str(resolution.answer or "").strip()
+                if not answer:
+                    continue
+                for offset, text in enumerate(option_texts):
+                    if text.strip().lower() == answer.lower():
+                        await radios.nth(offset).click(force=True)
+                        filled[key] = text
+                        filled_ids[key] = field_path
+                        await asyncio.sleep(0.15)
+                        break
+                continue
+
+            checkboxes = entry.locator('input[type="checkbox"]')
+            if await yes_no.count() == 0 and await checkboxes.count() > 0 and await text_like.count() == 0:
+                # A lone checkbox on an Ashby entry is an acknowledgement or
+                # certification ("I hereby certify that ..."). The resolver
+                # decides whether it is one the candidate can truthfully tick;
+                # anything it declines is left alone for review.
+                box = checkboxes.first
+                if await box.is_checked():
+                    continue
+                resolution = resolve_answer(
+                    question_text=label, profile=profile, options=["Yes", "No"],
+                    field_id=field_path, answer_lib=answer_lib,
+                )
+                if str(resolution.answer or "").strip().lower() != "yes":
+                    continue
+                await box.check(force=True)
+                filled[key] = "checked"
+                filled_ids[key] = field_path
+                await asyncio.sleep(0.1)
+                continue
+
+            if await text_like.count() > 0:
+                box = text_like.first
+                if (await box.input_value()).strip():
+                    continue
+                resolution = resolve_answer(
+                    question_text=label, profile=profile, options=None,
+                    field_id=field_path, answer_lib=answer_lib,
+                )
+                answer = str(resolution.answer or "").strip()
+                if not answer or resolution.question_type == QuestionType.UNKNOWN.value:
+                    continue
+                await box.fill(answer)
+                # Ashby's inputs are React-controlled, and some of them discard a
+                # programmatic value set: observed on "When can you start a new
+                # role?", which reported filled but was empty at submit time.
+                # Typing raises the same key events a person would, so fall back
+                # to that whenever the value did not stick.
+                try:
+                    if not (await box.input_value()).strip():
+                        await box.click()
+                        await box.press_sequentially(answer, delay=25)
+                except Exception:
+                    pass
+                # Record what the control actually holds, not what we typed. A
+                # date input normalises "2 weeks from offer" into a real date,
+                # and recording the phrase instead made the DOM read-back
+                # verifier report a mismatch against a field that was filled
+                # perfectly well.
+                try:
+                    settled = (await box.input_value()).strip()
+                except Exception:
+                    settled = ""
+                filled[key] = settled or answer
+                filled_ids[key] = field_path
+                await asyncio.sleep(0.1)
+        except Exception as entry_err:
+            logger.debug("Ashby field %s failed: %s", index, entry_err)
 
     return filled, filled_ids
 
@@ -791,66 +1349,90 @@ async def _fill_standard_and_react_fields(
         filled["Phone"] = phone_formatted
 
     # Fill Location (City) if requested
-    loc_input = page.locator('input[id*="candidate_location" i], input[id*="location" i], input[name*="location" i]').first
+    loc_input = page.locator('input[id*="candidate-location" i], input[id*="candidate_location" i], input[id*="location" i], input[name*="location" i]').first
     if await loc_input.count() > 0 and await loc_input.is_visible():
-        city_val = profile.get("location") or "Auburn, WA"
-        if city_val.strip().lower() in ("akshay", "akshay borse", "none", ""):
-            city_val = "Auburn, WA"
+        city_full = profile.get("location") or "Seattle, WA"
+        if city_full.strip().lower() in ("akshay", "akshay borse", "none", ""):
+            city_full = "Seattle, WA"
+        city_search = (profile.get("city") or city_full.split(",")[0]).strip() or "Seattle"
         try:
-            await loc_input.fill(city_val)
-            filled["Location"] = city_val
+            await loc_input.focus()
+            await loc_input.press_sequentially(city_search, delay=50)
+            filled["Location"] = city_full
             filled_ids["Location"] = await loc_input.get_attribute("id") or ""
-            await asyncio.sleep(0.3)
-            # Many ATS location fields are a Google-Places-style autocomplete: typed
-            # text alone doesn't satisfy the required field until a suggestion is
-            # actually clicked (or the highlighted one confirmed). Match generically
-            # against the parts of city_val — a hardcoded "Auburn, WA"-only match
-            # left every other city (i.e. real production usage) unfillable.
-            suggestions = page.locator('.location-suggestion, [role="option"], .pac-item, li[class*="suggestion"]')
+            await asyncio.sleep(1.2)
+            # Scoped selector for location autocomplete suggestions to avoid matching
+            # country or dial-code dropdown menus elsewhere on the page
+            suggestions = page.locator(
+                '[id*="candidate-location-option"], '
+                'div[id*="candidate-location-listbox"] [role="option"], '
+                'div[id*="candidate_location"] [role="option"], '
+                'div[class*="select__menu"] div[class*="option"], '
+                'div[class*="select__option"], '
+                '.location-suggestion, .pac-item, li[class*="suggestion"]'
+            )
             sug_count = await suggestions.count()
-            city_parts = [p.strip().lower() for p in city_val.split(",") if p.strip()]
             clicked = False
             if sug_count > 0:
-                # Prefer a suggestion matching ALL parts (city AND state) over one
-                # matching only the city name — "Auburn, WA" was previously matched
-                # with a plain `any()`, so the first "Auburn, <wrong state>" in the
-                # list (there are several real US cities named Auburn) won over the
-                # correct one further down. Fall back to a partial/first-visible
-                # match only when no full match exists, so the field still gets
-                # something rather than being left uncommitted.
-                first_visible_el = None
-                partial_match_el = None
-                full_match_el = None
-                for s_idx in range(min(sug_count, 8)):
-                    s_el = suggestions.nth(s_idx)
-                    if not await s_el.is_visible():
-                        continue
-                    s_text = (await s_el.inner_text()).lower()
-                    if first_visible_el is None:
-                        first_visible_el = s_el
-                    if partial_match_el is None and any(part and part in s_text for part in city_parts):
-                        partial_match_el = s_el
-                    if full_match_el is None and city_parts and all(part in s_text for part in city_parts):
-                        full_match_el = s_el
-                        break
-                best_el = full_match_el or partial_match_el or first_visible_el
-                if best_el is not None:
-                    await best_el.click(force=True)
+                # Read every suggestion's text in one go, then choose with the
+                # same state-aware rule the Ashby pass uses: matching only the
+                # city puts "Auburn, Alabama" on the form of a candidate who
+                # lives in Auburn, Washington.
+                suggestion_texts = await suggestions.evaluate_all(
+                    "els => els.map(el => ("
+                    "  (el.offsetWidth || el.offsetHeight || el.getClientRects().length)"
+                    "    ? (el.innerText || '').trim() : ''"
+                    "))"
+                )
+                pick = _pick_location_option(suggestion_texts, city_full, profile)
+                if pick is not None:
+                    await suggestions.nth(pick).click(force=True)
                     clicked = True
-            if not clicked and sug_count > 0:
-                # A suggestion list rendered but nothing matched by text — the
-                # highlighted/first option is still far better than leaving the
-                # required field uncommitted.
+                    await asyncio.sleep(0.5)
+            if not clicked and sug_count == 0:
+                # Only blind-select when the widget offered nothing to read. If
+                # suggestions existed and none of them was the candidate's town,
+                # picking whatever is highlighted is how a wrong city gets onto
+                # a real application; leave it empty for review instead.
                 try:
-                    await page.keyboard.press("ArrowDown")
-                    await page.keyboard.press("Enter")
+                    await _keyboard(page).press("ArrowDown")
+                    await asyncio.sleep(0.2)
+                    await _keyboard(page).press("Enter")
+                    await asyncio.sleep(0.5)
                 except Exception:
                     pass
+            # Record the value the widget actually committed, not the one we
+            # set out to type. React-Select clears its text input on selection
+            # and renders the choice in a .select__single-value node, so
+            # reading input_value() here returns "" and leaves the answers map
+            # claiming "Seattle, WA" while the form holds "Seattle, Washington,
+            # United States". That bogus mismatch is what sent a correctly
+            # filled field into the healing pass, which then re-picked it as a
+            # different city entirely.
+            try:
+                settled = (await loc_input.evaluate("""el => {
+                    var wrapper = el.closest('div.select__control, div[class*="select__control"]');
+                    var sv = wrapper && wrapper.querySelector('[class*="singleValue"], [class*="single-value"]');
+                    return (sv && sv.textContent.trim()) || el.value || '';
+                }""") or "").strip()
+                if settled:
+                    filled["Location"] = settled
+            except Exception:
+                pass
         except Exception:
             pass
 
     if log_cb and (filled.get("First Name") or filled.get("Email")):
         log_cb(f"Filled contact info ({first} {last}, {email})")
+
+    # 1b. Ashby forms are label-driven, with Yes/No buttons and an id-less
+    # location autocomplete that none of the passes above can reach.
+    if await page.locator(".ashby-application-form-field-entry").count() > 0:
+        if log_cb:
+            log_cb("Filling Ashby application fields...")
+        ashby_filled, ashby_ids = await _fill_ashby_fields(page, profile, answer_lib)
+        filled.update(ashby_filled)
+        filled_ids.update(ashby_ids)
 
     # 2. Resume File
     file_input = page.locator('input[type="file"][name*="resume" i], input[type="file"][id*="resume" i], input[type="file"]').first
@@ -865,6 +1447,12 @@ async def _fill_standard_and_react_fields(
             await asyncio.sleep(0.5)
         except Exception as e:
             logger.warning("Resume attach error: %s", e)
+
+    # 3. Structured Employment rows (must precede the combobox pass: ticking
+    # "Current role" disables that row's end-date comboboxes).
+    emp_filled, emp_ids = await _fill_greenhouse_employment_rows(page, profile, answer_lib)
+    filled.update(emp_filled)
+    filled_ids.update(emp_ids)
 
     # 3. React Comboboxes & Native Selects
     if log_cb:
@@ -1163,15 +1751,36 @@ async def _fill_standard_and_react_fields(
             if curr_val:
                 continue
 
-            essay_ans = "Yes, extensive production experience with modern distributed systems, TypeScript, React, Next.js, and AI workflows."
-            if "react" in ta_lbl_lower or "next" in ta_lbl_lower:
-                essay_ans = "Yes, over 6+ years of production experience building high-performance applications with React, Next.js, and TypeScript."
-            elif "ai" in ta_lbl_lower or "agent" in ta_lbl_lower or "llm" in ta_lbl_lower:
-                essay_ans = "Strong background building AI-powered applications, agent workflows, tool orchestration, and LLM integrations using OpenAI and Anthropic APIs."
-            elif "blog" in ta_lbl_lower or "article" in ta_lbl_lower or "read in the last 6 months" in ta_lbl_lower:
-                essay_ans = "Anthropic's research paper and blog on Building Effective Agents (December 2024), highlighting workflow patterns for agentic tool use and evaluation loops."
-            elif "why" in ta_lbl_lower or "interest" in ta_lbl_lower:
-                essay_ans = f"Deeply passionate about {company}'s mission and engineering excellence. Excited to contribute to mission-critical systems and high-scale architecture."
+            # Every empty textarea used to be filled with a canned blurb chosen
+            # by a substring ladder, defaulting to a generic "extensive
+            # production experience..." line when nothing matched. Two things
+            # went wrong with that, both observed on real submissions:
+            #
+            #  * The substring tests are far too loose — "ai" is inside
+            #    "expl-ai-n", so "Please explain." selected the AI/LLM blurb and
+            #    answered a question about Python backend work, and another
+            #    about Flyte/Airflow ETL pipelines, with a claim about LLM
+            #    integrations that answered neither.
+            #  * The default fired on anything unrecognised, so "What's a topic
+            #    or hobby you could present on for 30 minutes?" and, worse, "what
+            #    is the basis of your current employment authorization? ... is
+            #    there an approved I-140?" both received a tech-stack sentence.
+            #
+            # A wrong free-text answer on a real application is worse than a
+            # blank one: blank gets the job staged for review, where the
+            # candidate can answer it themselves. So only answer what the
+            # resolver can genuinely ground in the profile, and otherwise leave
+            # the field alone.
+            essay_res = resolve_answer(
+                question_text=ta_lbl.strip(),
+                profile=profile,
+                options=[],
+                answer_lib=answer_lib,
+                field_id=ta_id,
+            )
+            essay_ans = (essay_res.answer or "").strip()
+            if not essay_ans or essay_res.confidence < 0.7:
+                continue
 
             await ta.fill(essay_ans)
             # Store the full answer, not a truncated preview — this dict feeds
@@ -1185,7 +1794,13 @@ async def _fill_standard_and_react_fields(
             pass
 
     # 4. Standard & Custom Text Inputs (LinkedIn, Company, Title, Website, Portfolio)
-    text_inputs = await page.locator('input[type="text"], input[type="url"], input[type="search"], input:not([type])').all()
+    # email/tel/number are included because non-Greenhouse boards type their
+    # contact fields properly (Ashby uses type="email" and type="tel"), and a
+    # text-only selector skipped every one of them.
+    text_inputs = await page.locator(
+        'input[type="text"], input[type="url"], input[type="email"], input[type="tel"], '
+        'input[type="number"], input[type="search"], input:not([type])'
+    ).all()
     for inp in text_inputs:
         try:
             if not await inp.is_visible():
@@ -1212,28 +1827,69 @@ async def _fill_standard_and_react_fields(
             if not inp_lbl_lower:
                 continue
 
+            # Ask the centralised resolver first. The if/elif chain below only
+            # knows a fixed list of Greenhouse-style labels, so on any other ATS
+            # it recognised nothing and the whole form was left blank — Ashby
+            # names its custom fields with bare UUIDs ("Preferred FULL Name",
+            # "Legal FULL Name", "Mobile Phone", "Location - Zip Code"), which
+            # the resolver answers correctly but this pass never asked it about.
+            # The chain is kept below purely as a fallback for labels the
+            # resolver declines.
             val_to_fill = ""
-            if "linkedin" in inp_lbl_lower:
-                val_to_fill = profile.get("linkedin") or "https://www.linkedin.com/in/amsborse/"
+            resolved_key = ""
+            try:
+                generic = resolve_answer(
+                    question_text=inp_lbl,
+                    profile=profile,
+                    options=None,
+                    field_id=inp_id,
+                    answer_lib=answer_lib,
+                )
+            except Exception:
+                generic = None
+            if generic is not None and generic.answer and generic.question_type != QuestionType.UNKNOWN.value:
+                val_to_fill = str(generic.answer)
+                resolved_key = inp_lbl[:50]
+                filled[resolved_key] = val_to_fill
+
+            if val_to_fill:
+                pass
+            elif "linkedin" in inp_lbl_lower:
+                val_to_fill = str(profile.get("linkedin") or "")
                 filled["LinkedIn"] = val_to_fill
             elif "current company" in inp_lbl_lower or "most recent company" in inp_lbl_lower or "your current company" in inp_lbl_lower or "employer" in inp_lbl_lower:
-                val_to_fill = profile.get("currentCompany") or "Microsoft"
+                val_to_fill = str(profile.get("currentCompany") or "")
                 filled["Current Company"] = val_to_fill
             elif "current title" in inp_lbl_lower or "most recent title" in inp_lbl_lower or "your current title" in inp_lbl_lower or "job title" in inp_lbl_lower:
-                val_to_fill = profile.get("currentTitle") or "Senior Software Engineer"
+                val_to_fill = str(profile.get("currentTitle") or "")
                 filled["Current Title"] = val_to_fill
             elif "state in which you" in inp_lbl_lower or "state of residence" in inp_lbl_lower:
-                val_to_fill = profile.get("state") or "Washington"
+                val_to_fill = str(profile.get("state") or "")
                 filled["State"] = val_to_fill
             elif "github" in inp_lbl_lower:
-                val_to_fill = profile.get("github") or "https://github.com/amsborse"
+                val_to_fill = str(profile.get("github") or "")
                 filled["GitHub"] = val_to_fill
             elif "portfolio" in inp_lbl_lower or "website" in inp_lbl_lower:
-                val_to_fill = profile.get("portfolio") or profile.get("website") or "https://amsborse.github.io/resume"
-                filled["Website"] = val_to_fill
+                # Never invent a URL here. This previously fell back to a
+                # hardcoded "https://amsborse.github.io/resume", which does not
+                # exist (404) — real applications went out carrying a dead link
+                # as the candidate's portfolio. With no portfolio on the profile
+                # the honest substitute is another site the candidate actually
+                # has; if there is none, leave the field alone and let the
+                # required-field check stage it for review.
+                val_to_fill = (
+                    str(profile.get("portfolio") or "").strip()
+                    or str(profile.get("website") or "").strip()
+                    or str(profile.get("github") or "").strip()
+                    or str(profile.get("linkedin") or "").strip()
+                )
+                if val_to_fill:
+                    filled["Website"] = val_to_fill
 
             if val_to_fill:
                 await inp.fill(val_to_fill)
+                if resolved_key:
+                    filled_ids[resolved_key] = inp_id
                 for key in ("LinkedIn", "Current Company", "Current Title", "State", "GitHub", "Website"):
                     if filled.get(key) == val_to_fill:
                         filled_ids[key] = inp_id
@@ -1251,6 +1907,8 @@ async def execute_live_playwright_submission(
     headless: bool = True,
     timeout_sec: float = 75.0,
     log_callback: Any = None,
+    fill_only: bool = False,
+    hand_off_seconds: float = 0.0,
 ) -> dict[str, Any]:
     """Run the submission on the dedicated Proactor-loop thread (see browser_runner._ensure_playwright_loop).
 
@@ -1281,8 +1939,10 @@ async def execute_live_playwright_submission(
                 headless=headless,
                 timeout_sec=timeout_sec,
                 log_callback=log_callback,
+                fill_only=fill_only,
+                hand_off_seconds=hand_off_seconds,
             ),
-            timeout=timeout_sec + 30,
+            timeout=timeout_sec + hand_off_seconds + 30,
         )
 
     return await _execute_live_playwright_submission_impl(
@@ -1292,6 +1952,8 @@ async def execute_live_playwright_submission(
         headless=headless,
         timeout_sec=timeout_sec,
         log_callback=log_callback,
+        fill_only=fill_only,
+        hand_off_seconds=hand_off_seconds,
     )
 
 
@@ -1302,8 +1964,17 @@ async def _execute_live_playwright_submission_impl(
     headless: bool = True,
     timeout_sec: float = 75.0,
     log_callback: Any = None,
+    fill_only: bool = False,
+    hand_off_seconds: float = 0.0,
 ) -> dict[str, Any]:
-    """Execute autonomous browser submission with strict pre-submit and post-submit verification."""
+    """Execute autonomous browser submission with strict pre-submit and post-submit verification.
+
+    With ``fill_only`` the run stops once the form is filled and verified and
+    never clicks submit. That is how a CAPTCHA-guarded posting is handed over:
+    the automation does all the typing, then leaves the window open for
+    ``hand_off_seconds`` so the candidate can solve the challenge and press
+    submit themselves.
+    """
     app_url = job_item.get("applicationUrl") or job_item.get("listingUrl") or ""
     company = job_item.get("company") or "Target Company"
     title = job_item.get("title") or "Target Role"
@@ -1377,6 +2048,18 @@ async def _execute_live_playwright_submission_impl(
         logger.info("Resolved SmartRecruiters API URL %s -> public posting URL: %s", app_url, direct_sr_url)
         app_url = direct_sr_url
 
+    # Ashby splits the posting from its form: jobs.ashbyhq.com/<org>/<id> is a
+    # description page whose only control is an "Apply for this Job" button, and
+    # the form lives at /application. Go straight there rather than relying on
+    # finding and clicking that button.
+    ashby_match = re.match(
+        r"^(https?://jobs\.ashbyhq\.com/[^/]+/[0-9a-fA-F-]{8,})/?$",
+        (app_url or "").split("?")[0],
+    )
+    if ashby_match:
+        app_url = f"{ashby_match.group(1)}/application"
+        logger.info("Resolved Ashby posting to its application form: %s", app_url)
+
     resume_file = get_resume_upload_payload(profile)
 
     async with async_playwright() as p:
@@ -1443,7 +2126,41 @@ async def _execute_live_playwright_submission_impl(
                     page_text_lower = ""
             text_says_expired = any(p in page_text_lower for p in EXPIRED_TEXT_PATTERNS)
 
-            if url_says_expired or text_says_expired:
+            # A pulled posting most reliably announces itself by losing its own
+            # identity: we asked for one specific job id and were handed a page
+            # that no longer carries it. The path-pattern list above misses the
+            # common cross-domain case — a Pinterest posting on
+            # job-boards.greenhouse.io redirected to www.pinterestcareers.com/jobs/,
+            # whose "/jobs/" segment even matched the list's own exemption, so the
+            # run continued and typed the candidate's city into that index page's
+            # job-search filter before failing verification on it. Requiring a
+            # corroborating signal (the host changed, Greenhouse's own error flag,
+            # or a listing-index path) keeps a plain canonical-URL rewrite that
+            # still shows the form from being called expired.
+            redirect_says_expired = False
+            requested_job_id = ""
+            id_match = re.search(r"/jobs?/(\d{4,})", (app_url or "").lower()) or re.search(
+                r"(?:gh_jid|jobid|job_id)=(\d{4,})", (app_url or "").lower()
+            )
+            if id_match:
+                requested_job_id = id_match.group(1)
+            if requested_job_id and requested_job_id not in current_url_lower:
+                # Losing the id is necessary but not sufficient: a posting can
+                # legitimately hand off to an apply flow on another host whose
+                # URL drops the id but still shows a real form. Only a
+                # destination that also *looks* like a listing index — a bare
+                # /jobs, /careers or /openings, a search page, or Greenhouse's
+                # own error=true flag — is treated as a pulled posting.
+                try:
+                    final_path = urlparse(page.url).path.lower().rstrip("/")
+                except Exception:
+                    final_path = current_url_lower
+                if re.search(r"error=true|[?&]search", current_url_lower) or re.fullmatch(
+                    r"(/[a-z0-9._-]+)?(/(jobs|careers|openings|open-roles|search|positions))?", final_path or ""
+                ):
+                    redirect_says_expired = True
+
+            if url_says_expired or text_says_expired or redirect_says_expired:
                 return {
                     "submitted": False,
                     "expired": True,
@@ -1453,6 +2170,51 @@ async def _execute_live_playwright_submission_impl(
                     },
                     "fieldsFilled": {},
                 }
+
+            # Most of the "other job portals" in the queue - Datadog, Coinbase,
+            # Samsara, Zipline, Oscar, Ripple, Block, Fieldwire, Riot - are not
+            # separate ATSs at all. They are employer-branded wrappers that embed
+            # the real Greenhouse/Lever/Ashby form in a cross-origin iframe, or
+            # link out to it from an "Apply now" button (Coinbase does this).
+            # Driving that nested frame is what made these postings hang until the
+            # 480s watchdog fired: the frame is reachable, but interacting with it
+            # through the wrapper stalls.
+            #
+            # The iframe's own src is authoritative - it carries the correct board
+            # slug and validity token, which guessing a slug from the company name
+            # cannot reliably reproduce. So navigate the top-level page to it and
+            # drive the real form directly.
+            try:
+                embed_src = await page.evaluate(
+                    "() => {"
+                    "  const ats = /greenhouse[.]io|lever[.]co|ashbyhq[.]com|oneclick-ui/;"
+                    "  const framed = [...document.querySelectorAll('iframe')]"
+                    "    .map(el => el.src || '').find(src => ats.test(src));"
+                    "  if (framed) return framed;"
+                    "  const links = [...document.querySelectorAll('a[href]')].map(a => a.href || '')"
+                    "    .filter(href => ats.test(href));"
+                    "  const apply = [...document.querySelectorAll('a[href]')]"
+                    "    .filter(a => ats.test(a.href || '') && /apply|interested/i.test(a.textContent || ''));"
+                    "  return (apply[0] && apply[0].href) || links[0] || '';"
+                    "}"
+                )
+            except Exception:
+                embed_src = ""
+            # SmartRecruiters hides its form behind an "I'm interested" link to a
+            # oneclick-ui page, so the posting URL itself never has one.
+            already_on_ats = any(h in app_url for h in ("greenhouse.io", "lever.co", "ashbyhq.com")) or "oneclick-ui" in page.url
+            if embed_src and not already_on_ats:
+                logger.info("Employer page points at an ATS form; navigating directly to %s", embed_src)
+                if log_callback:
+                    log_callback("Following embedded application form to its ATS host...")
+                try:
+                    await asyncio.wait_for(
+                        page.goto(embed_src, wait_until="domcontentloaded", timeout=45000),
+                        timeout=50.0,
+                    )
+                    await asyncio.sleep(2.0)
+                except Exception as embed_err:
+                    logger.warning("Could not open embedded form %s: %s", embed_src, embed_err)
 
             # Check for iframe (e.g. Greenhouse or Lever embeds)
             target_frame: Any = page
@@ -1476,8 +2238,17 @@ async def _execute_live_playwright_submission_impl(
                     pass
 
             # If application form is not yet visible, check for matching job links or "Apply" buttons
+            # A bare `form` element is not evidence of an application form: every
+            # careers page has a site-search form, and matching it meant the
+            # "Apply" button below never got clicked on a job-description page.
+            # Look for inputs only a real application has.
+            APPLICATION_FORM_SELECTOR = (
+                'input[type="file"], #first_name, #email, input[id*="first_name" i], '
+                'input[name*="first_name" i], input[name*="last_name" i], '
+                'input[autocomplete="given-name"], input[id*="candidate" i]'
+            )
             try:
-                form_present = await target_frame.locator('input[name*="name" i], #first_name, #email, form').count() > 0
+                form_present = await target_frame.locator(APPLICATION_FORM_SELECTOR).count() > 0
                 if not form_present:
                     # Check for direct link to specific job if gh_jid was in the URL
                     if "gh_jid=" in app_url:
@@ -1523,6 +2294,75 @@ async def _execute_live_playwright_submission_impl(
                             break
             except Exception as nav_err:
                 logger.debug("Initial form exposure navigation warning: %s", nav_err)
+
+            # Client-rendered application forms (Ashby, Lever, SmartRecruiters)
+            # mount their inputs after an async fetch, so a fixed sleep after
+            # navigation is a race. Observed on Ashby: field discovery ran
+            # against an empty page, the deterministic review declared "0 missing
+            # required" because it had found no fields at all, and the run went
+            # on to click Submit on a form nothing had filled. Wait for real
+            # inputs to exist before reading the form.
+            for _ in range(30):
+                try:
+                    ready = await target_frame.locator(
+                        'input[type="text"], input[type="email"], input[type="tel"], textarea'
+                    ).count()
+                except Exception:
+                    ready = 0
+                if ready:
+                    break
+                await asyncio.sleep(0.5)
+
+            # Some postings render only a job description at the application URL
+            # (observed on Pinterest and Brex links that live on greenhouse.io but
+            # hand the actual apply flow to the employer's own site). Filling a
+            # page that has no application form does not fail — it stalls, and the
+            # job burned the full 480s watchdog before being marked FAILED with a
+            # timeout that says nothing about the real cause. Detect it here and
+            # say so immediately.
+            try:
+                has_form = await target_frame.locator(APPLICATION_FORM_SELECTOR).count() > 0
+            except Exception:
+                has_form = True  # never block a submission on a probe that errored
+            if not has_form:
+                # A page with no form may simply be a job description, or it may
+                # be a form that never rendered because a bot challenge is
+                # standing in front of it — SmartRecruiters' apply flow serves a
+                # DataDome captcha and an otherwise empty document. Those are
+                # very different outcomes for the user: one is a dead end, the
+                # other is a posting they can finish by hand.
+                try:
+                    wall = await page.evaluate(
+                        "() => { const s = [...document.querySelectorAll('iframe')].map(f => f.src || '').join(' '); "
+                        "if (/captcha-delivery|datadome/i.test(s)) return 'DataDome'; "
+                        "if (/recaptcha/i.test(s)) return 'reCAPTCHA'; "
+                        "if (/turnstile/i.test(s)) return 'Cloudflare Turnstile'; "
+                        "if (/hcaptcha/i.test(s)) return 'hCaptcha'; "
+                        "return ''; }"
+                    )
+                except Exception:
+                    wall = ""
+                if wall:
+                    logger.warning("%s bot protection is blocking the form at %s", wall, page.url)
+                    return {
+                        "submitted": False,
+                        "error": (
+                            f"{wall} bot protection on this board blocked the application form — "
+                            "this posting has to be completed by hand"
+                        ),
+                        "evidence": {"finalUrl": page.url},
+                        "fieldsFilled": {},
+                    }
+                logger.warning("No application form found at %s — nothing to fill", page.url)
+                return {
+                    "submitted": False,
+                    "error": (
+                        "No application form on the posting page — this employer's apply flow "
+                        "starts elsewhere and cannot be driven from this URL"
+                    ),
+                    "evidence": {"finalUrl": page.url},
+                    "fieldsFilled": {},
+                }
 
             # ─── DISCOVER & PERSIST FIELDS BEFORE RESOLUTION ─────────────────
             try:
@@ -1640,8 +2480,40 @@ async def _execute_live_playwright_submission_impl(
                         elem = target_frame.locator(f'[id="{f_id}"]').first
                         if await elem.count() > 0:
                             try:
-                                el_type = (await elem.evaluate("el => (el.type || el.getAttribute('type') || '').toLowerCase()")) or ""
-                                is_cb = await elem.get_attribute("role") == "combobox"
+                                is_cb = False
+                                # One evaluate, not four, and with a short explicit
+                                # timeout. Locator.evaluate auto-waits for the element
+                                # to be attached, so four separate calls against a
+                                # field that the form has since re-rendered away burned
+                                # 4 x the default timeout — for two such fields that is
+                                # the entire 480s submission watchdog, which is exactly
+                                # how the Coinbase and Samsara runs died without ever
+                                # reaching the submit click.
+                                probe = await elem.evaluate(
+                                    "el => ({"
+                                    "  type: (el.type || el.getAttribute('type') || '').toLowerCase(),"
+                                    "  tag: (el.tagName || '').toLowerCase(),"
+                                    "  role: (el.getAttribute('role') || '').toLowerCase(),"
+                                    "  cls: (typeof el.className === 'string' ? el.className : '').toLowerCase()"
+                                    "})",
+                                    timeout=5000,
+                                )
+                                el_type = probe.get("type") or ""
+                                tag_name = probe.get("tag") or ""
+                                role = probe.get("role") or ""
+                                cls = probe.get("cls") or ""
+                                if role == "combobox" or "select__control" in cls:
+                                    is_cb = True
+                                if tag_name in ("div", "fieldset", "section") and not is_cb and el_type not in ("file", "checkbox"):
+                                    inner_cb = elem.locator('div.select__control, div[class*="control"], [role="combobox"]').first
+                                    inner_radio = elem.locator('input[type="radio"]').first
+                                    inner_sel = elem.locator('select').first
+                                    if await inner_cb.count() > 0:
+                                        is_cb = True
+                                    elif await inner_radio.count() > 0:
+                                        el_type = "radio"
+                                    elif await inner_sel.count() > 0:
+                                        el_type = "select"
 
                                 if el_type == "file":
                                     if resume_file and os.path.exists(resume_file):
@@ -1667,6 +2539,19 @@ async def _execute_live_playwright_submission_impl(
                                             filled_field_ids[f_label or f_id] = f_id
                                             if log_callback:
                                                 log_callback(f"Self-healed [{f_label or f_id}] -> '{actually_selected}'")
+                                elif el_type == "select":
+                                    inner_sel = elem if tag_name == "select" else elem.locator("select").first
+                                    if await inner_sel.count() > 0 and fix_val:
+                                        opt_data = await inner_sel.evaluate("sel => Array.from(sel.options).map(o => ({ value: o.value, text: o.text }))")
+                                        clean_f = str(fix_val).strip().lower()
+                                        for opt in opt_data:
+                                            if clean_f and (opt["text"].strip().lower() == clean_f or opt["value"].strip().lower() == clean_f):
+                                                await inner_sel.select_option(value=opt["value"])
+                                                filled_fields[f_label or f_id] = opt["text"]
+                                                filled_field_ids[f_label or f_id] = f_id
+                                                if log_callback:
+                                                    log_callback(f"Self-healed [{f_label or f_id}] -> '{opt['text']}'")
+                                                break
                                 elif el_type == "radio":
                                     if fix_val and str(fix_val).lower() not in ("none", "null", "undefined", "") and await _select_radio_option(target_frame, f_id, str(fix_val)):
                                         filled_fields[f_label or f_id] = str(fix_val)
@@ -1824,6 +2709,81 @@ async def _execute_live_playwright_submission_impl(
                 report=cross_field_report,
                 resolutions=form_resolutions,
             )
+
+            # 6a. Assisted hand-off: everything is typed in, and the human takes
+            # it from here. This is what makes a CAPTCHA-guarded board worth
+            # keeping — the candidate solves the one thing automation must not,
+            # instead of re-typing the whole form. The submit click is never
+            # made here, whatever the policy gates say.
+            if fill_only:
+                hand_off_shot = SCREENSHOTS_DIR / f"{job_id}_assisted.png"
+                try:
+                    await page.screenshot(path=str(hand_off_shot), full_page=True, timeout=5000)
+                except Exception:
+                    pass
+                logger.info(
+                    "Assisted fill complete for %s — %d field(s) filled; handing over for %.0fs",
+                    company, len(filled_fields), hand_off_seconds,
+                )
+                if log_callback:
+                    log_callback(
+                        f"Filled {len(filled_fields)} field(s) on the {company} form. "
+                        "Solve any challenge and press Submit in the open browser window.",
+                    )
+                # Watch the handed-over window. If the candidate submits it
+                # themselves, the ATS says so — and the job should mark itself
+                # submitted rather than making them come back and click
+                # "Mark submitted" for something they already did.
+                confirmed_by_user = ""
+                if hand_off_seconds > 0:
+                    deadline = asyncio.get_running_loop().time() + hand_off_seconds
+                    while asyncio.get_running_loop().time() < deadline:
+                        if page.is_closed():
+                            break
+                        try:
+                            current = page.url or ""
+                            if "confirmation" in current.lower() or "thank" in current.lower():
+                                confirmed_by_user = current
+                                break
+                            body_text = (await page.locator("body").inner_text(timeout=2000)).lower()
+                            if re.search(
+                                r"application (was |has been )?(successfully )?(submitted|received)"
+                                r"|thank you for applying|thanks for applying",
+                                body_text,
+                            ):
+                                confirmed_by_user = current or "confirmation text on page"
+                                break
+                        except Exception:
+                            pass
+                        await asyncio.sleep(1.5)
+
+                if confirmed_by_user:
+                    logger.info("Assisted hand-off confirmed by the candidate for %s", company)
+                    if log_callback:
+                        log_callback(f"You submitted the {company} application — marking it submitted.")
+                    return {
+                        "submitted": True,
+                        "assisted": True,
+                        "submissionSource": "manual-assisted",
+                        "evidence": {
+                            "confirmationText": "Confirmed on screen after assisted hand-off",
+                            "confirmationUrl": confirmed_by_user,
+                            "assistedScreenshotPath": str(hand_off_shot.resolve()) if hand_off_shot.exists() else "",
+                        },
+                        "fieldsFilled": filled_fields,
+                    }
+
+                return {
+                    "submitted": False,
+                    "assisted": True,
+                    "status": "MANUAL_REVIEW",
+                    "error": "",
+                    "evidence": {
+                        "assistedScreenshotPath": str(hand_off_shot.resolve()) if hand_off_shot.exists() else "",
+                        "domVerification": dom_verification.to_dict(),
+                    },
+                    "fieldsFilled": filled_fields,
+                }
 
             # 6. Policy Check: If not READY_TO_SUBMIT, stage for review (never force submit)
             if not policy_result.can_auto_submit:
@@ -1990,7 +2950,11 @@ async def _execute_live_playwright_submission_impl(
                     target_frame=target_frame,
                     company=company,
                     candidate_email=candidate_email,
-                    timeout_sec=45.0,
+                    # Explicitly generous: this call site's own 45s ceiling was
+                    # what stranded submissions whose code email took longer to
+                    # show up in Gmail than that. Still well inside the 480s
+                    # per-job watchdog in autopilot_runner.
+                    timeout_sec=150.0,
                     log_callback=log_callback,
                 )
                 if verification_handled:
@@ -2108,6 +3072,29 @@ async def _execute_live_playwright_submission_impl(
 
             if not is_genuine_submission:
                 err_msg = qwen_confirmation.get("reason") or "ATS rejected submission or required fields remain incomplete"
+                # A form that stays on screen after a clean submit click is the
+                # signature of bot protection refusing the post. Only look for it
+                # here, after a real failure: plenty of boards that submit fine
+                # also embed an invisible reCAPTCHA, so presence alone must never
+                # block a board that works. Naming it turns an opaque "submit
+                # button is still active" into a reason that classifies as
+                # BOT_PROTECTED_BOARD and stops the job being retried forever.
+                try:
+                    bot_wall = await target_frame.evaluate(
+                        "() => { const srcs = [...document.querySelectorAll('iframe')].map(f => f.src || '').join(' '); "
+                        "const html = document.documentElement.innerHTML; "
+                        "if (/recaptcha/i.test(srcs) || /g-recaptcha|grecaptcha/i.test(html)) return 'reCAPTCHA'; "
+                        "if (/turnstile/i.test(srcs) || /cf-turnstile/i.test(html)) return 'Cloudflare Turnstile'; "
+                        "if (/hcaptcha/i.test(srcs) || /h-captcha/i.test(html)) return 'hCaptcha'; "
+                        "return ''; }"
+                    )
+                except Exception:
+                    bot_wall = ""
+                if bot_wall and form_still_visible:
+                    err_msg = (
+                        f"{bot_wall} bot protection on this board blocked the submission — "
+                        "this posting has to be completed by hand"
+                    )
                 logger.error("Submission unconfirmed by Qwen verification: %s", err_msg)
                 return {
                     "submitted": False,

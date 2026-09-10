@@ -4,6 +4,7 @@ import Link from "next/link";
 import { Suspense, useCallback, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { CareerWorkspaceStrip } from "@/components/career-workspace-strip";
+import { ProfileApplicationDetailsForm } from "@/components/profile/profile-application-details-form";
 import { ProfileDocumentsSection } from "@/components/profile/profile-documents-section";
 import { ResumeProfileSwitcher } from "@/components/profile/resume-profile-switcher";
 import { ResumeTailoringPanel } from "@/components/profile/resume-tailoring-panel";
@@ -29,6 +30,26 @@ const PROFILE_FIELDS: Array<{
       { label: "Email", key: "email" },
       { label: "Phone", key: "phone" },
       { label: "Location", key: "location" },
+    ],
+  },
+  {
+    group: "Mailing address",
+    fields: [
+      { label: "Street address", key: "streetAddress" as keyof ApplyPilotProfile },
+      { label: "City", key: "city" as keyof ApplyPilotProfile },
+      { label: "State", key: "state" as keyof ApplyPilotProfile },
+      { label: "ZIP / postcode", key: "zip" as keyof ApplyPilotProfile },
+      { label: "Country", key: "country" as keyof ApplyPilotProfile },
+    ],
+  },
+  {
+    group: "Availability & education",
+    fields: [
+      { label: "Notice period", key: "noticePeriod" as keyof ApplyPilotProfile },
+      { label: "Willing to relocate", key: "relocate" as keyof ApplyPilotProfile },
+      { label: "School", key: "school" as keyof ApplyPilotProfile },
+      { label: "Degree", key: "degree" as keyof ApplyPilotProfile },
+      { label: "Field of study", key: "discipline" as keyof ApplyPilotProfile },
     ],
   },
   {
@@ -232,6 +253,8 @@ export default function ProfilePage() {
               </div>
               <ResumeProfileSwitcher activeProfileId={activeResumeProfile?.id ?? null} onSelect={setActiveResumeProfile} />
             </section>
+
+            <ProfileApplicationDetailsForm profile={profile} onSaved={reloadProfile} />
 
             <ProfileDocumentsSection onProfileSynced={reloadProfile} />
 

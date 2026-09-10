@@ -6,6 +6,17 @@ from abc import ABC, abstractmethod
 from typing import Any
 
 
+class AdapterNotImplementedError(NotImplementedError):
+    """An adapter recognises the site but cannot drive its form.
+
+    Raised instead of returning a made-up result. The contract below promises
+    that `submit_application` performs a real click and captures real
+    confirmation evidence; an implementation that cannot do that must say so
+    rather than satisfy the type signature with an invented success, which would
+    record a job as SUBMITTED when no application was ever sent.
+    """
+
+
 class ApplicationAdapter(ABC):
     """Adapter interface for handling ATS form inspection, filling, and submission."""
 

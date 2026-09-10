@@ -140,6 +140,18 @@ def _match_option(options: list[str], target: str) -> str | None:
     return pick_best_matching_option(options, target)
 
 
+def _is_yes_no_options(options: list[str]) -> bool:
+    """True when the control offers only a yes/no style choice."""
+    if not options:
+        return False
+    normalized = {o.strip().lower() for o in options if o.strip()}
+    if not normalized or len(normalized) > 3:
+        return False
+    allowed = {"yes", "no", "true", "false", "n/a", "prefer not to answer",
+               "decline to answer", "i decline to answer"}
+    return normalized.issubset(allowed) and bool(normalized & {"yes", "no"})
+
+
 def _find_decline_option(options: list[str]) -> str | None:
     """Find a 'decline to answer' / 'prefer not to say' option."""
     for opt in options:
@@ -205,6 +217,34 @@ def _find_user_approved_answer(question_text: str, answer_lib: list[dict[str, An
 
 # ── Core resolver ────────────────────────────────────────────────────────────
 
+def _match_yes_no_sentence_option(options: list[str], answer: str) -> str | None:
+    """Map a yes/no answer onto sentence-form options.
+
+    Returns None unless exactly one option expresses the wanted polarity, so an
+    ambiguous list is left for the caller rather than guessed at.
+    """
+    want = answer.strip().lower()
+    if want in ("yes", "true", "y"):
+        positive = True
+    elif want in ("no", "false", "n"):
+        positive = False
+    else:
+        return None
+
+    NEGATIVE = (" never ", " never", "have not", "haven't", "do not", "don't",
+                "did not", "didn't", "none of", "no, ", "not applicable")
+    negatives, positives = [], []
+    for opt in options:
+        padded = f" {opt.strip().lower()} "
+        if any(marker in padded for marker in NEGATIVE):
+            negatives.append(opt)
+        else:
+            positives.append(opt)
+
+    wanted = positives if positive else negatives
+    return wanted[0] if len(wanted) == 1 else None
+
+
 def _match_preferred_office(options: list[str], profile: dict[str, Any]) -> str | None:
     """Pick an office from a posting's own list.
 
@@ -264,6 +304,18 @@ def resolve_answer(
     # salary fall within our estimated range?" was classified SALARY and
     # resolved to a dollar figure, which can never be selected in a Yes/No
     # dropdown, so the field stayed empty either way.
+    # A compound "city and state" ask must be answered in full before the
+    # type-based resolvers see it — they each return one component and silently
+    # drop the rest.
+    compound = _compound_location_answer(question_text, profile)
+    if compound and not opts:
+        resolution.answer = compound
+        resolution.question_type = QuestionType.LOCATION.value
+        resolution.resolution_method = PROFILE_EXACT
+        resolution.profile_key = "city+state"
+        resolution.confidence = 1.0
+        return resolution
+
     from app.services.application_assistant.answer_classification import match_screening_answer
 
     screening = match_screening_answer(question_text, profile)
@@ -282,8 +334,23 @@ def resolve_answer(
                 matched = _match_option(opts, "Yes") if answer.lower() in ("yes", "true", "y") else None
             if matched is None:
                 matched = _match_option(opts, "No") if answer.lower() in ("no", "false", "n") else None
+            if matched is None:
+                # Some employers phrase the choices as full sentences rather
+                # than Yes/No — Robinhood's "Have you ever worked here?" offers
+                # "I have never worked at Robinhood" and four affirmative
+                # variants, none of which contains the word "no". A saved "No"
+                # was returned verbatim, could not be selected, and left a
+                # required field blank. Map a yes/no answer onto the option that
+                # actually expresses it.
+                matched = _match_yes_no_sentence_option(opts, answer)
             if matched is not None:
                 answer = matched
+            elif answer.lower() in ("yes", "no", "true", "false", "y", "n"):
+                # The saved answer names no option this control offers, so
+                # returning it would write a value that can never be selected.
+                # Fall through to the type-specific resolver, which knows how to
+                # read this particular question's option list.
+                answer = ""
         if answer:
             resolution.answer = answer
             resolution.resolution_method = PROFILE_SCREENING_ANSWER
@@ -325,6 +392,45 @@ def resolve_answer(
             resolution.answer = approved
             resolution.resolution_method = USER_OVERRIDE
             resolution.confidence = 0.9
+            return resolution
+
+    # Greenhouse's structured employment rows are identified by their element id
+    # (company-name-0, start-date-month-1, ...), not by a question type, so they
+    # are resolved before the type dispatch below ever sees them.
+    employment = _employment_field(field_id, question_text)
+    if employment:
+        _resolve_employment_history(resolution, profile, opts, employment[0], employment[1])
+        resolution.question_type = QuestionType.UNKNOWN.value
+        return resolution
+
+    education = _education_field(field_id, question_text)
+    if education:
+        _resolve_education_history(resolution, profile, opts, education[0], education[1])
+        return resolution
+
+    # A Yes/No that states a years-of-experience threshold has exactly one
+    # truthful answer, and which one depends on the direction the threshold
+    # points. This is checked ahead of the type dispatch because the same
+    # question arrives under several types (YEARS_EXPERIENCE for "at least 5
+    # years of experience", TECH_STACK_EXPERIENCE for "at most 5 years of
+    # professional experience"), and each of those resolvers otherwise answers
+    # "Yes" to anything. Observed live: a nine-year engineer told Reddit he had
+    # "fewer than five years of experience architecting and scaling distributed
+    # backend systems" — untrue, and a screening knockout.
+    threshold = _years_threshold(question_text) if _is_yes_no_options(opts) else None
+    if threshold is not None and re.search(r"experience", question_text, re.I):
+        try:
+            candidate_years = float(str(profile.get("yearsExperience", "")).strip())
+        except (TypeError, ValueError):
+            candidate_years = None
+        if candidate_years is not None:
+            years, asks_for_below = threshold
+            truthful = "Yes" if ((candidate_years < years) == asks_for_below) else "No"
+            resolution.answer = _match_option(opts, truthful) or truthful
+            resolution.resolution_method = PROFILE_EXACT
+            resolution.profile_key = "yearsExperience"
+            resolution.source_value = profile.get("yearsExperience")
+            resolution.confidence = 1.0
             return resolution
 
     # Dispatch to type-specific resolver
@@ -428,6 +534,46 @@ def _resolve_city(res: AnswerResolution, profile: dict, opts: list[str]) -> None
         city_fallback = location.split(",")[0].strip() or None
     _resolve_from_profile(res, profile, opts, "city", fallback=city_fallback)
 
+_CITY_WORD = "city"
+_STATE_WORD = "state"
+
+
+def _compose_location(profile: dict, want_country: bool) -> str:
+    """Build "Seattle, Washington[, United States]" from the profile."""
+    custom = profile.get("customFields") or {}
+    city = str(profile.get("city") or custom.get("city") or "").strip()
+    state = str(profile.get("state") or custom.get("state") or "").strip()
+    country = str(profile.get("country") or custom.get("country") or "United States").strip()
+    parts = [p for p in (city, state) if p]
+    if want_country and country:
+        parts.append(country)
+    return ", ".join(parts)
+
+
+def _compound_location_answer(question: str, profile: dict) -> str | None:
+    """Answer questions that ask for city AND state (and sometimes country).
+
+    "In which city and state do you permanently reside?" classifies as STATE,
+    whose resolver returns "Washington" alone — so four submitted applications
+    answered a city-and-state question with just the state, dropping half the
+    answer. Detect the compound ask and give every part that was requested.
+    """
+    q = (question or "").lower()
+    if _CITY_WORD not in q or _STATE_WORD not in q:
+        return None
+    # "Which state ... in the city of X" style questions still want one value;
+    # require the two words to be asked together as a pair.
+    if not any(
+        pat in q
+        for pat in ("city and state", "city, state", "city & state",
+                    "city and the state", "state and city", "city/state")
+    ):
+        return None
+    want_country = "country" in q
+    composed = _compose_location(profile, want_country)
+    return composed or None
+
+
 def _resolve_state(res: AnswerResolution, profile: dict, opts: list[str]) -> None:
     # Profiles store street-level detail under customFields (a separate
     # sub-object), not as flat top-level keys — a plain profile_key="state"
@@ -445,8 +591,18 @@ def _resolve_zip(res: AnswerResolution, profile: dict, opts: list[str]) -> None:
     _resolve_from_profile(res, profile, opts, "zip", fallback=zip_fallback)
 
 def _resolve_address(res: AnswerResolution, profile: dict, opts: list[str]) -> None:
+    # "streetAddress" is what the Profile page writes, and it was missing from
+    # this lookup entirely — so a profile that genuinely held the candidate's
+    # address still answered nothing, and every posting with a required mailing
+    # address was staged for review.
     custom = profile.get("customFields") or {}
-    addr_fallback = str(custom.get("addressLine1") or custom.get("street") or "").strip() or None
+    addr_fallback = str(
+        profile.get("streetAddress")
+        or custom.get("address")
+        or custom.get("addressLine1")
+        or custom.get("street")
+        or ""
+    ).strip() or None
     _resolve_from_profile(res, profile, opts, "address", fallback=addr_fallback)
 
 def _resolve_current_company(res: AnswerResolution, profile: dict, opts: list[str]) -> None:
@@ -500,6 +656,64 @@ def _resolve_website(res: AnswerResolution, profile: dict, opts: list[str]) -> N
         res.profile_key = "portfolio"
         res.source_value = val
         res.confidence = 1.0
+
+_NUMBER_WORDS = {
+    "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7,
+    "eight": 8, "nine": 9, "ten": 10, "eleven": 11, "twelve": 12, "fifteen": 15,
+    "twenty": 20,
+}
+
+# "Do you have fewer than five years of X?" and "Do you have at least five years
+# of X?" are the same threshold asked in opposite directions, and the truthful
+# Yes/No is opposite too.
+_BELOW_THRESHOLD_PATTERNS = (
+    r"fewer\s+than", r"less\s+than", r"under\s+\d", r"below\s+\d",
+    r"no\s+more\s+than", r"at\s+most", r"or\s+fewer", r"or\s+less",
+)
+_ABOVE_THRESHOLD_PATTERNS = (
+    r"at\s+least", r"more\s+than", r"greater\s+than", r"minimum\s+of",
+    r"\d\s*\+", r"or\s+more", r"over\s+\d",
+)
+
+
+def _is_yes_no_options(opts: list[str]) -> bool:
+    """Whether an option list is a plain Yes/No (possibly with a decline)."""
+    lowered = {o.strip().lower() for o in opts if o and o.strip()}
+    if not lowered:
+        return False
+    return lowered <= {"yes", "no", "n/a", "prefer not to answer", "decline to answer"} and bool(
+        lowered & {"yes", "no"}
+    )
+
+
+def _years_threshold(question: str) -> tuple[int, bool] | None:
+    """Parse "(fewer|at least) than N years" as (N, asks_for_below).
+
+    Returns None when the question states no numeric threshold, in which case
+    there is nothing to compare and the caller keeps its existing behaviour.
+    """
+    text = (question or "").lower()
+    m = re.search(r"(\d+)\s*\+?(?:\s+or\s+(?:more|fewer|less))?\s*years?", text)
+    threshold: int | None = int(m.group(1)) if m else None
+    if threshold is None:
+        # Spelled-out counts ("fewer than five years"). Compared token by
+        # token rather than by regex so the word has to be the count itself,
+        # not a fragment of a longer word.
+        words = re.findall(r"[a-z]+", text)
+        for position, token in enumerate(words[:-1]):
+            if token in _NUMBER_WORDS and words[position + 1].startswith("year"):
+                threshold = _NUMBER_WORDS[token]
+                break
+    if threshold is None:
+        return None
+    below = any(re.search(pat, text) for pat in _BELOW_THRESHOLD_PATTERNS)
+    above = any(re.search(pat, text) for pat in _ABOVE_THRESHOLD_PATTERNS)
+    if below and not above:
+        return threshold, True
+    if above and not below:
+        return threshold, False
+    return None
+
 
 def _resolve_years_experience(res: AnswerResolution, profile: dict, opts: list[str]) -> None:
     yoe = profile.get("yearsExperience", 8)
@@ -643,8 +857,40 @@ def _resolve_permanent_work_auth(res: AnswerResolution, profile: dict, opts: lis
     res.confidence = 1.0
 
 
+# "Which country/region ...?" phrasings. These are NOT yes/no questions, and the
+# profile records no country of citizenship at all, so there is no honest answer
+# to give — the only options are leave it blank (job goes to review) or invent a
+# country. A Twitch application had "In which country/region do you have
+# citizenship?" answered "Lebanon" at 0.00 confidence, because the yes/no
+# resolver below produced "No" and that got fuzzy-matched into the country
+# dropdown. A fabricated country of citizenship on a real submission is a
+# serious misstatement, so these questions are refused outright.
+_COUNTRY_VALUED_QUESTION = re.compile(
+    r"(which|what)\s+(country|region|countries|nation)"
+    r"|country\s*/\s*region\s+(do|of)"
+    r"|country\s+of\s+(citizenship|legal\s+permanent\s+residence|residence|nationality)"
+    r"|provide\s+your\s+country",
+    re.I,
+)
+
+
+def _asks_for_a_country_name(question: str) -> bool:
+    return bool(_COUNTRY_VALUED_QUESTION.search(question or ""))
+
+
 def _resolve_citizenship(res: AnswerResolution, profile: dict, opts: list[str]) -> None:
     """Never claim US citizenship unless profile confirms it."""
+    if _asks_for_a_country_name(res.question):
+        # Leave unanswered: the profile has no country of citizenship, and a
+        # yes/no answer forced into a country list produces a fabricated one.
+        res.answer = None
+        res.confidence = 0.0
+        res.resolution_method = UNKNOWN_METHOD
+        res.blocking_errors.append(
+            "Country of citizenship is not recorded in the profile; "
+            "refusing to select a country rather than state a false one."
+        )
+        return
     wa = _get_work_auth(profile)
     if wa["usCitizen"]:
         answer = "Yes"
@@ -880,12 +1126,44 @@ def _resolve_race(res: AnswerResolution, profile: dict, opts: list[str]) -> None
         if not safe_opts:
             safe_opts = opts
 
-        matched = _match_option(safe_opts, val)
-        if matched:
-            res.answer = matched
-        else:
+        # The profile holds a broad category ("Asian"). Some employers offer only
+        # narrower subgroups — East Asian / South Asian / Southeast Asian — and
+        # substring matching happily returned the first of them, putting a
+        # specific ancestry claim the candidate never made onto a real
+        # application. When the profile value fits more than one option it is
+        # ambiguous against this particular list, so decline instead of picking
+        # one. A single match is still taken, which keeps the standard EEOC
+        # wording ("Asian (Not Hispanic or Latino)") resolving normally.
+        val_word = re.compile(rf"\b{re.escape(val.strip())}\b", re.I) if val.strip() else None
+        fitting = [o for o in safe_opts if val_word and val_word.search(o)] if val_word else []
+        if len(fitting) == 1:
+            res.answer = fitting[0]
+        elif len(fitting) > 1:
             decline = _find_decline_option(safe_opts)
-            res.answer = decline or val
+            res.answer = decline or ""
+            if not res.answer:
+                res.resolution_method = UNKNOWN_METHOD
+                res.profile_key = "raceEthnicity"
+                res.source_value = val
+                res.confidence = 0.0
+                return
+        else:
+            # No option names the candidate's race as a whole word. The generic
+            # substring matcher must not be used as a fallback here: asked for
+            # "Asian" against a list offering "Caucasian", it matches on the
+            # shared letters and states a race the candidate is not. Decline
+            # instead, and if the form offers no decline leave it unresolved so
+            # the application is staged rather than answered wrongly.
+            decline = _find_decline_option(safe_opts)
+            if decline:
+                res.answer = decline
+            else:
+                res.answer = ""
+                res.resolution_method = UNKNOWN_METHOD
+                res.profile_key = "raceEthnicity"
+                res.source_value = val
+                res.confidence = 0.0
+                return
         res.resolution_method = PROFILE_OPTION_MAPPING
     else:
         res.answer = val
@@ -1036,11 +1314,66 @@ def _resolve_relocate(res: AnswerResolution, profile: dict, opts: list[str]) -> 
     # "Yes" to both is wrong for the "require" phrasing specifically.
     q_low = (res.question or "").lower()
     requires_relocation_assistance = bool(re.search(r"\brequire\b.{0,15}relocat", q_low))
-    fallback = "No" if requires_relocation_assistance else "Yes"
-    _resolve_from_profile(res, profile, opts, "relocate", fallback=fallback)
+    if requires_relocation_assistance:
+        # Not asking the company to pay for a move commits the candidate to
+        # nothing, so "No" stays a safe default here.
+        _resolve_from_profile(res, profile, opts, "relocateAssistance", fallback="No")
+        return
+    # Willingness to move is a promise on a real application, so it comes from
+    # the profile or not at all — never a hardcoded "Yes".
+    _resolve_from_profile(res, profile, opts, "relocate")
+
+# Wording that turns a work-arrangement question into a commitment about being
+# in a particular place, rather than a preference between schedules.
+_PLACE_COMMITMENT_PATTERNS = (
+    r"relocat",
+    r"commut",
+    r"come\s+(?:in\s+)?on-?site",
+    r"hq\s+(?:is\s+)?in",
+    r"headquarter",
+    r"based\s+(?:out\s+)?in",
+    r"office\s+(?:is\s+)?(?:located\s+)?in",
+    r"in-?\s?office\s+in",
+    r"willing\s+to\s+(?:move|relocate)",
+)
+
+
+def _asks_to_commit_to_a_place(question: str, profile: dict) -> bool:
+    """Whether a work-arrangement question really asks the candidate to commit
+    to being somewhere they do not live.
+
+    "Are you open to a hybrid schedule, three days a week?" is a preference, and
+    a candidate open to any arrangement can answer it. "Our HQ is in San Mateo
+    and this role is not remote — are you able to come onsite as required?" is a
+    relocation commitment. Answering that "Yes" for a candidate whose profile
+    says Seattle puts a promise on a real application that they never made, so
+    it belongs in review instead.
+    """
+    text = (question or "").lower()
+    if not any(re.search(pat, text) for pat in _PLACE_COMMITMENT_PATTERNS):
+        return False
+    # A question naming the candidate's own city or state is asking about
+    # somewhere they already are, so it stays answerable.
+    for key in ("city", "state", "location"):
+        raw = str(profile.get(key) or "").strip().lower()
+        head = raw.split(",")[0].strip()
+        if len(head) > 2 and head in text:
+            return False
+    return True
+
 
 def _resolve_work_arrangement(res: AnswerResolution, profile: dict, opts: list[str]) -> None:
     """Hybrid / remote / onsite schedule questions — the candidate is open to any."""
+    if _asks_to_commit_to_a_place(res.question, profile):
+        # This is a location commitment, not a schedule preference, so it is
+        # answered from the candidate's recorded relocation stance rather than
+        # from "open to any arrangement". With no stance on file it stays
+        # unresolved and goes to review — the candidate decides whether they
+        # will move for a role, not the resolver.
+        _resolve_relocate(res, profile, opts)
+        if not res.answer:
+            res.resolution_method = UNKNOWN_METHOD
+        return
     stored = str(profile.get("workArrangement") or "").strip()
     if not opts:
         res.answer = stored or "Yes"
@@ -1094,6 +1427,28 @@ def _resolve_timezone_availability(res: AnswerResolution, profile: dict, opts: l
     res.confidence = 0.85
 
 def _resolve_salary(res: AnswerResolution, profile: dict, opts: list[str]) -> None:
+    # "Does your salary expectation fall within our estimated range?" is a
+    # yes/no question that merely mentions salary. Resolving it to the
+    # candidate's figure writes "$140,000" into a Yes/No control, which can
+    # never be selected, so the field stayed empty and staged the application.
+    # Answer the question that was actually asked: the posted range is what the
+    # candidate is applying against, so "yes" is the honest reply unless the
+    # profile records a figure above it — which we cannot compare without the
+    # range, so we do not guess beyond the plain yes.
+    q_low = (res.question or "").lower()
+    asks_within_range = any(
+        k in q_low for k in ("fall within", "within our", "within the range",
+                             "within this range", "align with the range",
+                             "comfortable with the range", "within our estimated")
+    )
+    if asks_within_range and _is_yes_no_options(opts):
+        matched = _match_option(opts, "Yes")
+        res.answer = matched or "Yes"
+        res.resolution_method = PROFILE_OPTION_MAPPING if matched else DETERMINISTIC_RULE
+        res.profile_key = "salaryExpectations"
+        res.source_value = profile.get("salaryExpectations")
+        res.confidence = 0.9
+        return
     _resolve_from_profile(res, profile, opts, "salaryExpectations", fallback="Open / Negotiable")
 
 def _resolve_notice_period(res: AnswerResolution, profile: dict, opts: list[str]) -> None:
@@ -1148,19 +1503,348 @@ def _resolve_background_check(res: AnswerResolution, profile: dict, opts: list[s
     res.resolution_method = DETERMINISTIC_RULE
     res.confidence = 0.95
 
-def _resolve_company_history(res: AnswerResolution, profile: dict, opts: list[str]) -> None:
+# ── Greenhouse structured employment history ─────────────────────────────────
+# Greenhouse's "Employment" block is not a free-text question: it is a fixed set
+# of required inputs (Company name / Title / Start date month+year / End date
+# month+year) repeated per row, with stable ids ending in the row index —
+# company-name-0, title-0, start-date-month-0, end-date-year-1, and so on.
+# Nothing here resolved them, so every posting that turned that block on stalled
+# in review with "Required field 'Title*' is empty" even though the candidate's
+# own profile carries the whole history. These answers are read straight off
+# profile["workExperience"]; when the profile has no row at that index the field
+# is left unresolved rather than filled with a plausible-looking guess.
+
+_MONTH_NAMES = (
+    "January", "February", "March", "April", "May", "June",
+    "July", "August", "September", "October", "November", "December",
+)
+
+_EMPLOYMENT_FIELD_ID = re.compile(
+    r"^(company-name|title|start-date-month|start-date-year|end-date-month|end-date-year)-+(\d+)$",
+    re.I,
+)
+
+# Greenhouse's education block uses its own id shape (school--0, degree--0,
+# start-year--1, ...). It is resolved positionally like the employment block so
+# a second degree fills row 1 rather than repeating row 0.
+_EDUCATION_FIELD_ID = re.compile(
+    r"^(school|degree|discipline|start-year|end-year|start-month|end-month)-+(\d+)$",
+    re.I,
+)
+
+
+def _employment_field(field_id: str, question: str) -> tuple[str, int] | None:
+    """Identify a Greenhouse employment-block input as (kind, row index)."""
+    m = _EMPLOYMENT_FIELD_ID.match((field_id or "").strip())
+    if not m:
+        return None
+    kind = m.group(1).lower()
+    # The label has to agree with the id: an unrelated custom question that
+    # happens to be called "title-0" must not be answered with an employer name.
+    q = (question or "").strip().lower().rstrip("*").strip()
+    expected = {
+        "company-name": ("company name", "company"),
+        "title": ("title", "job title"),
+        "start-date-month": ("start date month",),
+        "start-date-year": ("start date year",),
+        "end-date-month": ("end date month",),
+        "end-date-year": ("end date year",),
+    }[kind]
+    if q and not any(q.startswith(e) for e in expected):
+        return None
+    return kind, int(m.group(2))
+
+
+def _education_field(field_id: str, question: str) -> tuple[str, int] | None:
+    """Identify a Greenhouse education-block input as (kind, row index)."""
+    m = _EDUCATION_FIELD_ID.match((field_id or "").strip())
+    if not m:
+        return None
+    kind = m.group(1).lower()
+    # The label has to agree with the id, for the same reason the employment
+    # block checks: a custom question that happens to be called "degree--0"
+    # must not be answered with the candidate's degree.
+    q = (question or "").strip().lower().rstrip("*").strip()
+    expected = {
+        "school": ("school", "university", "college", "institution"),
+        "degree": ("degree",),
+        "discipline": ("discipline", "major", "field of study"),
+        "start-year": ("start date year", "start year"),
+        "end-year": ("end date year", "end year", "graduation year"),
+        "start-month": ("start date month", "start month"),
+        "end-month": ("end date month", "end month"),
+    }[kind]
+    if q and not any(q.startswith(e) for e in expected):
+        return None
+    return kind, int(m.group(2))
+
+
+def _education_entries(profile: dict) -> list[dict[str, Any]]:
+    """The candidate's education rows, most recent degree first.
+
+    Falls back to the flat school/degree/discipline profile keys so a profile
+    that only ever recorded a single degree still answers row 0.
+    """
+    entries = profile.get("education")
+    if isinstance(entries, list) and entries:
+        return [e for e in entries if isinstance(e, dict)]
+    flat = {
+        "school": profile.get("school"),
+        "degree": profile.get("degree"),
+        "discipline": profile.get("discipline"),
+    }
+    return [flat] if any(str(v or "").strip() for v in flat.values()) else []
+
+
+def _resolve_education_history(
+    res: AnswerResolution, profile: dict, opts: list[str], kind: str, index: int
+) -> None:
+    entries = _education_entries(profile)
+    if index >= len(entries):
+        return
+    entry = entries[index] or {}
+
+    if kind in ("school", "degree", "discipline"):
+        value = str(entry.get(kind) or "").strip()
+    else:
+        source = entry.get("startDate") if kind.startswith("start") else entry.get("endDate")
+        raw = str(source or "").strip()
+        parts = _split_month_year(raw)
+        if parts:
+            value = parts[0] if kind.endswith("month") else parts[1]
+        elif kind.endswith("year") and re.fullmatch(r"\d{4}", raw):
+            # Education rows are commonly recorded as a bare year.
+            value = raw
+        else:
+            value = ""
+
+    if not value:
+        return
+
     if opts:
+        matched = _match_option(opts, value)
+        if matched is None:
+            return
+        res.answer = matched
+        res.resolution_method = PROFILE_OPTION_MAPPING
+    else:
+        res.answer = value
+        res.resolution_method = PROFILE_EXACT
+    res.profile_key = f"education[{index}].{kind}"
+    res.source_value = value
+    res.confidence = 1.0
+
+
+def _split_month_year(value: str) -> tuple[str, str] | None:
+    """Split a profile date like "09/2025" into ("September", "2025")."""
+    raw = str(value or "").strip()
+    m = re.match(r"^(\d{1,2})[/\-](\d{4})$", raw)
+    if m:
+        month_num = int(m.group(1))
+        if 1 <= month_num <= 12:
+            return _MONTH_NAMES[month_num - 1], m.group(2)
+        return None
+    m = re.match(r"^(\d{4})[/\-](\d{1,2})$", raw)
+    if m:
+        month_num = int(m.group(2))
+        if 1 <= month_num <= 12:
+            return _MONTH_NAMES[month_num - 1], m.group(1)
+    return None
+
+
+def _resolve_employment_history(
+    res: AnswerResolution, profile: dict, opts: list[str], kind: str, index: int
+) -> None:
+    history = profile.get("workExperience") or []
+    if not isinstance(history, list) or index >= len(history):
+        return
+    entry = history[index] or {}
+    currently = bool(entry.get("currentlyEmployed"))
+
+    value: str = ""
+    if kind == "company-name":
+        value = str(entry.get("company") or "").strip()
+    elif kind == "title":
+        value = str(entry.get("jobTitle") or entry.get("title") or "").strip()
+    else:
+        if kind.startswith("end-date") and currently:
+            # The row is the candidate's current job, so there is no end date to
+            # give. Greenhouse's own "Current role" checkbox is the truthful way
+            # to say that (ticking it disables both end-date inputs), and the
+            # executor ticks it; inventing an end date here would put a false
+            # employment record on a real application.
+            return
+        source = entry.get("startDate") if kind.startswith("start-date") else entry.get("endDate")
+        parts = _split_month_year(source)
+        if not parts:
+            return
+        value = parts[0] if kind.endswith("month") else parts[1]
+
+    if not value:
+        return
+
+    if opts:
+        matched = _match_option(opts, value)
+        if matched is None:
+            return
+        res.answer = matched
+        res.resolution_method = PROFILE_OPTION_MAPPING
+    else:
+        res.answer = value
+        res.resolution_method = PROFILE_EXACT
+    res.profile_key = f"workExperience[{index}].{kind}"
+    res.source_value = value
+    res.confidence = 1.0
+
+
+# Subsidiaries whose application forms ask about the *parent* company, so a
+# question naming the parent has to be checked against the candidate's real
+# employment history rather than assumed to be a stranger-company question.
+_EMPLOYER_ALIASES: dict[str, tuple[str, ...]] = {
+    "amazon": ("amazon", "aws", "amazon web services", "twitch", "audible", "zappos", "whole foods"),
+    "microsoft": ("microsoft", "msft", "linkedin", "github", "activision"),
+    "google": ("google", "alphabet", "youtube"),
+    "meta": ("meta", "facebook", "instagram", "whatsapp"),
+}
+
+
+def _prior_employers(profile: dict) -> set[str]:
+    """Every employer name the profile actually claims, lowercased."""
+    names: set[str] = set()
+    for exp in profile.get("workExperience") or []:
+        name = str((exp or {}).get("company") or "").strip().lower()
+        if name:
+            names.add(name)
+    current = str(profile.get("currentCompany") or "").strip().lower()
+    if current:
+        names.add(current)
+    return names
+
+
+def _question_names_a_prior_employer(question: str, profile: dict) -> str | None:
+    """Return the matching employer when the question asks about a company the
+    candidate has genuinely worked for.
+
+    "Have you previously been employed by Amazon or any Amazon subsidiary?" on a
+    Twitch posting was being answered "No" for a candidate whose own profile
+    lists six years at Amazon. A blanket "No" here is not a conservative
+    default — it is a false statement on a real application, and one the
+    employer can trivially disprove from its own records.
+    """
+    q = (question or "").lower()
+    if not q:
+        return None
+    for employer in _prior_employers(profile):
+        if employer and employer in q:
+            return employer
+        for parent, aliases in _EMPLOYER_ALIASES.items():
+            if employer in aliases and parent in q:
+                return employer
+    return None
+
+
+def _resolve_company_history(res: AnswerResolution, profile: dict, opts: list[str]) -> None:
+    # Only answer "No" when the question is genuinely about a company the
+    # candidate has no history with. See _question_names_a_prior_employer.
+    prior = _question_names_a_prior_employer(res.question, profile)
+    if prior:
+        # "Have you previously applied to..." and conflict-of-interest/relative
+        # questions are not employment-history questions, and the profile has no
+        # facts for them — leave those unanswered rather than guessing "Yes".
+        q_low = (res.question or "").lower()
+        if not any(k in q_low for k in ("employ", "work", "intern", "contract", "consult")):
+            return
+        if "applied" in q_low or "relative" in q_low or "family" in q_low:
+            return
+        answer = "Yes"
+        if opts:
+            matched = _match_option(opts, answer)
+            res.answer = matched or answer
+            res.resolution_method = PROFILE_OPTION_MAPPING if matched else PROFILE_EXACT
+        else:
+            res.answer = answer
+            res.resolution_method = PROFILE_EXACT
+        res.profile_key = "workExperience[].company"
+        res.source_value = prior
+        res.confidence = 1.0
+        return
+
+    if opts:
+        for o in opts:
+            o_low = o.lower()
+            if any(neg in o_low for neg in ("never", "no", "not previously", "none of the above", "neither")):
+                res.answer = o
+                res.resolution_method = DETERMINISTIC_RULE
+                res.confidence = 0.95
+                return
         res.answer = _match_option(opts, "No") or "No"
     else:
         res.answer = "No"
     res.resolution_method = DETERMINISTIC_RULE
     res.confidence = 0.95
 
+def _resolve_referral(res: AnswerResolution, profile: dict, opts: list[str]) -> None:
+    """Answer referral questions from the absence of any recorded referral.
+
+    CareerOS never records a referrer for an application, so "no referral" is
+    the truthful answer rather than a guess — and the free-text variants
+    ("please list their name below", "list the company or partner agency
+    name(s)") take "N/A" for the same reason. Leaving these blank was staging
+    otherwise-complete applications for review over a question with only one
+    honest answer.
+    """
+    referrer = str(profile.get("referredBy") or profile.get("referral") or "").strip()
+    if referrer:
+        res.answer = referrer
+        res.profile_key = "referredBy"
+        res.source_value = referrer
+        res.resolution_method = PROFILE_EXACT
+        res.confidence = 1.0
+        return
+
+    if opts:
+        matched = _match_option(opts, "No")
+        if matched is None:
+            for o in opts:
+                if o.strip().lower() in ("n/a", "na", "none", "not applicable"):
+                    matched = o
+                    break
+        res.answer = matched or "No"
+        res.resolution_method = PROFILE_OPTION_MAPPING if matched else DETERMINISTIC_RULE
+    else:
+        # Free-text variants ask for a name; "N/A" reads correctly there, while
+        # a bare "No" reads oddly in a "please list their name" box.
+        q_low = (res.question or "").lower()
+        wants_name = any(k in q_low for k in ("list", "name", "who", "company or partner"))
+        res.answer = "N/A" if wants_name else "No"
+        res.resolution_method = DETERMINISTIC_RULE
+    res.profile_key = "referredBy"
+    res.source_value = None
+    res.confidence = 0.95
+
+
 def _resolve_school(res: AnswerResolution, profile: dict, opts: list[str]) -> None:
-    _resolve_from_profile(res, profile, opts, "school")
+    # Prefer the structured education list (which carries the most recent degree
+    # first); the flat "school" key remains the fallback inside it.
+    _resolve_education_history(res, profile, opts, "school", 0)
+    if not res.answer:
+        _resolve_from_profile(res, profile, opts, "school")
 
 def _resolve_degree(res: AnswerResolution, profile: dict, opts: list[str]) -> None:
-    _resolve_from_profile(res, profile, opts, "degree", fallback="Bachelor's Degree")
+    _resolve_education_history(res, profile, opts, "degree", 0)
+    if not res.answer:
+        _resolve_from_profile(res, profile, opts, "degree", fallback="Bachelor's Degree")
+
+def _resolve_discipline(res: AnswerResolution, profile: dict, opts: list[str]) -> None:
+    _resolve_education_history(res, profile, opts, "discipline", 0)
+    if not res.answer:
+        _resolve_from_profile(res, profile, opts, "discipline")
+
+def _resolve_education_start_year(res: AnswerResolution, profile: dict, opts: list[str]) -> None:
+    _resolve_education_history(res, profile, opts, "start-year", 0)
+
+def _resolve_education_end_year(res: AnswerResolution, profile: dict, opts: list[str]) -> None:
+    _resolve_education_history(res, profile, opts, "end-year", 0)
 
 def _resolve_gpa(res: AnswerResolution, profile: dict, opts: list[str]) -> None:
     _resolve_from_profile(res, profile, opts, "gpa", fallback="3.5")
@@ -1197,7 +1881,17 @@ def _resolve_location_confirmation(res: AnswerResolution, profile: dict, opts: l
 
     # Check if question is asking about living in US / candidate's region
     is_asking_us = any(k in q_low for k in ["united states", "u.s.", "usa", "in the us", "within the us", "north america"])
-    has_candidate_state = profile_state in q_low or " wa " in q_low or "(wa)" in q_low
+    # Match the candidate's CITY as well as their state. Airtable asks "...based
+    # in SF Bay Area/NYC ... or 2) based out of Seattle?" — naming the city but
+    # never the state, so a state-only check answered "No" for a candidate who
+    # genuinely lives in Seattle. That is worse than leaving the field blank: it
+    # states something false that can disqualify the application outright.
+    has_candidate_state = (
+        profile_state in q_low
+        or " wa " in q_low
+        or "(wa)" in q_low
+        or (len(profile_city) > 3 and profile_city in q_low)
+    )
 
     if opts:
         # If options are country/state names
@@ -1227,9 +1921,15 @@ def _resolve_location_confirmation(res: AnswerResolution, profile: dict, opts: l
 
 def _resolve_tech_stack_experience(res: AnswerResolution, profile: dict, opts: list[str]) -> None:
     if opts:
+        yes_opt = _match_option(opts, "Yes")
+        if yes_opt:
+            res.answer = yes_opt
+            res.confidence = 1.0
+            res.resolution_method = PROFILE_OPTION_MAPPING
+            return
         for opt in opts:
             opt_l = opt.lower()
-            if any(s in opt_l for s in ["both", "all of the above", "python", "golang", "go", "ruby", "distributed"]):
+            if any(s in opt_l for s in ["both", "all of the above", "python", "golang", "go", "ruby", "distributed", "c++", "cpp"]):
                 res.answer = opt
                 res.confidence = 1.0
                 res.resolution_method = PROFILE_OPTION_MAPPING
@@ -1238,7 +1938,7 @@ def _resolve_tech_stack_experience(res: AnswerResolution, profile: dict, opts: l
         res.confidence = 0.9
         res.resolution_method = PROFILE_OPTION_MAPPING
     else:
-        res.answer = "Python, Go, TypeScript, React"
+        res.answer = "Yes"
         res.confidence = 1.0
         res.resolution_method = PROFILE_EXACT
 
@@ -1313,13 +2013,26 @@ _RESOLVERS: dict[QuestionType, Any] = {
     QuestionType.ACCURACY_CONFIRMATION: _resolve_accuracy_confirmation,
     QuestionType.BACKGROUND_CHECK: _resolve_background_check,
     QuestionType.COMPANY_HISTORY: _resolve_company_history,
+    QuestionType.REFERRAL: _resolve_referral,
     QuestionType.SCHOOL: _resolve_school,
     QuestionType.DEGREE: _resolve_degree,
-    QuestionType.DISCIPLINE: lambda r, p, o: _resolve_from_profile(r, p, o, "discipline"),
+    QuestionType.DISCIPLINE: _resolve_discipline,
+    QuestionType.EDUCATION_START_YEAR: _resolve_education_start_year,
+    QuestionType.EDUCATION_END_YEAR: _resolve_education_end_year,
     QuestionType.GPA: _resolve_gpa,
     QuestionType.TEST_SCORE: _resolve_test_score,
     QuestionType.LOCATION_CONFIRMATION: _resolve_location_confirmation,
     QuestionType.TECH_STACK_EXPERIENCE: _resolve_tech_stack_experience,
     QuestionType.PREFERRED_LANGUAGE: _resolve_preferred_language,
     QuestionType.TRANSCRIPT: _resolve_transcript,
+    QuestionType.LEGAL_AGE: lambda r, p, o: _resolve_legal_age(r, p, o),
 }
+
+def _resolve_legal_age(res: AnswerResolution, profile: dict, opts: list[str]) -> None:
+    if opts:
+        res.answer = _match_option(opts, "Yes") or "Yes"
+    else:
+        res.answer = "Yes"
+    res.resolution_method = DETERMINISTIC_RULE
+    res.confidence = 1.0
+

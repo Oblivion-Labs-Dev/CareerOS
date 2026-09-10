@@ -7066,6 +7066,47 @@ body.side-panel-open .aa-wizard-panel {
   }
 }
 
+/* Closing mirrors opening. Without this the panel was simply removed from the
+   DOM and appeared to snap away. */
+@keyframes aa-wizard-panel-out {
+  from {
+    transform: translateX(0);
+    opacity: 1;
+  }
+  to {
+    transform: translateX(100%);
+    opacity: 0.7;
+  }
+}
+
+@keyframes aa-wizard-backdrop-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+.aa-wizard-panel[data-state="closed"] {
+  animation: aa-wizard-panel-out 0.22s ease forwards;
+  pointer-events: none;
+}
+
+.aa-wizard-panel-backdrop[data-state="closed"] {
+  animation: aa-wizard-backdrop-out 0.22s ease forwards;
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .aa-wizard-panel,
+  .aa-wizard-panel-backdrop,
+  .aa-wizard-panel[data-state="closed"],
+  .aa-wizard-panel-backdrop[data-state="closed"] {
+    animation: none;
+  }
+}
+
 .aa-wizard-panel-inner {
   display: flex;
   flex-direction: column;
