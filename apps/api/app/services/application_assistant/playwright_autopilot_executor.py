@@ -1726,6 +1726,101 @@ async def _fill_standard_and_react_fields(
             logger.debug("Checkbox group fill error: %s", exc)
             continue
 
+    # Ashby renders a choice question as loose checkboxes with no <fieldset>
+    # and no <legend>, so the pass above cannot see it. The only thing tying
+    # them together is the question's own uuid, which appears both in the
+    # <label for="..."> that holds the real question and inside every
+    # checkbox id ("<form>_<question>-labeled-checkbox-<n>"). Each box also
+    # carries its option text in `name` rather than in a label.
+    #
+    # Left undiscovered, these questions were never filled and the
+    # pre-submission review reported "0 missing required" — Ramp then rejected
+    # the application for a missing required field ("What are your pronouns?")
+    # that automation had never even seen.
+    try:
+        ashby_groups = await page.evaluate(
+            """() => {
+                const groups = {};
+                for (const el of document.querySelectorAll('input[type="checkbox"][id*="-labeled-checkbox-"]')) {
+                    if (!(el.offsetParent || el.getClientRects().length)) continue;
+                    const m = el.id.match(/^(?:.*_)?(.+?)-labeled-checkbox-\\d+$/);
+                    if (!m) continue;
+                    const qid = m[1];
+                    const labelEl = document.querySelector(`label[for="${CSS.escape(qid)}"]`);
+                    if (!labelEl) continue;
+                    const own = document.querySelector(`label[for="${CSS.escape(el.id)}"]`);
+                    (groups[qid] = groups[qid] || {
+                        question: (labelEl.textContent || '').trim(),
+                        required: /_required_/.test(labelEl.className || ''),
+                        options: [],
+                    }).options.push({
+                        id: el.id,
+                        label: ((own && own.textContent) || el.name || '').trim(),
+                        checked: el.checked,
+                    });
+                }
+                return groups;
+            }"""
+        )
+    except Exception as exc:
+        logger.debug("Ashby checkbox group discovery error: %s", exc)
+        ashby_groups = {}
+
+    for _qid, group in (ashby_groups or {}).items():
+        try:
+            group_lbl = (group.get("question") or "").strip()
+            opts_meta = [o for o in (group.get("options") or []) if o.get("label")]
+            if not group_lbl or len(opts_meta) < 2:
+                continue
+            if any(o.get("checked") for o in opts_meta):
+                continue
+
+            options = [o["label"] for o in opts_meta]
+            resolution = resolve_answer(
+                question_text=group_lbl, profile=profile, options=options,
+                answer_lib=answer_lib, field_id=opts_meta[0]["id"],
+            )
+            if not resolution.answer or resolution.blocking_errors:
+                # Nothing in the profile answers this. Leaving it blank is
+                # correct — inventing a pronoun or a language is exactly the
+                # kind of fabrication this must never do.
+                continue
+
+            # "Check all that apply" groups can resolve to several values.
+            wanted = [w.strip().lower() for w in str(resolution.answer).split(",") if w.strip()]
+            chosen = [
+                o for o in opts_meta
+                if any(w == o["label"].strip().lower() for w in wanted)
+            ] or [
+                o for o in opts_meta
+                if any(w in o["label"].strip().lower() or o["label"].strip().lower() in w for w in wanted)
+            ]
+            if not chosen:
+                continue
+
+            for opt in chosen:
+                target_box = page.locator(f'[id="{opt["id"]}"]').first
+                await target_box.evaluate("""el => {
+                    const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'checked').set;
+                    setter.call(el, true);
+                    el.dispatchEvent(new Event('click', { bubbles: true }));
+                    el.dispatchEvent(new Event('input', { bubbles: true }));
+                    el.dispatchEvent(new Event('change', { bubbles: true }));
+                }""")
+                if not await target_box.is_checked():
+                    label_loc = page.locator(f'label[for="{opt["id"]}"]').first
+                    if await label_loc.count() > 0:
+                        await label_loc.click(force=True)
+                    else:
+                        await target_box.check(force=True)
+
+            filled[group_lbl[:50]] = ", ".join(o["label"] for o in chosen)
+            filled_ids[group_lbl[:50]] = chosen[0]["id"]
+            logger.info("Answered grouped checkbox question %r", group_lbl[:80])
+        except Exception as exc:
+            logger.debug("Ashby checkbox group fill error: %s", exc)
+            continue
+
     if log_cb and cb_filled:
         log_cb(f"Selected {len(cb_filled)} combobox & dropdown options")
 

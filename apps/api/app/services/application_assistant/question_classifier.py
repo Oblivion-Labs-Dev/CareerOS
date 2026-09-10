@@ -350,6 +350,21 @@ _CLASSIFICATION_RULES: list[tuple[QuestionType, list[str]]] = [
         r"\bapt\b|\bapartment\b|\bsuite\b|\bunit\b",
     ]),
     (QuestionType.ADDRESS, [r"address", r"street"]),
+    # A compound "based in X *or* willing to relocate?" is decided by the
+    # relocation clause, not the location clause. Ramp asks exactly this, and
+    # LOCATION_CONFIRMATION's "are you based in" pattern below claimed it first
+    # and answered No — the candidate is not in NYC or SF — even though the
+    # profile records a willingness to relocate, so the honest answer is Yes.
+    # Answering No there quietly costs the candidate the role.
+    #
+    # Deliberately narrow: it requires a location word and "relocat" on either
+    # side of an "or", so a plain "are you based in Seattle?" still falls
+    # through to LOCATION_CONFIRMATION, and "are you local to X" — which asks
+    # where the candidate lives, not whether they would move — is untouched.
+    (QuestionType.RELOCATE, [
+        r"(?:based|located|live|living)\b[^?]*\bor\b[^?]*\brelocat",
+        r"\brelocat[^?]*\bor\b[^?]*\b(?:based|located)",
+    ]),
     (QuestionType.LOCATION_CONFIRMATION, [
         r"is\s+your\s+current\s+location",
         r"currently\s+located\s+in",
