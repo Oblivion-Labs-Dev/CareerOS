@@ -115,6 +115,14 @@ def normalize_match_text(text: str) -> str:
     return re.sub(r"\s+", " ", text.lower().strip())
 
 
+_SEPARATOR_SPACING_RE = re.compile(r"\s*([/|])\s*")
+
+
+def normalize_separator_spacing(text: str) -> str:
+    """Collapse whitespace around slash/pipe separators in already-normalized text."""
+    return _SEPARATOR_SPACING_RE.sub(r"\1", text)
+
+
 def is_prefer_not_to_answer(text: str) -> bool:
     norm = normalize_match_text(text)
     if re.search(r"prefer not to (answer|say)|choose not to disclose|don'?t wish to answer|do not wish to answer|decline to self[- ]?identify|decline to answer", norm):
@@ -150,6 +158,13 @@ def score_select_option_match(opt: str, val: str) -> int:
         return 0
     if o == v:
         return 100
+    # Forms space out slash-separated choices ("He / Him / His") while a profile
+    # stores them tight ("He/him/his"). Without this the two never compare equal
+    # and a required radio group is left unselected.
+    o_sep = normalize_separator_spacing(o)
+    v_sep = normalize_separator_spacing(v)
+    if o_sep == v_sep:
+        return 100
     if is_synonym_match(o, v):
         return 90
     if o.startswith(f"{v} ") or o.startswith(f"{v} -") or o.startswith(f"{v},"):
@@ -157,6 +172,10 @@ def score_select_option_match(opt: str, val: str) -> int:
     if len(v) >= 4 and v in o:
         return 75
     if len(o) >= 4 and o in v:
+        return 70
+    if len(v_sep) >= 4 and v_sep in o_sep:
+        return 75
+    if len(o_sep) >= 4 and o_sep in v_sep:
         return 70
     return 0
 

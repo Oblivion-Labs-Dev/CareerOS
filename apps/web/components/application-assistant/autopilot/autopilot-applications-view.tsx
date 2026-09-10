@@ -9,6 +9,7 @@ import {
   approveStagedAnswer,
   getAutopilotJobs,
   markAutopilotJobSubmitted,
+  reprocessSingleAutopilotJob,
   resetSubmittedAutopilotJobs,
   skipStagedApplication,
 } from "@/lib/application-assistant-api";
@@ -163,6 +164,30 @@ export function AutopilotApplicationsView({
       onJobsChanged();
     } catch (err) {
       setNote(err instanceof Error ? err.message : "Failed to apply");
+    } finally {
+      applyInFlight.current = false;
+      setBusy(null);
+    }
+  };
+
+  /**
+   * Re-run a failed application. The job has to go back through reprocess
+   * before it can be approved again — a FAILED job is not in the queue, so
+   * approving it on its own would do nothing.
+   */
+  const retryNow = async (job: AutopilotJobRow) => {
+    if (applyInFlight.current || job.status !== "FAILED") return;
+    applyInFlight.current = true;
+    setBusy(job.id);
+    setNote(null);
+    try {
+      await reprocessSingleAutopilotJob(job.id);
+      const res = await approvePreflightSubmission(job.id);
+      setNote(res?.message || `Retrying ${job.company} — this can take a minute.`);
+      pages.refresh();
+      onJobsChanged();
+    } catch (err) {
+      setNote(err instanceof Error ? err.message : "Could not retry this application");
     } finally {
       applyInFlight.current = false;
       setBusy(null);
@@ -384,7 +409,8 @@ export function AutopilotApplicationsView({
             <ApplicationCard key={job.id} job={job} busy={busy}
               onDetails={() => setDetail(job)} onApply={() => void applyNow(job)}
               onMarkSubmitted={() => void markSubmitted(job)}
-              onAssistedFill={() => void assistedFill(job)} />
+              onAssistedFill={() => void assistedFill(job)}
+              onRetry={() => void retryNow(job)} />
           ))}
         </div>
       )}

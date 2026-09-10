@@ -1517,6 +1517,29 @@ class AutopilotRunner:
                 job_item["lastErrorType"] = ApplicationErrorType.SUBMISSION_UNCERTAIN.value
             job_item["submissionEvidence"] = evidence
             job_item["aiExplanation"] = err_msg
+            # A board that refuses automation outright is not a technical
+            # failure to retry — it is a posting the user can still submit by
+            # hand. Without this the classifier was never consulted here, so a
+            # CAPTCHA, DataDome or "flagged as possible spam" rejection sat in
+            # FAILED forever and the real opportunity was buried.
+            from app.services.application_assistant.ineligibility import (
+                apply_ineligibility,
+                classify_ineligibility,
+            )
+
+            classified_failure = classify_ineligibility(job_item)
+            if classified_failure is not None:
+                reason, detail = classified_failure
+                apply_ineligibility(job_item, reason, detail)
+                self.log_event(
+                    f"{w_prefix}{company} — {title} cannot be automated [{reason.value}]: {err_msg}",
+                    level="warning",
+                    metadata={
+                        "slot": slot_idx, "company": company, "title": title,
+                        "ineligibilityReason": reason.value,
+                        "status": job_item.get("status"),
+                    },
+                )
             self._record_checkpoint(job_item, CheckpointStep.FAILED, f"Failed: {err_msg}")
             if worker_state:
                 worker_state.status = "error"
@@ -1526,13 +1549,20 @@ class AutopilotRunner:
                     save_autopilot_job(db, job_item)
                     r = get_autopilot_run(db, run_id)
                     if r:
-                        r["failedCount"] = (r.get("failedCount") or 0) + 1
+                        # A board that blocks automation is not a broken run, so
+                        # it must not drag down the success rate the same way a
+                        # genuine breakage does.
+                        if classified_failure is not None:
+                            r["ineligibleCount"] = (r.get("ineligibleCount") or 0) + 1
+                        else:
+                            r["failedCount"] = (r.get("failedCount") or 0) + 1
                         save_autopilot_run(db, r)
-            self.log_event(
-                f"{w_prefix}Application failed ({company}): {err_msg}",
-                level="error",
-                metadata={"slot": slot_idx, "company": company, "error": err_msg},
-            )
+            if classified_failure is None:
+                self.log_event(
+                    f"{w_prefix}Application failed ({company}): {err_msg}",
+                    level="error",
+                    metadata={"slot": slot_idx, "company": company, "error": err_msg},
+                )
 
 
     def _handle_unhandled_job_exception_sync(

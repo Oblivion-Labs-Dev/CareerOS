@@ -231,6 +231,26 @@ def flatten_greenhouse(job: dict, company: str) -> dict:
     }
 
 
+def _parse_greenhouse_board(
+    payload: bytes,
+    company: str,
+    compiled: list[re.Pattern],
+    cutoff: datetime,
+) -> list[dict]:
+    """Pure-CPU half of a board scrape, safe to run off the event loop."""
+    data = json.loads(payload)
+    jobs = []
+    for job in data.get("jobs", []):
+        title = job.get("title", "")
+        ts = job.get("updated_at", "")
+        if not matches_title(title, compiled):
+            continue
+        if not is_recent(ts, cutoff):
+            continue
+        jobs.append(flatten_greenhouse(job, company))
+    return jobs
+
+
 async def scrape_greenhouse(
     client: httpx.AsyncClient,
     company: str,
@@ -245,17 +265,14 @@ async def scrape_greenhouse(
         resp = await client.get(url, timeout=15)
         if resp.status_code != 200:
             return []
-        data = resp.json()
-        jobs = []
-        for job in data.get("jobs", []):
-            title = job.get("title", "")
-            ts = job.get("updated_at", "")
-            if not matches_title(title, compiled):
-                continue
-            if not is_recent(ts, cutoff):
-                continue
-            jobs.append(flatten_greenhouse(job, company))
-        return jobs
+        # With content=true a board runs to several megabytes, and both the JSON
+        # parse and strip_html over every description are pure CPU. Dozens of
+        # boards are gathered concurrently, so leaving this on the event loop
+        # starved every API request — /health included — for as long as
+        # discovery ran, and the UI sat on "Loading applications…".
+        return await asyncio.to_thread(
+            _parse_greenhouse_board, resp.content, company, compiled, cutoff
+        )
     except Exception:
         return []
 

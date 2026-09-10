@@ -3,9 +3,9 @@ import { useCountUp } from "./use-count-up";
 import { INELIGIBILITY_LABELS, matchBand, relativeTime, statusView } from "./job-presentation";
 import styles from "./application-card.module.css";
 
-export function ApplicationCard({ job, busy, onDetails, onApply, onMarkSubmitted, onAssistedFill }: {
+export function ApplicationCard({ job, busy, onDetails, onApply, onMarkSubmitted, onAssistedFill, onRetry }: {
   job: AutopilotJobRow; busy: string | null; onDetails: () => void; onApply: () => void;
-  onMarkSubmitted?: () => void; onAssistedFill?: () => void;
+  onMarkSubmitted?: () => void; onAssistedFill?: () => void; onRetry?: () => void;
 }) {
   const status = statusView(job.status);
   const score = typeof job.matchScore === "number" && Number.isFinite(job.matchScore)
@@ -21,6 +21,10 @@ export function ApplicationCard({ job, busy, onDetails, onApply, onMarkSubmitted
   const canAssist = job.status === "MANUAL_REVIEW";
   const canMarkSubmitted =
     job.status === "NEEDS_REVIEW" || job.status === "FAILED" || job.status === "MANUAL_REVIEW";
+  // A failed attempt is usually a bug we have since fixed, but without this the
+  // card is a dead end: the only other action is claiming a submission that
+  // never happened. Retry puts the job back in the queue and applies again.
+  const canRetry = job.status === "FAILED";
   const manuallySubmitted = job.status === "SUBMITTED" && job.submissionSource === "manual";
   const reason = job.status === "INELIGIBLE" ? INELIGIBILITY_LABELS[String(job.ineligibilityReason)] || job.ineligibilityDetail || "Cannot be applied to" : job.skipReason || job.lastError || null;
   return (
@@ -96,6 +100,16 @@ export function ApplicationCard({ job, busy, onDetails, onApply, onMarkSubmitted
               title="Undo — put this back in the review list"
             >
               {busy === job.id ? "Saving…" : "Undo submitted"}
+            </button>
+          )}
+          {canRetry && onRetry && (
+            <button
+              type="button"
+              disabled={busy !== null}
+              onClick={(event) => { event.stopPropagation(); onRetry(); }}
+              title="Put this back in the queue and try applying again"
+            >
+              {busy === job.id ? "Retrying…" : "Retry →"}
             </button>
           )}
           {canApply && (

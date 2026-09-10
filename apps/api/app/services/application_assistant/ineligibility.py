@@ -85,9 +85,14 @@ _ERROR_TEXT_RULES: tuple[tuple[IneligibilityReason, tuple[str, ...]], ...] = (
             # SmartRecruiters fronts its apply flow with DataDome, which serves a
             # challenge and an otherwise empty page — the word "captcha" never
             # appears in the failure text.
-            r"datadome",
-            r"hcaptcha",
+            r"\bdatadome\b",
+            r"\bhcaptcha\b",
             r"excluded contractor or bot",
+            # Ashby refuses automated posts server-side instead of showing a
+            # challenge: the form stays put and this sentence is the only
+            # signal. No iframe and no "captcha" wording, so the DOM sweep in
+            # the executor never sees it.
+            r"flagged as (?:possible|potential) spam",
         ),
     ),
     (
