@@ -51,6 +51,8 @@ export type PipelineItem = {
   roleTitle: string;
   status: string;
   daysInStage: number | null;
+  daysSinceActivity?: number | null;
+  followUpOverdue?: boolean;
   url?: string;
   updatedAt?: string;
 };

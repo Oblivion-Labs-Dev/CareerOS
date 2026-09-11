@@ -134,7 +134,7 @@ export function AppTopbar() {
           <strong className="app-topbar-page-title">{pageLabel}</strong>
           <span className={`app-topbar-live-state${backendOnline === false ? " is-offline" : ""}`}>
             <BackendStatusDot />
-            {backendOnline === false ? "Offline" : backendOnline === true ? "Running" : "Checking"}
+            {backendOnline === false ? "Offline" : backendOnline === true ? "Connected" : "Checking"}
           </span>
         </div>
         <div className="app-topbar-actions">

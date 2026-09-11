@@ -1,5 +1,6 @@
 "use client";
 
+import { useSessionState } from "@/hooks/use-session-state";
 import { WorkspaceLoading } from "@/components/ui/workspace-loading";
 import styles from "./tracker-workspace.module.css";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -19,9 +20,9 @@ function timeAgo(days: number | null): string {
 }
 
 export function PipelineKanban() {
-  const [search, setSearch] = useState("");
-  const [stage, setStage] = useState("all");
-  const [view, setView] = useState<"board" | "list">("board");
+  const [search, setSearch] = useSessionState("pipeline-search", "");
+  const [stage, setStage] = useSessionState("pipeline-stage", "all");
+  const [view, setView] = useSessionState<"board" | "list">("pipeline-view", "board");
   const [mobile, setMobile] = useState(false);
   const touchStart = useRef<number | null>(null);
   useEffect(() => {
@@ -30,6 +31,8 @@ export function PipelineKanban() {
     update(); media.addEventListener("change", update);
     return () => media.removeEventListener("change", update);
   }, []);
+  const lastStages = useRef<Map<string, string> | null>(null);
+  const [changedIds, setChangedIds] = useState<Set<string>>(new Set());
   const [data, setData] = useState<PipelineResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -41,6 +44,9 @@ export function PipelineKanban() {
     try {
       setError(null);
       const result = await getTrackerPipeline();
+      const nextStages = new Map(result.columns.flatMap(column => column.items.map(item => [item.id,item.status] as const)));
+      setChangedIds(new Set([...nextStages].filter(([id,status]) => lastStages.current?.has(id) && lastStages.current.get(id) !== status).map(([id]) => id)));
+      lastStages.current = nextStages;
       setData(result);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not load the pipeline.");
@@ -79,7 +85,7 @@ export function PipelineKanban() {
     {error && <p role="alert" className={styles.error}>{error}<button onClick={() => void load()}>Try again</button></p>}
     {importMessage && <p role="status" className={styles.caption}>{importMessage}</p>}
     {loading ? <WorkspaceLoading label="Loading pipeline…" /> : data && <>
-      <div className={styles.pipelineSummary}><div className={styles.total}><span>TRACKED OPPORTUNITIES</span><strong>{data.total}</strong><small>Your complete pipeline</small></div><div className={styles.distribution}><h3>Where things stand</h3><div className={styles.segmented} role="img" aria-label={data.columns.map(column => `${column.label}: ${column.items.length}`).join(', ')}>{data.columns.map(column => <span key={column.key} data-stage={column.key} style={{flex:column.items.length}} title={`${column.label}: ${column.items.length}`} />)}</div><div className={styles.legend}>{data.columns.map(column => <span key={column.key}><i data-stage={column.key} />{column.label} <b>{column.items.length}</b></span>)}</div><p className={styles.caption}>Ghosted means no response for {data.ghostThresholdDays} days, based on the tracker’s rules.</p></div></div>
+      <div className={styles.pipelineSummary}><div className={styles.total}><span>TRACKED OPPORTUNITIES</span><strong>{data.total}</strong><small>Your complete pipeline</small></div><div className={styles.distribution}><h3>Where things stand</h3><div className={styles.segmented} role="img" aria-label={data.columns.map(column => `${column.label}: ${column.items.length}`).join(', ')}>{data.columns.map(column => <span key={column.key} data-stage={column.key} style={{flex:column.items.length}} title={`${column.label}: ${column.items.length}`} />)}</div><div className={styles.legend}>{data.columns.map(column => <span key={column.key}><i data-stage={column.key} />{column.label} <b>{column.items.length}</b></span>)}</div><p className={styles.caption}>Ghosted flags {data.ghostThresholdDays}+ days since recorded activity; email replies may not be linked yet.</p></div></div>
       <div className={styles.boardControls}>
         <label className={styles.search}>Find an opportunity<input value={search} onChange={event => setSearch(event.target.value)} placeholder="Search company or role…" /></label>
         <div className={styles.viewSwitch} aria-label="Pipeline view"><button aria-pressed={view === "board"} onClick={() => setView("board")}>Board</button><button aria-pressed={view === "list"} onClick={() => setView("list")}>List</button></div>
@@ -93,19 +99,19 @@ export function PipelineKanban() {
         const index = data.columns.findIndex(column => column.key === effectiveStage);
         const next = data.columns[index + (distance < 0 ? 1 : -1)];
         if (next) setStage(next.key);
-      }}>{columns.map(column => <KanbanColumn key={`${column.key}-${search}`} column={column} />)}</div>
+      }}>{columns.map(column => <KanbanColumn key={`${column.key}-${search}`} column={column} changedIds={changedIds} />)}</div>
     </>}
   </div>;
 }
 
-function KanbanColumn({ column }: { column: PipelineColumn }) {
+function KanbanColumn({ column, changedIds }: { column: PipelineColumn; changedIds: Set<string> }) {
   const [visibleCount, setVisibleCount] = useState(20);
   return <section className={styles.column} data-stage={column.key} aria-label={`${column.label} applications`}>
     <header><h3><i />{column.label}</h3><span>{column.items.length}</span></header>
-    <div className={styles.columnBody}>{!column.items.length ? <div className={styles.empty}><span aria-hidden="true">◇</span><p>No opportunities in this stage yet.</p></div> : column.items.slice(0,visibleCount).map(item => <article key={item.id} className={styles.opportunity}>
+    <div className={styles.columnBody}>{!column.items.length ? <div className={styles.empty}><span aria-hidden="true">◇</span><p>No opportunities in this stage yet.</p></div> : column.items.slice(0,visibleCount).map(item => <article key={item.id} className={styles.opportunity} data-updated={changedIds.has(item.id)}>
       <div className={styles.company}><span className={styles.avatar}>{(item.companyName || '?').slice(0,2).toUpperCase()}</span><strong>{item.companyName || 'Unknown company'}</strong></div>
       <h4>{item.roleTitle || 'Untitled role'}</h4>
-      <footer><span>{item.daysInStage === null ? 'Stage age unknown' : `${timeAgo(item.daysInStage)} in stage`}</span>{item.url && <a href={item.url} target="_blank" rel="noreferrer" aria-label={`Open ${item.roleTitle} at ${item.companyName}`}>↗</a>}</footer>
+      {item.followUpOverdue && <p className={styles.overdue}>Follow-up overdue</p>}<footer><span>{item.daysInStage !== null ? `${timeAgo(item.daysInStage)} in stage` : item.daysSinceActivity != null ? `${timeAgo(item.daysSinceActivity)} since activity` : 'Stage age unknown'}</span>{item.url && <a href={item.url} target="_blank" rel="noreferrer" aria-label={`Open ${item.roleTitle} at ${item.companyName}`}>↗</a>}</footer>
     </article>)}{column.items.length > visibleCount && <button onClick={() => setVisibleCount(n => n + 20)}>Show 20 more</button>}</div>
   </section>;
 }

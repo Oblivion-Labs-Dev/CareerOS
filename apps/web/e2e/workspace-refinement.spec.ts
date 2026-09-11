@@ -8,7 +8,7 @@ test("compact dock and detail sections preserve access to evidence", async ({ pa
   await page.getByRole("button", { name: "Collapse activity" }).click();
   const card = page.locator('article[data-status="submitted"]').first();
   await expect(card).toBeVisible({ timeout: 20000 });
-  await card.locator("button").first().click();
+  await card.click();
   const panel = page.getByRole("dialog");
   await expect(panel.getByRole("region", { name: "Application summary" })).toBeVisible();
   await panel.getByRole("button", { name: "Journey", exact: true }).click();
@@ -18,15 +18,17 @@ test("compact dock and detail sections preserve access to evidence", async ({ pa
   await expect(panel.getByRole("heading", { name: "Application documents" })).toBeVisible();
   await page.screenshot({ path: "test-results/refined-details.png" });
   await page.keyboard.press("Escape");
-  await expect(card.locator("button").first()).toBeFocused();
+  await expect(card).toBeFocused();
 });
 
 test("pipeline search, list view, and mobile stage navigation", async ({ page }) => {
   await page.route("**/tracker/pipeline", route => route.fulfill({ json: { total: 2, ghostThresholdDays: 21, funnel: [], columns: [
-    { key: "applied", label: "Applied", items: [{ id: "one", companyName: "Acme", roleTitle: "Engineer", daysInStage: 2 }] },
+    { key: "applied", label: "Applied", items: [{ id: "one", companyName: "Acme", roleTitle: "Engineer", daysInStage: null, daysSinceActivity: 2, followUpOverdue: true }] },
     { key: "interviewing", label: "Interviewing", items: [{ id: "two", companyName: "Other", roleTitle: "Designer", daysInStage: 1 }] },
   ] } }));
   await page.goto("/applications?tab=pipeline");
+  await expect(page.getByText("Follow-up overdue")).toBeVisible();
+  await expect(page.getByText("2 days since activity")).toBeVisible();
   await page.getByPlaceholder("Search company or role…").fill("Acme");
   await expect(page.getByRole("heading", { name: "Designer", exact: true })).toHaveCount(0);
   const lightMode = page.getByRole("button", { name: "Switch to Light Mode", exact: true });
@@ -40,6 +42,10 @@ test("pipeline search, list view, and mobile stage navigation", async ({ page })
   await expect(page.getByRole("region", { name: "Applied applications" })).toHaveCount(0);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
   await page.screenshot({ path: "test-results/refined-pipeline-mobile.png" });
+  await page.goto("/dashboard");
+  await page.goto("/applications?tab=pipeline");
+  await expect(page.locator('[data-view="list"]')).toBeVisible();
+  await expect(page.getByRole("region",{name:"Interviewing applications"})).toBeVisible();
 });
 
 test("inbox arrow keys update selected message preview", async ({ page }) => {

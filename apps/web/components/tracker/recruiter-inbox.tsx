@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useSessionState } from "@/hooks/use-session-state";
 import { WorkspaceLoading } from "@/components/ui/workspace-loading";
 import styles from "./tracker-workspace.module.css";
 import { listClassifiedRecruiterThreads, type ClassifiedThread, type EmailCategory } from "@/lib/tracker-api";
@@ -24,14 +25,24 @@ function formatDate(value: string): string {
   }
 }
 
+function dateGroup(value: string) {
+  const date = new Date(value), today = new Date(); today.setHours(0,0,0,0);
+  const week = new Date(today); week.setDate(week.getDate() - (week.getDay()+6)%7);
+  if (!Number.isFinite(date.getTime())) return "Date unavailable";
+  if (date >= today) return "Today";
+  return date >= week ? "This week" : "Earlier";
+}
+
 export function RecruiterInbox() {
+  const knownIds = useRef<Set<string> | null>(null);
+  const [newIds, setNewIds] = useState<Set<string>>(new Set());
   const [selected, setSelected] = useState<ClassifiedThread | null>(null);
   const [threads, setThreads] = useState<ClassifiedThread[]>([]);
   const [counts, setCounts] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [activeFilter, setActiveFilter] = useState<EmailCategory | "all">("all");
-  const [query, setQuery] = useState("");
+  const [activeFilter, setActiveFilter] = useSessionState<EmailCategory | "all">("inbox-category", "all");
+  const [query, setQuery] = useSessionState("inbox-query", "");
   const [page, setPage] = useState(0);
 
   // An inbox with a thousand threads should not be a thousand-row page. Show a
@@ -43,7 +54,9 @@ export function RecruiterInbox() {
     try {
       setError(null);
       const result = await listClassifiedRecruiterThreads(100);
-      setThreads(result.threads);
+      setNewIds(new Set(result.threads.filter(thread => knownIds.current && !knownIds.current.has(thread.uid)).map(thread => thread.uid)));
+      knownIds.current = new Set(result.threads.map(thread => thread.uid));
+      setThreads([...result.threads].sort((a,b) => (Date.parse(b.date) || 0) - (Date.parse(a.date) || 0)));
       setCounts(result.categoryCounts);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not load the inbox.");
@@ -93,16 +106,16 @@ export function RecruiterInbox() {
       <section className={styles.messages} aria-label="Recruiter messages">
         <label className={styles.search}>Search messages<input type="search" value={query} onChange={event => {setQuery(event.target.value); setSelected(null);}} placeholder="Sender, subject, or message…" /></label>
         <p className={styles.caption}>Up to 100 recent messages · {filtered.length} in this view · ↑ ↓ to browse</p>
-        {loading ? <WorkspaceLoading label="Loading recruiter messages…" /> : !visible.length ? <div className={styles.empty}><span aria-hidden="true">✉</span><h3>{error ? 'Inbox unavailable' : 'Room for your next opportunity'}</h3><p>{error ? 'Retry when your email connection is available.' : threads.length ? 'No messages match these filters.' : 'Connect your email in Settings to see recruiter conversations here.'}</p></div> : visible.map(thread => <button key={thread.uid} onKeyDown={event => {
+        {loading ? <WorkspaceLoading label="Loading recruiter messages…" /> : !visible.length ? <div className={styles.empty}><span aria-hidden="true">✉</span><h3>{error ? 'Inbox unavailable' : 'Room for your next opportunity'}</h3><p>{error ? 'Retry when your email connection is available.' : threads.length ? 'No messages match these filters.' : 'Connect your email in Settings to see recruiter conversations here.'}</p></div> : visible.map((thread,index) => <Fragment key={thread.uid}>{(index === 0 || dateGroup(visible[index-1].date) !== dateGroup(thread.date)) && <h3 className={styles.dateGroup}>{dateGroup(thread.date)}</h3>}<button onKeyDown={event => {
           const index = visible.findIndex(item => item.uid === thread.uid);
           const nextIndex = event.key === "ArrowDown" ? Math.min(index + 1, visible.length - 1) : event.key === "ArrowUp" ? Math.max(index - 1, 0) : event.key === "Home" ? 0 : event.key === "End" ? visible.length - 1 : null;
           if (nextIndex === null) return;
           event.preventDefault(); setSelected(visible[nextIndex]);
           const buttons = event.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>("button[data-message]");
           buttons?.[nextIndex]?.focus();
-        }} data-message="true" className={styles.message} aria-pressed={selected?.uid === thread.uid} onClick={() => setSelected(thread)}>
-          <span className={styles.avatar}>{(thread.fromName || thread.fromAddress || '?').slice(0,1).toUpperCase()}</span><span className={styles.messageCopy}><span className={styles.sender}>{thread.fromName || thread.fromAddress}<small>{formatDate(thread.date)}</small></span><strong>{thread.subject || 'No subject'}</strong><span className={styles.snippet}>{thread.snippet || 'No preview available'}</span><span className={styles.category} data-category={thread.category}>{thread.categoryLabel || thread.category}</span></span>
-        </button>)}
+        }} data-message="true" data-updated={newIds.has(thread.uid)} className={styles.message} aria-pressed={selected?.uid === thread.uid} onClick={() => setSelected(thread)}>
+          <span className={styles.avatar}>{(thread.fromName || thread.fromAddress || '?').slice(0,1).toUpperCase()}</span><span className={styles.messageCopy}><span className={styles.sender}>{thread.fromName || thread.fromAddress}<small>{formatDate(thread.date)}</small></span><strong>{thread.subject || 'No subject'}{newIds.has(thread.uid) && <small className={styles.newMessage}>New this refresh</small>}</strong><span className={styles.snippet}>{thread.snippet || 'No preview available'}</span><span className={styles.category} data-category={thread.category}>{thread.categoryLabel || thread.category}</span></span>
+        </button></Fragment>)}
         {pageCount > 1 && <div className={styles.pagination}><button disabled={safePage === 0} onClick={() => setPage(p => p - 1)}>Previous</button><span>{safePage + 1} / {pageCount}</span><button disabled={safePage >= pageCount - 1} onClick={() => setPage(p => p + 1)}>Next</button></div>}
       </section>
       <aside className={styles.preview} aria-label="Message preview">{selected ? <><span className={styles.category} data-category={selected.category}>{selected.categoryLabel || selected.category}</span><h3>{selected.subject || 'No subject'}</h3><p className={styles.caption}>{selected.fromName}<br />{selected.fromAddress} · {formatDate(selected.date)}</p><div className={styles.previewBody}>{selected.snippet || 'This message has no saved preview.'}</div><p className={styles.caption}>Saved email preview. Open your email provider to read the full message or reply.</p></> : <div className={styles.empty}><span aria-hidden="true">✉</span><h3>A little context,<br />a better next step.</h3><p>Select a conversation to read its saved preview.</p></div>}</aside>

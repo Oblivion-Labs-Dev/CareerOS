@@ -544,3 +544,9 @@ button:focus-visible,
     transform: none !important;
   }
 }
+
+/* Shared identity travels into the dossier; the page itself stays still. */
+::view-transition-old(root),::view-transition-new(root){animation:none}
+::view-transition-group(*){animation-duration:220ms;animation-timing-function:ease-out}
+[data-motion="paused"] article[data-job-id]{transform:none!important}
+@media(prefers-reduced-motion:reduce){::view-transition-group(*){animation:none!important}}

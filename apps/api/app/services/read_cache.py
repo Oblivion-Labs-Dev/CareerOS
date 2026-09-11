@@ -19,6 +19,7 @@ from __future__ import annotations
 import logging
 import threading
 import time
+from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import Any, Callable
@@ -38,8 +39,13 @@ class ReadCache:
     """Process-local cache. Not shared between workers, which is fine: every
     entry is derived state that any worker can rebuild from the database."""
 
-    def __init__(self, max_workers: int = 2) -> None:
-        self._entries: dict[str, _Entry] = {}
+    def __init__(self, max_workers: int = 2, max_entries: int = 128) -> None:
+        # Bounded, least-recently-used. Entries were previously never evicted,
+        # so every distinct key held its value for the life of the process -
+        # fine for the handful of dashboard aggregates in use today, but an
+        # unbounded dict keyed by anything request-derived is a slow leak.
+        self._entries: "OrderedDict[str, _Entry]" = OrderedDict()
+        self._max_entries = max_entries
         self._guard = threading.Lock()
         self._pool = ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="read-cache")
 
@@ -47,17 +53,27 @@ class ReadCache:
         """Return the cached value, refreshing in the background when stale."""
         with self._guard:
             entry = self._entries.get(key)
+            if entry is not None:
+                self._entries.move_to_end(key)
 
         if entry is None:
             # Cold start: nothing to serve, so this one call pays the cost.
             value = loader()
             with self._guard:
                 self._entries[key] = _Entry(value=value, refreshed_at=time.monotonic())
+                self._entries.move_to_end(key)
+                self._evict_locked()
             return value
 
         if time.monotonic() - entry.refreshed_at > ttl_seconds:
             self._schedule_refresh(key, entry, loader)
         return entry.value
+
+    def _evict_locked(self) -> None:
+        """Drop least-recently-used entries. Caller must hold the guard."""
+        while len(self._entries) > self._max_entries:
+            evicted_key, _ = self._entries.popitem(last=False)
+            logger.debug("read cache evicted %r", evicted_key)
 
     def invalidate(self, key: str) -> None:
         """Drop an entry so the next read rebuilds it synchronously."""
@@ -77,6 +93,8 @@ class ReadCache:
                 value = loader()
                 with self._guard:
                     self._entries[key] = _Entry(value=value, refreshed_at=time.monotonic())
+                    self._entries.move_to_end(key)
+                    self._evict_locked()
             except Exception:
                 # A failed refresh must never take out the endpoint. Keep serving
                 # the previous value and let the next request try again; only mark

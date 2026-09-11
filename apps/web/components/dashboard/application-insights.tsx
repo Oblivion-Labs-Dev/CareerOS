@@ -3,12 +3,12 @@
 import { useEffect, useMemo, useState } from "react";
 import { CountUp } from "@/components/count-up";
 import { useRouter } from "next/navigation";
-import { getAutopilotJobs } from "@/lib/application-assistant-api";
+import { getAutopilotJobsPage } from "@/lib/application-assistant-api";
 import styles from "./application-insights.module.css";
 
 /** Every status the API can return, fetched in one request and sliced locally. */
 const ALL_STATUSES =
-  "QUEUED,APPLYING,SUBMITTED,NEEDS_REVIEW,STAGED,FAILED,SKIPPED,INELIGIBLE";
+  "QUEUED,APPLYING,SUBMITTED,NEEDS_REVIEW,STAGED,MANUAL_REVIEW,FAILED,SKIPPED,INELIGIBLE";
 
 type Job = {
   status?: string;
@@ -22,6 +22,7 @@ type Job = {
 const OUTCOMES = [
   { key: "SUBMITTED", name: "Submitted", color: "var(--success)" },
   { key: "REVIEW", name: "Needs answer", color: "var(--warning)" },
+  { key: "MANUAL_REVIEW", name: "Manual review", color: "var(--warning)" },
   { key: "QUEUED", name: "Queued", color: "var(--accent)" },
   { key: "FAILED", name: "Failed", color: "var(--danger)" },
   { key: "SKIPPED", name: "Skipped", color: "var(--muted)" },
@@ -35,7 +36,8 @@ const OUTCOME_TAB: Record<string, string> = {
   QUEUED: "queued",
   FAILED: "failed",
   SKIPPED: "skipped",
-  INELIGIBLE: "applications",
+  INELIGIBLE: "ineligible",
+  MANUAL_REVIEW: "manual",
 };
 
 const BLOCKER_NAMES: Record<string, string> = {
@@ -86,12 +88,21 @@ function bucket(status?: string): string {
 export function ApplicationInsights() {
   const router = useRouter();
   const [jobs, setJobs] = useState<Job[] | null>(null);
+  const [error, setError] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
-    getAutopilotJobs(ALL_STATUSES, 1000)
-      .then((res) => !cancelled && setJobs(res.jobs || []))
-      .catch(() => !cancelled && setJobs([]));
+    void (async () => {
+      const result: Job[] = [];
+      let offset = 0;
+      while (!cancelled) {
+        const page = await getAutopilotJobsPage({status: ALL_STATUSES, limit: 1000, offset});
+        if (!page.success) throw new Error("Insights unavailable");
+        result.push(...page.jobs); offset += page.jobs.length;
+        if (!page.hasMore || !page.jobs.length) break;
+      }
+      if (!cancelled) setJobs(result);
+    })().catch(() => !cancelled && setError(true));
     return () => {
       cancelled = true;
     };
@@ -110,9 +121,7 @@ export function ApplicationInsights() {
     const submitted = counts.SUBMITTED || 0;
     const ineligible = counts.INELIGIBLE || 0;
     const skipped = counts.SKIPPED || 0;
-    // "Attempted" = everything Autopilot actually opened a browser for: the
-    // ineligible and filtered-out postings were never applyable in the first
-    // place, so counting them would understate the real success rate.
+    // This is eligibility status, not evidence of a browser attempt.
     const attempted = Math.max(0, total - ineligible - skipped);
 
     const companies = new Map<string, number>();
@@ -148,7 +157,8 @@ export function ApplicationInsights() {
 
     const bands = BANDS.map((b) => ({ ...b, count: 0 }));
     for (const j of submittedJobs) {
-      const s = Number(j.matchScore || 0);
+      if (typeof j.matchScore !== "number" || !Number.isFinite(j.matchScore)) continue;
+      const s = j.matchScore;
       const hit = bands.find((b) => s >= b.min);
       if (hit) hit.count += 1;
     }
@@ -168,6 +178,7 @@ export function ApplicationInsights() {
     };
   }, [jobs]);
 
+  if (error) return <p role="alert">Application insights could not be loaded. Refresh to retry.</p>;
   if (!data) {
     return <p className={styles.empty}>Loading application insights…</p>;
   }
@@ -194,7 +205,7 @@ export function ApplicationInsights() {
 
   const funnel = [
     { name: "Evaluated", value: data.total, color: "var(--accent)" },
-    { name: "Applyable", value: data.attempted, color: "var(--accent-tertiary)" },
+    { name: "Not excluded", value: data.attempted, color: "var(--accent-tertiary)" },
     { name: "Submitted", value: data.submitted, color: "var(--success)" },
   ];
   const funnelMax = Math.max(1, ...funnel.map((f) => f.value));
@@ -244,7 +255,7 @@ export function ApplicationInsights() {
       <section className={styles.card}>
         <div className={styles.cardHead}>
           <span className={styles.cardTitle}>From posting to submitted</span>
-          <span className={styles.cardNote}>{submitRate}% of applyable</span>
+          <span className={styles.cardNote}>{submitRate}% of non-excluded records</span>
         </div>
 
         <div className={styles.funnel}>
@@ -340,7 +351,7 @@ export function ApplicationInsights() {
           <span className={styles.cardNote}>{data.ineligible} ineligible</span>
         </div>
         {data.topBlockers.length === 0 ? (
-          <p className={styles.empty}>Nothing blocked. Every posting was applyable.</p>
+          <p className={styles.empty}>Nothing blocked. No ineligibility is recorded.</p>
         ) : (
           <div className={styles.rankList}>
             {data.topBlockers.map(([reason, n]) => (

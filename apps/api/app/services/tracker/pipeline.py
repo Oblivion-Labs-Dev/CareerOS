@@ -18,11 +18,11 @@ from app.db.store import list_entities, upsert_entity
 
 GHOST_THRESHOLD_DAYS = 21
 
-APPLIED_STATUSES = {"applied", "submitted", "autofilled", "applying"}
+APPLIED_STATUSES = {"applied", "submitted"}
 INTERVIEW_STATUSES = {"interviewing", "interview"}
 REJECTED_STATUSES = {"rejected", "declined"}
 OFFER_STATUSES = {"offer", "offered"}
-EXCLUDED_STATUSES = {"saved", "draft"}  # not yet applied — not part of the post-apply funnel
+EXCLUDED_STATUSES = {"saved", "draft", "autofilled", "applying"}  # not yet applied — not part of the post-apply funnel
 
 PIPELINE_COLUMNS = [
     {"key": "applied", "label": "Applied"},
@@ -91,7 +91,9 @@ def build_pipeline(db: Session) -> dict[str, Any]:
                 "companyName": app.get("companyName") or "Unknown",
                 "roleTitle": app.get("roleTitle") or "Unknown role",
                 "status": app.get("status"),
-                "daysInStage": days_in_stage,
+                "daysInStage": max(0, (datetime.now(UTC) - entered).days) if (entered := _parse_dt(app.get("stageEnteredAt"))) else None,
+                "daysSinceActivity": max(0, days_in_stage) if days_in_stage is not None else None,
+                "followUpOverdue": bool((due := _parse_dt(app.get("followUpAt"))) and due < datetime.now(UTC) and column in {"applied", "ghosted", "interviewing"}),
                 "url": app.get("url"),
                 "updatedAt": app.get("updatedAt"),
             }

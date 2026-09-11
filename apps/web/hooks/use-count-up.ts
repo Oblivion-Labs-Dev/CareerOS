@@ -45,7 +45,7 @@ export function useCountUp(target: number | null, options: CountUpOptions = {}):
       setValue(null);
       return undefined;
     }
-    if (prefersReducedMotion()) {
+    if (prefersReducedMotion() || document.documentElement.dataset.motion === "paused") {
       setValue(target);
       return undefined;
     }
@@ -58,6 +58,7 @@ export function useCountUp(target: number | null, options: CountUpOptions = {}):
     const begin = () => {
       const start = performance.now();
       const step = (now: number) => {
+        if (prefersReducedMotion() || document.documentElement.dataset.motion === "paused") {setValue(target); return;}
         const progress = Math.min(1, (now - start) / durationMs);
         setValue(round(easeOut(progress) * target));
         if (progress < 1) frame.current = requestAnimationFrame(step);

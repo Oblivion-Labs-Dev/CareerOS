@@ -1,5 +1,8 @@
 "use client";
 
+import { ProgressProvider } from "@/components/career-progress/progress-provider";
+import { ProgressHeader } from "@/components/career-progress/progress-header";
+import { QuestBoard } from "@/components/career-progress/quest-board";
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { ApplicationAnalytics } from "@/components/dashboard/application-analytics";
@@ -100,13 +103,14 @@ export function MinimalDashboard() {
   // (Autopilot jobs are tracked directly in aa_autopilot_job)
 
   return (
-    <div className={styles.minimal}>
-      <h1 className={styles.pageTitle}>Dashboard</h1>
+    <ProgressProvider><div className={styles.minimal}>
+      <ProgressHeader/>
       {error ? <p className={styles.errorBanner}>{error}</p> : null}
 
       <section className={styles.matchesSection}>
         <ApplicationAnalytics />
       </section>
+      <QuestBoard/>
       <SearchIntelligence />
 
       <section className={styles.matchesSection}>
@@ -177,6 +181,6 @@ export function MinimalDashboard() {
         )}
       </section>
 
-    </div>
+    </div></ProgressProvider>
   );
 }

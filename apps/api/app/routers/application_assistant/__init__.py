@@ -14,6 +14,7 @@ from fastapi import APIRouter
 
 from . import (
     answers,
+    browse_searches,
     applications,
     autopilot,
     diagnostics,
@@ -22,6 +23,7 @@ from . import (
     llm,
     llm_metrics,
     qwen,
+    progress,
     settings,
     tailoring_receipts,
 )
@@ -33,8 +35,10 @@ for _sub in (
     jobs.router,
     applications.router,
     answers.router,
+    browse_searches.router,
     llm.router,
     qwen.router,
+    progress.router,
     diagnostics.router,
     autopilot.router,
     llm_metrics.router,

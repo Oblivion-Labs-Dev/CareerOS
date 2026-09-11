@@ -18,3 +18,10 @@
 :global([data-theme="light"]) .workspace .search { color:#526176; }
 :global([data-theme="light"]) .workspace .search input { background:#fff; color:#203342; border-color:#d6e0e6; }
 :global([data-theme="light"]) .workspace .search input::placeholder { color:#65778a; }
+
+.dateGroup {font-size:11px;letter-spacing:.08em;text-transform:uppercase;padding:14px 12px 6px;opacity:.7}
+.overdue {font-size:11px;color:#d59021;border-left:2px solid currentColor;padding-left:8px}
+
+.newMessage{display:inline-block;margin-left:8px;font-size:9px;color:var(--accent,#34d399)}
+@media(prefers-reduced-motion:no-preference){.opportunity[data-updated="true"],.message[data-updated="true"]{animation:recordChanged .65s ease-out}}
+@keyframes recordChanged{from{box-shadow:inset 3px 0 #34d399;background-color:rgba(52,211,153,.14)}to{box-shadow:inset 0 0 transparent}}
