@@ -67,8 +67,6 @@ _ERROR_TEXT_RULES: tuple[tuple[IneligibilityReason, tuple[str, ...]], ...] = (
             r"no application form on the page",
             r"appears to be closed or redirected",
             r"job(?:ing)? posting (?:is )?closed",
-            r"persistent block or expired link",
-            r"redirected to careers site",
             r"is a careers index, not a specific posting",
             r"posting has no application url",
         ),
@@ -82,6 +80,23 @@ _ERROR_TEXT_RULES: tuple[tuple[IneligibilityReason, tuple[str, ...]], ...] = (
             r"bot[- ]protected",
             r"bot challenge",
             r"bot protection",
+            # "Persistent block or expired link" is written by the runner when a
+            # retry fails, and it names two different things. A *block* means the
+            # automation could not drive the page — the posting is live and the
+            # user can submit it by hand. Treating that phrase as evidence of
+            # expiry sent working postings to a terminal bucket: reported live
+            # for a Databricks listing whose link opens fine.
+            #
+            # Where the wording cannot distinguish a dead posting from a blocked
+            # one, the safe reading is blocked. A live job wrongly marked expired
+            # disappears from the list the user works through; a dead job in
+            # manual review costs one click to dismiss.
+            r"persistent block or expired link",
+            # A redirect to a careers index is not proof the posting is gone.
+            # Boards bounce automated requests to their index, and the original
+            # link often still works in a browser — observed on a Robinhood
+            # Greenhouse posting that opens normally.
+            r"redirected to careers site",
             # SmartRecruiters fronts its apply flow with DataDome, which serves a
             # challenge and an otherwise empty page — the word "captcha" never
             # appears in the failure text.

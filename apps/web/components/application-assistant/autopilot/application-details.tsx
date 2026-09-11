@@ -124,13 +124,16 @@ export function ApplicationDetails({
       <button
         type="button"
         className={styles.heroJobId}
+        data-copied={copiedId === job.id ? "true" : undefined}
         onClick={() => copyJobId(job.id)}
-        title="Copy job ID"
+        title="Click to copy"
         aria-label={`Copy job ID ${job.id}`}
       >
         <span aria-hidden="true">#</span>
         <code>{job.id}</code>
-        <b aria-hidden="true">{copiedId === job.id ? "✓" : "⧉"}</b>
+        {/* Announced politely so a screen reader hears the confirmation without
+            the whole control being re-read. */}
+        <em aria-live="polite">{copiedId === job.id ? "Copied to clipboard" : ""}</em>
       </button>
       <div className={styles.heroArt} aria-hidden="true"><i /><i /><span>↗</span></div>
     </header>
