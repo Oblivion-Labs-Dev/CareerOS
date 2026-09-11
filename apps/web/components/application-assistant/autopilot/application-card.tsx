@@ -1,12 +1,15 @@
+import { identityTransition } from "@/lib/surface-transition";
+import { useSurfaceDepth } from "@/hooks/use-surface-depth";
 import type { AutopilotJobRow } from "./job-types";
 import { useCountUp } from "./use-count-up";
 import { INELIGIBILITY_LABELS, matchBand, relativeTime, statusView } from "./job-presentation";
 import styles from "./application-card.module.css";
 
-export function ApplicationCard({ job, busy, onDetails, onApply, onMarkSubmitted, onAssistedFill, onRetry }: {
-  job: AutopilotJobRow; busy: string | null; onDetails: () => void; onApply: () => void;
-  onMarkSubmitted?: () => void; onAssistedFill?: () => void; onRetry?: () => void;
+export function ApplicationCard({ job, busy, onDetails, onApply, onAssistedFill, onRetry, detailed = false }: {
+  detailed?: boolean; job: AutopilotJobRow; busy: string | null; onDetails: () => void; onApply: () => void;
+  onAssistedFill?: () => void; onRetry?: () => void;
 }) {
+  const surface = useSurfaceDepth(job.status);
   const status = statusView(job.status);
   const score = typeof job.matchScore === "number" && Number.isFinite(job.matchScore)
     ? Math.max(0, Math.min(100, Math.round(job.matchScore))) : null;
@@ -15,23 +18,20 @@ export function ApplicationCard({ job, busy, onDetails, onApply, onMarkSubmitted
   const shownScore = useCountUp(score);
   const canApply = job.status === "QUEUED" || (job.status === "SKIPPED" && job.skipReason?.startsWith("Match score stayed below"));
   const initials = (job.company || "?").split(/\s+/).slice(0, 2).map(word => word[0]).join("").toUpperCase();
-  // Autopilot could not finish these, so the user opens the posting and applies
-  // by hand — this is how they then take the card off their working list.
   // Automation can reach this posting and fill it; it just must not submit it.
   const canAssist = job.status === "MANUAL_REVIEW";
-  const canMarkSubmitted =
-    job.status === "NEEDS_REVIEW" || job.status === "FAILED" || job.status === "MANUAL_REVIEW";
   // A failed attempt is usually a bug we have since fixed, but without this the
   // card is a dead end: the only other action is claiming a submission that
   // never happened. Retry puts the job back in the queue and applies again.
   const canRetry = job.status === "FAILED";
-  const manuallySubmitted = job.status === "SUBMITTED" && job.submissionSource === "manual";
   const reason = job.status === "INELIGIBLE" ? INELIGIBILITY_LABELS[String(job.ineligibilityReason)] || job.ineligibilityDetail || "Cannot be applied to" : job.skipReason || job.lastError || null;
   return (
     // The whole card opens the dossier — there is no separate View button to
-    // aim for. Inner controls stop propagation so Apply and Mark submitted
-    // still do their own thing.
+    // aim for. Inner controls stop propagation so Apply and Autofill still do
+    // their own thing. Changing which bucket a job sits in lives in the side
+    // panel, not here.
     <article
+      ref={surface}
       className={styles.card}
       title={reason || undefined}
       data-status={status.key}
@@ -41,6 +41,7 @@ export function ApplicationCard({ job, busy, onDetails, onApply, onMarkSubmitted
       aria-label={`Open details for ${job.title || "this role"} at ${job.company || "this company"}`}
       onClick={onDetails}
       onKeyDown={(event) => {
+        if (event.target !== event.currentTarget) return;
         if (event.key === "Enter" || event.key === " ") {
           event.preventDefault();
           onDetails();
@@ -48,7 +49,7 @@ export function ApplicationCard({ job, busy, onDetails, onApply, onMarkSubmitted
       }}
     >
       <div className={styles.identity}>
-        <span className={styles.monogram} aria-hidden="true">{initials}</span>
+        <span className={styles.monogram} style={{viewTransitionName: detailed ? "none" : identityTransition(job.id)}} aria-hidden="true">{initials}</span>
         <div className={styles.company}>{job.company || "Unknown company"}<span>CAREER OPPORTUNITY</span></div>
         <span className={styles.status}><i />{status.label}</span>
       </div>
@@ -80,28 +81,6 @@ export function ApplicationCard({ job, busy, onDetails, onApply, onMarkSubmitted
               {busy === job.id ? "Filling…" : "Autofill & open"}
             </button>
           )}
-          {canMarkSubmitted && onMarkSubmitted && (
-            <button
-              type="button"
-              className={styles.secondaryBtn}
-              disabled={busy === job.id}
-              onClick={(event) => { event.stopPropagation(); onMarkSubmitted(); }}
-              title="I applied to this posting myself — move it to Submitted"
-            >
-              {busy === job.id ? "Saving…" : "Mark submitted"}
-            </button>
-          )}
-          {manuallySubmitted && onMarkSubmitted && (
-            <button
-              type="button"
-              className={styles.secondaryBtn}
-              disabled={busy === job.id}
-              onClick={(event) => { event.stopPropagation(); onMarkSubmitted(); }}
-              title="Undo — put this back in the review list"
-            >
-              {busy === job.id ? "Saving…" : "Undo submitted"}
-            </button>
-          )}
           {canRetry && onRetry && (
             <button
               type="button"
@@ -123,6 +102,9 @@ export function ApplicationCard({ job, busy, onDetails, onApply, onMarkSubmitted
           )}
         </span>
       </footer>
+      <div className={styles.journeyRail} aria-label={`Application journey: saved${job.resumeFileUsed ? ", resume recorded" : ""}${job.submissionConfirmed ? ", ATS confirmation recorded" : job.status === "SUBMITTED" ? ", submitted status awaiting confirmation" : ""}`}>
+        <span data-done="true"><i/>Saved</span><span data-done={Boolean(job.resumeFileUsed)}><i/>Prepared</span><span data-done={Boolean(job.submissionConfirmed)}><i/>{job.submissionConfirmed ? "Confirmed" : job.status === "SUBMITTED" ? "Awaiting proof" : "Confirmation"}</span>
+      </div>
     </article>
   );
 }

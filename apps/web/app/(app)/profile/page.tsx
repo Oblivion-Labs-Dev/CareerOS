@@ -5,6 +5,7 @@ import { Suspense, useCallback, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { CareerWorkspaceStrip } from "@/components/career-workspace-strip";
 import { ProfileApplicationDetailsForm } from "@/components/profile/profile-application-details-form";
+import { ProfileExperienceSection } from "@/components/profile/profile-experience-section";
 import { ProfileDocumentsSection } from "@/components/profile/profile-documents-section";
 import { ResumeProfileSwitcher } from "@/components/profile/resume-profile-switcher";
 import { ResumeTailoringPanel } from "@/components/profile/resume-tailoring-panel";
@@ -277,37 +278,7 @@ export default function ProfilePage() {
             </section>
 
             <section className="dashboard-layout dashboard-layout--full">
-              <article className="workflow-panel dashboard-panel--wide">
-                <div className="dashboard-panel-header">
-                  <div>
-                    <span className="toc-card-kicker">Work experience</span>
-                    <h2>{workExperience.length ? `${workExperience.length} roles saved` : "No work history saved yet"}</h2>
-                  </div>
-                </div>
-                {workExperience.length ? (
-                  <div className="dashboard-list">
-                    {workExperience.map((entry, index) => (
-                      <div className="profile-answer-row" key={`${entry.company}-${index}`}>
-                        <div>
-                          <h3>
-                            {entry.jobTitle || "Role"} @ {entry.company || "Company"}
-                          </h3>
-                          <span>
-                            {[entry.location, entry.startDate, entry.endDate || (entry.currentlyEmployed ? "Present" : "")]
-                              .filter(Boolean)
-                              .join(" · ")}
-                          </span>
-                        </div>
-                        <strong>{entry.currentlyEmployed ? "Current" : "Past"}</strong>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="muted dashboard-empty">
-                    Work experience from your ApplyPilot profile JSON will appear here after sync.
-                  </p>
-                )}
-              </article>
+              <ProfileExperienceSection profile={profile} onSaved={reloadProfile} />
             </section>
 
             <section className="dashboard-layout">

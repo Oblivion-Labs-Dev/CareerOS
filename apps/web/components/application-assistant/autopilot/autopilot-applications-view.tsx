@@ -1,5 +1,9 @@
 "use client";
 
+import { transitionSurface } from "@/lib/surface-transition";
+import { useApplicationScroll } from "@/hooks/use-application-scroll";
+import { WorkspaceLoading } from "@/components/ui/workspace-loading";
+import { useSessionState } from "@/hooks/use-session-state";
 import { useSearchParams } from "next/navigation";
 import React, { useEffect, useRef, useState } from "react";
 import { SidePanelPortal } from "@/components/side-panel-portal";
@@ -8,7 +12,7 @@ import {
   approvePreflightSubmission,
   approveStagedAnswer,
   getAutopilotJobs,
-  markAutopilotJobSubmitted,
+  setAutopilotJobState,
   reprocessSingleAutopilotJob,
   resetSubmittedAutopilotJobs,
   skipStagedApplication,
@@ -31,15 +35,26 @@ export function AutopilotApplicationsView({
   section: Section;
   onJobsChanged: () => void;
 }) {
-  const linkedFilter = useSearchParams().get("tab");
-  const [filter, setFilter] = useState<StatusFilter>("all");
-  const [sortMode, setSortMode] = useState<SortMode>("priority");
-  const [query, setQuery] = useState("");
+  const params = useSearchParams();
+  const linkedFilter = params.get("tab");
+  const linkedJob = params.get("job");
+  const [filter, setFilter] = useSessionState<StatusFilter>("applications-filter", FILTERS.some(item => item.id === linkedFilter) ? linkedFilter as StatusFilter : "all");
+  const [sortMode, setSortMode] = useSessionState<SortMode>("applications-sort", "priority");
+  const [query, setQuery] = useSessionState("applications-query", "");
   const [menuOpen, setMenuOpen] = useState(false);
   const [detail, setDetail] = useState<AutopilotJobRow | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
   const [answerDrafts, setAnswerDrafts] = useState<Record<string, string>>({});
+  useEffect(() => {
+    if (!linkedJob) return;
+    const controller = new AbortController();
+    fetch(`/api/backend/application-assistant/autopilot/jobs/${encodeURIComponent(linkedJob)}`, {signal: controller.signal})
+      .then(async response => {if (!response.ok) throw new Error(); return response.json();})
+      .then(value => setDetail(value.job))
+      .catch(() => {if (!controller.signal.aborted) setNote("This application could not be opened. Try finding it in the list.");});
+    return () => controller.abort();
+  }, [linkedJob]);
   const menuRef = useRef<HTMLDivElement>(null);
   const applyInFlight = useRef(false);
 
@@ -60,6 +75,7 @@ export function AutopilotApplicationsView({
 
   const pages = useApplicationPages(section === "review" ? "review" : filter, sortMode, query);
   const { jobs, counts } = pages;
+  useApplicationScroll(`${section}:${filter}:${sortMode}:${query}`, pages.loading, pages.hasMore, jobs.length, pages.loadMore);
   const visible = jobs;
   const loading = pages.loading && jobs.length === 0;
   const pagination = <div ref={pages.sentinel} style={{ padding: "20px", textAlign: "center" }}>
@@ -208,14 +224,15 @@ export function AutopilotApplicationsView({
     }
   };
 
-  const markSubmitted = async (job: AutopilotJobRow) => {
+  // The user is the one looking at the posting, so they decide which bucket it
+  // belongs in — including the common case of a link that turns out to be dead.
+  const setJobState = async (job: AutopilotJobRow, status: string, label: string) => {
     setBusy(job.id);
     setNote(null);
     try {
-      const res = await markAutopilotJobSubmitted(job.id);
-      setNote(res?.submitted
-        ? `Marked ${job.company} as submitted.`
-        : `Moved ${job.company} back to review.`);
+      const res = await setAutopilotJobState(job.id, status);
+      setNote(`${job.company || "Application"} set to ${label}.`);
+      setDetail((current) => (current && current.id === job.id ? { ...current, ...res.job } : current));
       pages.refresh();
       onJobsChanged();
     } catch (err) {
@@ -400,15 +417,14 @@ export function AutopilotApplicationsView({
       {note && <div className={styles.empty} style={{ marginBottom: "0.75rem" }}>{note}</div>}
 
       {loading ? (
-        <p className={styles.loadingText}>Loading applications…</p>
+        <WorkspaceLoading label="Loading applications…" />
       ) : visible.length === 0 ? (
         <div className={styles.empty}>No applications match this filter.</div>
       ) : (
         <div className={styles.appGrid}>
           {visible.map((job) => (
-            <ApplicationCard key={job.id} job={job} busy={busy}
-              onDetails={() => setDetail(job)} onApply={() => void applyNow(job)}
-              onMarkSubmitted={() => void markSubmitted(job)}
+            <ApplicationCard key={job.id} job={job} busy={busy} detailed={detail?.id === job.id}
+              onDetails={() => transitionSurface(() => setDetail(job))} onApply={() => void applyNow(job)}
               onAssistedFill={() => void assistedFill(job)}
               onRetry={() => void retryNow(job)} />
           ))}
@@ -433,6 +449,7 @@ export function AutopilotApplicationsView({
             }
             onApprove={() => void approveAnswers(detail)}
             onSkip={() => void skipJob(detail)}
+            onSetState={(status, label) => void setJobState(detail, status, label)}
             busy={busy === detail.id}
           />
         )}

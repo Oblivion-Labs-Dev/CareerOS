@@ -16,6 +16,7 @@ export type AutopilotJobRow = {
   queuePriority?: number;
   queuePosition?: number;
   submittedAt?: string;
+  submissionConfirmed?: boolean;
   /** "manual" when the user applied by hand and marked it submitted themselves. */
   submissionSource?: string | null;
   previousStatus?: string | null;

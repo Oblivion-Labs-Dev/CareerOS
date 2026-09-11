@@ -16,8 +16,10 @@ function parseApiError(text: string): string {
 }
 
 async function aaFetch<T>(path: string, init?: RequestInit, timeoutMs = 45000): Promise<T> {
+  // timeoutMs <= 0 means "wait indefinitely" — used by flows whose duration is
+  // set by the person, not the server (the assisted hand-off browser window).
   const controller = new AbortController();
-  const timer = window.setTimeout(() => controller.abort(), timeoutMs);
+  const timer = timeoutMs > 0 ? window.setTimeout(() => controller.abort(), timeoutMs) : undefined;
   try {
     const res = await fetch(`${aaBaseUrl()}/application-assistant${path}`, {
       ...init,
@@ -37,7 +39,7 @@ async function aaFetch<T>(path: string, init?: RequestInit, timeoutMs = 45000): 
     }
     throw err;
   } finally {
-    window.clearTimeout(timer);
+    if (timer !== undefined) window.clearTimeout(timer);
   }
 }
 
@@ -331,10 +333,21 @@ export async function reprocessSkippedAutopilotJobs() {
   });
 }
 
-/** Record that the user submitted this application by hand (toggles back off). */
-export async function markAutopilotJobSubmitted(id: string) {
-  return aaFetch<{ success: boolean; job: any; submitted: boolean }>(`/autopilot/jobs/${id}/mark-submitted`, {
+export type AutopilotJobState = { value: string; label: string };
+
+/** States the side panel may offer, and which buckets may be relabelled. */
+export async function getAutopilotJobStates() {
+  return aaFetch<{ success: boolean; states: AutopilotJobState[]; settableFrom: string[] }>(
+    "/autopilot/job-states",
+  );
+}
+
+/** Record what actually happened with an application — submitted by hand, still
+ *  to be done manually, or a dead posting whose link is broken or expired. */
+export async function setAutopilotJobState(id: string, status: string, note?: string) {
+  return aaFetch<{ success: boolean; job: any }>(`/autopilot/jobs/${id}/set-state`, {
     method: "POST",
+    body: JSON.stringify(note ? { status, note } : { status }),
   });
 }
 
@@ -343,10 +356,15 @@ export async function markAutopilotJobSubmitted(id: string) {
  *  question only the candidate can answer). Long timeout: the request stays
  *  open while the browser window is handed over. */
 export async function assistedFillAutopilotJob(id: string) {
+  // No client-side abort: the request stays open for as long as the handed-over
+  // browser window does, and the window is only closed by the person filling
+  // the form. Aborting here used to surface a "timed out" error while they were
+  // still working, and the 11-minute cap paired with a 10-minute server-side
+  // deadline that shut the window on them.
   return aaFetch<{ success: boolean; filledCount: number; message: string }>(
     `/autopilot/jobs/${id}/assisted-fill`,
     { method: "POST" },
-    660_000,
+    0,
   );
 }
 

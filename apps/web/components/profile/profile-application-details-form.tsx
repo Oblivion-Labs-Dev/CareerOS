@@ -76,12 +76,72 @@ const GROUPS: Group[] = [
     ],
   },
   {
+    group: "Compensation & links",
+    blurb:
+      "Answers the salary-expectation and profile-link questions that ATS forms mark required. Blank sends the whole application to Review.",
+    fields: [
+      {
+        key: "salaryExpectations",
+        label: "Annual salary expectations",
+        hint: "What a “What are your salary expectations?” field should say.",
+        placeholder: "$160,000",
+      },
+      {
+        key: "github",
+        label: "GitHub profile",
+        placeholder: "https://github.com/yourname",
+      },
+      {
+        key: "linkedin",
+        label: "LinkedIn profile",
+        placeholder: "https://www.linkedin.com/in/yourname/",
+      },
+      {
+        key: "portfolio",
+        label: "Portfolio / website",
+        placeholder: "https://example.com",
+      },
+    ],
+  },
+  {
     group: "Education",
     blurb: "Fills the school, degree and graduation-year block that most ATS forms require.",
     fields: [
       { key: "school", label: "School", placeholder: "Santa Clara University" },
       { key: "degree", label: "Degree", placeholder: "Master's Degree" },
       { key: "discipline", label: "Field of study", placeholder: "Computer Science" },
+      {
+        key: "gpa",
+        label: "Undergraduate GPA",
+        hint: "Blank means GPA questions go to Review — a GPA is never guessed.",
+        placeholder: "3.34",
+      },
+      { key: "graduateGpa", label: "Graduate GPA", placeholder: "3.77" },
+    ],
+  },
+  {
+    group: "Screening answers",
+    blurb:
+      "Yes/No facts application forms ask for that only you can state. Blank sends the question to Review rather than having it answered.",
+    fields: [
+      {
+        key: "mayContactCurrentEmployer",
+        label: "May we contact your current employer?",
+        hint: "Yes or No.",
+        placeholder: "Yes",
+      },
+      {
+        key: "usCitizen",
+        label: "Are you a U.S. citizen?",
+        hint: "Yes or No. Never inferred from work authorization.",
+        placeholder: "No",
+      },
+      {
+        key: "exportControlStatus",
+        label: "Export-control / ITAR status",
+        hint: "The exact category these forms list, e.g. “U.S. permanent resident (Green Card holder)”.",
+        placeholder: "U.S. permanent resident (Green Card holder)",
+      },
     ],
   },
 ];
@@ -114,7 +174,18 @@ export function ProfileApplicationDetailsForm({
 
   const dirty = ALL_KEYS.some((key) => (values[key] || "") !== (initial[key] || ""));
 
+  // The profile prop arrives empty on the first render and is filled in once
+  // the page's fetch resolves. Saving in that window used to spread an empty
+  // object and then delete every key this form manages, writing back a profile
+  // stripped of the candidate's address, education and salary. Refuse to save
+  // until there is a profile to merge into.
+  const profileLoaded = Object.keys(profile || {}).length > 0;
+
   const save = async () => {
+    if (!profileLoaded) {
+      setNote("Still loading your profile — try again in a moment.");
+      return;
+    }
     setSaving(true);
     setNote(null);
     try {
@@ -122,7 +193,10 @@ export function ProfileApplicationDetailsForm({
       for (const key of ALL_KEYS) {
         const value = (values[key] || "").trim();
         if (value) next[key] = value;
-        else delete next[key];
+        // A blank input clears that one field. It must never delete a key the
+        // form never rendered a value for - that is how an unhydrated render
+        // turned a Save click into data loss.
+        else if (key in profile) next[key] = "";
       }
       // Keep the duplicate keys the resolver also reads in step with the
       // canonical ones, so a form asking for "postal code" and one asking for
@@ -206,7 +280,7 @@ export function ProfileApplicationDetailsForm({
       ))}
 
       <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", marginTop: "1.25rem" }}>
-        <button type="button" className="btn btn-primary" disabled={saving || !dirty} onClick={() => void save()}>
+        <button type="button" className="btn btn-primary" disabled={saving || !dirty || !profileLoaded} onClick={() => void save()}>
           {saving ? "Saving…" : "Save application details"}
         </button>
         {note ? <span className="muted">{note}</span> : null}

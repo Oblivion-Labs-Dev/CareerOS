@@ -1,6 +1,10 @@
 """Application Assistant API routes — autopilot domain."""
 
+import logging
+
 from ._common import *  # noqa: F401,F403
+
+logger = logging.getLogger("career_os.application_assistant.autopilot_routes")
 
 router = APIRouter(prefix="/application-assistant", tags=["application-assistant"])
 
@@ -82,7 +86,12 @@ AUTOPILOT_JOBS_TTL_SECONDS = 5.0
 
 # How long an assisted fill leaves the browser open for the candidate. It ends
 # as soon as they close the window, so this is only the ceiling.
-ASSISTED_HANDOFF_SECONDS = 600.0
+# None = the handed-over browser window stays open until the candidate closes
+# it. It used to be 600s, which closed the window mid-application on anyone who
+# needed longer than ten minutes - the assisted flow exists precisely for forms
+# a person has to work through by hand, so putting a stopwatch on it defeated
+# the feature.
+ASSISTED_HANDOFF_SECONDS: float | None = None
 
 @router.get("/autopilot/status")
 def get_autopilot_status() -> dict[str, Any]:
@@ -315,6 +324,13 @@ def get_autopilot_jobs_list(
 
     total = len(jobs)
     page = [_lean_job(job) for job in jobs[offset:offset + limit]]
+    if any(job.get("status") == "SUBMITTED" for job in page):
+        from app.services.application_assistant.application_journey import assess_receipt
+        with session_scope() as db:
+            receipts = get_kv(db, "autopilot_submission_receipts") or {}
+        for job in page:
+            job["submissionConfirmed"] = job.get("status") == "SUBMITTED" and assess_receipt(job, receipts.get(job["id"]))["state"] == "confirmed"
+
     return {
         "success": True,
         "jobs": page,
@@ -323,6 +339,15 @@ def get_autopilot_jobs_list(
         "statusCounts": status_counts,
         "hasMore": offset + limit < total,
     }
+
+
+@router.get("/autopilot/jobs/{job_id}")
+def get_autopilot_job_detail(job_id: str, db: Session = Depends(db_session)) -> dict[str, Any]:
+    from app.services.application_assistant.persistence import get_autopilot_job
+    job = get_autopilot_job(db, job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Application not found")
+    return {"job": job}
 
 
 @router.delete("/autopilot/jobs/{job_id}")
@@ -740,25 +765,93 @@ def reconcile_manual_submissions_route() -> dict[str, Any]:
     return reconcile_manual_submissions()
 
 
+# Assisted hand-offs in flight, keyed by job id, so a second click does not open
+# a second window onto the same posting.
+_ASSISTED_RUNS: dict[str, asyncio.Task] = {}
+
+
+async def _run_assisted_fill(job_id: str, job: dict[str, Any], profile: dict[str, Any],
+                             answer_lib: list[dict[str, Any]], timeout_sec: float) -> None:
+    """Fill the form, then sit with the open window until the candidate is done.
+
+    Runs detached from the HTTP request on purpose. While this was awaited by the
+    endpoint, the window's lifetime was capped by whichever timeout fired first -
+    the browser's fetch abort, the Next proxy's 300s header timeout, or the
+    server's own deadline - and the window was torn down mid-application. Nothing
+    about how long a person needs to finish a form belongs to an HTTP request.
+    """
+    from app.db.store import now_iso, session_scope
+    from app.services.application_assistant.persistence import get_autopilot_job, save_autopilot_job
+    from app.services.application_assistant.playwright_autopilot_executor import (
+        execute_live_playwright_submission,
+    )
+
+    try:
+        result = await execute_live_playwright_submission(
+            job_item=job,
+            profile=profile,
+            answer_lib=answer_lib,
+            # Always visible: the whole point is that a person finishes it.
+            headless=False,
+            timeout_sec=timeout_sec,
+            fill_only=True,
+            hand_off_seconds=ASSISTED_HANDOFF_SECONDS,
+        )
+        filled = result.get("fieldsFilled") or {}
+        if result.get("submitted"):
+            with session_scope() as db:
+                current = get_autopilot_job(db, job_id) or job
+                current["previousStatus"] = current.get("status")
+                current["status"] = "SUBMITTED"
+                current["submittedAt"] = now_iso()
+                current["submissionSource"] = "manual-assisted"
+                current["hasPersistentBlock"] = False
+                current["answers"] = {**(current.get("answers") or {}), **filled}
+                current["submissionEvidence"] = result.get("evidence") or {}
+                save_autopilot_job(db, current)
+            logger.info("Assisted hand-off for %s ended in a submission", job_id)
+        else:
+            with session_scope() as db:
+                current = get_autopilot_job(db, job_id)
+                if current and filled:
+                    current["answers"] = {**(current.get("answers") or {}), **filled}
+                    save_autopilot_job(db, current)
+            logger.info("Assisted hand-off window for %s closed without a submission", job_id)
+    except Exception:
+        logger.exception("Assisted fill failed for %s", job_id)
+    finally:
+        _ASSISTED_RUNS.pop(job_id, None)
+
+
 @router.post("/autopilot/jobs/{id}/assisted-fill")
 async def assisted_fill(id: str) -> dict[str, Any]:
     """Autofill this application in a visible browser and hand it to the user.
 
-    For postings automation can reach but must not finish — a CAPTCHA guards the
+    For postings automation can reach but must not finish - a CAPTCHA guards the
     board, or a question only the candidate can answer. Everything the profile
     can answer gets typed in, then the window is left open so the person does
     only the part that actually needs them, instead of re-typing the whole form.
+
+    Returns as soon as the hand-off starts. The window then stays open until the
+    candidate closes it, with no time limit; if they submit, the job marks itself
+    submitted on its own.
     """
-    from app.db.store import session_scope
+    from app.db.store import get_kv, session_scope
     from app.services.application_assistant.persistence import (
         get_autopilot_job,
         get_settings,
         list_answer_library,
     )
-    from app.services.application_assistant.playwright_autopilot_executor import (
-        execute_live_playwright_submission,
-    )
-    from app.db.store import get_kv
+
+    existing = _ASSISTED_RUNS.get(id)
+    if existing and not existing.done():
+        return {
+            "success": True,
+            "assisted": True,
+            "submitted": False,
+            "alreadyOpen": True,
+            "message": "That application is already open in a browser window - finish it there.",
+        }
 
     with session_scope() as db:
         job = get_autopilot_job(db, id)
@@ -772,55 +865,130 @@ async def assisted_fill(id: str) -> dict[str, Any]:
         settings_row = get_settings(db) or {}
 
     browser_settings = settings_row.get("browser") or {}
-    result = await execute_live_playwright_submission(
-        job_item=job,
-        profile=profile,
-        answer_lib=answer_lib,
-        # Always visible: the whole point is that a person finishes it.
-        headless=False,
-        timeout_sec=float(browser_settings.get("timeout") or 60000) / 1000.0,
-        fill_only=True,
-        hand_off_seconds=ASSISTED_HANDOFF_SECONDS,
+    timeout_sec = float(browser_settings.get("timeout") or 60000) / 1000.0
+
+    _ASSISTED_RUNS[id] = asyncio.create_task(
+        _run_assisted_fill(id, job, profile, answer_lib, timeout_sec)
     )
-
-    filled = result.get("fieldsFilled") or {}
-
-    # If they submitted it in the window we opened, record that here — the whole
-    # point is that they should not have to come back and press "Mark submitted"
-    # for something they just did.
-    if result.get("submitted"):
-        from app.db.store import now_iso
-        from app.services.application_assistant.persistence import save_autopilot_job
-
-        with session_scope() as db:
-            job = get_autopilot_job(db, id) or job
-            job["previousStatus"] = job.get("status")
-            job["status"] = "SUBMITTED"
-            job["submittedAt"] = now_iso()
-            job["submissionSource"] = "manual-assisted"
-            job["hasPersistentBlock"] = False
-            job["answers"] = {**(job.get("answers") or {}), **filled}
-            job["submissionEvidence"] = result.get("evidence") or {}
-            save_autopilot_job(db, job)
-        return {
-            "success": True,
-            "assisted": True,
-            "submitted": True,
-            "filledCount": len(filled),
-            "message": f"You submitted the {job.get('company')} application — marked as submitted.",
-        }
 
     return {
         "success": True,
         "assisted": True,
         "submitted": False,
-        "filledCount": len(filled),
-        "fieldsFilled": filled,
         "message": (
-            f"Filled {len(filled)} field(s). Finish the challenge and press Submit "
-            "in the browser window that opened."
+            f"Opening {job.get('company') or 'the application'} in a browser window and filling "
+            "what we can. Take as long as you need - the window stays open until you close it, "
+            "and it marks itself submitted if you submit."
         ),
     }
+
+
+# What the user is allowed to set a job to from the side panel, and what each
+# choice means on the job record. Only buckets a person can legitimately
+# determine by opening the posting themselves are offered - nothing here lets
+# them relabel a job the automation is still working.
+USER_SETTABLE_STATES: dict[str, dict[str, Any]] = {
+    "SUBMITTED": {"label": "Submitted - I applied myself"},
+    "MANUAL_REVIEW": {"label": "Manual review - I need to finish this by hand"},
+    "NEEDS_REVIEW": {"label": "Needs review - a question still needs answering"},
+    "FAILED": {"label": "Failed - the attempt broke"},
+    "INELIGIBLE": {
+        "label": "Expired or broken link - nothing to apply to",
+        "ineligibilityReason": "POSTING_EXPIRED",
+    },
+    "SKIPPED": {"label": "Skipped - not worth applying to"},
+}
+
+# The buckets whose jobs the user may relabel. A queued or in-flight job belongs
+# to the automation; a submitted one is already recorded.
+USER_RELABELLABLE_FROM = ("NEEDS_REVIEW", "STAGED", "FAILED", "MANUAL_REVIEW")
+
+
+@router.get("/autopilot/job-states")
+def list_user_settable_job_states() -> dict[str, Any]:
+    """States the side panel may offer, and which buckets may be relabelled."""
+    return {
+        "success": True,
+        "states": [
+            {"value": value, "label": meta["label"]}
+            for value, meta in USER_SETTABLE_STATES.items()
+        ],
+        "settableFrom": list(USER_RELABELLABLE_FROM),
+    }
+
+
+@router.post("/autopilot/jobs/{id}/set-state")
+def set_autopilot_job_state(
+    id: str,
+    payload: dict[str, Any] = Body(default_factory=dict),
+) -> dict[str, Any]:
+    """Let the user record what actually happened with an application.
+
+    Working these lists by hand turns up outcomes a submit-only button could not
+    express - most often a posting that has expired or whose link is broken. The
+    user is the one looking at the posting, so they are the authority on which
+    bucket it belongs in.
+
+    Restricted to jobs already in a bucket the user owns; a QUEUED job the
+    automation still intends to try is not theirs to relabel.
+    """
+    from app.db.store import now_iso, session_scope
+    from app.services.application_assistant.persistence import get_autopilot_job, save_autopilot_job
+
+    requested = str(payload.get("status") or "").strip().upper()
+    if requested not in USER_SETTABLE_STATES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported state '{requested}'. Allowed: {', '.join(USER_SETTABLE_STATES)}",
+        )
+
+    with session_scope() as db:
+        job = get_autopilot_job(db, id)
+        if not job:
+            raise HTTPException(status_code=404, detail="Application not found")
+
+        current = job.get("status")
+        if current not in USER_RELABELLABLE_FROM and current != requested:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"A job in {current} cannot be relabelled here - only "
+                    f"{', '.join(USER_RELABELLABLE_FROM)} jobs can."
+                ),
+            )
+
+        meta = USER_SETTABLE_STATES[requested]
+        job["previousStatus"] = current
+        job["status"] = requested
+        job["updatedAt"] = now_iso()
+        job["stateSetBy"] = "user"
+
+        if requested == "SUBMITTED":
+            job["submittedAt"] = job.get("submittedAt") or now_iso()
+            job["submissionSource"] = job.get("submissionSource") or "manual"
+            job["hasPersistentBlock"] = False
+            job["lastError"] = None
+        else:
+            # Leaving SUBMITTED means it was not actually sent.
+            job["submittedAt"] = None
+            job["submissionSource"] = None
+
+        reason = meta.get("ineligibilityReason")
+        if reason:
+            job["ineligibilityReason"] = reason
+            job["ineligibilityDetail"] = str(
+                payload.get("note") or "Marked by you: posting expired or the link is broken"
+            )
+        elif requested != "INELIGIBLE":
+            job.pop("ineligibilityReason", None)
+            job.pop("ineligibilityDetail", None)
+
+        note = str(payload.get("note") or "").strip()
+        if note and requested != "INELIGIBLE":
+            job["lastError"] = note
+
+        saved = save_autopilot_job(db, job)
+        return {"success": True, "job": saved}
 
 
 @router.post("/autopilot/jobs/{id}/mark-submitted")

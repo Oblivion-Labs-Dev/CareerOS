@@ -174,7 +174,13 @@ export function AutopilotControlCenter({
     setControlBusy(true);
     setControlError(null);
     try {
-      if (action === "start") await startAutopilot({ targetProcessCount: 10, concurrency: 1 });
+      // minMatchScore matters: the queue is ranked by tier bonus + match score +
+      // recency, so without a floor a weakly-matched posting with a strong tier
+      // bonus can outrank a genuinely good one and get applied to. The server
+      // default is 0, which is no floor at all.
+      if (action === "start") {
+        await startAutopilot({ targetProcessCount: 10, concurrency: 1, minMatchScore: 80 });
+      }
       else if (action === "pause") await pauseAutopilot();
       else await stopAutopilot();
       await refresh();

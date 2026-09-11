@@ -87,3 +87,14 @@
 .card:focus-visible { outline: 2px solid var(--accent, var(--state)); outline-offset: 3px; }
 /* .title was a <button>; it is a <p> now that the whole card is clickable. */
 .title { text-align: left; }
+
+.card {background-image:linear-gradient(125deg,rgba(255,255,255,.055),transparent 50%);box-shadow:inset 0 1px 0 rgba(255,255,255,.07),0 6px 18px rgba(0,0,0,.08);transform-origin:center;transition:transform .18s ease-out,box-shadow .2s,border-color .35s}
+.card:hover {box-shadow:inset 0 1px 0 rgba(255,255,255,.12),0 12px 28px rgba(0,0,0,.13)}
+@media(prefers-reduced-motion:reduce){.card{transform:none!important;transition:none}}
+
+.journeyRail{display:flex;gap:10px;padding:9px 16px 12px;border-top:1px solid var(--border);background:linear-gradient(100deg,rgba(255,255,255,.02),transparent)}
+.journeyRail span{flex:1;min-width:0;font-size:8px;letter-spacing:.03em;color:var(--muted);display:flex;flex-direction:column;gap:6px}
+.journeyRail i{display:block;height:2px;background:var(--border);border-radius:4px;transition:background-color .5s,box-shadow .5s}
+.journeyRail span[data-done="true"] i{background:var(--accent,#00b99b)}
+.card[data-status="submitted"] .journeyRail span:last-child[data-done="true"] i{background:#00b99b;box-shadow:0 0 6px #00b99b30}
+@media(prefers-reduced-motion:reduce){.journeyRail i{transition:none}}
