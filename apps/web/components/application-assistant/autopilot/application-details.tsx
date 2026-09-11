@@ -1,8 +1,39 @@
-import { useState } from "react";
+import { identityTransition } from "@/lib/surface-transition";
+import { useEffect, useState } from "react";
 import { ApplicationJourney } from "./application-journey";
 import type { AutopilotJobRow } from "./job-types";
 import { INELIGIBILITY_LABELS, matchBand, statusView } from "./job-presentation";
+import { getAutopilotJobStates, type AutopilotJobState } from "@/lib/application-assistant-api";
 import styles from "./application-details.module.css";
+
+/** Copy text, falling back to a selection-based copy where the clipboard API
+ *  is unavailable (it needs a secure context, which a plain-HTTP dev host is
+ *  not). Returns whether it worked, so the caller only shows a tick on success.
+ */
+async function copyText(value: string): Promise<boolean> {
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(value);
+      return true;
+    }
+  } catch {
+    // Fall through to the legacy path rather than failing silently.
+  }
+  try {
+    const area = document.createElement("textarea");
+    area.value = value;
+    area.setAttribute("readonly", "");
+    area.style.position = "fixed";
+    area.style.opacity = "0";
+    document.body.appendChild(area);
+    area.select();
+    const ok = document.execCommand("copy");
+    document.body.removeChild(area);
+    return ok;
+  } catch {
+    return false;
+  }
+}
 
 function date(value?: string) {
   if (!value || !Number.isFinite(Date.parse(value))) return "Not recorded";
@@ -16,6 +47,7 @@ export function ApplicationDetails({
   onDraftChange,
   onApprove,
   onSkip,
+  onSetState,
   busy,
 }: {
   job: AutopilotJobRow;
@@ -25,9 +57,31 @@ export function ApplicationDetails({
   onDraftChange?: (question: string, value: string) => void;
   onApprove?: () => void;
   onSkip?: () => void;
+  /** Record what actually happened with this application. */
+  onSetState?: (status: string, label: string) => void;
   busy?: boolean;
 }) {
   const [tab, setTab] = useState<"Overview" | "Journey" | "Documents">("Overview");
+  // The allowed states and which buckets may be relabelled are the backend's
+  // decision, so the panel asks rather than hardcoding a second copy that can
+  // drift out of step with what the API will actually accept.
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [states, setStates] = useState<AutopilotJobState[]>([]);
+  const [settableFrom, setSettableFrom] = useState<string[]>([]);
+  useEffect(() => {
+    let live = true;
+    getAutopilotJobStates()
+      .then((res) => {
+        if (!live) return;
+        setStates(res.states || []);
+        setSettableFrom(res.settableFrom || []);
+      })
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, []);
+  const canSetState = settableFrom.includes(job.status || "");
   const status = statusView(job.status);
   const score = typeof job.matchScore === "number" && Number.isFinite(job.matchScore) ? Math.min(100, Math.max(0, Math.round(job.matchScore))) : null;
   const reason = job.status === "INELIGIBLE" ? job.ineligibilityDetail || INELIGIBILITY_LABELS[job.ineligibilityReason || ""] || job.lastError : job.skipReason || job.lastError;
@@ -35,16 +89,76 @@ export function ApplicationDetails({
   // Autopilot stops on a question it cannot answer from the profile. The panel
   // is where the user is already looking at that application, so the question
   // belongs here rather than only in a separate list.
+  const copyJobId = async (id: string) => {
+    if (await copyText(id)) {
+      setCopiedId(id);
+      window.setTimeout(() => setCopiedId((current) => (current === id ? null : current)), 1600);
+    }
+  };
+
   const awaitingAnswer = job.status === "NEEDS_REVIEW" || job.status === "STAGED";
   const pendingQuestions = awaitingAnswer ? job.pendingQuestions || [] : [];
   return <div className={styles.detail} data-status={status.key}>
     <header className={styles.hero}>
       <div className={styles.topline}><span>APPLICATION DOSSIER</span><button type="button" aria-label="Close" onClick={onClose}>×</button></div>
-      <div className={styles.identity}><span className={styles.monogram} aria-hidden="true">{(job.company || "?").slice(0,2).toUpperCase()}</span><div><span className={styles.badge}><i />{status.label}</span><h2 id="application-details-title">{job.company || "Unknown company"}</h2></div></div>
+      <div className={styles.identity}><span className={styles.monogram} style={{viewTransitionName: identityTransition(job.id)}} aria-hidden="true">{(job.company || "?").slice(0,2).toUpperCase()}</span><div><span className={styles.badge}><i />{status.label}</span><h2 id="application-details-title">{job.company || "Unknown company"}</h2></div></div>
       <h3>{job.title || "Unknown role"}</h3><p className={styles.location}>⌖ {job.location || "Location not listed"}</p>
+      {job.applicationUrl && (
+        <a
+          className={styles.heroPosting}
+          href={job.applicationUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          title={job.applicationUrl}
+        >
+          <span aria-hidden="true">⧉</span>
+          <span>Open original job posting</span>
+          <b aria-hidden="true">↗</b>
+        </a>
+      )}
+      {/* The job id, click to copy. It is the only handle that identifies this
+          application in the database and the logs, so when a status looks wrong
+          it is the first thing needed to investigate — and retyping a UUID from
+          a screenshot is exactly the friction that stops a problem being
+          reported at all. */}
+      <button
+        type="button"
+        className={styles.heroJobId}
+        onClick={() => copyJobId(job.id)}
+        title="Copy job ID"
+        aria-label={`Copy job ID ${job.id}`}
+      >
+        <span aria-hidden="true">#</span>
+        <code>{job.id}</code>
+        <b aria-hidden="true">{copiedId === job.id ? "✓" : "⧉"}</b>
+      </button>
       <div className={styles.heroArt} aria-hidden="true"><i /><i /><span>↗</span></div>
     </header>
-    <nav className={styles.detailTabs} aria-label="Application detail sections">{(["Overview", "Journey", "Documents"] as const).map(name => <button key={name} aria-pressed={tab === name} onClick={() => setTab(name)}>{name}</button>)}</nav>
+    {canSetState && onSetState && states.length > 0 && (
+      <div className={styles.stateBar} data-status={status.key}>
+        <label htmlFor="application-state-picker">What happened with this one?</label>
+        <select
+          id="application-state-picker"
+          className={styles.statePicker}
+          aria-label="Set application state"
+          value=""
+          disabled={busy}
+          onChange={(event) => {
+            const picked = states.find((state) => state.value === event.target.value);
+            if (picked) onSetState(picked.value, picked.label);
+            event.target.value = "";
+          }}
+        >
+          <option value="" disabled>{busy ? "Saving…" : "Choose a state…"}</option>
+          {states.map((state) => (
+            <option key={state.value} value={state.value} data-state={statusView(state.value).key}>
+              {state.label}
+            </option>
+          ))}
+        </select>
+      </div>
+    )}
+    <nav className={styles.detailTabs} data-status={status.key} aria-label="Application detail sections">{(["Overview", "Journey", "Documents"] as const).map(name => <button key={name} aria-pressed={tab === name} onClick={() => setTab(name)}>{name}</button>)}</nav>
     <div className={styles.body}>
       <ApplicationJourney jobId={job.id} view={tab} />
       <div hidden={tab !== "Overview"}>
@@ -120,7 +234,6 @@ export function ApplicationDetails({
       <div hidden={tab !== "Documents"}>
       <section className={styles.section}><div className={styles.sectionTitle}><span aria-hidden="true">▤</span><h3>Application documents</h3></div>
         {job.resumeFileUsed ? <a className={styles.document} href={`/api/backend/application-assistant/autopilot/jobs/${job.id}/resume`} target="_blank" rel="noopener noreferrer"><span className={styles.paper} aria-hidden="true">▤</span><span><strong>Resume used</strong><small>{job.resumeFileUsed}</small></span><b aria-hidden="true">↗</b></a> : <p className={styles.muted}>No resume file recorded for this application.</p>}
-        {job.applicationUrl && <a className={styles.posting} href={job.applicationUrl} target="_blank" rel="noopener noreferrer">View original job posting <span aria-hidden="true">↗</span></a>}
       </section>
       </div>
     </div>

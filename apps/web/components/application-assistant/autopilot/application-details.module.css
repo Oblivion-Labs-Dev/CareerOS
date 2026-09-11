@@ -2,7 +2,13 @@
    list and the outstanding-question form, which were cramped at 560px. */
 .panel { width:min(760px,100vw)!important; background:var(--card)!important; padding:0!important; }
 .detail { --tone:#648ac6; color:var(--text); height:100%; overflow-y:auto; background:var(--card); }
-.detail[data-status=submitted] { --tone:#249d7a; }.detail[data-status=failed] { --tone:#d45360; }.detail[data-status=review] { --tone:#cda12d; }.detail[data-status=ineligible] { --tone:#8894a8; }
+.detail[data-status=submitted] { --tone:#249d7a; }.detail[data-status=failed] { --tone:#d45360; }.detail[data-status=review] { --tone:#d5a218; }.detail[data-status=ineligible] { --tone:#8894a8; }
+/* Completes the map so the panel matches the card palette on every status —
+   manual, skipped and applying previously fell through to the default blue. */
+.detail[data-status=manual] { --tone:#9b7bf0; }
+.detail[data-status=skipped] { --tone:#4c82d6; }
+.detail[data-status=applying] { --tone:#6873cb; }
+.detail[data-status=queued] { --tone:#648ac6; }
 .hero { position:relative; isolation:isolate; overflow:hidden; padding:24px 28px 26px; border-bottom:1px solid var(--border); background:radial-gradient(ellipse at 100% 0,color-mix(in srgb,var(--tone) 22%,transparent),transparent 70%),color-mix(in srgb,var(--tone) 4%,var(--card)); }
 .topline { display:flex; justify-content:space-between; align-items:center; font-size:8px; letter-spacing:.16em; color:var(--muted); margin-bottom:23px; }.topline button { display:grid; place-items:center; width:32px; height:32px; border:1px solid var(--border); background:var(--card); color:var(--text); border-radius:10px; font-size:22px; cursor:pointer; }
 .identity { display:flex; gap:15px; align-items:center; }.monogram { display:grid; place-items:center; width:56px; height:56px; border-radius:16px; border:1px solid var(--border); box-shadow:0 6px 18px #0000000a; background:var(--card); font-size:20px; font-weight:650; }.identity h2 { margin:7px 0 0; font-family:var(--font-outfit),sans-serif; font-size:27px; font-weight:550; letter-spacing:-.04em; }.badge { display:inline-flex; align-items:center; gap:5px; color:var(--tone); font-size:10px; font-weight:650; }.badge i { width:6px; height:6px; background:currentColor; border-radius:50%; }.hero>h3 { margin:20px 0 7px; font-size:17px; font-weight:550; line-height:1.5; max-width:90%; }.location { font-size:11px; color:var(--muted); margin:0; }.heroArt { position:absolute; right:-45px; top:50px; width:180px; height:180px; z-index:-1; color:var(--tone); opacity:.18; }.heroArt i { position:absolute; inset:0; border:1px solid currentColor; border-radius:50%; }.heroArt i+i { inset:20px; }.heroArt>span { position:absolute; top:60px; left:50px; font-size:60px; animation:float 6s ease-in-out infinite; }
@@ -85,3 +91,108 @@
 @media (max-width: 620px) {
   .answerRow { grid-template-columns: 1fr; gap: 4px; }
 }
+
+/* ── Top-of-panel actions ───────────────────────────────────────────────────
+   The posting link and the state picker are the two things a person reaches
+   for most while working the review lists, so they sit in the header rather
+   than inside the Documents tab where they were previously buried. Both stay
+   visible whichever tab is selected. */
+.heroPosting {
+  display: flex; align-items: center; gap: 8px;
+  margin-top: 14px; padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--border));
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--accent) 8%, var(--card));
+  color: var(--accent);
+  font-size: 12px; font-weight: 600; text-decoration: none;
+  transition: transform .18s, border-color .18s, background .18s;
+}
+.heroPosting:hover { border-color: var(--accent); transform: translateY(-1px); background: color-mix(in srgb, var(--accent) 13%, var(--card)); }
+.heroPosting > span:nth-child(2) { flex: 1; }
+.heroPosting b { font-weight: 600; }
+
+/* The job id, click to copy. Quieter than the posting link above it: it is a
+   reference you reach for when something looks wrong, not an action you take on
+   every application, so it reads as metadata rather than as a button. */
+.heroJobId {
+  display: flex; align-items: center; gap: 8px; width: 100%;
+  margin-top: 8px; padding: 7px 11px;
+  border: 1px dashed var(--border);
+  border-radius: 9px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit; font-size: 11px;
+  cursor: pointer; text-align: left;
+  transition: border-color .18s, color .18s, background .18s;
+}
+.heroJobId:hover { border-color: var(--accent); color: var(--accent); background: color-mix(in srgb, var(--accent) 6%, transparent); }
+.heroJobId:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.heroJobId code {
+  flex: 1;
+  font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
+  font-size: 11px;
+  letter-spacing: -.01em;
+  overflow-wrap: anywhere;
+}
+.heroJobId b { font-weight: 600; flex-shrink: 0; }
+
+.stateBar {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  padding: 12px 28px;
+  border-bottom: 1px solid var(--border);
+  background: color-mix(in srgb, var(--tone) 5%, var(--card));
+}
+.stateBar label { font-size: 11px; font-weight: 650; color: var(--muted); letter-spacing: .02em; }
+.stateBar select {
+  flex: 1; min-width: 190px;
+  padding: 9px 11px;
+  border: 1px solid var(--border); border-radius: 9px;
+  background: var(--card); color: var(--text);
+  font-size: 12px; cursor: pointer;
+}
+.stateBar select:disabled { opacity: .6; cursor: progress; }
+
+@media (max-width: 440px) {
+  .stateBar { padding: 10px 16px; }
+  .stateBar select { min-width: 0; }
+}
+
+/* ── Status colour, shared with the application cards ───────────────────────
+   Same hex values as application-card.module.css so a card and its open panel
+   never disagree about what colour "Submitted" is. */
+.detailTabs[data-status] button[aria-pressed=true] {
+  color: var(--tone);
+  border-color: color-mix(in srgb, var(--tone) 40%, var(--border));
+  background: color-mix(in srgb, var(--tone) 12%, var(--card));
+  font-weight: 600;
+}
+.detailTabs[data-status] button[aria-pressed=true]::after {
+  content: ""; display: block; height: 2px; margin-top: 7px;
+  border-radius: 2px; background: var(--tone);
+}
+.detailTabs[data-status] button:hover:not([aria-pressed=true]) {
+  color: color-mix(in srgb, var(--tone) 70%, var(--text));
+}
+
+/* The bar is tinted by the job's CURRENT state, so the panel reads the same
+   colour as the card the user just clicked. */
+.stateBar[data-status] {
+  background: color-mix(in srgb, var(--tone) 9%, var(--card));
+  border-left: 3px solid var(--tone);
+}
+.stateBar[data-status] label { color: color-mix(in srgb, var(--tone) 65%, var(--text)); }
+
+.statePicker { border-color: color-mix(in srgb, var(--tone) 35%, var(--border)); }
+.statePicker:hover { border-color: var(--tone); }
+.statePicker:focus-visible { outline: 2px solid var(--tone); outline-offset: 2px; }
+
+/* Each option carries the colour of the bucket it would move the job into.
+   Firefox and Chrome honour option colours on Windows; where a platform
+   ignores them the labels still read correctly, so this is decoration only. */
+.statePicker option[data-state=submitted]  { color:#249d7a; }
+.statePicker option[data-state=review]     { color:#d5a218; }
+.statePicker option[data-state=manual]     { color:#9b7bf0; }
+.statePicker option[data-state=failed]     { color:#d45360; }
+.statePicker option[data-state=skipped]    { color:#4c82d6; }
+.statePicker option[data-state=ineligible] { color:#8894a8; }
+.statePicker option[data-state=queued]     { color:#648ac6; }
