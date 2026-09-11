@@ -62,13 +62,66 @@ DEFAULT_MODELS = [
 #: The scorer used to judge every model's tailoring output. Held fixed.
 REFERENCE_SCORER = os.environ.get("BENCH_REFERENCE_SCORER", "qwen3:4b-instruct")
 
+#: Hosted models, included as a ceiling to measure the local ones against.
+#: They cost no local memory, so they neither compete for the GPU nor need
+#: unloading - but they do send the resume and the posting to a third party,
+#: which is the whole reason CareerOS runs locally by default. Treat a cloud
+#: win as information about how much local execution costs in quality, not as
+#: a recommendation to switch.
+CLOUD_MODELS: dict[str, tuple[str, str, str]] = {
+    "gemini-flash-latest": (
+        "https://generativelanguage.googleapis.com/v1beta/openai",
+        "GEMINI_API_KEY",
+        "gemini",
+    ),
+    "gpt-4o-mini": ("https://api.openai.com/v1", "OPENAI_API_KEY", "openai"),
+}
+
+
+def install_scorer(model: str) -> None:
+    """Point the scoring path at `model`, hosted or local.
+
+    Monkeypatching the client factory rather than adding a provider switch to
+    it: the production factory is deliberately Ollama-only so queue scoring can
+    never silently run against a vendor's API, and that property is worth more
+    than the convenience of a benchmark flag.
+    """
+    from app.services.application_assistant import mistral_resume_match as mrm
+
+    if model not in CLOUD_MODELS:
+        os.environ["CAREEROS_MATCH_MODEL"] = model
+        if hasattr(mrm, "_bench_original_factory"):
+            mrm.build_mistral_match_client = mrm._bench_original_factory
+        return
+
+    base_url, key_env, provider = CLOUD_MODELS[model]
+    api_key = os.environ.get(key_env, "")
+    if not api_key:
+        raise RuntimeError(f"{key_env} is not set; cannot benchmark {model}")
+
+    from app.services.application_assistant.llm_client import LLMClient
+
+    if not hasattr(mrm, "_bench_original_factory"):
+        mrm._bench_original_factory = mrm.build_mistral_match_client
+
+    def factory(*, timeout: int | None = None) -> LLMClient:
+        return LLMClient(
+            base_url=base_url, model=model, api_key=api_key,
+            timeout=timeout or 120, max_retries=1, provider=provider,
+            context_window=128_000, temperature=0.0,
+        )
+
+    mrm.build_mistral_match_client = factory
+
 
 # ---------------------------------------------------------------------------
 # Ollama lifecycle
 # ---------------------------------------------------------------------------
 
 async def unload(model: str) -> None:
-    """Drop a model from memory so the next one has room."""
+    """Drop a model from memory so the next one has room. No-op for hosted models."""
+    if model in CLOUD_MODELS:
+        return
     try:
         async with httpx.AsyncClient(timeout=20) as c:
             await c.post(f"{OLLAMA}/api/generate", json={"model": model, "keep_alive": 0})
@@ -102,6 +155,9 @@ async def memory_of(model: str) -> dict[str, Any]:
 
 
 async def assert_alone(model: str) -> None:
+    """Evict anything else before `model` runs. Hosted models still evict local
+    ones, because a local model left resident would keep holding the GPU for no
+    reason while the hosted calls run."""
     others = [m.get("name") for m in await resident() if m.get("name") != model]
     if others:
         print(f"    ! also resident: {others} - unloading", flush=True)
@@ -116,10 +172,21 @@ async def assert_alone(model: str) -> None:
 def _jobs_by_title(
     patterns: list[str], limit: int, min_chars: int = 2500,
     seen_companies: set[str] | None = None,
+    exclude: list[str] | None = None,
 ) -> list[dict]:
+    """Postings whose TITLE matches `patterns` and matches none of `exclude`.
+
+    The exclusion list is not optional in practice. Matching "platform" alone
+    labelled "Staff Android Software Engineer, Cash App Consumer Platform" as a
+    strong fit, which put an Android role in the group that is supposed to
+    represent the candidate's own domain and made the separation metric
+    measure nothing. A title has to be in the domain *and* not in an excluded
+    one to count.
+    """
     conn = sqlite3.connect(DB)
     out: list[dict] = []
     seen_companies = seen_companies if seen_companies is not None else set()
+    exclude = exclude or []
     for (payload,) in conn.execute(
         "SELECT payload FROM entities WHERE entity_type='aa_discovered_job'"
     ):
@@ -128,6 +195,14 @@ def _jobs_by_title(
         desc = str(job.get("description") or "")
         company = str(job.get("company") or "")
         if len(desc) < min_chars or company in seen_companies:
+            continue
+        # Both sets must be engineering roles, or the comparison drifts into
+        # comparing an SRE posting against a Product Manager posting, which
+        # tests nothing about resume matching. ("Staff Product Manager,
+        # Customer Care Platform" got picked as a strong engineering fit.)
+        if not re.search(r"engineer", title, re.I):
+            continue
+        if any(re.search(p, title, re.I) for p in exclude):
             continue
         if any(re.search(p, title, re.I) for p in patterns):
             out.append({"id": job.get("id"), "company": company, "title": title,
@@ -147,16 +222,32 @@ def build_scoring_set(n_each: int) -> list[dict]:
     labels are about relative fit, not absolute scores: a good scorer need not
     agree with any particular number, it must rank strong above weak.
     """
-    # One shared exclusion set, so the same employer cannot appear on both
-    # sides and make the comparison look like a contradiction.
+    # Anything that makes a posting belong to the other group disqualifies it
+    # from this one. Without this a title carrying both words ("Android
+    # Engineer, Consumer Platform") lands in whichever set is built first.
+    client_side = [
+        r"android", r"\bios\b", r"\bmobile\b", r"front.?end", r"react native",
+        r"\bui\b", r"web developer",
+    ]
+    server_side = [
+        r"distributed", r"infrastructure", r"\bbackend\b", r"\bplatform\b",
+        r"\bsre\b", r"reliability",
+    ]
+
     seen: set[str] = set()
     strong = _jobs_by_title(
-        [r"distributed", r"\bplatform\b", r"infrastructure", r"\bbackend\b"],
-        n_each, seen_companies=seen,
+        server_side, n_each, seen_companies=seen,
+        exclude=client_side + [
+            r"data scientist", r"\bml\b", r"machine learning",
+            # ERP and SaaS-configuration work. "Platform Engineer, Workday
+            # Extend" is a platform role in a sense that has nothing to do with
+            # the distributed-systems work this set is meant to represent.
+            r"workday", r"salesforce", r"servicenow", r"netsuite",
+        ],
     )
     weak = _jobs_by_title(
-        [r"android", r"\bfrontend\b", r"\bmobile\b", r"data scientist"],
-        n_each, seen_companies=seen,
+        client_side + [r"data scientist"], n_each, seen_companies=seen,
+        exclude=server_side,
     )
     return (
         [{**j, "label": "strong"} for j in strong]
@@ -193,7 +284,7 @@ def build_tailoring_set(n: int) -> list[dict]:
 # ---------------------------------------------------------------------------
 
 async def bench_scoring(model: str, cases: list[dict], ctx: dict) -> dict[str, Any]:
-    os.environ["CAREEROS_MATCH_MODEL"] = model
+    install_scorer(model)
     from app.services.application_assistant.resume_diff_service import CANONICAL_MASTER_BULLETS
     from app.services.application_assistant.tailored_match import score_tailored_resume
 
@@ -314,7 +405,7 @@ async def bench_tailoring(model: str, jobs: list[dict], ctx: dict) -> dict[str, 
 
 async def score_tailoring_outputs(tailoring: list[dict], jobs: list[dict], ctx: dict) -> None:
     """One scorer, one pass, over every model's output plus the untailored control."""
-    os.environ["CAREEROS_MATCH_MODEL"] = REFERENCE_SCORER
+    install_scorer(REFERENCE_SCORER)
     from app.services.application_assistant.resume_diff_service import CANONICAL_MASTER_BULLETS
     from app.services.application_assistant.resume_quality import assess
     from app.services.application_assistant.tailored_match import score_tailored_resume
@@ -553,4 +644,7 @@ async def main() -> None:
     print(f"\nwrote {out_path}")
 
 
-asyncio.run(main())
+if __name__ == "__main__":
+    # Guarded so the fixture builders can be imported and inspected without
+    # launching a full benchmark - which is exactly what happened once.
+    asyncio.run(main())
