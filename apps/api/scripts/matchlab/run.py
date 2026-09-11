@@ -121,6 +121,8 @@ def main() -> None:
     ap.add_argument("--jobs", type=int, default=60)
     ap.add_argument("--only", nargs="*", default=None)
     ap.add_argument("--out", default="data/matchlab_results.json")
+    ap.add_argument("--neural", action="store_true",
+                    help="also run MiniLM/cross-encoder approaches (needs torch)")
     args = ap.parse_args()
 
     pairs = load_pairs(limit=args.jobs)
@@ -134,7 +136,16 @@ def main() -> None:
           f"corpus: {ctx.corpus.document_count} docs, "
           f"avg {ctx.corpus.average_length:.0f} tokens\n")
 
-    selected = {k: v for k, v in A.APPROACHES.items()
+    available = dict(A.APPROACHES)
+    if args.neural:
+        try:
+            from matchlab.neural import NEURAL_APPROACHES
+
+            available.update(NEURAL_APPROACHES)
+        except ImportError as exc:
+            print(f"neural approaches unavailable ({exc}); deterministic only\n")
+
+    selected = {k: v for k, v in available.items()
                 if not args.only or k in args.only}
 
     rows = []
@@ -144,6 +155,18 @@ def main() -> None:
         summary["adversarial"] = check_adversarial(scorer, ctx)
         summary["adversarialPassed"] = sum(1 for a in summary["adversarial"] if a["pass"])
         rows.append(summary)
+        if name.startswith(("minilm", "cross", "bge")):
+            # Never leave two models resident: this machine cannot hold them,
+            # and a leftover model also distorts the next approach's memory
+            # measurement.
+            from matchlab.neural import model_footprint, unload_all
+
+            summary.update(model_footprint(
+                "sentence-transformers/all-MiniLM-L6-v2" if name.startswith("minilm")
+                else "cross-encoder/ms-marco-MiniLM-L6-v2"
+            ))
+            unload_all()
+            ctx.cache.clear()
         gate = summary["gate"] or {}
         print(f"{name:18} auc={_f(summary['rocAuc'])} pr={_f(summary['prAuc'])} "
               f"pair={_f(summary['pairwise'])}  "

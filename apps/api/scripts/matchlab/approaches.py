@@ -143,10 +143,16 @@ class Context:
     resume_family: str = "backend"
     resume_seniority: int = 3
     tiers: dict[str, float] = None  # type: ignore[assignment]
+    #: Scratch space for anything expensive that is constant across pairs -
+    #: resume embeddings above all. Computing those once rather than per job is
+    #: the difference between a usable bi-encoder and a pointless one.
+    cache: dict[str, Any] = None  # type: ignore[assignment]
 
     def __post_init__(self) -> None:
         if self.tiers is None:
             self.tiers = dict(DEFAULT_TIERS)
+        if self.cache is None:
+            self.cache = {}
 
 
 Scorer = Callable[[Pair, Context], float]

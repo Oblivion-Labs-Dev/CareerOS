@@ -6,7 +6,7 @@
     "kind": "deep-story",
     "evidence": "professional",
     "strength": "very_strong",
-    "headline": "I will paste you everthing i worked on I'm sure we can find most matches from it structure this into my experience section under profile page keep evrthing but in better words - # Story 1 — Microsoft AI Agent Historical Risk Detection",
+    "headline": "When we were launching AI Agent Risk Detection, one problem was that when an agent first came into scope of an Insider Risk policy, we only knew about the activity that triggered the risk.",
     "technologies": [
       ".NET",
       "Azure",
@@ -67,7 +67,7 @@
     "kind": "deep-story",
     "evidence": "professional",
     "strength": "very_strong",
-    "headline": "Yes. We have enough to build the **Adaptive Protection / Conditional Access integration story**. I’ll keep it strictly grounded in what you told me and the resume bullet.",
+    "headline": "You pushed for the second approach because regional routing belonged to CA's ownership boundary, and exposing it to IRM would create operational coupling, duplicated configuration, and coordinated changes between teams.",
     "technologies": [
       ".NET",
       "Azure",
@@ -131,7 +131,7 @@
     "kind": "deep-story",
     "evidence": "professional",
     "strength": "very_strong",
-    "headline": "**Resume bullet:** Led the redesign of AI-agent ingestion for independent scale and fault isolation, separating agent and human workloads across 28 deployments processing 135K+ security signals/day and protecting existing Insider Risk Management pipelines as agent traffic grew.",
+    "headline": "Resume bullet: Led the redesign of AI-agent ingestion for independent scale and fault isolation, separating agent and human workloads across 28 deployments processing 135K+ security signals/day and protecting existing Insider Risk Management pipelines as agent traffic grew.",
     "technologies": [
       ".NET",
       "ARM Templates",
@@ -190,7 +190,7 @@
     "kind": "deep-story",
     "evidence": "professional",
     "strength": "very_strong",
-    "headline": "Microsoft had multiple security products and risk-detection systems, including Insider Risk Management, Defender, Entra, and DLP. They could identify risks related to the same user or AI agent, but from an investigator's perspective, those risks were largely siloed.",
+    "headline": "I drove the integration from the Insider Risk Management side.",
     "technologies": [
       ".NET",
       "Azure",
@@ -254,7 +254,7 @@
     "kind": "deep-story",
     "evidence": "professional",
     "strength": "very_strong",
-    "headline": "Amazon traditionally showed customers a **single promised delivery date**. That worked when fulfillment was predictable, but real-world delivery has uncertainty from inventory changes, fulfillment planning, transportation, weather, and other factors.",
+    "headline": "Amazon traditionally showed customers a single promised delivery date. That worked when fulfillment was predictable, but real-world delivery has uncertainty from inventory changes, fulfillment planning, transportation, weather, and other factors.",
     "technologies": [
       "AWS",
       "CI/CD",
@@ -310,7 +310,7 @@
     "kind": "deep-story",
     "evidence": "professional",
     "strength": "very_strong",
-    "headline": "- Tell me about a system where you integrated ML into production.",
+    "headline": "Tell me about a system where you integrated ML into production.",
     "technologies": [
       "AWS",
       "Deep Learning",
@@ -371,7 +371,7 @@
     "kind": "deep-story",
     "evidence": "professional",
     "strength": "very_strong",
-    "headline": "Interview Story Pack — Out-of-Stock Alternate Product Recommendations",
+    "headline": "Tell me about a customer-facing system you owned end-to-end.",
     "technologies": [
       "AWS",
       "Amazon Bedrock",
@@ -428,7 +428,7 @@
     "kind": "project-index",
     "evidence": "professional",
     "strength": "strong",
-    "headline": "- Log4j - Multiple blocked pipelines needed to make cr and commmits",
+    "headline": "Teams not ready with the service and not clear with onboarding process",
     "technologies": [
       "AWS",
       "AWS CDK",
@@ -497,7 +497,7 @@
     "kind": "behavioural-theme",
     "evidence": "professional",
     "strength": "supporting",
-    "headline": "- Time when I was asked to do something I had never done before",
+    "headline": "Time when I was asked to do something I had never done before",
     "technologies": [
       "AWS",
       "Java",
@@ -521,7 +521,7 @@
     "kind": "behavioural-theme",
     "evidence": "professional",
     "strength": "supporting",
-    "headline": "- Working on a creative solution (Adding Canary to FXMCDKCommons)",
+    "headline": "Working on a creative solution (Adding Canary to FXMCDKCommons)",
     "technologies": [
       "AWS",
       "Java"
@@ -547,7 +547,7 @@
     "kind": "behavioural-theme",
     "evidence": "professional",
     "strength": "supporting",
-    "headline": "- Talked to them again and explained the task and wrote it down in bullet points",
+    "headline": "We talked to corresponding manager and they came up with a huge effort that would go beyond our deadline.",
     "technologies": [
       "AWS",
       "AWS Step Functions",
@@ -572,7 +572,7 @@
     "kind": "behavioural-theme",
     "evidence": "professional",
     "strength": "supporting",
-    "headline": "- AB Project, Service Creation, Only Infra Structure Planned.",
+    "headline": "Team got split, talked to people from both teams and decided to stay.",
     "technologies": [
       "AWS",
       "Java"
@@ -597,7 +597,7 @@
     "kind": "behavioural-theme",
     "evidence": "professional",
     "strength": "supporting",
-    "headline": "- Manager was unavailable, how did you handle and who did you consult",
+    "headline": "I’ve been involved with some of the away team projects and when I work with Away team I always consult with SDE’s and seniors to see what feedback they have for me. This gives me a general idea into how other teams function and then I try to see if we can implement the feedback to me and to our over",
     "technologies": [
       "AWS",
       "Java"
@@ -620,7 +620,7 @@
     "kind": "behavioural-theme",
     "evidence": "professional",
     "strength": "supporting",
-    "headline": "- Juggle several projects, How did I organize and what was the result",
+    "headline": "Setup time management, divided time, shifted oncalls, also talked to my manager to see if we can have some task picked by some other SDE on the team.",
     "technologies": [
       "AWS",
       "Java"
@@ -643,7 +643,7 @@
     "kind": "behavioural-theme",
     "evidence": "professional",
     "strength": "supporting",
-    "headline": "",
+    "headline": "Going Beyond",
     "technologies": [
       "AWS",
       "CloudWatch",
@@ -667,7 +667,7 @@
     "kind": "behavioural-story",
     "evidence": "professional",
     "strength": "supporting",
-    "headline": "- **“Escalated through the right channels”** (shows independence)",
+    "headline": "One of the initiatives I led recently was migrating our team’s customer email notifications to a new centralized communication service—part of an Amazon-wide effort to standardize messaging across 100+ teams.",
     "technologies": [
       "AWS",
       "Java"
@@ -705,7 +705,7 @@
     "kind": "behavioural-story",
     "evidence": "professional",
     "strength": "supporting",
-    "headline": "- **“Designed a fast-path integration that ultimately failed under load”**",
+    "headline": "“Designed a fast-path integration that ultimately failed under load”",
     "technologies": [
       "AWS",
       "Java",
@@ -749,7 +749,7 @@
     "kind": "behavioural-story",
     "evidence": "professional",
     "strength": "supporting",
-    "headline": "- **“Took end-to-end accountability for RCA and long-term fix”**",
+    "headline": "During an on-call shift, I was working on a low-priority ticket to upgrade outdated dependencies for a pharmacy order execution service — a critical but rarely deployed system with minimal integration test coverage in beta.",
     "technologies": [
       "AWS",
       "CI/CD",
@@ -788,7 +788,7 @@
     "kind": "behavioural-story",
     "evidence": "professional",
     "strength": "supporting",
-    "headline": "- **“Assumed shared understanding, but never formalized interface responsibilities”**",
+    "headline": "We agreed early that their engineer would handle the infrastructure setup—particularly App Mesh and CloudAuth—while I focused on core service development. I had prior experience with CloudAuth in ECS, but not in App Mesh environments, so I requested their support.",
     "technologies": [
       "AWS",
       "App Mesh",
@@ -822,7 +822,7 @@
     "kind": "behavioural-story",
     "evidence": "professional",
     "strength": "supporting",
-    "headline": "- **“Root-caused using heap profiles and async task tracing”**",
+    "headline": "During Black Friday peak traffic, one of our backend services began failing under sudden burst loads. Although it had passed load and stress tests before the event, we hadn’t simulated real-world burst patterns, which overwhelmed the system before autoscaling could respond.",
     "technologies": [
       "AWS",
       "Java"
@@ -859,7 +859,7 @@
     "kind": "behavioural-story",
     "evidence": "professional",
     "strength": "supporting",
-    "headline": "- **“Clarified the difference between independence and isolation”**",
+    "headline": "“Built long-term team resilience through better communication norms”",
     "technologies": [
       "AWS",
       "Java"
@@ -887,7 +887,7 @@
     "kind": "platform-story",
     "evidence": "professional",
     "strength": "strong",
-    "headline": "- **“Shifted microservice setup from tribal knowledge to standard onboarding”**",
+    "headline": "One of my favorite and most impactful projects wasn’t a product feature—it was an internal platform initiative that dramatically improved how engineers built microservices across our org.",
     "technologies": [
       "AWS",
       "AWS CDK",
@@ -930,7 +930,7 @@
     "kind": "platform-story",
     "evidence": "professional",
     "strength": "strong",
-    "headline": "- “Updated CR guidelines to incorporate these changes by making the process self sufficient”",
+    "headline": "“Identified systemic inefficiency during unrelated on-call work”",
     "technologies": [
       "AWS",
       "CI/CD",
@@ -970,7 +970,7 @@
     "kind": "platform-story",
     "evidence": "professional",
     "strength": "strong",
-    "headline": "- Tell me about a time you identified and fixed a performance bottleneck.",
+    "headline": "Tell me about a time you took initiative on something no one owned.",
     "technologies": [
       "AWS",
       "CI/CD",
@@ -1009,7 +1009,7 @@
     "kind": "deep-story",
     "evidence": "professional",
     "strength": "very_strong",
-    "headline": "- **“Proposed a RAG-based architecture to control LLM generation”**",
+    "headline": "“Proposed a RAG-based architecture to control LLM generation”",
     "technologies": [
       "AWS",
       "Java",
@@ -1044,7 +1044,7 @@
     "kind": "platform-story",
     "evidence": "professional",
     "strength": "strong",
-    "headline": "**Optimized CI/CD Pipeline Efficiency by Reusing Docker Artifacts**",
+    "headline": "Optimized CI/CD Pipeline Efficiency by Reusing Docker Artifacts",
     "technologies": [
       "AWS",
       "CI/CD",
@@ -1078,7 +1078,7 @@
     "kind": "behavioural-story",
     "evidence": "professional",
     "strength": "supporting",
-    "headline": "After each major project launch, I initiated internal knowledge-sharing sessions to walk the team through the system’s design, decisions, tradeoffs, and known limitations. The goal was to ensure shared understanding across the team, reduce onboarding friction, and make on-call handoffs smoother. The",
+    "headline": "Post-Launch Knowledge Sharing",
     "technologies": [
       "AWS",
       "Java"
@@ -1105,7 +1105,7 @@
     "kind": "behavioural-story",
     "evidence": "professional",
     "strength": "supporting",
-    "headline": "I started a recurring design article discussion series focused on exploring system design patterns, mental models, and productivity techniques. Each session included a short reading followed by a group discussion on how the ideas could apply to our team’s culture or existing architecture. This helpe",
+    "headline": "Article Reading and Design Mindset Sessions",
     "technologies": [
       "AWS",
       "Java"
@@ -1158,7 +1158,7 @@
     "kind": "behavioural-story",
     "evidence": "professional",
     "strength": "supporting",
-    "headline": "",
+    "headline": "Short-Term vs Long-Term Trade-off",
     "technologies": [
       "AWS",
       "Java"
@@ -1223,7 +1223,7 @@
     "kind": "deep-story",
     "evidence": "professional",
     "strength": "very_strong",
-    "headline": "One of the key projects I led focused on improving order predictability for FBA (Fulfilled by Amazon) sellers—third-party sellers where Amazon does not own the inventory or have complete visibility into stock availability. The lack of a reliable inventory signal often led to customer orders getting ",
+    "headline": "FBA Procurability Integration",
     "technologies": [
       "AWS",
       "Java",
@@ -1255,7 +1255,7 @@
     "kind": "platform-story",
     "evidence": "professional",
     "strength": "strong",
-    "headline": "One of the projects I took on out of personal initiative was building an internal UI tool to simulate our decision service for incoming orders. Before this, PMs and TPMs frequently relied on on-call engineers to dry-run orders to understand how the system would behave. This created a lot of friction",
+    "headline": "To solve this, I built a self-serve portal that allowed stakeholders to input order events and trigger our decision logic in dry-run mode, simulating system behavior without impacting customers. It provided a real-time view of how the system would respond, using the exact production logic—just witho",
     "technologies": [
       "AWS",
       "Java"
@@ -1315,7 +1315,7 @@
     "kind": "platform-story",
     "evidence": "professional",
     "strength": "strong",
-    "headline": "One of the first projects I worked on involved migrating legacy text-based email templates to HTML. We had 37 templates across 22 languages and 8 event types, so reviewing and localizing them was time-consuming. The existing review process required manually copying each HTML template into Word docum",
+    "headline": "HTML Email Template Migration and Inline Review Tooling",
     "technologies": [
       "AWS",
       "Java",
@@ -1376,7 +1376,7 @@
     "kind": "platform-story",
     "evidence": "professional",
     "strength": "strong",
-    "headline": "Some of the adhoc improvements that i have done is creating a html header for team’s wiki that can be imported with just few lines of code thereby creating consistency across team’s wiki pages and increasing visibility of documentation and user interaction.",
+    "headline": "Performing TRA review for a Tier 1 service and getting it approved form principal engineer entailed implementing integration, load, stress testing, CI/CD pipeline, canary deployments, failure resilient, multi AZ deployments and a lot of toher things to make the system perform at Tier 1 scale",
     "technologies": [
       "AWS",
       "CI/CD",
@@ -1410,7 +1410,7 @@
     "kind": "project-design",
     "evidence": "personal-project",
     "strength": "strong",
-    "headline": "here are some more stories please save these in my experience section ## Option 1 — CareerOS: Cloud-Native AI Workflow Platform",
+    "headline": "I introduced Kafka as the asynchronous backbone. Instead of services directly invoking each other, they published events such as:",
     "technologies": [
       "AWS Step Functions",
       "FastAPI",
@@ -1469,7 +1469,7 @@
     "kind": "project-design",
     "evidence": "personal-project",
     "strength": "strong",
-    "headline": "Option 2 — Rebuild Back-in-Stock as a Kubernetes Event Platform",
+    "headline": "At Amazon, I had worked on Back-in-Stock workflows where canceled orders could remain eligible for inventory recovery for days or months. AWS Step Functions were a good fit because they provided durable timers without maintaining our own scheduling infrastructure.",
     "technologies": [
       "AWS",
       "AWS Step Functions",
@@ -1509,7 +1509,7 @@
     "kind": "project-design",
     "evidence": "personal-project",
     "strength": "strong",
-    "headline": "Your Amazon JIS experience already involved CDC-style inventory signals, SNS/SQS, planning events and very high throughput.",
+    "headline": "I built a real-time inventory/order decisioning system capable of consuming inventory CDC and determining which open orders could potentially receive an improved delivery promise.",
     "technologies": [
       "AWS",
       "Change Data Capture",
@@ -1554,7 +1554,7 @@
     "kind": "project-design",
     "evidence": "personal-project",
     "strength": "strong",
-    "headline": "Option 4 — Rebuild FXMCDKCommons as a Kubernetes Developer Platform",
+    "headline": "Your Amazon CDKCommons work already standardized service creation across 60+ microservices and reduced setup from weeks to under an hour.",
     "technologies": [
       "AWS",
       "AWS CDK",
@@ -1600,7 +1600,7 @@
     "kind": "project-design",
     "evidence": "personal-project",
     "strength": "strong",
-    "headline": "This maps directly to your Microsoft agent-ingestion architecture. Your professional version already separated agent/human processing across 28 deployments.",
+    "headline": "I introduced stable event IDs for idempotency and replay and instrumented end-to-end processing latency and consumer lag.",
     "technologies": [
       "Flink",
       "Go",
@@ -2037,7 +2037,7 @@
     "kind": "platform-story",
     "evidence": "professional",
     "strength": "strong",
-    "headline": "Developed a real-time CNN-based sentiment classification system achieving 87% accuracy across seven sentiment categories. Modernized legacy web applications into a single-page architecture, improving response time by 25% and offline performance by 9%, while introducing an engineering feedback system",
+    "headline": "Real-Time CNN Sentiment Classification and Web Modernization",
     "technologies": [
       "Deep Learning",
       "JavaScript",
