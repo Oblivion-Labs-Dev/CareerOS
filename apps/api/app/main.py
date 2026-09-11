@@ -1,4 +1,5 @@
 import asyncio
+from contextlib import asynccontextmanager
 import logging
 import os
 import sys
@@ -87,6 +88,7 @@ from app.routers.networking import router as networking_router
 from app.routers.repair_demo import router as repair_demo_router
 from app.routers.repair_manual import router as repair_manual_router
 from app.routers.resume_intelligence import router as resume_intelligence_router
+from app.routers.story_map import router as story_map_router
 from app.services.error_fix_tracker import error_fix_tracker, reconcile_error_history_on_startup, seed_error_fix_history_if_empty
 
 log_dir = Path(__file__).resolve().parent.parent / "data" / "logs"
@@ -115,10 +117,155 @@ console_handler.setFormatter(logging.Formatter("[%(levelname)s] [%(name)s]: %(me
 careeros_logger.addHandler(console_handler)
 logger.addHandler(console_handler)
 
+async def _drain_in_flight_work(grace_seconds: float) -> None:
+    """Let a submission in progress finish before the process goes away.
+
+    A SIGTERM used to land in the middle of a live application: the browser was
+    killed mid-form, the job stayed in APPLYING until its lease expired, and the
+    only way back was the reset_stale_locks script. An application half-submitted
+    to a real employer is the worst failure this system has, so shutdown stops
+    admitting new work and then waits for the current job.
+
+    The wait is bounded. If a job outlives the grace period its lease still
+    expires on its own, which is the same recovery path as a hard crash - the
+    point is to make that the rare case rather than every restart.
+    """
+    from app.services.application_assistant.autopilot_runner import AutopilotRunner
+
+    deadline = asyncio.get_running_loop().time() + grace_seconds
+
+    try:
+        runner = AutopilotRunner.get_instance()
+    except Exception:
+        runner = None
+
+    if runner is not None:
+        try:
+            await runner.stop()
+            logger.info("Autopilot runner asked to stop; draining in-flight job.")
+        except Exception:
+            logger.exception("Autopilot runner did not stop cleanly.")
+
+    # Wait for anything still marked APPLYING to leave that state.
+    while asyncio.get_running_loop().time() < deadline:
+        try:
+            from app.db.store import session_scope
+            from app.services.application_assistant.persistence import list_autopilot_jobs
+
+            with session_scope() as db:
+                in_flight = list_autopilot_jobs(db, "APPLYING")
+            if not in_flight:
+                break
+            logger.info("Waiting on %d in-flight application(s) before shutdown.", len(in_flight))
+        except Exception:
+            break
+        await asyncio.sleep(1.0)
+
+    # Stop the scrape loop; a partial scrape is resumable, a wedged task is not.
+    try:
+        from app.services.job_discover import store as job_discover_store
+
+        task = getattr(job_discover_store, "_scrape_task", None)
+        if task is not None and not task.done():
+            task.cancel()
+    except Exception:
+        logger.exception("Could not cancel the discovery scrape task.")
+
+    # Close the dedicated Playwright loop and any browser it still owns.
+    try:
+        from app.services.application_assistant.browser_runner import shutdown_playwright_worker
+
+        await asyncio.to_thread(shutdown_playwright_worker)
+    except Exception:
+        logger.exception("Playwright worker did not shut down cleanly.")
+
+
+def _warn_if_multi_worker() -> None:
+    """Say so loudly if this process was started alongside siblings.
+
+    Live state lives in module-level dictionaries across a dozen modules -
+    browser sessions, task handles, the scrape task, submission watchers, the
+    prep semaphore, the read cache. None of it is shared, so two workers means
+    two independent scrapers writing the same snapshot and task handles the
+    other worker cannot see or cancel. The queue lease is now atomic, which
+    stops the worst outcome (applying twice), but the rest is still
+    single-process by design and should fail loudly rather than corrupt quietly.
+    """
+    workers = os.environ.get("WEB_CONCURRENCY") or os.environ.get("UVICORN_WORKERS")
+    try:
+        count = int(workers) if workers else 1
+    except ValueError:
+        count = 1
+    if count > 1:
+        logger.error(
+            "CareerOS is running with %s workers. Autopilot state is process-local "
+            "(browser sessions, task handles, scrape task, read cache), so multiple "
+            "workers will duplicate scrapes and lose task handles. Run a single "
+            "worker, or set CAREEROS_ALLOW_MULTI_WORKER=1 to proceed anyway.",
+            count,
+        )
+        if os.environ.get("CAREEROS_ALLOW_MULTI_WORKER", "").strip().lower() not in ("1", "true", "yes"):
+            raise RuntimeError(
+                f"Refusing to start with {count} workers: Autopilot state is process-local. "
+                "Set CAREEROS_ALLOW_MULTI_WORKER=1 to override."
+            )
+
+
+async def _retention_loop() -> None:
+    """Apply the retention policy once a day.
+
+    Dry run unless CAREEROS_RETENTION_ENABLED is set, so a fresh install reports
+    what it would remove and deletes nothing until someone opts in.
+    """
+    interval = float(os.environ.get("CAREEROS_RETENTION_INTERVAL_SECONDS", str(24 * 3600)))
+    while True:
+        try:
+            await asyncio.sleep(interval)
+            from app.services.retention import sweep
+
+            report = await asyncio.to_thread(sweep)
+            if report.total:
+                logger.info(
+                    "Retention sweep %s %d row(s): %s",
+                    "would remove" if report.dry_run else "removed",
+                    report.total,
+                    report.removed,
+                )
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("Retention sweep failed; will retry next cycle.")
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    _warn_if_multi_worker()
+    init_db()
+    seed_error_fix_history_if_empty()
+    reconcile_error_history_on_startup()
+    _ensure_ollama_started_background()
+    retention_task = asyncio.create_task(_retention_loop())
+    logger.info("CareerOS API started and local file logging initialized.")
+    try:
+        yield
+    finally:
+        retention_task.cancel()
+        grace = float(os.environ.get("CAREEROS_SHUTDOWN_GRACE_SECONDS", "30"))
+        logger.info("Shutting down; draining for up to %.0fs.", grace)
+        try:
+            await asyncio.wait_for(_drain_in_flight_work(grace), timeout=grace + 10)
+        except TimeoutError:
+            logger.warning("Shutdown drain exceeded its budget; exiting anyway.")
+        except Exception:
+            logger.exception("Shutdown drain failed.")
+        logger.info("CareerOS API shutdown complete.")
+
+
 app = FastAPI(
     title="CareerOS API",
     description="Backend for CareerOS / ApplyPilot",
     version="0.1.0",
+    lifespan=lifespan,
 )
 
 origins = [origin.strip() for origin in settings.career_os_cors_origins.split(",") if origin.strip() and not origin.strip().endswith("*")]
@@ -152,6 +299,7 @@ app.include_router(application_assistant_router)
 app.include_router(resume_intelligence_router)
 app.include_router(job_search_router)
 app.include_router(networking_router)
+app.include_router(story_map_router)
 
 
 @app.exception_handler(Exception)
@@ -212,12 +360,4 @@ def _ensure_ollama_started_background() -> None:
     else:
         logger.info("Ollama executable not detected on PATH or default location.")
 
-
-@app.on_event("startup")
-def on_startup() -> None:
-    init_db()
-    seed_error_fix_history_if_empty()
-    reconcile_error_history_on_startup()
-    _ensure_ollama_started_background()
-    logger.info("CareerOS API started and local file logging initialized.")
 

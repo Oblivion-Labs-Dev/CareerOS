@@ -31,6 +31,16 @@ OUTPUT_TOKEN_HEADROOM = 400
 # both cost tokens this estimator cannot see.
 CONTEXT_SAFETY_MARGIN = 512
 
+# How many stories the index may retrieve for one posting, and what share of the
+# elastic context they may occupy. The job description and the retrieved
+# evidence compete for the same leftover space; splitting it rather than giving
+# evidence its own allowance is what keeps the prompt inside the window.
+EVIDENCE_STORY_LIMIT = 5
+EVIDENCE_BUDGET_SHARE = 0.45
+# Below this the job description is too truncated to tailor against, so
+# evidence yields rather than the posting.
+MIN_JD_CHARS = 1200
+
 logger = logging.getLogger("career_os.resume_diff_service")
 
 # Canonical 17 bullets from the authentic resume (7 Microsoft + 10 Amazon)
@@ -389,7 +399,42 @@ async def generate_role_tailoring_diff(
         jd_token_budget = (
             DEFAULT_CONTEXT_WINDOW - fixed_prompt_tokens - expected_output_tokens - CONTEXT_SAFETY_MARGIN
         )
-        jd_char_budget = max(800, jd_token_budget * 4)
+        elastic_chars = max(800, jd_token_budget * 4)
+
+        # Retrieve only the stories this posting actually asks about. The master
+        # bullets above are the 1-to-1 skeleton the answer must preserve; the
+        # evidence below is the detail behind them, and sending the whole corpus
+        # instead would not fit and would bury the relevant part.
+        evidence_budget = int(elastic_chars * EVIDENCE_BUDGET_SHARE)
+        if elastic_chars - evidence_budget < MIN_JD_CHARS:
+            evidence_budget = max(0, elastic_chars - MIN_JD_CHARS)
+        evidence_brief = ""
+        evidence_meta: dict[str, Any] = {}
+        if evidence_budget > 0:
+            try:
+                from app.services.story_index import select_evidence_for_job
+
+                evidence_brief, evidence_meta = select_evidence_for_job(
+                    description,
+                    title=f"{title} {company}",
+                    limit=EVIDENCE_STORY_LIMIT,
+                    char_budget=evidence_budget,
+                )
+            except Exception as exc:  # noqa: BLE001 - retrieval must never block tailoring
+                logger.warning("Story retrieval failed, tailoring without evidence: %s", exc)
+        selected = evidence_meta.get("stories") or []
+        if selected:
+            coverage = evidence_meta.get("coverage") or {}
+            logger.info(
+                "Retrieved %d stories for %s — %s (%.0f%% of requirements covered; "
+                "uncovered: %s): %s",
+                len(selected), company, title,
+                100 * float(coverage.get("weightedCoverage") or 0),
+                ", ".join(coverage.get("uncovered") or []) or "none",
+                ", ".join(f"{e['id']}->{','.join(e['covers'])}" for e in selected),
+            )
+
+        jd_char_budget = max(800, elastic_chars - len(evidence_brief))
         full_jd = description.strip()
         jd_text = full_jd[:jd_char_budget] or "(no job description available)"
         if len(full_jd) > jd_char_budget:
@@ -406,7 +451,19 @@ async def generate_role_tailoring_diff(
             + "\n".join(f"{i+1}. {b}" for i, b in enumerate(master_bullets))
             + f"\n\nTarget Role: {title} at {company}\n"
             f"=== JOB DESCRIPTION (tailor against THIS) ===\n{jd_text}\n=== END JOB DESCRIPTION ===\n\n"
-            f"Tailoring Mode: {valid_mode.upper()}\n"
+            + (
+                "=== RETRIEVED EVIDENCE ===\n"
+                "These are the candidate's own detailed accounts of the work behind the bullets "
+                "above, selected because this posting asks about them. Use them to decide which "
+                "true detail to surface in a bullet and which vocabulary to use. They are source "
+                "material for rewording, not new bullets: do not add an eighteenth bullet, do not "
+                "move a project into a bullet it does not belong to, and honour every "
+                "'MUST NOT claim' line. Where an evidence block is marked PERSONAL PROJECT, "
+                "anything drawn from it must never be worded as employer or professional work.\n"
+                f"{evidence_brief}\n=== END RETRIEVED EVIDENCE ===\n\n"
+                if evidence_brief else ""
+            )
+            + f"Tailoring Mode: {valid_mode.upper()}\n"
             f"Instructions:\n"
             + (
                 "- Mode HONEST: start from the candidate's real bullets above and change only how they are told. "

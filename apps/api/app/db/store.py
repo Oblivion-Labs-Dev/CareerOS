@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 import re
 import uuid
@@ -69,6 +70,30 @@ def _set_sqlite_pragma(dbapi_connection, connection_record):
         cursor.close()
 
 
+# Expression indexes over the JSON payload. The table only had an index on
+# entity_type, so every "which jobs are QUEUED" lookup loaded the whole
+# partition for its type and filtered in Python after parsing each row. These
+# push the two hottest predicates into SQLite:
+#
+#   status          - every queue and dashboard read filters on it
+#   applicationUrl  - the duplicate-application sweep looks up siblings by it,
+#                     which was a full scan on every submission
+#
+# CREATE INDEX IF NOT EXISTS is idempotent, so this runs safely at every start.
+_JSON_INDEXES: tuple[tuple[str, str], ...] = (
+    (
+        "ix_entities_status",
+        "CREATE INDEX IF NOT EXISTS ix_entities_status "
+        "ON entities (entity_type, json_extract(payload, '$.status'))",
+    ),
+    (
+        "ix_entities_application_url",
+        "CREATE INDEX IF NOT EXISTS ix_entities_application_url "
+        "ON entities (entity_type, json_extract(payload, '$.applicationUrl'))",
+    ),
+)
+
+
 def _configure_sqlite() -> None:
     if "sqlite" not in str(engine.url):
         return
@@ -77,6 +102,15 @@ def _configure_sqlite() -> None:
     with engine.connect() as conn:
         conn.execute(text("PRAGMA journal_mode=WAL"))
         conn.execute(text("PRAGMA busy_timeout=60000"))
+        # Reclaim space after the retention sweep deletes rows. Without this the
+        # file only ever grows: SQLite keeps freed pages for reuse and never
+        # returns them to the filesystem.
+        conn.execute(text("PRAGMA auto_vacuum=INCREMENTAL"))
+        for name, ddl in _JSON_INDEXES:
+            try:
+                conn.execute(text(ddl))
+            except Exception:  # noqa: BLE001 - an index is an optimisation, never a boot blocker
+                logging.getLogger("career_os.db").warning("Could not create %s", name)
         conn.commit()
 
 
@@ -93,6 +127,17 @@ def init_db() -> None:
         if not skip_extension_seed:
             seed_extension_db_if_needed(db)
         seed_resume_corpus_if_needed(db)
+        # Fold the interview story corpus into those accomplishments. Runs every
+        # start rather than once, so editing the corpus file is enough to update
+        # the app; the merge is enrich-only, so repeating it is a no-op.
+        try:
+            from app.db.story_corpus_sync import sync_story_corpus
+
+            sync_story_corpus(db)
+        except Exception:  # noqa: BLE001 - a corpus problem must not stop startup
+            logging.getLogger("career_os.db").exception(
+                "Story corpus sync failed; continuing without it"
+            )
         if not get_kv(db, "settings"):
             settings_payload = None if skip_extension_seed else (load_extension_db() or {}).get("settings")
             set_kv(db, "settings", settings_payload or default_settings())
@@ -247,6 +292,28 @@ def list_entities_where_json(
         # otherwise; both "false" spellings must be excluded.
         query = query.filter(extracted != 0).filter(extracted != "false")
     return [row.payload for row in query.all()]
+
+
+def list_entities_by_json_equals(
+    db: Session, entity_type: str, json_path: str, value: Any
+) -> list[dict[str, Any]]:
+    """Entities whose JSON field equals `value`, resolved by index.
+
+    Pairs with the expression indexes created in _configure_sqlite. Callers used
+    to load the whole partition for their type and compare in Python, which is
+    how a status filter over thousands of rows became a full scan plus a JSON
+    parse per row.
+    """
+    from sqlalchemy import func
+
+    extracted = func.json_extract(EntityStore.payload, json_path)
+    rows = (
+        db.query(EntityStore)
+        .filter(EntityStore.entity_type == entity_type)
+        .filter(extracted == value)
+        .all()
+    )
+    return [row.payload for row in rows]
 
 
 def get_entity(db: Session, entity_type: str, entity_id: str) -> dict[str, Any] | None:
