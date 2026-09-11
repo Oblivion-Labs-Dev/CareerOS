@@ -11,6 +11,7 @@ from __future__ import annotations
 import difflib
 import json
 import logging
+import os
 import re
 from typing import Any
 from app.services.application_assistant.llm_client import (
@@ -40,6 +41,13 @@ EVIDENCE_BUDGET_SHARE = 0.45
 # Below this the job description is too truncated to tailor against, so
 # evidence yields rather than the posting.
 MIN_JD_CHARS = 1200
+# Fewest rewritten bullets that still counts as a tailored resume.
+MIN_TAILORED_BULLETS = int(os.environ.get("AUTOPILOT_MIN_TAILORED_BULLETS", "3"))
+# Bullets per tailoring call. Measured on qwen3:4b: asked for all 17 at once it
+# returns 17 bullets in the wrong slots, so almost every rewrite was discarded
+# by the alignment and figure guards and the resume went out untailored. Small
+# batches keep position stable; batches never span two employers.
+BULLET_BATCH_SIZE = int(os.environ.get("CAREEROS_TAILORING_BATCH_SIZE", "4"))
 
 logger = logging.getLogger("career_os.resume_diff_service")
 
@@ -162,12 +170,40 @@ def ensure_bold_lead(text: str, fallback_prefix: str = "") -> str:
     return f"<b>{lead}</b> {rest}".strip()
 
 
-def clamp_bullet_length(text: str, max_len: int) -> str:
-    """Hard safety net behind the tailoring prompt's length guidance: even a
-    well-instructed LLM occasionally overshoots. Bullets that run long wrap
-    to an extra line in the fixed-height overlay slot and visually collide
-    with the bullet below (see render_tailored_resume_pdf) — truncating at a
-    word boundary keeps the layout intact even when the prompt is ignored.
+def finish_sentence(text: str) -> str:
+    """Add the full stop the model left off.
+
+    Every bullet on the original resume ends in one. A rewrite that ends on
+    "...and compliance risks" is a complete sentence missing a single
+    character, and failing it for that would cost a whole retry to fix
+    punctuation. Only ever appends - never edits or trims the wording - and
+    leaves anything already terminated alone.
+    """
+    plain = re.sub(r"<[^>]+>", "", str(text or "")).rstrip()
+    if not plain or plain.endswith((".", "!", "?", ")", "]", "%", ":", ";", ",")):
+        return text
+    if plain[-1].isalnum() or plain[-1] in "+\u2019\"":
+        return text.rstrip() + "."
+    return text
+
+
+def clamp_bullet_length(text: str, max_len: int, original: str | None = None) -> str:
+    """Keep an over-long bullet inside its slot without leaving it mid-sentence.
+
+    Bullets that run long wrap to an extra line in the fixed-height overlay slot
+    and collide with the bullet below (see render_tailored_resume_pdf), so a
+    hard limit is unavoidable. What changed is what happens at the limit.
+
+    This used to cut at a word boundary and append an ellipsis, which fixed the
+    layout and broke the writing: the resume went out carrying bullets that
+    stopped mid-thought on "...enable day-one ris…". A trailing ellipsis on a
+    resume bullet reads as a bug, not as brevity.
+
+    So: prefer a clean sentence boundary inside the budget; failing that, fall
+    back to the candidate's original bullet, which is well-formed and fits by
+    construction. A slot keeping its original wording is a smaller loss than a
+    slot containing a fragment - and the quality gate counts it honestly as
+    "not rewritten" rather than letting a truncation pass as tailoring.
     """
     plain = re.sub(r"<[^>]+>", "", text)
     if len(plain) <= max_len:
@@ -175,16 +211,28 @@ def clamp_bullet_length(text: str, max_len: int) -> str:
 
     match = re.match(r"^\s*<b>(.*?)</b>\s*(.*)$", text, re.DOTALL)
     if not match:
-        truncated = plain[:max_len].rsplit(" ", 1)[0].rstrip(",.;: ")
-        return truncated + "…"
+        return original if original else text
 
     lead, rest = match.group(1), match.group(2).lstrip()
     sep = "" if rest[:1] in (",", ".", ";", ":") else " "
     budget = max_len - len(lead) - len(sep)
-    if budget <= 10 or not rest:
-        return f"<b>{lead}</b>"
-    truncated_rest = rest[:budget].rsplit(" ", 1)[0].rstrip(",.;: ")
-    return f"<b>{lead}</b>{sep}{truncated_rest}…"
+    if budget > 20 and rest:
+        window = rest[:budget]
+        # Last sentence end inside the budget, so the bullet still reads as a
+        # finished statement rather than a clipped one.
+        cut = max(window.rfind(". "), window.rfind("; "), window.rfind("! "))
+        if cut > budget * 0.55:
+            trimmed = window[: cut + 1].rstrip()
+            return f"<b>{lead}</b>{sep}{trimmed}"
+        # A bullet that is one long clause has no interior boundary to cut at.
+        # Ending it with a full stop at a word boundary is acceptable only when
+        # almost all of it survives; otherwise the meaning is gone.
+        if budget >= len(rest) * 0.9:
+            trimmed = window.rsplit(" ", 1)[0].rstrip(",;: ")
+            if trimmed:
+                return f"<b>{lead}</b>{sep}{trimmed}."
+
+    return original if original else f"<b>{lead}</b>{sep}{rest[:budget].rsplit(' ', 1)[0].rstrip(',;: ')}."
 
 
 def compute_text_diff_chunks(original: str, modified: str) -> list[dict[str, str]]:
@@ -242,33 +290,157 @@ def compute_bullet_diffs(
     return results
 
 
+def _figure_set(text: str) -> set[str]:
+    """The figures a bullet claims, normalised so formatting is not a difference.
+
+    "$28M", "28M" and "28 M" are the same claim; "237K+" and "237K" are the same
+    claim. Comparing raw matches treated each rewording as a changed number,
+    which is what made the guard below fire on almost every rewrite.
+    """
+    plain = re.sub(r"<[^>]+>", "", text)
+    out: set[str] = set()
+    for match in re.finditer(r"(\d[\d,.]*)\s*([KkMmBb%])?", plain):
+        digits = match.group(1).replace(",", "").rstrip(".")
+        if not digits:
+            continue
+        unit = (match.group(2) or "").lower()
+        out.add(f"{digits}{unit}")
+    return out
+
+
+async def _complete_batch(client: Any, prompt: str) -> dict[str, Any]:
+    return await client.complete(
+        prompt,
+        system=(
+            "You are an expert ATS resume optimizer. Respond only with a JSON array "
+            "of strings."
+        ),
+        task="resume_tailoring",
+    )
+
+
+def _echoed_count(res: dict[str, Any], originals: list[str]) -> int:
+    """How many bullets in a batch came back byte-identical to their input.
+
+    Honest mode is allowed to rewrite every bullet, so an echoed bullet is a
+    missed rewrite rather than a considered decision to leave it alone.
+    """
+    if not res or not res.get("success") or not res.get("data"):
+        return 0
+    from app.services.application_assistant.resume_response import parse_resume_bullets
+
+    parsed = parse_resume_bullets(res["data"])
+    if not isinstance(parsed, list) or len(parsed) != len(originals):
+        return 0
+
+    def plain(text: str) -> str:
+        return re.sub(r"<[^>]+>", "", str(text or "")).strip().lower()
+
+    return sum(1 for p, o in zip(parsed, originals) if plain(p) == plain(o))
+
+
+def _bullet_batches(
+    bullets: list[dict[str, str]], max_size: int = 4
+) -> list[list[int]]:
+    """Index groups to tailor together: consecutive, one employer, small.
+
+    Seventeen bullets in one completion is past what a 4B model keeps ordered -
+    measured, it returns the right count in the wrong slots. Batches never span
+    two employers so the model cannot drift a Microsoft bullet into an Amazon
+    slot, and stay small so position is easy to hold.
+    """
+    batches: list[list[int]] = []
+    current: list[int] = []
+    current_company: str | None = None
+    for idx, bullet in enumerate(bullets):
+        company = bullet.get("company", "")
+        if current and (company != current_company or len(current) >= max_size):
+            batches.append(current)
+            current = []
+        current.append(idx)
+        current_company = company
+    if current:
+        batches.append(current)
+    return batches
+
+
+def _is_aligned(returned: list[str], originals: list[str]) -> bool:
+    """True when each returned bullet is a rewrite of the one in its own slot.
+
+    A rewrite should still resemble its source more than it resembles any of its
+    neighbours. When that fails the model has reordered, and writing the batch
+    through would put one role's work under another's heading - the exact defect
+    this guard exists to catch.
+    """
+    if len(returned) != len(originals) or len(originals) < 2:
+        return len(returned) == len(originals)
+
+    def plain(text: str) -> str:
+        return re.sub(r"<[^>]+>", "", str(text or "")).lower()
+
+    for i, candidate in enumerate(returned):
+        own = difflib.SequenceMatcher(None, plain(candidate), plain(originals[i])).ratio()
+        for j, other in enumerate(originals):
+            if j == i:
+                continue
+            rival = difflib.SequenceMatcher(None, plain(candidate), plain(other)).ratio()
+            if rival > own + 0.05:
+                logger.info(
+                    "Tailored batch came back misaligned: slot %d resembles source %d "
+                    "more than its own (%.2f vs %.2f); keeping the originals.",
+                    i, j, rival, own,
+                )
+                return False
+    return True
+
+
 def _reject_fabrication(tailored: str, original: str) -> str:
     """Return `tailored`, or fall back to `original` when the rewrite is unsafe.
 
-    These bullets go onto a resume submitted to a real employer, so a rewrite that
-    invents scope is worse than no rewrite at all. Two checks, both observed
-    failing live with a 7B model:
+    These bullets go onto a resume submitted to a real employer, so a rewrite
+    that invents scope is worse than no rewrite at all. Two checks, both
+    observed failing live with a small local model:
 
     * placeholder wording copied straight out of the prompt ("Lead 4, ...");
-    * every figure in the original must survive. Dropping or changing a number
-      is how "100K+ TPS at Amazon" quietly became a different claim, and it is a
-      cheap, reliable signal that the model rewrote substance rather than
-      phrasing.
-    """
-    plain_tailored = re.sub(r"<[^>]+>", "", tailored)
+    * **no figure may appear that was not in the original.** Turning "100K+ TPS"
+      into "500K+ TPS", or adding a metric to a bullet that never carried one,
+      is the fabrication that actually harms the candidate, and it is what this
+      rejects.
 
+    Dropping a figure is treated differently from inventing one, and the
+    asymmetry is deliberate. The earlier version required every original number
+    to survive and discarded the whole rewrite otherwise, which conflated two
+    very different things: an understated bullet is still true, while an
+    inflated one is a false claim on a real application. It also left the
+    dangerous direction unguarded - a rewrite that kept every original figure
+    and added an invented one passed the subset test cleanly. Measured against
+    this corpus the old rule rejected 15 of 17 rewrites, so the resume went out
+    essentially untailored while appearing to have been tailored.
+    """
     if re.match(r"^\s*(?:<b>\s*)?Lead\s+\d+", tailored, re.I):
         return original
 
-    original_numbers = set(re.findall(r"\d[\d,.]*\+?%?", re.sub(r"<[^>]+>", "", original)))
-    tailored_numbers = set(re.findall(r"\d[\d,.]*\+?%?", plain_tailored))
-    if original_numbers and not original_numbers.issubset(tailored_numbers):
+    original_figures = _figure_set(original)
+    tailored_figures = _figure_set(tailored)
+
+    invented = tailored_figures - original_figures
+    if invented:
         logger.info(
-            "Tailored bullet dropped or altered a figure from the original; keeping the "
-            "original bullet. missing=%s",
-            sorted(original_numbers - tailored_numbers)[:4],
+            "Tailored bullet introduced a figure the original did not contain; keeping "
+            "the original bullet. invented=%s",
+            sorted(invented)[:4],
         )
         return original
+
+    dropped = original_figures - tailored_figures
+    if dropped:
+        # Kept, not rejected: the bullet now says less than it could, which is a
+        # weaker resume but not a false one.
+        logger.info(
+            "Tailored bullet dropped a figure from the original; keeping the rewrite. "
+            "dropped=%s",
+            sorted(dropped)[:4],
+        )
 
     return tailored
 
@@ -278,6 +450,11 @@ async def generate_role_tailoring_diff(
     profile: dict[str, Any],
     master_resume: dict[str, Any] | None = None,
     mode: str = "honest",
+    *,
+    feedback_gaps: list[str] | None = None,
+    documents: dict[str, Any] | None = None,
+    accomplishments: list[dict[str, Any]] | None = None,
+    rescore: bool = True,
 ) -> dict[str, Any]:
     """Generate or retrieve role-tailored materials with full visual diff data across 3 modes:
     - 'off': no change, resume bullets remain identical to original.
@@ -381,10 +558,52 @@ async def generate_role_tailoring_diff(
         def _plain_len(html_text: str) -> int:
             return len(re.sub(r"<[^>]+>", "", html_text))
 
+        # The budget is written inline against each bullet rather than as a
+        # separate numbered list further down the prompt. A 4B model asked to
+        # cross-reference "bullet 11" in one list against "11. target ~240
+        # characters" in another gets the pairing wrong often enough to matter,
+        # and the failure is invisible: a bullet silently overruns its slot and
+        # the rendered PDF overlaps. Putting the number beside the text it
+        # governs removes the indexing step entirely.
         length_targets = "\n".join(
             f"{i+1}. target ~{_plain_len(b)} characters (max {_plain_len(b) + 15})"
             for i, b in enumerate(master_bullets)
         )
+        numbered_bullets = "\n".join(
+            f"[{i+1}] ({CANONICAL_MASTER_BULLETS[i]['company']}, "
+            f"max {_plain_len(b) + 15} chars) {b}"
+            for i, b in enumerate(master_bullets)
+        )
+
+        # What the posting asks for, named explicitly. Without this the model
+        # has to infer the requirements from raw prose and then rewrite against
+        # its own inference; naming them splits one hard task into two easy
+        # ones. On a retry the gaps the scorer actually found are appended,
+        # which is the only thing that makes a second attempt different from a
+        # re-roll of the first.
+        try:
+            from app.services.story_index import flat_tags
+
+            detected = sorted(flat_tags(f"{title}\n{description}"))
+        except Exception:  # noqa: BLE001 - never block tailoring on the index
+            detected = []
+        requirement_line = (
+            "Requirements detected in this posting: " + ", ".join(detected) + "\n"
+            if detected else ""
+        )
+        gap_line = ""
+        if feedback_gaps:
+            gap_line = (
+                "\nPREVIOUS ATTEMPT FELL SHORT. A scorer compared your last rewrite "
+                "against this posting and reported these requirements as still not "
+                "evidenced:\n"
+                + "\n".join(f"  - {g}" for g in feedback_gaps)
+                + "\nWhere the candidate's real work below genuinely demonstrates one of "
+                "these, bring it to the front of the bullet it belongs to and use the "
+                "posting's own words for it. Where it does not, leave it alone: an "
+                "unevidenced claim is stripped by the scorer and costs points rather "
+                "than gaining them.\n"
+            )
 
         # The job description is the only elastic part of this prompt: the 17
         # master bullets, the instructions and the per-bullet length targets are
@@ -445,97 +664,172 @@ async def generate_role_tailoring_diff(
                 expected_output_tokens, DEFAULT_CONTEXT_WINDOW,
             )
 
+        # Prompt order is deliberate: task, target, source material, rules,
+        # output contract. The rules sit last because a small model weights the
+        # end of a long prompt most heavily, and the rules are what it actually
+        # breaks - length overruns and dropped bullets - not the job itself.
+        mode_rule = (
+            "MODE: HONEST. Rewrite every bullet. Change only how the work is told, "
+            "never what it was. For each bullet, ask what this posting wants and "
+            "whether the candidate genuinely did that. If yes, lead with it and use "
+            "the posting's own vocabulary for it. Surface a true detail that is "
+            "currently buried, drop filler this role does not care about, and reorder "
+            "within the bullet. Even where the overlap is small, lead with whatever "
+            "part of the bullet is closest to this posting and tighten the rest. "
+            "Returning a bullet word-for-word unchanged is a failure unless its fit "
+            "genuinely cannot be improved."
+            if valid_mode == "honest" else
+            "MODE: AGGRESSIVE. Do everything HONEST does, then push the framing to the "
+            "strongest defensible reading of the same facts: stronger ownership verbs, "
+            "the senior end of what the work actually was, scale and business impact "
+            "forward, and the posting's language wherever the candidate's real work is "
+            "adjacent to it. Amplify the framing, never the facts - same employers, "
+            "same projects, same numbers."
+        )
+
         prompt = (
-            f"You are an expert resume tailoring assistant.\n"
-            f"Candidate authentic experience bullets across Microsoft (bullets 1-7) and Amazon (bullets 8-17):\n"
-            + "\n".join(f"{i+1}. {b}" for i, b in enumerate(master_bullets))
-            + f"\n\nTarget Role: {title} at {company}\n"
-            f"=== JOB DESCRIPTION (tailor against THIS) ===\n{jd_text}\n=== END JOB DESCRIPTION ===\n\n"
+            "You rewrite a candidate's existing resume bullets to fit one specific job "
+            "posting. You never invent experience.\n\n"
+            f"TARGET ROLE: {title} at {company}\n"
+            f"{requirement_line}{gap_line}"
+            f"\n=== JOB DESCRIPTION ===\n{jd_text}\n=== END JOB DESCRIPTION ===\n\n"
             + (
-                "=== RETRIEVED EVIDENCE ===\n"
-                "These are the candidate's own detailed accounts of the work behind the bullets "
-                "above, selected because this posting asks about them. Use them to decide which "
-                "true detail to surface in a bullet and which vocabulary to use. They are source "
-                "material for rewording, not new bullets: do not add an eighteenth bullet, do not "
-                "move a project into a bullet it does not belong to, and honour every "
-                "'MUST NOT claim' line. Where an evidence block is marked PERSONAL PROJECT, "
-                "anything drawn from it must never be worded as employer or professional work.\n"
-                f"{evidence_brief}\n=== END RETRIEVED EVIDENCE ===\n\n"
+                "=== EVIDENCE: the candidate's own account of this work ===\n"
+                "Source material for rewording only. Use it to pick which true detail "
+                "to surface and which words to use. Do not turn it into new bullets. "
+                "Honour every 'MUST NOT claim' line. Anything marked PERSONAL PROJECT "
+                "must never be worded as employer work.\n"
+                f"{evidence_brief}\n=== END EVIDENCE ===\n\n"
                 if evidence_brief else ""
             )
-            + f"Tailoring Mode: {valid_mode.upper()}\n"
-            f"Instructions:\n"
-            + (
-                "- Mode HONEST: start from the candidate's real bullets above and change only how they are told. "
-                "Read the job description, identify the responsibilities, technologies and competencies it asks for, "
-                "and where the candidate has genuinely done that work, reorganize and rephrase the bullet to lead with "
-                "it and to use the job description's own vocabulary. Re-order emphasis inside a bullet, surface a "
-                "technology that is already true but buried, and drop filler this role does not care about. Invent "
-                "nothing: no new employers, technologies, scope, seniority or metrics, and never change a number. If a "
-                "bullet is irrelevant to this role, leave it essentially as-is.\n"
-                if valid_mode == "honest" else
-                "- Mode AGGRESSIVE: do everything HONEST does, then inflate somewhat so the resume matches more of "
-                "the job description. Use stronger leadership verbs, frame the candidate at the senior/owner end of "
-                "what is plausible, emphasize scale and business impact, and lean into the job description's language "
-                "wherever the candidate's real work is adjacent to what is asked for. Stay anchored to the same "
-                "underlying projects and employers, and keep every hard number exactly as given - amplify the framing, "
-                "not the facts.\n"
-            )
-            + "- ABSOLUTE RULE, both modes: never change WHERE or ON WHAT the work happened. Keep the employer, product, industry and domain of each bullet exactly as given. If a bullet describes e-commerce or logistics work, it stays e-commerce or logistics work even when applying to a healthcare or finance role - you may change the emphasis and wording, never the facts. Do not move a technology into a bullet it was not already in, and reuse every number exactly.\n"
-            + "- Each bullet MUST begin with a bold lead action phrase formatted as <b>Lead Action Phrase</b>, followed by the description.\n"
-            + f"- Return exactly {len(master_bullets)} bullets corresponding 1-to-1 in order with the original bullets (7 Microsoft, 10 Amazon).\n"
-            + "- CRITICAL LENGTH CONSTRAINT: each bullet is overlaid into a fixed-size slot on the resume PDF sized for the original bullet's length — going over breaks the layout. Match each bullet's target length below (counting only visible text, not the <b> tags); never exceed the max. If your tailored version would run long, cut it down before answering, not after.\n"
-            + length_targets
-            + "\n- Never copy any placeholder wording from these instructions (for example \"Lead\" followed by a number) into a bullet; every bullet must begin with a real action phrase taken from the candidate's own work.\n"
-            + "- Return ONLY a JSON array of strings, and nothing else.\n"
+            + "=== THE 17 BULLETS TO REWRITE ===\n"
+            "Each line is [number] (employer, character budget) then the current "
+            "bullet. Bullets 1-7 are Microsoft, 8-17 are Amazon.\n"
+            + numbered_bullets
+            + "\n=== END BULLETS ===\n\n"
+            + mode_rule
+            + "\n\nHARD RULES - breaking any of these makes the answer unusable:\n"
+            "1. NEVER change where or on what the work happened. The employer, product, "
+            "industry and domain of each bullet stay exactly as given. Logistics work "
+            "stays logistics work when applying to a healthcare role. Do not move a "
+            "technology into a bullet it was not already in.\n"
+            "2. Reuse every number exactly as written. Never round, scale or add one.\n"
+            f"3. Return exactly {len(master_bullets)} bullets, in the same order as the "
+            "input, matching 1-to-1. Bullet 5 out must be a rewrite of bullet 5 in.\n"
+            "4. Every bullet starts with a bold lead phrase: <b>Lead Action Phrase</b> "
+            "then the rest of the sentence. Take that phrase from the candidate's own "
+            "work - never copy wording from these instructions.\n"
+            "5. Stay within each bullet's character budget, shown beside it above. The "
+            "PDF overlays each bullet into a fixed-height slot, so going over makes it "
+            "overlap the bullet below. Count visible characters only, not the <b> tags. "
+            "Cut it down before answering, not after.\n\n"
+            "Return ONLY a JSON array of exactly "
+            f"{len(master_bullets)} strings. No prose, no keys, no markdown fence.\n"
         )
 
         try:
-            res = await client.complete(
-                prompt,
-                system="You are an expert ATS resume optimizer. Respond only with a JSON array of strings.",
-                task="resume_tailoring",
-            )
-            if not res.get("success"):
-                tailoring_error = str(res.get("error") or "unknown LLM failure")[:300]
-            if res.get("success") and res.get("data"):
-                from app.services.application_assistant.resume_response import parse_resume_bullets
+            batches = _bullet_batches(CANONICAL_MASTER_BULLETS, BULLET_BATCH_SIZE)
+            # Start from the candidate's own bullets: any batch the model
+            # fumbles simply keeps its originals, so a partial failure costs
+            # that batch's tailoring and nothing else.
+            working = list(master_bullets)
+            succeeded = 0
+            usage_in = usage_out = 0
+
+            for batch in batches:
+                batch_prompt = (
+                    prompt
+                    + "\n=== REWRITE ONLY THESE BULLETS ===\n"
+                    + "\n".join(
+                        f"[{position + 1}] (max {_plain_len(master_bullets[idx]) + 15} chars) "
+                        f"{master_bullets[idx]}"
+                        for position, idx in enumerate(batch)
+                    )
+                    + f"\n\nReturn a JSON array of exactly {len(batch)} strings, one per "
+                    "bullet above, in the same order. Item 1 must be a rewrite of bullet "
+                    "[1] above, item 2 of bullet [2], and so on. Do not reorder them and "
+                    "do not return any other bullet. Each string must be a genuine "
+                    "rewrite - do not copy the input text back.\n"
+                )
+                res = await _complete_batch(client, batch_prompt)
+
+                # Any echoed bullet is a missed rewrite, so ask again naming how
+                # many came back untouched. Only one retry: a second model that
+                # still echoes is not going to be argued into rewriting.
+                echoed = _echoed_count(res, [master_bullets[i] for i in batch])
+                if echoed:
+                    logger.info(
+                        "Tailoring batch %s returned %d of %d bullets unchanged; "
+                        "retrying once with an explicit rewrite instruction.",
+                        batch, echoed, len(batch),
+                    )
+                    res = await _complete_batch(
+                        client,
+                        batch_prompt
+                        + f"\nYour previous answer repeated {echoed} of {len(batch)} "
+                        "bullets word for word. That is not a rewrite. Every bullet "
+                        "must come back genuinely reworded: change the opening phrase, "
+                        "reorder the clauses, and use this posting's vocabulary. Keep "
+                        "every fact, employer and number exactly as given, and end each "
+                        "bullet with a full stop.\n",
+                    ) or res
+                if not res.get("success") or not res.get("data"):
+                    tailoring_error = str(res.get("error") or "unknown LLM failure")[:300]
+                    logger.info(
+                        "Tailoring batch %s failed (%s); keeping those bullets as written.",
+                        batch, tailoring_error[:120],
+                    )
+                    continue
+
+                from app.services.application_assistant.resume_response import (
+                    parse_resume_bullets,
+                )
+
                 parsed = parse_resume_bullets(res["data"])
-                # A 7B model is not reliably exact about list length. Requiring a
-                # perfect 17 meant one short list threw away every good bullet in
-                # the response and silently served the generic static template
-                # instead. Take what it did return, position by position, and keep
-                # the candidate's own bullet wherever it did not.
-                if isinstance(parsed, list) and parsed:
-                    if len(parsed) != len(master_bullets):
-                        logger.info(
-                            "Tailoring returned %d bullets, expected %d - keeping originals "
-                            "for the remainder.",
-                            len(parsed), len(master_bullets),
-                        )
-                        parsed = [
-                            parsed[i] if i < len(parsed) else master_bullets[i]
-                            for i in range(len(master_bullets))
-                        ]
-                    tailored_bullets = [
+                if not isinstance(parsed, list) or not parsed:
+                    continue
+                originals = [master_bullets[i] for i in batch]
+                candidates = [str(p) for p in parsed][: len(batch)]
+                if len(candidates) != len(batch):
+                    logger.info(
+                        "Tailoring batch %s returned %d of %d bullets; keeping originals.",
+                        batch, len(candidates), len(batch),
+                    )
+                    continue
+                if not _is_aligned(candidates, originals):
+                    continue
+
+                for position, idx in enumerate(batch):
+                    working[idx] = finish_sentence(
                         clamp_bullet_length(
                             ensure_bold_lead(
-                                _reject_fabrication(str(p), master_bullets[idx]),
+                                _reject_fabrication(
+                                    candidates[position], master_bullets[idx]
+                                ),
                                 CANONICAL_MASTER_BULLETS[idx]["boldPrefix"],
                             ),
                             _plain_len(master_bullets[idx]) + 20,
+                            master_bullets[idx],
                         )
-                        for idx, p in enumerate(parsed)
-                    ]
-                    tailoring_model = res.get("usedFallbackModel") or client.model
-                    usage = res.get("usage") or {}
-                    logger.info(
-                        "Resume tailored successfully: model=%s tokens_in=%s tokens_out=%s finish=%s",
-                        tailoring_model,
-                        usage.get("promptTokens"),
-                        usage.get("completionTokens"),
-                        res.get("finishReason"),
                     )
+                succeeded += 1
+                usage = res.get("usage") or {}
+                usage_in += int(usage.get("promptTokens") or 0)
+                usage_out += int(usage.get("completionTokens") or 0)
+                tailoring_model = res.get("usedFallbackModel") or client.model
+
+            if succeeded:
+                tailored_bullets = working
+                logger.info(
+                    "Resume tailored: %d/%d batches applied, model=%s tokens_in=%s "
+                    "tokens_out=%s",
+                    succeeded, len(batches), tailoring_model, usage_in, usage_out,
+                )
+            else:
+                logger.warning(
+                    "Every tailoring batch failed or came back misaligned for %s - %s.",
+                    company, title,
+                )
         except Exception as e:
             tailoring_error = str(e)[:300]
             logger.warning(f"LLM resume tailoring failed, using template fallback: {e}")
@@ -629,7 +923,30 @@ async def generate_role_tailoring_diff(
 
     # Rewording a resume is not evidence of improved job fit. Never manufacture
     # points (or a passing default) merely because tailoring was selected.
-    match_score = job_match_score(job)
+    # The score the caller compares against the submit bar must describe the
+    # document that will actually be sent. job_match_score(job) reads the stored
+    # pre-tailoring score straight back, so it could never move however good the
+    # rewrite was - which made a retry loop meaningless and made
+    # matchScoreAtSubmission a record of a document nobody submitted.
+    base_match_score = job_match_score(job)
+    match_score = base_match_score
+    tailored_match: dict[str, Any] | None = None
+    if rescore and valid_mode != "off" and tailored_bullets and not tailoring_failed:
+        from app.services.application_assistant.tailored_match import score_tailored_resume
+
+        tailored_match = await score_tailored_resume(
+            {**job, "description": description},
+            tailored_bullets,
+            profile=profile,
+            documents=documents,
+            accomplishments=accomplishments,
+        )
+        if tailored_match:
+            match_score = float(tailored_match.get("matchScore") or 0.0)
+            logger.info(
+                "Tailored resume re-scored for %s - %s: %.1f%% (was %.1f%%)",
+                company, title, match_score, base_match_score,
+            )
     work_auth = authorization_summary(profile)
 
     # Draft tailored cover letter
@@ -644,6 +961,24 @@ async def generate_role_tailoring_diff(
     else:
         letter_tone_p1 = f"I am writing to present my candidacy for the {title} opportunity at {company}."
         letter_tone_p2 = f"Having driven high-impact distributed architectures and high-velocity engineering transformations that scaled products to tens of millions of users across Microsoft and Amazon, I am uniquely equipped to elevate {company}'s technical roadmap and deliver outsized business impact from day one."
+
+    from app.services.application_assistant.resume_quality import assess as _assess_quality
+
+    quality_report = _assess_quality(
+        master_bullets,
+        tailored_bullets,
+        score_before=base_match_score,
+        score_after=match_score,
+        min_changed=MIN_TAILORED_BULLETS,
+        # Only ask for an improvement when a real re-score happened; otherwise
+        # both numbers are the same stored value and the check is meaningless.
+        require_improvement=bool(tailored_match),
+    )
+    if not quality_report.ok:
+        logger.info(
+            "Tailored resume for %s - %s is not submittable: %s",
+            company, title, quality_report.summary(),
+        )
 
     cover_letter = (
         f"Dear Hiring Team at {company},\n\n"
@@ -677,6 +1012,16 @@ async def generate_role_tailoring_diff(
         "title": title,
         "mode": valid_mode,
         "matchScore": match_score,
+        # Whether the document is fit to send, judged separately from how well it
+        # scores. The caller must check both.
+        "quality": quality_report.to_dict(),
+        # Kept separate so a caller can always tell the tailored document's score
+        # from the stored one, and see whether re-scoring ran at all.
+        "baseMatchScore": base_match_score,
+        "matchRescored": bool(tailored_match),
+        "matchReason": (tailored_match or {}).get("matchReason", ""),
+        "missingSkills": (tailored_match or {}).get("missingSkills", []),
+        "keyMatchingSkills": (tailored_match or {}).get("keyMatchingSkills", []),
         "salaryRange": job.get("salary") or job.get("salaryRange") or "Not provided",
         "visaStatus": work_auth,
         "bulletDiffs": bullet_diffs,

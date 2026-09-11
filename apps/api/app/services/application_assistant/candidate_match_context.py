@@ -41,11 +41,28 @@ def extract_resume_text(documents: dict[str, Any] | None) -> str:
     return extract_text_from_attachment(resume)
 
 
+# An accomplishment the candidate intends to build is not evidence of anything
+# yet. These strings become the resume summary the match scorer reads and the
+# tailorer draws on, so a planned project listing Kubernetes would raise match
+# scores - and could surface on a resume that Autopilot submits to a real
+# employer - for work that does not exist. Planned items stay in the profile so
+# the candidate can track them; they just do not count as evidence until the
+# status says they shipped.
+_UNBUILT_STATUSES = {"planned", "proposed", "idea", "backlog", "not started", "in progress"}
+
+
+def is_evidenced(item: dict[str, Any]) -> bool:
+    """Whether an accomplishment describes work that actually exists."""
+    return str(item.get("status") or "").strip().lower() not in _UNBUILT_STATUSES
+
+
 def accomplishment_text(accomplishments: list[dict[str, Any]] | None) -> str:
     if not accomplishments:
         return ""
     chunks: list[str] = []
     for item in accomplishments:
+        if not isinstance(item, dict) or not is_evidenced(item):
+            continue
         for key in ("currentBullet", "summary", "title", "technicalChallenge", "architectureDecision"):
             value = item.get(key)
             if isinstance(value, str) and value.strip():

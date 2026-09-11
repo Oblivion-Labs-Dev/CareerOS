@@ -14,7 +14,18 @@ from app.services.application_assistant import playwright_autopilot_executor as 
 def test_low_match_respects_explicit_apply_and_stop(monkeypatch, stop_during_generation, manual_override):
     runner = module.AutopilotRunner()
     modes = []
-    job = {"id": "test", "company": "Example", "title": "Engineer", "tailoringMode": "honest"}
+    # matchScore puts this job in the "honest" tailoring band (60 <= score < 80).
+    # Tailoring strength is now chosen from the pre-tailoring score rather than
+    # taken verbatim from the operator's setting; this test is about low-match
+    # gating, so it pins the band it expects instead of asserting the old
+    # "whatever the operator picked" contract.
+    job = {
+        "id": "test",
+        "company": "Example",
+        "title": "Engineer",
+        "tailoringMode": "honest",
+        "matchScore": 70,
+    }
     job["manualMatchOverride"] = manual_override
 
     class EmployerReached(Exception):
@@ -24,10 +35,19 @@ def test_low_match_respects_explicit_apply_and_stop(monkeypatch, stop_during_gen
     def session():
         yield None
 
-    async def generate(*args, mode):
+    async def generate(*args, mode, **kwargs):
         modes.append(mode)
         runner._stop_requested = stop_during_generation
-        return {"matchScore": 51}
+        # A low score with a genuinely tailored, submittable document: the point
+        # of this test is that the *score* gate holds, so the quality gate must
+        # not be what stops it or the test would pass for the wrong reason.
+        return {
+            "matchScore": 51,
+            "totalChanges": 6,
+            "tailoringFailed": False,
+            "quality": {"ok": True, "changed": 6, "total": 17, "problems": []},
+            "missingSkills": [],
+        }
 
     async def submit(**kwargs):
         if manual_override and not stop_during_generation:

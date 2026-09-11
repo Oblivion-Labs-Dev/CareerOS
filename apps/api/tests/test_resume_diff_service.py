@@ -49,8 +49,40 @@ async def test_generate_role_tailoring_diff():
         assert b["isModified"] is False
         assert b["original"] == b["tailored"]
 
-    # Tailoring mode cannot manufacture a higher match score.
     res_agg = await generate_role_tailoring_diff(job, profile, mode="aggressive")
     assert res_agg["mode"] == "aggressive"
-    assert res_agg["matchScore"] == res["matchScore"] == res_off["matchScore"] == 0
-    assert any("multi-agent" in b["tailored"] or "Spearheaded" in b["tailored"] or "Orchestrated" in b["tailored"] for b in res_agg["bulletDiffs"])
+
+    # The score now describes the tailored document rather than the stored job
+    # row, so it is allowed to move - that is the whole point of re-scoring, and
+    # the retry loop depends on it. What must NOT move is the baseline: every
+    # mode starts from the same stored score, so a mode change alone can never
+    # be what makes a posting look like a better fit.
+    assert res["baseMatchScore"] == res_off["baseMatchScore"] == res_agg["baseMatchScore"] == 0
+
+    # "off" changes nothing, so it has nothing to re-score and must report the
+    # stored number untouched.
+    assert res_off["matchScore"] == res_off["baseMatchScore"] == 0
+    assert res_off["matchRescored"] is False
+
+    # Every mode carries a quality verdict, and it is a separate judgement from
+    # the score: a resume can score well and still be unfit to send.
+    for result in (res, res_off, res_agg):
+        assert "quality" in result
+        assert set(result["quality"]) >= {"ok", "changed", "total", "problems"}
+    # The old assertion here looked for specific words ("Spearheaded",
+    # "Orchestrated") in live model output for a job with no description. That
+    # is not a property of the system, it is a guess about one model's phrasing,
+    # and it failed on this box regardless of any change to the code.
+    #
+    # The invariant worth protecting is honesty about what was produced: the
+    # service must never report a tailored resume it did not actually generate.
+    # Either bullets really changed, or the result says plainly that they did
+    # not - via tailoringFailed, or a quality verdict that refuses it.
+    for result in (res, res_agg):
+        really_tailored = result["totalChanges"] > 0
+        admits_it_did_not = (
+            result["tailoringFailed"] or not result["quality"]["ok"]
+        )
+        assert really_tailored or admits_it_did_not, (
+            f"{result['mode']} mode changed nothing yet reported success"
+        )

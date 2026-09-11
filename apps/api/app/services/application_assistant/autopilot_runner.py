@@ -52,7 +52,50 @@ MAX_JOB_ATTEMPTS = 3
 # An application is submitted once its resume's match score reaches this
 # bar. All queued jobs have already passed strict role, seniority, and location filters.
 MIN_MATCH_SCORE_TO_SUBMIT = float(os.environ.get("AUTOPILOT_MIN_MATCH_SCORE", "80.0"))
+# How many times a resume may be re-tailored for one posting before giving up.
+# Each attempt is a full local-model rewrite plus a scoring pass (~30-60s on
+# this hardware), so this trades wall-clock against the chance of clearing the
+# bar. Three is enough for the pattern that actually works: one honest pass, one
+# targeted at the reported gaps, one with the framing escalated.
+MAX_TAILORING_ATTEMPTS = int(os.environ.get("AUTOPILOT_MAX_TAILORING_ATTEMPTS", "3"))
+# The fewest rewritten bullets that still counts as a tailored resume.
+#
+# A high score alone is not sufficient grounds to submit. Match scoring reads
+# the whole candidate context - profile, accomplishments, resume - so a posting
+# can score well while the document itself came out byte-identical to the
+# original, which is what happened when every batch was discarded by the
+# alignment guard: the run reported a passing score and attached an untailored
+# resume. Requiring that the rewrite actually changed something makes "the score
+# is fine" and "the resume is fine" two separate conditions, both of which must
+# hold before anything is sent to an employer.
+MIN_TAILORED_BULLETS = int(os.environ.get("AUTOPILOT_MIN_TAILORED_BULLETS", "3"))
 TAILORING_ESCALATION_ORDER = ["off", "honest", "aggressive"]
+
+# Score bands that decide how hard to tailor. Set by the operator: a posting
+# already at or above the submit bar needs no rewriting, one within striking
+# distance gets honest re-emphasis, and one well below gets the strongest
+# framing the underlying facts support.
+TAILORING_HONEST_FLOOR = float(os.environ.get("AUTOPILOT_TAILORING_HONEST_FLOOR", "60.0"))
+
+
+def _tailoring_mode_for_score(score: float, configured_mode: str) -> str:
+    """Pick a tailoring mode from the pre-tailoring match score.
+
+    Bands:
+        >= MIN_MATCH_SCORE_TO_SUBMIT : "off"        - already clears the bar
+        >= TAILORING_HONEST_FLOOR    : "honest"     - near miss, re-emphasise
+        below that                   : "aggressive" - distant, push the framing
+
+    An operator who has explicitly turned tailoring off keeps it off: the bands
+    decide how much to tailor, not whether the feature is enabled at all.
+    """
+    if configured_mode == "off":
+        return "off"
+    if score >= MIN_MATCH_SCORE_TO_SUBMIT:
+        return "off"
+    if score >= TAILORING_HONEST_FLOOR:
+        return "honest"
+    return "aggressive"
 # Launches are staggered just enough to avoid a burst of browser startups.  The
 # former three-second default left most worker slots idle at the start of every
 # batch without improving form reliability.
@@ -1169,15 +1212,30 @@ class AutopilotRunner:
         await asyncio.sleep(0.2)
 
         # Step: FORM_DISCOVERED & LIVE PLAYWRIGHT SUBMISSION
-        from app.db.store import get_kv
+        from app.db.store import get_kv, list_entities
         from app.services.application_assistant.persistence import list_answer_library
         profile: dict[str, Any] = {}
         answer_lib: list[dict[str, Any]] = []
         master_resume: dict[str, Any] = {}
+        documents: dict[str, Any] = {}
+        accomplishments: list[dict[str, Any]] = []
         with session_scope() as db:
             profile = get_kv(db, "profile") or {}
             answer_lib = list_answer_library(db)
             master_resume = get_kv(db, "resume_corpus_master") or {}
+            # Re-scoring the tailored resume needs the same evidence base the
+            # queue scorer used, or a tailored resume would be judged against a
+            # narrower set of facts than the original was and score lower for
+            # no reason.
+            documents = get_kv(db, "documents") or {}
+            try:
+                accomplishments = list_entities(db, "accomplishment")
+            except Exception:  # noqa: BLE001
+                # Optional enrichment for scoring only. Losing it costs some
+                # match accuracy; letting it raise would abort a submission that
+                # is otherwise ready, which is far worse.
+                logger.debug("Could not load accomplishments for match scoring", exc_info=True)
+                accomplishments = []
             tailoring_mode = job_item.get("tailoringMode") or get_settings(db).get("tailoringMode", "honest")
 
         self.log_event(
@@ -1217,30 +1275,143 @@ class AutopilotRunner:
 
         # Preserve the operator's selected mode, even for low-scoring matches.
         submission_profile = dict(profile)
+        try:
+            base_match_score = float(job_item.get("matchScore") or 0.0)
+        except (TypeError, ValueError):
+            base_match_score = 0.0
         from app.services.application_assistant.resume_diff_service import (
             generate_role_tailoring_diff,
             render_tailored_resume_pdf,
         )
 
-        modes_to_try = [tailoring_mode if tailoring_mode in TAILORING_ESCALATION_ORDER else "honest"]
+        # Tailoring effort is chosen by how far the posting starts from the bar.
+        # A near-miss needs its real experience surfaced in the posting's own
+        # vocabulary; a distant one needs the framing pushed as far as the facts
+        # allow. Both modes are bound by the same absolute rule in the tailoring
+        # prompt - employer, product, domain and every number stay exactly as
+        # written - and by _reject_fabrication afterwards, so "aggressive"
+        # amplifies framing, never invents experience.
+        # Tailor, score the document that would actually be submitted, and try
+        # again when it falls short. Each retry is told which requirements the
+        # scorer said were still unevidenced, so attempt two is a targeted
+        # second pass rather than a re-roll of attempt one. The mode escalates
+        # once on the final attempt because a near-miss that honest rewriting
+        # could not close is exactly the case aggressive framing exists for.
+        start_mode = _tailoring_mode_for_score(base_match_score, tailoring_mode)
+        _granular_log(
+            f"Queue match {base_match_score:.0f}% -> tailoring mode '{start_mode}', "
+            f"up to {MAX_TAILORING_ATTEMPTS} attempt(s) against a "
+            f"{MIN_MATCH_SCORE_TO_SUBMIT:.0f}% bar"
+        )
 
         diff_data: dict[str, Any] | None = None
         winning_mode: str | None = None
         best_score = 0.0
+        best_diff: dict[str, Any] | None = None
+        best_mode: str | None = None
+        gaps: list[str] = []
+        best_changed = 0
+        override = job_item.get("manualMatchOverride") is True
+        attempts_log: list[dict[str, Any]] = []
+
         try:
-            for candidate_mode in modes_to_try:
-                candidate_diff = await generate_role_tailoring_diff(job_item, profile, master_resume, mode=candidate_mode)
+            from app.services.application_assistant.tailored_match import describe_gaps
+
+            for attempt in range(1, MAX_TAILORING_ATTEMPTS + 1):
+                # Escalate only on the last attempt, and only upward: an
+                # operator who explicitly chose "off" is not overridden here.
+                candidate_mode = start_mode
+                if (
+                    attempt == MAX_TAILORING_ATTEMPTS
+                    and start_mode == "honest"
+                    and MAX_TAILORING_ATTEMPTS > 1
+                ):
+                    candidate_mode = "aggressive"
+
+                candidate_diff = await generate_role_tailoring_diff(
+                    job_item,
+                    profile,
+                    master_resume,
+                    mode=candidate_mode,
+                    feedback_gaps=gaps or None,
+                    documents=documents,
+                    accomplishments=accomplishments,
+                )
                 score = float(candidate_diff.get("matchScore") or 0)
-                best_score = max(best_score, score)
-                if score >= MIN_MATCH_SCORE_TO_SUBMIT or job_item.get("manualMatchOverride") is True:
+                rescored = bool(candidate_diff.get("matchRescored"))
+                attempts_log.append(
+                    {
+                        "attempt": attempt,
+                        "mode": candidate_mode,
+                        "score": score,
+                        "rescored": rescored,
+                        "gapsTargeted": list(gaps),
+                        "changedBullets": candidate_diff.get("totalChanges"),
+                    }
+                )
+                _granular_log(
+                    f"Attempt {attempt}/{MAX_TAILORING_ATTEMPTS} (mode={candidate_mode}): "
+                    f"tailored resume scores {score:.0f}%"
+                    + ("" if rescored else " [NOT re-scored - local model unavailable]")
+                    + (f", changed {candidate_diff.get('totalChanges')} bullets"
+                       if candidate_diff.get("totalChanges") is not None else "")
+                )
+
+                # Two independent conditions, both required: the document has
+                # to score well enough AND actually be a tailored document.
+                quality = candidate_diff.get("quality") or {}
+                changed = int(quality.get("changed") or candidate_diff.get("totalChanges") or 0)
+
+                if score > best_score or best_diff is None:
+                    best_score, best_diff, best_mode = score, candidate_diff, candidate_mode
+                    best_changed = changed
+                resume_is_good = candidate_mode == "off" or (
+                    not candidate_diff.get("tailoringFailed") and bool(quality.get("ok"))
+                )
+                if not resume_is_good:
+                    problems = "; ".join(str(p) for p in (quality.get("problems") or []))
+                    _granular_log(
+                        f"Score {score:.0f}% clears the bar but the resume does not: "
+                        + (problems or "tailoring fell back to the static template")
+                        + ". Not submitting this."
+                    )
+
+                if (score >= MIN_MATCH_SCORE_TO_SUBMIT or override) and resume_is_good:
                     if score < MIN_MATCH_SCORE_TO_SUBMIT:
-                        _granular_log(f"Explicit Apply overrides match cutoff ({score:.0f}%); preserving {candidate_mode} tailoring and eligibility checks")
+                        _granular_log(
+                            f"Explicit Apply overrides the match cutoff ({score:.0f}%); "
+                            f"keeping {candidate_mode} tailoring and all eligibility checks"
+                        )
                     diff_data = candidate_diff
                     winning_mode = candidate_mode
                     break
-                _granular_log(f"Match score {score:.0f}% below {MIN_MATCH_SCORE_TO_SUBMIT:.0f}% in selected mode={candidate_mode}; preserving selected mode")
+
+                # A rewrite that could not be scored must not drive a retry:
+                # the score did not fall short, it never existed, and re-running
+                # would just burn a second model call on the same blind guess.
+                if not rescored:
+                    _granular_log(
+                        "Tailored resume could not be re-scored, so there is nothing to "
+                        "improve against; stopping after this attempt."
+                    )
+                    break
+
+                gaps = describe_gaps(
+                    {"missingSkills": candidate_diff.get("missingSkills") or []}
+                )
+                if attempt < MAX_TAILORING_ATTEMPTS:
+                    _granular_log(
+                        f"{score:.0f}% is below the {MIN_MATCH_SCORE_TO_SUBMIT:.0f}% bar; "
+                        "retrying against the gaps the scorer found: "
+                        + (", ".join(gaps[:6]) if gaps else "none reported")
+                    )
+
+            job_item["tailoringAttempts"] = attempts_log
         except Exception as e:
-            logger.warning("Resume tailoring/match-scoring failed for %s (mode=%s): %s", company, tailoring_mode, e)
+            logger.warning(
+                "Resume tailoring/match-scoring failed for %s (mode=%s): %s",
+                company, tailoring_mode, e,
+            )
 
         if self._stop_requested:
             job_item["status"] = AutopilotJobStatus.QUEUED.value
@@ -1250,7 +1421,23 @@ class AutopilotRunner:
             return
 
         if winning_mode is None or diff_data is None:
-            skip_reason = f"Match score stayed below {MIN_MATCH_SCORE_TO_SUBMIT:.0f}% even after tailoring (best {best_score:.0f}%)"
+            attempted = len(job_item.get("tailoringAttempts") or []) or 1
+            skip_reason = (
+                f"Match score stayed below {MIN_MATCH_SCORE_TO_SUBMIT:.0f}% after "
+                f"{attempted} tailoring attempt(s) (best {best_score:.0f}%, "
+                f"queue score {base_match_score:.0f}%)"
+            )
+            if best_changed < MIN_TAILORED_BULLETS:
+                skip_reason = (
+                    f"Resume was not usefully tailored after "
+                    f"{len(job_item.get('tailoringAttempts') or []) or 1} attempt(s): only "
+                    f"{best_changed} bullet(s) changed (need {MIN_TAILORED_BULLETS}); "
+                    f"best score {best_score:.0f}%"
+                )
+            if best_diff and best_diff.get("missingSkills"):
+                skip_reason += "; still unevidenced: " + ", ".join(
+                    str(m) for m in best_diff["missingSkills"][:6]
+                )
             self.log_event(
                 f"{w_prefix}Skipped {company} — {title}: {skip_reason}",
                 level="warning",

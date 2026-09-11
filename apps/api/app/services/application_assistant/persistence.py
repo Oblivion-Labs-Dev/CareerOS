@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import re
 from typing import Any
 from urllib.parse import parse_qs, urlparse
@@ -9,15 +10,19 @@ from urllib.parse import parse_qs, urlparse
 from sqlalchemy.orm import Session
 
 from app.db.store import (
+    EntityStore,
     delete_entity,
     get_entity,
     get_kv,
     list_entities,
+    list_entities_by_json_equals,
     new_id,
     now_iso,
     set_kv,
     upsert_entity,
 )
+
+logger = logging.getLogger("career_os.application_assistant.persistence")
 from app.services.application_assistant.demo_data import is_demo_application, is_demo_job
 from app.services.application_assistant.domain import (
     ApplicationStatus,
@@ -42,10 +47,23 @@ KV_SETTINGS = "application_assistant_settings"
 # reads this same mode — Off skips rewriting entirely, Honest/Aggressive both
 # stay evidence-grounded (the generator never fabricates), differing only in
 # phrasing latitude.
+# How hard to tailor the resume, and how confident an answer must be before it
+# is filled into a form, are two unrelated decisions. They used to ride on one
+# setting: choosing "aggressive" tailoring also dropped the auto-accept
+# threshold from 0.90 to 0.75 and the review threshold from 0.70 to 0.50, so
+# asking for stronger resume wording quietly made the system fill in form
+# answers it was far less sure about - on exactly the postings the candidate
+# matches worst, since that is when aggressive mode is selected.
+#
+# Form-answering confidence is now fixed across modes. Tailoring mode governs
+# the resume only. Override the thresholds explicitly if they ever need to
+# change; they must not move as a side effect of a tailoring choice.
+_FORM_ANSWER_CONFIDENCE = {"autoAcceptConfidence": 0.90, "reviewConfidence": 0.70}
+
 TAILORING_MODE_PRESETS: dict[str, dict[str, Any]] = {
-    "off": {"allowInferredAnswers": False, "autoAcceptConfidence": 0.90, "reviewConfidence": 0.70},
-    "honest": {"allowInferredAnswers": True, "autoAcceptConfidence": 0.90, "reviewConfidence": 0.70},
-    "aggressive": {"allowInferredAnswers": True, "autoAcceptConfidence": 0.75, "reviewConfidence": 0.50},
+    "off": {"allowInferredAnswers": False, **_FORM_ANSWER_CONFIDENCE},
+    "honest": {"allowInferredAnswers": True, **_FORM_ANSWER_CONFIDENCE},
+    "aggressive": {"allowInferredAnswers": True, **_FORM_ANSWER_CONFIDENCE},
 }
 
 
@@ -567,12 +585,94 @@ def _invalidate_autopilot_jobs_cache() -> None:
     read_cache.invalidate(AUTOPILOT_JOBS_CACHE_KEY)
 
 
+# Statuses a job can sit in where there is still something to do. A duplicate
+# record in any of these keeps a posting on a list the user works through, even
+# after the application has actually been sent.
+_OPEN_AUTOPILOT_STATUSES = (
+    "DISCOVERED", "SCORED", "QUEUED", "APPLYING", "STAGED", "NEEDS_REVIEW",
+    "MANUAL_REVIEW", "FAILED",
+)
+
+
+def canonical_application_url(url: str | None) -> str:
+    """Comparable form of an application URL, ignoring tracking query strings."""
+    if not url:
+        return ""
+    return str(url).split("?")[0].split("#")[0].rstrip("/").strip().lower()
+
+
+def close_duplicate_applications(db: Session, submitted_job: dict[str, Any]) -> list[str]:
+    """Retire other records for a posting that has now been applied to.
+
+    The same posting reaches the queue more than once (re-discovered in a later
+    scrape, re-imported by hand, re-queued after an earlier attempt failed), and
+    nothing deduplicated the queue by application URL. So submitting one record
+    left its siblings sitting in QUEUED/NEEDS_REVIEW, and the posting still
+    looked unsubmitted on the list the user works through - which is exactly how
+    a manually-completed Okta application read as "not marked as submitted"
+    while its own record said SUBMITTED all along.
+
+    Only open statuses are touched; an already-terminal sibling is left alone.
+    Returns the ids that were retired.
+    """
+    raw_url = submitted_job.get("applicationUrl")
+    target = canonical_application_url(raw_url)
+    if not target:
+        return []
+    submitted_id = submitted_job.get("id")
+    retired: list[str] = []
+
+    # Candidates come from the applicationUrl index where the stored URL matches
+    # exactly, which covers the common case of the same posting re-imported. The
+    # canonical comparison below still runs, because two records can differ only
+    # by a tracking query string and those must still collapse - so when the
+    # exact lookup finds nothing, fall back to scanning rather than miss them.
+    candidates = list_entities_by_json_equals(
+        db, ENTITY_AUTOPILOT_JOB, "$.applicationUrl", raw_url
+    )
+    if not any(c.get("id") != submitted_id for c in candidates):
+        candidates = list_entities(db, ENTITY_AUTOPILOT_JOB)
+
+    for other in candidates:
+        if other.get("id") == submitted_id:
+            continue
+        if other.get("status") not in _OPEN_AUTOPILOT_STATUSES:
+            continue
+        if canonical_application_url(other.get("applicationUrl")) != target:
+            continue
+        other["previousStatus"] = other.get("status")
+        other["status"] = "INELIGIBLE"
+        other["ineligibilityReason"] = "DUPLICATE_APPLICATION"
+        other["lastError"] = (
+            f"Already applied to this posting (see {submitted_id})"
+            if submitted_id
+            else "Already applied to this posting"
+        )
+        other["updatedAt"] = now_iso()
+        upsert_entity(db, ENTITY_AUTOPILOT_JOB, other)
+        retired.append(str(other.get("id")))
+    if retired:
+        logger.info(
+            "Retired %d duplicate application record(s) for %s", len(retired), target
+        )
+    return retired
+
+
 def save_autopilot_job(db: Session, payload: dict[str, Any]) -> dict[str, Any]:
     if "id" not in payload:
         payload["id"] = new_id("apjob_")
     if "discoveredAt" not in payload:
         payload["discoveredAt"] = now_iso()
     saved = upsert_entity(db, ENTITY_AUTOPILOT_JOB, payload)
+    # Every path that marks a job submitted - the executor, the assisted-fill
+    # hand-off, the "mark submitted" button, the inbox reconciler and the
+    # submission watcher - funnels through here, so retiring duplicates at this
+    # one point covers all of them instead of five separate call sites.
+    if saved.get("status") == "SUBMITTED":
+        try:
+            close_duplicate_applications(db, saved)
+        except Exception:
+            logger.exception("Could not retire duplicates for %s", saved.get("id"))
     _invalidate_autopilot_jobs_cache()
     return saved
 
@@ -589,32 +689,73 @@ def delete_autopilot_job(db: Session, job_app_id: str) -> bool:
 
 
 def list_autopilot_jobs(db: Session, status: str | None = None) -> list[dict[str, Any]]:
-    jobs = list_entities(db, ENTITY_AUTOPILOT_JOB)
+    """Autopilot jobs, newest first, optionally narrowed to one status.
+
+    A status filter is pushed into SQLite so it resolves through
+    ix_entities_status instead of loading every job for the type and comparing
+    in Python. Same inputs, same ordering, same output - only the work changes.
+    """
     if status:
-        jobs = [j for j in jobs if j.get("status") == status]
+        jobs = list_entities_by_json_equals(db, ENTITY_AUTOPILOT_JOB, "$.status", status)
+    else:
+        jobs = list_entities(db, ENTITY_AUTOPILOT_JOB)
     jobs.sort(key=lambda j: str(j.get("queuedAt") or j.get("discoveredAt") or ""), reverse=True)
     return jobs
 
 
 def claim_job_lock(db: Session, job_app_id: str, worker_id: str, lease_seconds: int = 300) -> bool:
-    job = get_autopilot_job(db, job_app_id)
-    if not job:
-        return False
+    """Take the lease on a job, or return False if another worker holds it.
+
+    The claim is a single conditional UPDATE. It used to read the job, check
+    lockedBy, then write in a separate statement - check-then-act, with a window
+    in between where a second worker could read the same unlocked row and also
+    decide it had won. Both would write their own lock and both would go on to
+    submit, which on this system means applying twice to one posting.
+
+    The window is invisible while concurrency is 1, but concurrency is a
+    caller-supplied option, so the race was one config change away from being
+    real. SQLite serialises writers, so a WHERE clause that re-checks the lock
+    makes the claim atomic: exactly one UPDATE matches, and rowcount says who.
+    """
+    from datetime import UTC, datetime, timedelta
+
+    from sqlalchemy import func, or_, update
+
     now = now_iso()
-    locked_by = job.get("lockedBy")
-    lock_expires = job.get("lockExpiresAt")
+    expires_at = (datetime.now(UTC) + timedelta(seconds=lease_seconds)).isoformat()
 
-    # Check if currently locked by someone else and lock hasn't expired
-    if locked_by and locked_by != worker_id and lock_expires and lock_expires > now:
+    locked_by = func.json_extract(EntityStore.payload, "$.lockedBy")
+    lock_expires = func.json_extract(EntityStore.payload, "$.lockExpiresAt")
+
+    statement = (
+        update(EntityStore)
+        .where(EntityStore.id == job_app_id)
+        .where(EntityStore.entity_type == ENTITY_AUTOPILOT_JOB)
+        .where(
+            or_(
+                locked_by.is_(None),          # never locked
+                locked_by == "",              # lock explicitly released
+                locked_by == worker_id,       # our own lease, being extended
+                lock_expires.is_(None),       # locked without an expiry - stale
+                lock_expires <= now,          # lease ran out (ISO-8601 sorts)
+            )
+        )
+        .values(
+            payload=func.json_set(
+                EntityStore.payload,
+                "$.lockedBy", worker_id,
+                "$.lockedAt", now,
+                "$.lockExpiresAt", expires_at,
+            )
+        )
+        .execution_options(synchronize_session=False)
+    )
+
+    result = db.execute(statement)
+    if not result.rowcount:
         return False
-
-    from datetime import datetime, timedelta, timezone
-    expires_at = (datetime.now(timezone.utc) + timedelta(seconds=lease_seconds)).isoformat()
-
-    job["lockedBy"] = worker_id
-    job["lockedAt"] = now
-    job["lockExpiresAt"] = expires_at
-    upsert_entity(db, ENTITY_AUTOPILOT_JOB, job)
+    db.flush()
+    _invalidate_autopilot_jobs_cache()
     return True
 
 

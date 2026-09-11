@@ -73,12 +73,12 @@ def get_resume_upload_payload(profile: dict[str, Any]) -> str:
     A tailored resume is stored on disk under a job-id-keyed filename (so
     concurrent jobs never collide and the file used for a given submission
     stays traceable), but that internal filename must never be what actually
-    reaches the employer — set_input_files uploads a file under its own
+    reaches the employer - set_input_files uploads a file under its own
     on-disk basename, so a name like "apjob_<uuid>_aggressive.pdf" would be
     exactly what the ATS sees, reading as obviously machine-generated. Stage
     a copy under the candidate's normal resume filename, in a job-id-keyed
     subfolder so concurrent workers still never collide, and upload that
-    instead — the original tailored file on disk keeps its traceable name.
+    instead - the original tailored file on disk keeps its traceable name.
     """
     resolved = get_active_resume_path(profile)
     if not resolved:
@@ -97,7 +97,51 @@ def get_resume_upload_payload(profile: dict[str, Any]) -> str:
         return resolved
 
 
-async def _extract_dom_form_state(page: Page) -> tuple[list[dict[str, Any]], list[str]]:
+async def _expand_combobox_options(page: Page, fields: list[dict[str, Any]], limit: int = 30) -> None:
+    """Fill in option lists for comboboxes whose menu only exists while open.
+
+    Greenhouse's custom dropdowns render no options until clicked and expose no
+    aria-controls listbox, so a DOM read alone returns an empty option list.
+    That is why questions the profile could answer - "Have you been employed by
+    <company>", "are you open to relocation" - reached Review with
+    {fieldType: "div", options: []}: the resolver had no options to match.
+
+    Each menu is opened, read and closed again with Escape. Failures are
+    ignored per field: a widget that will not open is no worse off than before.
+    """
+    opened = 0
+    for field in fields:
+        if opened >= limit:
+            break
+        if not field.get("isCombobox") or field.get("options"):
+            continue
+        idx = field.get("idx")
+        if idx is None:
+            continue
+        try:
+            handle = page.locator('input:not([type="hidden"]), textarea:not(.g-recaptcha-response):not([name*="recaptcha"]), select, [role="combobox"]').nth(int(idx))
+            await handle.scroll_into_view_if_needed(timeout=2500)
+            await handle.click(timeout=2500)
+            await asyncio.sleep(0.45)
+            options = await page.evaluate(
+                "() => [...document.querySelectorAll('[role=\"option\"]')]"
+                ".filter(o => o.offsetParent !== null)"
+                ".map(o => (o.innerText || '').trim()).filter(Boolean).slice(0, 60)"
+            )
+            if options:
+                field["options"] = options
+            opened += 1
+        except Exception:
+            continue
+        finally:
+            try:
+                await page.keyboard.press("Escape")
+                await asyncio.sleep(0.15)
+            except Exception:
+                pass
+
+
+async def _extract_dom_form_state(page: Page, expand_comboboxes: bool = False) -> tuple[list[dict[str, Any]], list[str]]:
     """Extract full DOM state of all form inputs, comboboxes, and validation errors."""
     js_code = """
     () => {
@@ -159,18 +203,18 @@ async def _extract_dom_form_state(page: Page) -> tuple[list[dict[str, Any]], lis
                 continue;
             }
 
-            // A radio *group* is one question — querySelectorAll returns every
+            // A radio *group* is one question - querySelectorAll returns every
             // individual <input> in it, so without dedup the same question
             // shows up once per option, each independently guessing its own
             // label via the (fragile) per-element fallback below. Two inputs
             // in the same group can land on different, wrong ancestor divs and
-            // report different labels for what is really one question — one of
+            // report different labels for what is really one question - one of
             // which can end up matching a *different* field's resolved answer
             // during verification (observed live: a location answer flagged as
             // conflicting with an unrelated Yes/No radio's selected value).
             // Emit exactly one entry per group, labeled via fieldset/legend
-            // first — the same reliable signal the fill-side logic already
-            // prefers for these groups — before falling back to nearby text.
+            // first - the same reliable signal the fill-side logic already
+            // prefers for these groups - before falling back to nearby text.
             if (inputType === 'radio' && name) {
                 if (seenRadioNames[name]) continue;
                 seenRadioNames[name] = true;
@@ -234,6 +278,30 @@ async def _extract_dom_form_state(page: Page) -> tuple[list[dict[str, Any]], lis
             // pre-submit healer gets a chance to resolve them.
             var isRequired = el.required || el.getAttribute('aria-required') === 'true' || el.getAttribute('aria-invalid') === 'true' || label.indexOf('*') !== -1;
 
+            // Option list. Without this the resolver was handed
+            // {fieldType: "div", options: []} for every custom dropdown and had
+            // nothing to match against, so the question went to Review even
+            // when the profile held the answer. Native selects and comboboxes
+            // that point at a listbox can be read right here; the ones whose
+            // menu only exists while open are handled by the Python pass below.
+            var opts = [];
+            if (el.tagName.toLowerCase() === 'select') {
+                for (var oi = 0; oi < el.options.length; oi++) {
+                    var otext = (el.options[oi].text || '').trim();
+                    if (otext) opts.push(otext);
+                }
+            } else if (isCombobox) {
+                var lbId = el.getAttribute('aria-controls') || el.getAttribute('aria-owns') || '';
+                var lb = lbId ? document.getElementById(lbId) : null;
+                if (lb) {
+                    var lopts = lb.querySelectorAll('[role="option"], option');
+                    for (var li = 0; li < lopts.length; li++) {
+                        var ltext = (lopts[li].innerText || lopts[li].textContent || '').trim();
+                        if (ltext) opts.push(ltext);
+                    }
+                }
+            }
+
             fields.push({
                 idx: i,
                 id: id,
@@ -244,7 +312,8 @@ async def _extract_dom_form_state(page: Page) -> tuple[list[dict[str, Any]], lis
                 isCombobox: isCombobox,
                 checked: !!el.checked,
                 required: isRequired,
-                value: val
+                value: val,
+                options: opts
             });
         }
 
@@ -253,7 +322,10 @@ async def _extract_dom_form_state(page: Page) -> tuple[list[dict[str, Any]], lis
     """
     try:
         data = await page.evaluate(js_code)
-        return data.get("fields", []), data.get("errors", [])
+        fields = data.get("fields", [])
+        if expand_comboboxes and fields:
+            await _expand_combobox_options(page, fields)
+        return fields, data.get("errors", [])
     except Exception as ex:
         logger.warning("Error extracting DOM state: %s", ex)
         return [], []
@@ -263,7 +335,7 @@ def _keyboard(page: Any) -> Any:
     """Return a real Keyboard for either a Page or a Frame.
 
     Greenhouse's application form is frequently reached as a Frame, and Frame
-    has no `.keyboard` — only Page does. Every `page.keyboard...` call in the
+    has no `.keyboard` - only Page does. Every `page.keyboard...` call in the
     fill path therefore raised AttributeError the moment the form lived in a
     frame, and those raises were caught and logged at debug level, so whole
     passes (notably the searchable-combobox typing pass that fills School and
@@ -343,7 +415,7 @@ async def _select_react_combobox(page: Any, cb_id: str, search_text: str) -> str
                     break
 
                 # "male" is literally a substring of "female", so containment
-                # alone can match the wrong option — only accept it as a
+                # alone can match the wrong option - only accept it as a
                 # fallback, and never let it beat an exact match found later.
                 is_gender_collision = (
                     (clean_search == "male" and "female" in opt_text_lower)
@@ -374,7 +446,7 @@ async def _select_react_combobox(page: Any, cb_id: str, search_text: str) -> str
 
             # Only click a real match. Falling back to "whichever option is
             # first" when nothing matches search_text isn't a fallback, it's a
-            # fabricated answer — observed live: a bad search term ("Auburn")
+            # fabricated answer - observed live: a bad search term ("Auburn")
             # against a Yes/No dropdown blindly clicked "Yes" (the first
             # option), then the caller recorded the *original* search term as
             # the intended answer, guaranteeing a nonsensical mismatch against
@@ -482,7 +554,7 @@ async def _select_radio_option(page_or_frame: Any, field_id: str, value: str) ->
 # Categories the candidate should never volunteer into an OPTIONAL field.
 # Per an explicit standing instruction: CareerOS fills a field only when the
 # application actually requires it. These are all legally-voluntary or
-# negotiation-sensitive disclosures — demographics, pay, academic scores — and
+# negotiation-sensitive disclosures - demographics, pay, academic scores - and
 # offering them unprompted just hands the employer extra grounds to screen on.
 # A REQUIRED field of the same type is still answered normally; the rule is
 # about volunteering, not about refusing to answer.
@@ -511,7 +583,7 @@ async def _fill_all_greenhouse_comboboxes(
 
     Returns (filled, filled_ids): filled_ids maps the same label keys to the
     live DOM element id so callers can rebuild an AnswerResolution with
-    field_id set — without it, DOM verification has to pair an answer back to
+    field_id set - without it, DOM verification has to pair an answer back to
     its element by fuzzy label matching, which can pair the wrong two fields.
     """
     filled: dict[str, str] = {}
@@ -522,7 +594,7 @@ async def _fill_all_greenhouse_comboboxes(
     # (nth-indexed) references: clicking an earlier combobox's autocomplete
     # suggestion can insert/remove sibling DOM nodes, which reflows those
     # positional locators onto a *different* physical element for later
-    # iterations — observed as e.g. the Location field's resolved answer
+    # iterations - observed as e.g. the Location field's resolved answer
     # ("Auburn, WA") getting compared against a completely unrelated Yes/No
     # combobox's live DOM value during verification. Re-locating by id each
     # iteration keeps every action bound to the same physical element
@@ -583,7 +655,7 @@ async def _fill_all_greenhouse_comboboxes(
             # Some Greenhouse comboboxes (observed live on the EEOC Gender
             # field) arrive with a real value already pre-selected before any
             # autofill runs, rather than starting blank. Capture that closed-
-            # state value now, before we open the menu — if the resolved
+            # state value now, before we open the menu - if the resolved
             # answer later turns out to already match it, we skip touching
             # the control entirely rather than opening/clicking it and
             # risking an unnecessary re-selection landing on the wrong option.
@@ -614,7 +686,7 @@ async def _fill_all_greenhouse_comboboxes(
             # Greenhouse form are routinely still mounting when their turn comes,
             # and both the click and the ArrowDown retry then land on a control
             # that is not listening yet. Observed live on Robinhood's "preferred
-            # office location" and "disability status" — two *required* fields
+            # office location" and "disability status" - two *required* fields
             # that read zero options and were dropped without a trace. The third
             # pass re-clicks after a longer settle.
             for attempt in range(3):
@@ -641,7 +713,7 @@ async def _fill_all_greenhouse_comboboxes(
             # SCOPED TO THIS COMBOBOX ONLY. This used to run a document-wide
             # querySelectorAll for '.select__option, [role="option"]', which
             # silently read *another* field's open menu whenever this control
-            # failed to open — and Greenhouse renders its phone country-code
+            # failed to open - and Greenhouse renders its phone country-code
             # picker as a React-Select (.select__option), so the old
             # '.iti, .iti__country-list' exclusion never caught it. Observed
             # live: "In which country/region do you have citizenship?" was
@@ -687,7 +759,7 @@ async def _fill_all_greenhouse_comboboxes(
 
             if not available_options:
                 # A searchable/async React-Select renders its menu only once
-                # something has been typed — Greenhouse's School and Discipline
+                # something has been typed - Greenhouse's School and Discipline
                 # fields are exactly this. An empty menu here therefore does not
                 # mean the control is broken or optional; it means the option
                 # list does not exist until a search runs. Resolve without an
@@ -705,11 +777,11 @@ async def _fill_all_greenhouse_comboboxes(
                 if not probe.answer:
                     # Never drop a control silently. A required dropdown that yields
                     # no options is indistinguishable, in the logs, from one that was
-                    # deliberately skipped — which is exactly why two required
+                    # deliberately skipped - which is exactly why two required
                     # Robinhood fields sat empty with nothing recorded anywhere to
                     # say why the run had not touched them.
                     logger.warning(
-                        "Combobox '%s' (id=%s) opened no options%s — leaving it empty",
+                        "Combobox '%s' (id=%s) opened no options%s - leaving it empty",
                         lbl_text[:60], cid, " [REQUIRED]" if is_required else "",
                     )
                     await _keyboard(page).press("Escape")
@@ -720,7 +792,7 @@ async def _fill_all_greenhouse_comboboxes(
             elif len(available_options) == 1:
                 # A field with exactly one real option (e.g. a GDPR/data-
                 # processing "Acknowledge/Confirm" disclosure) isn't a
-                # judgment call — there's nothing to classify or guess,
+                # judgment call - there's nothing to classify or guess,
                 # since selecting it is the only possible action. Requiring
                 # resolve_answer to recognize the question type first was
                 # leaving these permanently blank and staged for review even
@@ -738,7 +810,7 @@ async def _fill_all_greenhouse_comboboxes(
                 # ── Check if this is a phone country-CODE dropdown, not a plain country-NAME field ──
                 # A plain "Country" (of residence) dropdown also has 100+
                 # options and trivially contains "united states" as one of
-                # them — that old check misclassified genuine country
+                # them - that old check misclassified genuine country
                 # fields as the phone dial-code field, resolving them to
                 # "United States +1" instead of "United States", which then
                 # can't be selected in a country-name-only dropdown and
@@ -751,7 +823,7 @@ async def _fill_all_greenhouse_comboboxes(
                 # ── Centralized resolution (replaces all if/elif heuristics) ──
                 # field_id=cid lets DOM verification match this resolution back to
                 # its exact DOM element by id instead of by label-text comparison
-                # against a separately-computed label from DOM-state extraction —
+                # against a separately-computed label from DOM-state extraction -
                 # two independent label lookups that don't always agree on wording,
                 # which otherwise falls back to substring matching and can pair a
                 # resolution with a different field's selected value entirely.
@@ -789,7 +861,7 @@ async def _fill_all_greenhouse_comboboxes(
             target_lower = target_text.strip().lower()
 
             # 1. Exact or partial match click via fast locator. Exact matches
-            # are checked across every option before any substring fallback —
+            # are checked across every option before any substring fallback -
             # Playwright's `has_text` filter does case-insensitive substring
             # matching, so a naive `.filter(has_text="Male")` also matches the
             # "Female" option (since "female" literally contains "male"), and
@@ -813,7 +885,7 @@ async def _fill_all_greenhouse_comboboxes(
                     # Containment across comma-separated place names picks the
                     # wrong place: "seattle, wa" is a substring of "South
                     # Seattle, Washington, United States", and whichever such
-                    # option happens to come first in the menu was accepted —
+                    # option happens to come first in the menu was accepted -
                     # which is how a correctly-selected "Seattle, Washington,
                     # United States" got replaced with a city the candidate
                     # does not live in. Require the leading segment to agree
@@ -847,7 +919,7 @@ async def _fill_all_greenhouse_comboboxes(
                     # options; Greenhouse's School field takes ~1.5s to answer,
                     # and until it does the menu still shows the *pre-typing*
                     # default list. Waiting for a non-empty menu is therefore
-                    # not enough — that list was never empty. Re-scan until a
+                    # not enough - that list was never empty. Re-scan until a
                     # real match for what we typed shows up, and only settle
                     # for a positional fallback once the search has had time.
                     chosen = None
@@ -929,7 +1001,7 @@ async def _fill_greenhouse_employment_rows(
     comboboxes and are handled by the existing combobox pass; only the text
     inputs and the "Current role" checkbox are driven here.
 
-    Every value comes from profile["workExperience"] via resolve_answer — a row
+    Every value comes from profile["workExperience"] via resolve_answer - a row
     the profile does not have stays empty rather than being invented.
     """
     filled: dict[str, str] = {}
@@ -942,7 +1014,7 @@ async def _fill_greenhouse_employment_rows(
     )
 
     # Tick "Current role" first. It is what makes an ongoing job truthful on this
-    # form, and Greenhouse disables that row's end-date inputs once it is set —
+    # form, and Greenhouse disables that row's end-date inputs once it is set -
     # so doing it before anything else also stops the verifier from reporting
     # those (now inapplicable) required fields as unfilled.
     current_ids: list[str] = await page.eval_on_selector_all(
@@ -1050,7 +1122,7 @@ def _pick_location_option(
 
     City names are not unique across states: typing "Auburn" for a candidate in
     Auburn, Washington offers Auburn, Alabama first, and a match on the leading
-    segment alone happily takes it — which is how a real application went out
+    segment alone happily takes it - which is how a real application went out
     saying the candidate lives in Alabama. So the state has to agree too, and a
     city-only match is accepted only when nothing better exists and the
     candidate's state is unknown.
@@ -1290,7 +1362,7 @@ async def _fill_standard_and_react_fields(
 ) -> tuple[dict[str, str], dict[str, str]]:
     """Execute primary field filling across standard inputs and React comboboxes.
 
-    Returns (filled, filled_ids) — see _fill_all_greenhouse_comboboxes for why
+    Returns (filled, filled_ids) - see _fill_all_greenhouse_comboboxes for why
     filled_ids (label -> live DOM element id) matters for verification.
     """
     filled: dict[str, str] = {}
@@ -1501,7 +1573,7 @@ async def _fill_standard_and_react_fields(
                 target_lower = resolution.answer.strip().lower()
                 # Exact match first: substring containment alone is unsafe for
                 # short answers like "Male", which is literally a substring of
-                # "Female" ("fe-male") — checking containment before equality
+                # "Female" ("fe-male") - checking containment before equality
                 # let a "Male" intent select the "Female" option whenever
                 # Female happened to come first in the dropdown's option order.
                 chosen_opt = None
@@ -1553,7 +1625,7 @@ async def _fill_standard_and_react_fields(
     # Radio button groups (Yes/No and other single-choice questions rendered
     # as radio inputs rather than <select>/combobox). Previously these were
     # only ever filled during a self-healing retry *after* a failure was
-    # already detected — never on the first pass — which is why required
+    # already detected - never on the first pass - which is why required
     # Yes/No questions like "willing to relocate?" consistently landed empty
     # at DOM-verification time even though an answer had already been
     # resolved and marked verified.
@@ -1611,7 +1683,7 @@ async def _fill_standard_and_react_fields(
             if not group_lbl:
                 # Last resort: some Greenhouse demographic questions render
                 # without any field/form-group wrapper class, only a bare
-                # ancestor <div>/<fieldset> — without a label these groups
+                # ancestor <div>/<fieldset> - without a label these groups
                 # were silently skipped forever (never even attempted),
                 # showing up at DOM-verification time as "an unlabeled
                 # field" left empty. Walk up to the nearest container that
@@ -1644,7 +1716,7 @@ async def _fill_standard_and_react_fields(
     # radio group or combobox. The existing checkbox loop above only ever
     # checks boxes whose own label mentions "consent"/"agree"/etc., so a
     # Yes/No/Not-Applicable-as-checkboxes question was silently skipped
-    # every time — this handles fieldset-grouped checkboxes as their own
+    # every time - this handles fieldset-grouped checkboxes as their own
     # single-choice question, resolved the same way as a radio group.
     checkbox_group_fieldsets = await page.locator('fieldset:has(input[type="checkbox"])').all()
     for fieldset in checkbox_group_fieldsets:
@@ -1660,7 +1732,7 @@ async def _fill_standard_and_react_fields(
             box_count = await boxes.count()
             if box_count < 2:
                 # A single checkbox under a fieldset is the plain consent
-                # case the loop above already owns — not a choice group.
+                # case the loop above already owns - not a choice group.
                 continue
 
             options: list[str] = []
@@ -1703,7 +1775,7 @@ async def _fill_standard_and_react_fields(
                 # Neither clicking the raw <input> nor its <label> reliably
                 # flips these custom-styled checkboxes (confirmed live:
                 # Playwright reports each click completed but .checked never
-                # changes) — this is a React-controlled input that needs its
+                # changes) - this is a React-controlled input that needs its
                 # real DOM property set plus native input/change/click events
                 # dispatched for React's synthetic event system to notice.
                 target_box = page.locator(f'[id="{chosen_id}"]').first
@@ -1734,7 +1806,7 @@ async def _fill_standard_and_react_fields(
     # carries its option text in `name` rather than in a label.
     #
     # Left undiscovered, these questions were never filled and the
-    # pre-submission review reported "0 missing required" — Ramp then rejected
+    # pre-submission review reported "0 missing required" - Ramp then rejected
     # the application for a missing required field ("What are your pronouns?")
     # that automation had never even seen.
     try:
@@ -1782,7 +1854,7 @@ async def _fill_standard_and_react_fields(
             )
             if not resolution.answer or resolution.blocking_errors:
                 # Nothing in the profile answers this. Leaving it blank is
-                # correct — inventing a pronoun or a language is exactly the
+                # correct - inventing a pronoun or a language is exactly the
                 # kind of fabrication this must never do.
                 continue
 
@@ -1851,7 +1923,7 @@ async def _fill_standard_and_react_fields(
             # production experience..." line when nothing matched. Two things
             # went wrong with that, both observed on real submissions:
             #
-            #  * The substring tests are far too loose — "ai" is inside
+            #  * The substring tests are far too loose - "ai" is inside
             #    "expl-ai-n", so "Please explain." selected the AI/LLM blurb and
             #    answered a question about Python backend work, and another
             #    about Flyte/Airflow ETL pipelines, with a claim about LLM
@@ -1878,7 +1950,7 @@ async def _fill_standard_and_react_fields(
                 continue
 
             await ta.fill(essay_ans)
-            # Store the full answer, not a truncated preview — this dict feeds
+            # Store the full answer, not a truncated preview - this dict feeds
             # DOM verification later (via form_resolutions), which compares it
             # against the live textarea's full value. A truncated "...' stored
             # here always mismatches the real value, staging every essay-style
@@ -1924,7 +1996,7 @@ async def _fill_standard_and_react_fields(
 
             # Ask the centralised resolver first. The if/elif chain below only
             # knows a fixed list of Greenhouse-style labels, so on any other ATS
-            # it recognised nothing and the whole form was left blank — Ashby
+            # it recognised nothing and the whole form was left blank - Ashby
             # names its custom fields with bare UUIDs ("Preferred FULL Name",
             # "Legal FULL Name", "Mobile Phone", "Location - Zip Code"), which
             # the resolver answers correctly but this pass never asked it about.
@@ -1967,7 +2039,7 @@ async def _fill_standard_and_react_fields(
             elif "portfolio" in inp_lbl_lower or "website" in inp_lbl_lower:
                 # Never invent a URL here. This previously fell back to a
                 # hardcoded "https://amsborse.github.io/resume", which does not
-                # exist (404) — real applications went out carrying a dead link
+                # exist (404) - real applications went out carrying a dead link
                 # as the candidate's portfolio. With no portfolio on the profile
                 # the honest substitute is another site the candidate actually
                 # has; if there is none, leave the field alone and let the
@@ -1995,6 +2067,21 @@ async def _fill_standard_and_react_fields(
     return filled, filled_ids
 
 
+async def _page_has_form_inputs(scope: Any) -> bool:
+    """Whether this page actually shows an application form right now.
+
+    Replaces a hostname guess. The only reliable signal that no navigation is
+    needed is the presence of real form controls.
+    """
+    try:
+        return await scope.locator(
+            'input[type="file"], input[type="email"], input[name*="first_name" i], '
+            'input[name="name"], input[autocomplete="given-name"]'
+        ).count() > 0
+    except Exception:
+        return False
+
+
 async def execute_live_playwright_submission(
     job_item: dict[str, Any],
     profile: dict[str, Any],
@@ -2003,17 +2090,17 @@ async def execute_live_playwright_submission(
     timeout_sec: float = 75.0,
     log_callback: Any = None,
     fill_only: bool = False,
-    hand_off_seconds: float = 0.0,
+    hand_off_seconds: float | None = 0.0,
 ) -> dict[str, Any]:
     """Run the submission on the dedicated Proactor-loop thread (see browser_runner._ensure_playwright_loop).
 
     Playwright's browser launch spawns a subprocess via asyncio, which raises a bare
-    NotImplementedError on Windows if it runs on the ambient (non-Proactor) event loop —
+    NotImplementedError on Windows if it runs on the ambient (non-Proactor) event loop -
     e.g. uvicorn's own request-handling loop under `--reload` (uvicorn forces
     SelectorEventLoop for its reloaded worker process, see uvicorn/loops/asyncio.py).
 
     This used to run the impl directly first and only fall back to the dedicated
-    Proactor thread on `except NotImplementedError` — but that exception is raised
+    Proactor thread on `except NotImplementedError` - but that exception is raised
     inside Playwright's own internal driver-connection task (`Connection.run()`),
     which is scheduled fire-and-forget (`Task exception was never retrieved` in the
     logs) rather than propagated synchronously to the awaited call here. So the
@@ -2037,7 +2124,11 @@ async def execute_live_playwright_submission(
                 fill_only=fill_only,
                 hand_off_seconds=hand_off_seconds,
             ),
-            timeout=timeout_sec + hand_off_seconds + 30,
+            # hand_off_seconds=None means the window stays open until the
+            # candidate closes it, so there is no deadline to enforce here
+            # either - a wall-clock cap is exactly what used to tear the
+            # window down while they were still filling the form in.
+            timeout=None if hand_off_seconds is None else timeout_sec + hand_off_seconds + 30,
         )
 
     return await _execute_live_playwright_submission_impl(
@@ -2060,7 +2151,7 @@ async def _execute_live_playwright_submission_impl(
     timeout_sec: float = 75.0,
     log_callback: Any = None,
     fill_only: bool = False,
-    hand_off_seconds: float = 0.0,
+    hand_off_seconds: float | None = 0.0,
 ) -> dict[str, Any]:
     """Execute autonomous browser submission with strict pre-submit and post-submit verification.
 
@@ -2077,14 +2168,14 @@ async def _execute_live_playwright_submission_impl(
 
     # Custom-branded careers domains that embed a Greenhouse job via ?gh_jid=
     # (coupang.jobs, zoominfo.com/careers, samsara.com/company/careers, etc.)
-    # render markup our submit-button/field selectors don't recognize —
+    # render markup our submit-button/field selectors don't recognize -
     # they're built against Greenhouse's own standard form. Redirecting to
     # the canonical job-boards.greenhouse.io URL when we can confidently
     # derive one fixes "Submit button not found" on postings that are
     # genuinely live and Greenhouse-backed, not actually broken.
     if app_url and ("gh_jid=" in app_url.lower() or "greenhouse" in app_url.lower()):
         # Only attempt this when the URL itself already signals Greenhouse
-        # involvement — extract_greenhouse_job_ref's job-id fallback pattern
+        # involvement - extract_greenhouse_job_ref's job-id fallback pattern
         # (bare "/jobs/<digits>") is common to many unrelated ATS URLs too,
         # and guessing a slug from the company name for a genuinely
         # non-Greenhouse site could redirect to a wrong/nonexistent page.
@@ -2097,7 +2188,7 @@ async def _execute_live_playwright_submission_impl(
         except Exception as e:
             logger.debug("Greenhouse URL normalization skipped for %s: %s", company, e)
 
-    # Per-application Gmail plus-addressing (deterministic reply tracking) —
+    # Per-application Gmail plus-addressing (deterministic reply tracking) -
     # read-only lookup; falls back to the real profile email on any failure
     # or if the draft predates this field, never blocks submission.
     try:
@@ -2129,7 +2220,7 @@ async def _execute_live_playwright_submission_impl(
             app_url = direct_board_url
 
     # api.smartrecruiters.com/v1/... is the raw JSON REST endpoint the
-    # discovery scraper sometimes captures instead of the public job page —
+    # discovery scraper sometimes captures instead of the public job page -
     # loading it in a browser shows bare JSON with no form/submit button at
     # all. jobs.smartrecruiters.com/{company}/{id} is the actual public
     # posting page and always exists for any job the API endpoint returns.
@@ -2167,7 +2258,7 @@ async def _execute_live_playwright_submission_impl(
                 # Some Greenhouse-hosted boards reset the HTTP/2 connection mid-
                 # handshake, which Chromium surfaces as a hard
                 # net::ERR_HTTP2_PROTOCOL_ERROR on page.goto and which retrying
-                # never clears — observed deterministically on all three Roblox
+                # never clears - observed deterministically on all three Roblox
                 # postings, whose URLs load fine over HTTP/1.1. Forcing HTTP/1.1
                 # costs a little connection reuse and makes those pages reachable.
                 "--disable-http2",
@@ -2203,7 +2294,7 @@ async def _execute_live_playwright_submission_impl(
             url_says_expired = ("/open-roles" in current_url_lower or "/careers/search" in current_url_lower or "/jobs/search" in current_url_lower) and not any(term in current_url_lower for term in ["/jobs/", "gh_jid="]) or ("404" in page_title_lower or "not found" in page_title_lower)
 
             # Some ATS pages (e.g. Greenhouse) keep the original job URL but render an inline
-            # banner saying the posting closed, instead of redirecting — catch that by text too.
+            # banner saying the posting closed, instead of redirecting - catch that by text too.
             EXPIRED_TEXT_PATTERNS = (
                 "is no longer open",
                 "no longer accepting applications",
@@ -2224,7 +2315,7 @@ async def _execute_live_playwright_submission_impl(
             # A pulled posting most reliably announces itself by losing its own
             # identity: we asked for one specific job id and were handed a page
             # that no longer carries it. The path-pattern list above misses the
-            # common cross-domain case — a Pinterest posting on
+            # common cross-domain case - a Pinterest posting on
             # job-boards.greenhouse.io redirected to www.pinterestcareers.com/jobs/,
             # whose "/jobs/" segment even matched the list's own exemption, so the
             # run continued and typed the candidate's city into that index page's
@@ -2243,9 +2334,9 @@ async def _execute_live_playwright_submission_impl(
                 # Losing the id is necessary but not sufficient: a posting can
                 # legitimately hand off to an apply flow on another host whose
                 # URL drops the id but still shows a real form. Only a
-                # destination that also *looks* like a listing index — a bare
+                # destination that also *looks* like a listing index - a bare
                 # /jobs, /careers or /openings, a search page, or Greenhouse's
-                # own error=true flag — is treated as a pulled posting.
+                # own error=true flag - is treated as a pulled posting.
                 try:
                     final_path = urlparse(page.url).path.lower().rstrip("/")
                 except Exception:
@@ -2279,17 +2370,25 @@ async def _execute_live_playwright_submission_impl(
             # slug and validity token, which guessing a slug from the company name
             # cannot reliably reproduce. So navigate the top-level page to it and
             # drive the real form directly.
+            # Workable and Lever keep the real form behind an /apply route, and
+            # Workable links to it with a RELATIVE href, so a host-only pattern
+            # never matched it. A bare /apply suffix is only trusted on the SAME
+            # host as the posting: matching it anywhere made an unrelated
+            # content.googleapis.com proxy iframe on a Greenhouse page look like
+            # an application form.
             try:
                 embed_src = await page.evaluate(
                     "() => {"
-                    "  const ats = /greenhouse[.]io|lever[.]co|ashbyhq[.]com|oneclick-ui/;"
+                    "  const hosted = /greenhouse[.]io|lever[.]co|ashbyhq[.]com|oneclick-ui|workable[.]com/;"
+                    "  const here = location.host;"
+                    "  const ats = u => { try { return hosted.test(u) || (new URL(u, location.href).host === here && /[/]apply[/]?$/.test(new URL(u, location.href).pathname)); } catch (e) { return false; } };"
                     "  const framed = [...document.querySelectorAll('iframe')]"
-                    "    .map(el => el.src || '').find(src => ats.test(src));"
+                    "    .map(el => el.src || '').find(src => src && ats(src));"
                     "  if (framed) return framed;"
                     "  const links = [...document.querySelectorAll('a[href]')].map(a => a.href || '')"
-                    "    .filter(href => ats.test(href));"
+                    "    .filter(href => href && ats(href));"
                     "  const apply = [...document.querySelectorAll('a[href]')]"
-                    "    .filter(a => ats.test(a.href || '') && /apply|interested/i.test(a.textContent || ''));"
+                    "    .filter(a => a.href && ats(a.href) && /apply|interested/i.test(a.textContent || ''));"
                     "  return (apply[0] && apply[0].href) || links[0] || '';"
                     "}"
                 )
@@ -2297,7 +2396,18 @@ async def _execute_live_playwright_submission_impl(
                 embed_src = ""
             # SmartRecruiters hides its form behind an "I'm interested" link to a
             # oneclick-ui page, so the posting URL itself never has one.
-            already_on_ats = any(h in app_url for h in ("greenhouse.io", "lever.co", "ashbyhq.com")) or "oneclick-ui" in page.url
+            #
+            # Being ON the ATS host is not the same as being ON its form.
+            # Greenhouse renders the form inline on the posting URL, but Lever
+            # and Workable serve a job DESCRIPTION there and keep the form at
+            # /apply. Short-circuiting on the hostname meant the /apply URL this
+            # code had just resolved was thrown away, the description page had
+            # zero inputs, and the run died as "No application form on the
+            # posting page" - on boards whose forms are perfectly fillable.
+            # Verified live: jobs.lever.co/<co>/<id>/apply exposes 15 text
+            # inputs and a file input with no bot wall.
+            on_form_already = await _page_has_form_inputs(page)
+            already_on_ats = on_form_already or "oneclick-ui" in page.url
             if embed_src and not already_on_ats:
                 logger.info("Employer page points at an ATS form; navigating directly to %s", embed_src)
                 if log_callback:
@@ -2411,7 +2521,7 @@ async def _execute_live_playwright_submission_impl(
             # Some postings render only a job description at the application URL
             # (observed on Pinterest and Brex links that live on greenhouse.io but
             # hand the actual apply flow to the employer's own site). Filling a
-            # page that has no application form does not fail — it stalls, and the
+            # page that has no application form does not fail - it stalls, and the
             # job burned the full 480s watchdog before being marked FAILED with a
             # timeout that says nothing about the real cause. Detect it here and
             # say so immediately.
@@ -2422,7 +2532,7 @@ async def _execute_live_playwright_submission_impl(
             if not has_form:
                 # A page with no form may simply be a job description, or it may
                 # be a form that never rendered because a bot challenge is
-                # standing in front of it — SmartRecruiters' apply flow serves a
+                # standing in front of it - SmartRecruiters' apply flow serves a
                 # DataDome captcha and an otherwise empty document. Those are
                 # very different outcomes for the user: one is a dead end, the
                 # other is a posting they can finish by hand.
@@ -2442,17 +2552,17 @@ async def _execute_live_playwright_submission_impl(
                     return {
                         "submitted": False,
                         "error": (
-                            f"{wall} bot protection on this board blocked the application form — "
+                            f"{wall} bot protection on this board blocked the application form - "
                             "this posting has to be completed by hand"
                         ),
                         "evidence": {"finalUrl": page.url},
                         "fieldsFilled": {},
                     }
-                logger.warning("No application form found at %s — nothing to fill", page.url)
+                logger.warning("No application form found at %s - nothing to fill", page.url)
                 return {
                     "submitted": False,
                     "error": (
-                        "No application form on the posting page — this employer's apply flow "
+                        "No application form on the posting page - this employer's apply flow "
                         "starts elsewhere and cannot be driven from this URL"
                     ),
                     "evidence": {"finalUrl": page.url},
@@ -2461,7 +2571,10 @@ async def _execute_live_playwright_submission_impl(
 
             # ─── DISCOVER & PERSIST FIELDS BEFORE RESOLUTION ─────────────────
             try:
-                discovered_dom_fields, _ = await _extract_dom_form_state(target_frame)
+                # Discovery opens each custom dropdown so the resolver sees its
+                # real options. The later verification pass deliberately does
+                # not - it reads what was filled and must not touch the form.
+                discovered_dom_fields, _ = await _extract_dom_form_state(target_frame, expand_comboboxes=True)
                 if discovered_dom_fields:
                     persist_discovered_form(
                         application_id=str(job_id),
@@ -2542,14 +2655,14 @@ async def _execute_live_playwright_submission_impl(
                     # The LLM review returns fieldId/label pairs it read off the
                     # same dom_fields list, but it can misattribute an id to the
                     # wrong question in its own output (e.g. suggesting fieldId
-                    # "candidate-location" — a different field entirely — for
+                    # "candidate-location" - a different field entirely - for
                     # what it meant as the fix for a hybrid-work Yes/No
                     # question). Blindly trusting fieldId then writes the fix
                     # value into a completely unrelated field (observed live: a
                     # "Yes" fix landing in the Location autocomplete while the
                     # actual target question stayed empty). Cross-check the
                     # LLM's claimed label against that id's real DOM label
-                    # before applying anything — if they share no meaningful
+                    # before applying anything - if they share no meaningful
                     # words, the pairing is unreliable and the fix is skipped
                     # rather than corrupting the wrong field.
                     if f_id and f_id in dom_fields_by_id:
@@ -2580,7 +2693,7 @@ async def _execute_live_playwright_submission_impl(
                                 # timeout. Locator.evaluate auto-waits for the element
                                 # to be attached, so four separate calls against a
                                 # field that the form has since re-rendered away burned
-                                # 4 x the default timeout — for two such fields that is
+                                # 4 x the default timeout - for two such fields that is
                                 # the entire 480s submission watchdog, which is exactly
                                 # how the Coinbase and Samsara runs died without ever
                                 # reaching the submit click.
@@ -2623,7 +2736,7 @@ async def _execute_live_playwright_submission_impl(
                                 elif is_cb:
                                     if fix_val and str(fix_val).lower() not in ("none", "null", "undefined", ""):
                                         # Record whatever _select_react_combobox actually
-                                        # clicked, not the guessed fix_val — it can decline
+                                        # clicked, not the guessed fix_val - it can decline
                                         # to select anything (empty return) when fix_val
                                         # doesn't match any real option, and trusting the
                                         # guess instead of the outcome records an "intended"
@@ -2661,7 +2774,7 @@ async def _execute_live_playwright_submission_impl(
                                         if log_callback:
                                             log_callback(f"Self-healed checkbox [{f_label or f_id}] -> checked")
                                 elif el_type in ("select-one", "select-multiple"):
-                                    # Native <select> elements don't support .fill() — Playwright raises on
+                                    # Native <select> elements don't support .fill() - Playwright raises on
                                     # them, which the broad except below was silently swallowing, leaving
                                     # the field empty despite a resolved fix_val (e.g. Country, Yes/No drops).
                                     if fix_val and str(fix_val).lower() not in ("none", "null", "undefined", ""):
@@ -2721,14 +2834,14 @@ async def _execute_live_playwright_submission_impl(
             # 1. Collect all answer resolutions from form filling
             #
             # resolve_answer() is called again here only to get question_type
-            # classification for cross-field validation below — NOT to
+            # classification for cross-field validation below - NOT to
             # re-derive the answer. It's called with no `options` (the actual
             # live dropdown/radio options aren't available anymore at this
             # point), so for a Yes/No-style question it can classify and
             # resolve differently than the original fill-time call did (which
             # saw the real options) and return a different answer entirely.
             # Verification then compares that fresh, options-blind guess
-            # against the live DOM value under the field's own label — an
+            # against the live DOM value under the field's own label - an
             # unrelated field can share enough of that label as a substring to
             # get matched, so a wrong guess here surfaces as a nonsensical
             # mismatch on a completely different question (observed live: a
@@ -2738,7 +2851,7 @@ async def _execute_live_playwright_submission_impl(
             # wrote into (filled_field_ids), so verification can pair each
             # resolution back to its own element by id instead of by fuzzy
             # label/substring matching. The answer itself is also overwritten
-            # with `ans` — the real value this function wrote into the DOM —
+            # with `ans` - the real value this function wrote into the DOM -
             # rather than trusting a fresh re-resolution's guess.
             form_resolutions: list[AnswerResolution] = []
             for lbl, ans in filled_fields.items():
@@ -2807,7 +2920,7 @@ async def _execute_live_playwright_submission_impl(
 
             # 6a. Assisted hand-off: everything is typed in, and the human takes
             # it from here. This is what makes a CAPTCHA-guarded board worth
-            # keeping — the candidate solves the one thing automation must not,
+            # keeping - the candidate solves the one thing automation must not,
             # instead of re-typing the whole form. The submit click is never
             # made here, whatever the policy gates say.
             if fill_only:
@@ -2817,7 +2930,7 @@ async def _execute_live_playwright_submission_impl(
                 except Exception:
                     pass
                 logger.info(
-                    "Assisted fill complete for %s — %d field(s) filled; handing over for %.0fs",
+                    "Assisted fill complete for %s - %d field(s) filled; handing over for %.0fs",
                     company, len(filled_fields), hand_off_seconds,
                 )
                 if log_callback:
@@ -2826,13 +2939,23 @@ async def _execute_live_playwright_submission_impl(
                         "Solve any challenge and press Submit in the open browser window.",
                     )
                 # Watch the handed-over window. If the candidate submits it
-                # themselves, the ATS says so — and the job should mark itself
+                # themselves, the ATS says so - and the job should mark itself
                 # submitted rather than making them come back and click
                 # "Mark submitted" for something they already did.
                 confirmed_by_user = ""
-                if hand_off_seconds > 0:
-                    deadline = asyncio.get_running_loop().time() + hand_off_seconds
-                    while asyncio.get_running_loop().time() < deadline:
+                # `None` means wait for as long as the window is open. A
+                # wall-clock deadline here closed the browser out from under
+                # the candidate mid-application - the one thing an assisted
+                # hand-off must never do, since the whole point is that a
+                # person finishes the form at their own pace. The window
+                # closing is the real end signal, so that is what is waited on.
+                if hand_off_seconds is None or hand_off_seconds > 0:
+                    deadline = (
+                        None
+                        if hand_off_seconds is None
+                        else asyncio.get_running_loop().time() + hand_off_seconds
+                    )
+                    while deadline is None or asyncio.get_running_loop().time() < deadline:
                         if page.is_closed():
                             break
                         try:
@@ -2855,7 +2978,7 @@ async def _execute_live_playwright_submission_impl(
                 if confirmed_by_user:
                     logger.info("Assisted hand-off confirmed by the candidate for %s", company)
                     if log_callback:
-                        log_callback(f"You submitted the {company} application — marking it submitted.")
+                        log_callback(f"You submitted the {company} application - marking it submitted.")
                     return {
                         "submitted": True,
                         "assisted": True,
@@ -2919,7 +3042,7 @@ async def _execute_live_playwright_submission_impl(
 
             # A cookie-consent overlay left on screen blocks every subsequent
             # click with "intercepts pointer events" (observed live on NICE's
-            # careers page, a CookieYes-style ".cky-overlay") — dismiss it
+            # careers page, a CookieYes-style ".cky-overlay") - dismiss it
             # before attempting the submit click rather than only discovering
             # the block after the click has already started retrying.
             for consent_sel in (
@@ -2964,7 +3087,7 @@ async def _execute_live_playwright_submission_impl(
                             continue
                         # A bare button[type="submit"] selector matches ANY
                         # submit button on the page, not just the
-                        # application form's — observed live: it grabbed a
+                        # application form's - observed live: it grabbed a
                         # site-wide header search icon (title="Search",
                         # class="header-search-icon") on NICE's careers
                         # page, clicked it instead of ever finding the real
@@ -2984,7 +3107,7 @@ async def _execute_live_playwright_submission_impl(
 
             if not submit_button:
                 # "Submit button not found" is misleading when the page never
-                # had an application form to begin with — observed live on two
+                # had an application form to begin with - observed live on two
                 # postings: a Greenhouse URL that now 302s to the company's
                 # careers homepage (posting pulled), and a job *description*
                 # page whose form only mounts after an "Apply" click. Both
@@ -3015,7 +3138,7 @@ async def _execute_live_playwright_submission_impl(
                     except Exception:
                         landed_url = ""
                     error_msg = (
-                        "No application form on the page — the posting appears to be closed or "
+                        "No application form on the page - the posting appears to be closed or "
                         f"redirected (landed on {landed_url or 'an unknown URL'})"
                     )
 
@@ -3187,7 +3310,7 @@ async def _execute_live_playwright_submission_impl(
                     bot_wall = ""
                 if bot_wall and form_still_visible:
                     err_msg = (
-                        f"{bot_wall} bot protection on this board blocked the submission — "
+                        f"{bot_wall} bot protection on this board blocked the submission - "
                         "this posting has to be completed by hand"
                     )
                 logger.error("Submission unconfirmed by Qwen verification: %s", err_msg)

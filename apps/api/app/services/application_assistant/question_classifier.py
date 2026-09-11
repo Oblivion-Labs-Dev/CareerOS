@@ -347,7 +347,17 @@ _CLASSIFICATION_RULES: list[tuple[QuestionType, list[str]]] = [
     (QuestionType.ADDRESS_LINE_2, [
         r"address\s*(line\s*)?2\b",
         r"street\s*(address\s*)?2\b",
-        r"\bapt\b|\bapartment\b|\bsuite\b|\bunit\b",
+        # "apt", "suite" and "unit" are address words only in an address
+        # context. A bare word-boundary match on "unit" claimed any question
+        # containing it, so "Have you been employed by Lyft, or any
+        # subsidiary, affiliate, or business unit of Lyft" classified as
+        # ADDRESS_LINE_2 - an employment-history question handed to the
+        # address resolver, which had nothing to say and sent the whole
+        # application to review.
+        r"^\W*(apt\b|apartment\b|suite\b|unit\b)",
+        r"(address|street)[^?]{0,40}\b(apt|apartment|suite|unit)\b",
+        r"\b(apt|apartment|suite|unit)\b[^?]{0,40}(address|street)",
+        r"\b(apt|apartment|suite|unit)\s*(#|no\.?|number)",
     ]),
     (QuestionType.ADDRESS, [r"address", r"street"]),
     # A compound "based in X *or* willing to relocate?" is decided by the
@@ -584,7 +594,11 @@ _CLASSIFICATION_RULES: list[tuple[QuestionType, list[str]]] = [
         r"worked\s+at\s+or\s+consulted",
         r"prior\s+employment",
         r"employment\s+history",
-        r"have\s+you\s+(ever|previously)\s*(worked|been\s+employed)\s*(at|for)",
+        r"have\s+you\s+(ever|previously)\s*[,;]?\s*(worked|been\s+employed)\s*(at|for)",
+        # Greenhouse asks the compound form "Do you currently, or have you
+        # previously, worked at X" - the commas broke the pattern above.
+        r"do\s+you\s+currently[^?]{0,60}(worked|work|been\s+employed)\s*(at|for|by)",
+        r"currently[,\s]+or\s+have\s+you\s+previously",
         r"have\s+you\s+(ever\s+)?been\s+employed\s*(by|at|for)",
         r"have\s+you\s+(ever\s+)?worked\s*(at|for)",
         r"worked\s+for\s+\w+\s+as\s+an\s+employee,?\s+intern",

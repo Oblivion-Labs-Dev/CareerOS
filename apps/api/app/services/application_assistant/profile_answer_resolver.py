@@ -1847,7 +1847,38 @@ def _resolve_education_end_year(res: AnswerResolution, profile: dict, opts: list
     _resolve_education_history(res, profile, opts, "end-year", 0)
 
 def _resolve_gpa(res: AnswerResolution, profile: dict, opts: list[str]) -> None:
-    _resolve_from_profile(res, profile, opts, "gpa", fallback="3.5")
+    """Answer a GPA question only from a recorded GPA.
+
+    This used to fall back to "3.5" whenever the profile had no gpa key - and
+    the profile has none - so an unanswered GPA question produced an invented
+    academic credential at 0.95 confidence, labelled DETERMINISTIC_RULE as
+    though it had been derived from something. A made-up GPA on a real
+    application is a false statement about the candidate's record, and one an
+    employer can check against a transcript. Leave it for the candidate.
+
+    Graduate GPA is preferred when the question asks for it specifically.
+    """
+    question = (res.question or "").lower()
+    wants_graduate = any(
+        k in question for k in ("graduate gpa", "grad gpa", "master", "postgraduate", "phd")
+    ) and "undergraduate" not in question
+    if wants_graduate:
+        for key in ("graduateGpa", "gradGpa", "gpaGraduate"):
+            if str(profile.get(key) or "").strip():
+                _resolve_from_profile(res, profile, opts, key)
+                return
+    for key in ("undergraduateGpa", "gpa"):
+        if str(profile.get(key) or "").strip():
+            _resolve_from_profile(res, profile, opts, key)
+            return
+    # Match how _resolve_citizenship signals "no honest answer available":
+    # leave it unanswered so the question reaches the candidate, and say why.
+    res.answer = None
+    res.confidence = 0.0
+    res.resolution_method = UNKNOWN_METHOD
+    res.blocking_errors.append(
+        "No GPA recorded in the profile; refusing to invent an academic record."
+    )
 
 def _resolve_transcript(res: AnswerResolution, profile: dict, opts: list[str]) -> None:
     if opts:
