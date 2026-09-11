@@ -40,13 +40,15 @@ def status(db: Session = Depends(db_session)) -> dict[str, Any]:
         "highestUid": state.get("highestUid", 0),
         "uidValidity": state.get("uidValidity", ""),
         "lastSyncAt": state.get("lastSyncAt"),
+        "newestMessageDate": state.get("newestMessageDate"),
         "synced": bool(state.get("lastSyncAt")),
     }
 
 
 @router.post("/sync")
 def sync(
-    full: bool = Query(default=False, description="re-scan the whole mailbox"),
+    full: bool = Query(default=False, description="re-scan UIDs, still bounded by the date watermark"),
+    fromBeginning: bool = Query(default=False, description="ignore both watermarks and read the entire mailbox"),
     maxMessages: int | None = Query(default=None, ge=1, le=20000),
 ) -> dict[str, Any]:
     """Fetch everything not already stored.
@@ -56,5 +58,8 @@ def sync(
     the same pool exhaustion the tailoring routes were changed to avoid.
     """
     with session_scope() as db:
-        report = gmail_archive.sync_archive(db, force_full=full, max_messages=maxMessages)
+        report = gmail_archive.sync_archive(
+            db, force_full=full, from_beginning=fromBeginning,
+            max_messages=maxMessages,
+        )
     return report.to_dict()

@@ -28,6 +28,7 @@ from __future__ import annotations
 import imaplib
 import logging
 import time
+from datetime import UTC, datetime, timedelta
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -79,6 +80,8 @@ class SyncReport:
     full_resync: bool = False
     uid_validity: str = ""
     highest_uid: int = 0
+    since_date: str = ""
+    newest_message_date: str = ""
     seconds: float = 0.0
     errors: list[str] = field(default_factory=list)
 
@@ -92,6 +95,8 @@ class SyncReport:
             "fullResync": self.full_resync,
             "uidValidity": self.uid_validity,
             "highestUid": self.highest_uid,
+            "sinceDate": self.since_date,
+            "newestMessageDate": self.newest_message_date,
             "seconds": round(self.seconds, 1),
             "errors": self.errors[:5],
         }
@@ -114,14 +119,53 @@ def _uid_validity(client: imaplib.IMAP4_SSL) -> str:
     return ""
 
 
-def _search_all(client: imaplib.IMAP4_SSL, since_uid: int) -> set[str]:
-    """Every UID matching any search term, optionally only above a watermark.
+#: How far before the last-seen message date to re-scan. IMAP SINCE is
+#: date-granular and compares against the server's internal date, which can sit
+#: a day either side of the Date: header once timezones are involved, so an
+#: exact boundary would silently drop messages that arrived around it. Two days
+#: of overlap costs a few already-stored UIDs, which are skipped anyway.
+SINCE_SAFETY_DAYS = 2
 
-    Server-side range restriction, not client-side trimming: asking for
-    `UID 4001:*` makes an incremental sync cheap on the server as well as here.
+
+def _imap_date(value: str) -> str | None:
+    """An ISO timestamp as IMAP's dd-Mon-yyyy, minus the safety margin."""
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UTC)
+    return (parsed - timedelta(days=SINCE_SAFETY_DAYS)).strftime("%d-%b-%Y")
+
+
+def _search_all(
+    client: imaplib.IMAP4_SSL,
+    since_uid: int,
+    since_date: str | None = None,
+) -> set[str]:
+    """Every UID matching any search term, narrowed by UID and/or date.
+
+    Two independent watermarks, because they fail in different situations:
+
+    * **UID range** (`UID 4001:*`) is exact and cheap, and is the primary
+      mechanism. It is only meaningful while UIDVALIDITY is unchanged.
+    * **SINCE date** survives a UIDVALIDITY change, which resets the UID space
+      and would otherwise force re-reading the entire mailbox from the
+      beginning. It is coarse - IMAP compares whole days - so it is a bound,
+      not a precise cursor.
+
+    Using both means a routine sync is exact, and the rare mailbox reset costs
+    a scan back to the last known message date rather than to the first message
+    ever received.
     """
     found: set[str] = set()
-    scope = f"UID {since_uid + 1}:*" if since_uid else None
+    clauses = []
+    if since_uid:
+        clauses.append(f"UID {since_uid + 1}:*")
+    if since_date:
+        clauses.append(f"SINCE {since_date}")
+    scope = " ".join(clauses)
+
     for term in SEARCH_TERMS:
         query = f"({scope} {term})" if scope else term
         try:
@@ -138,6 +182,7 @@ def sync_archive(
     db: Session,
     *,
     force_full: bool = False,
+    from_beginning: bool = False,
     max_messages: int | None = None,
 ) -> SyncReport:
     """Fetch every application-related message not already stored.
@@ -178,8 +223,15 @@ def sync_archive(
             force_full = True
 
         since = 0 if force_full else int(state.get("highestUid") or 0)
+        # The date bound still applies on a forced rescan and after a
+        # UIDVALIDITY reset - that is the case it exists for. Only an explicit
+        # request for the whole history drops it.
+        since_date = None if from_beginning else _imap_date(
+            str(state.get("newestMessageDate") or state.get("lastSyncAt") or "")
+        )
+        report.since_date = since_date or ""
         report.full_resync = since == 0
-        uids = _search_all(connection, since)
+        uids = _search_all(connection, since, since_date)
         report.matched = len(uids)
     finally:
         try:
@@ -199,6 +251,10 @@ def sync_archive(
         pending = pending[-max_messages:]
 
     highest = int(state.get("highestUid") or 0)
+    # The newest message *date*, not the sync time: what matters for a later
+    # SINCE search is how recent the mail is, and a sync that finds nothing
+    # must not advance the window past mail it never saw.
+    newest_date = str(state.get("newestMessageDate") or "")
 
     for start in range(0, len(pending), BATCH_SIZE):
         batch = pending[start : start + BATCH_SIZE]
@@ -231,15 +287,20 @@ def sync_archive(
             })
             report.stored += 1
             highest = max(highest, int(uid))
+            stamp = str(message.get("date") or "")
+            if stamp > newest_date:
+                newest_date = stamp
 
         # Persist the watermark per batch, so an interrupted sync resumes rather
         # than starting over - the failure mode that makes people avoid running
         # a long sync at all.
-        state = {**state, "highestUid": highest, "uidValidity": report.uid_validity}
+        state = {**state, "highestUid": highest, "uidValidity": report.uid_validity,
+                 "newestMessageDate": newest_date}
         set_kv(db, STATE_KEY, {**state, "lastSyncAt": time.strftime("%Y-%m-%dT%H:%M:%S")})
         logger.info("Gmail archive: %d/%d stored", report.stored, len(pending))
 
     report.highest_uid = highest
+    report.newest_message_date = newest_date
     report.seconds = time.perf_counter() - started
     _save_state(db, state, report)
     return report
@@ -250,6 +311,7 @@ def _save_state(db: Session, state: dict[str, Any], report: SyncReport) -> None:
         **state,
         "highestUid": report.highest_uid or state.get("highestUid") or 0,
         "uidValidity": report.uid_validity or state.get("uidValidity") or "",
+        "newestMessageDate": report.newest_message_date or state.get("newestMessageDate") or "",
         "lastSyncAt": time.strftime("%Y-%m-%dT%H:%M:%S"),
         "totalStored": _count(db),
     })
