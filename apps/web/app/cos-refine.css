@@ -570,3 +570,284 @@ code {
   border-radius: var(--radius-sm, 6px);
   font-weight: 600;
 }
+
+
+/* ── Browse Jobs card actions ───────────────────────────────────────────────
+   The card previously carried five competing controls and a hardcoded
+   linear-gradient set inline on one button, which is why this page read as a
+   different product from the Autopilot views. Two real actions now, with the
+   list-pruning affordances demoted to icons, and the accent taken from the
+   design tokens rather than a literal gradient in the JSX. */
+.cos-job-card-minor {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.cos-job-icon-btn {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid var(--border-subtle, rgba(166, 181, 201, 0.14));
+  border-radius: 7px;
+  background: transparent;
+  color: var(--muted, #9aa8b9);
+  font-size: 0.8rem;
+  line-height: 1;
+  text-decoration: none;
+  cursor: pointer;
+  transition: color .18s, border-color .18s, background .18s, transform .18s;
+}
+
+.cos-job-icon-btn:hover {
+  color: var(--text, #f5f8fb);
+  border-color: var(--accent, #62ddc5);
+  background: color-mix(in srgb, var(--accent, #62ddc5) 12%, transparent);
+  transform: translateY(-1px);
+}
+
+.cos-job-apply-btn {
+  font-weight: 650;
+  background: linear-gradient(
+    135deg,
+    var(--accent, #62ddc5) 0%,
+    color-mix(in srgb, var(--accent, #62ddc5) 55%, #84cbe6) 100%
+  );
+  color: #07130f;
+  border: 0;
+  box-shadow: 0 4px 14px color-mix(in srgb, var(--accent, #62ddc5) 28%, transparent);
+}
+
+.cos-job-apply-btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 20px color-mix(in srgb, var(--accent, #62ddc5) 38%, transparent);
+}
+
+.cos-job-apply-btn:disabled {
+  opacity: 0.6;
+  box-shadow: none;
+  cursor: progress;
+}
+
+/* ── Profile experience section ─────────────────────────────────────────────
+   The detail behind each role, which the profile page previously never
+   rendered. These descriptions are what the match scorer reads, so they need
+   to be visible and correctable in the app rather than only in the database. */
+.profile-experience-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.profile-experience-item {
+  border: 1px solid var(--border-subtle, rgba(166, 181, 201, 0.12));
+  border-radius: 10px;
+  padding: 0.9rem 1rem;
+  background: var(--card, rgba(255, 255, 255, 0.02));
+}
+
+.profile-experience-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.profile-experience-head h3 {
+  margin: 0;
+  font-size: 0.98rem;
+  font-weight: 650;
+  line-height: 1.35;
+}
+
+.profile-experience-head .at {
+  color: var(--muted, #9aa8b9);
+  font-weight: 400;
+}
+
+.profile-experience-meta {
+  display: block;
+  margin-top: 0.25rem;
+  font-size: 0.78rem;
+  color: var(--muted, #9aa8b9);
+}
+
+.profile-experience-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+
+.profile-experience-badge {
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 0.2rem 0.45rem;
+  border-radius: 5px;
+  border: 1px solid var(--border-subtle, rgba(166, 181, 201, 0.14));
+  color: var(--muted, #9aa8b9);
+}
+.profile-experience-badge[data-state="current"] {
+  color: #249d7a;
+  border-color: color-mix(in srgb, #249d7a 40%, transparent);
+  background: color-mix(in srgb, #249d7a 12%, transparent);
+}
+
+.profile-experience-count {
+  font-size: 0.72rem;
+  color: var(--muted, #9aa8b9);
+  font-variant-numeric: tabular-nums;
+}
+
+.profile-experience-body {
+  margin-top: 0.75rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--border-subtle, rgba(166, 181, 201, 0.1));
+  max-height: 26rem;
+  overflow-y: auto;
+}
+
+.profile-experience-body pre {
+  margin: 0;
+  font-family: inherit;
+  font-size: 0.84rem;
+  line-height: 1.65;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--text, #e6ecf3);
+}
+
+.profile-experience-edit {
+  margin-top: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.profile-experience-edit textarea {
+  width: 100%;
+  font-family: inherit;
+  font-size: 0.84rem;
+  line-height: 1.6;
+  padding: 0.7rem 0.8rem;
+  border-radius: 8px;
+  border: 1px solid var(--border-subtle, rgba(166, 181, 201, 0.2));
+  background: var(--surface-sunk, rgba(0, 0, 0, 0.18));
+  color: var(--text, #e6ecf3);
+  resize: vertical;
+}
+
+.profile-experience-actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+@media (max-width: 560px) {
+  .profile-experience-head { flex-direction: column; }
+}
+
+/* ---------------------------------------------------------------------------
+   Matcher benchmark
+   A dense comparison table: many numbers whose only job is to be compared, so
+   tabular figures and a highlighted winner/incumbent row matter more than
+   decoration. Colours come from the existing tokens rather than new ones.
+   --------------------------------------------------------------------------- */
+.matcher-verdicts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 0.75rem;
+  margin: 1rem 0 1.25rem;
+}
+.matcher-verdict {
+  border: 1px solid var(--border, rgba(148, 163, 184, 0.25));
+  border-left: 3px solid var(--accent, #38bdf8);
+  border-radius: 4px;
+  padding: 0.75rem 0.9rem;
+  background: var(--surface-raised, rgba(255, 255, 255, 0.02));
+}
+.matcher-verdict--warn { border-left-color: var(--warning, #f59e0b); }
+.matcher-verdict-label {
+  display: block;
+  font-size: 0.65rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  opacity: 0.65;
+  margin-bottom: 0.3rem;
+}
+.matcher-verdict strong {
+  display: block;
+  font-size: 1.15rem;
+  font-variant-numeric: tabular-nums;
+  margin-bottom: 0.15rem;
+  word-break: break-word;
+}
+.matcher-verdict .muted { font-size: 0.82rem; }
+
+.matcher-tablewrap {
+  overflow-x: auto;
+  border: 1px solid var(--border, rgba(148, 163, 184, 0.25));
+  border-radius: 4px;
+}
+.matcher-table {
+  width: 100%;
+  min-width: 760px;
+  border-collapse: collapse;
+  font-size: 0.86rem;
+}
+.matcher-table th {
+  text-align: left;
+  padding: 0.6rem 0.75rem;
+  font-size: 0.62rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  opacity: 0.6;
+  font-weight: 500;
+  white-space: nowrap;
+  border-bottom: 1px solid var(--border, rgba(148, 163, 184, 0.25));
+}
+.matcher-table td {
+  padding: 0.55rem 0.75rem;
+  border-bottom: 1px solid var(--border-subtle, rgba(148, 163, 184, 0.12));
+}
+.matcher-table tr:last-child td { border-bottom: 0; }
+.matcher-table td.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.matcher-table td.mono {
+  font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
+  font-size: 0.8rem;
+  white-space: nowrap;
+}
+.matcher-table tr.is-best { background: rgba(34, 197, 94, 0.08); }
+.matcher-table tr.is-best td.mono { font-weight: 600; }
+.matcher-table tr.is-current { background: rgba(239, 68, 68, 0.07); }
+.matcher-tag {
+  margin-left: 0.4rem;
+  font-size: 0.6rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 0.1rem 0.35rem;
+  border-radius: 2px;
+  background: rgba(239, 68, 68, 0.18);
+  opacity: 0.9;
+}

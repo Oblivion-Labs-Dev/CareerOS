@@ -88,6 +88,7 @@ from app.routers.networking import router as networking_router
 from app.routers.repair_demo import router as repair_demo_router
 from app.routers.repair_manual import router as repair_manual_router
 from app.routers.resume_intelligence import router as resume_intelligence_router
+from app.routers.matcher_benchmark import router as matcher_benchmark_router
 from app.routers.story_map import router as story_map_router
 from app.services.error_fix_tracker import error_fix_tracker, reconcile_error_history_on_startup, seed_error_fix_history_if_empty
 
@@ -300,6 +301,7 @@ app.include_router(resume_intelligence_router)
 app.include_router(job_search_router)
 app.include_router(networking_router)
 app.include_router(story_map_router)
+app.include_router(matcher_benchmark_router)
 
 
 @app.exception_handler(Exception)

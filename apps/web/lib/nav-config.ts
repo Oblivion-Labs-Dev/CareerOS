@@ -42,6 +42,7 @@ export const ALL_NAV_GROUPS: NavGroup[] = [
       { href: "/jobs/discover", label: "Browse Jobs", icon: "jobs", emoji: "🔎", requiresBackend: true, enabled: true },
       { href: "/application-assistant", label: "AI Assistant", icon: "applypilot", emoji: "🤖", requiresBackend: true, enabled: true },
       { href: "/benchmarks", label: "LLM Benchmarks", icon: "evidence", emoji: "⚡", requiresBackend: true, enabled: true },
+      { href: "/benchmarks/matcher", label: "Matcher Benchmark", icon: "evidence", emoji: "🏁", requiresBackend: true, enabled: true },
       { href: "/dev/dummy-job", label: "Dummy Job Test Bed", icon: "evidence", emoji: "🧪", requiresBackend: true, enabled: true },
       { href: "/intelligence/signals", label: "Signals", icon: "insights", requiresBackend: true, enabled: false },
       { href: "/intelligence/night-shift", label: "Night Shift", icon: "applypilot", requiresBackend: true, enabled: false },
