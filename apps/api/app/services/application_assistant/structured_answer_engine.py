@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 from typing import Any
 
@@ -16,6 +17,8 @@ from app.services.application_assistant.ats_plugin_reference import (
 )
 from app.services.application_assistant.llm_client import call_llm
 from app.services.application_assistant.persistence import list_answer_library
+
+logger = logging.getLogger("careeros.answers")
 
 
 SYSTEM_ANSWERING_PROMPT = """You are the application-answering component inside CareerOS.
@@ -122,6 +125,73 @@ def resolve_level_2_answer_library(
     return None, ""
 
 
+#: Whether the local Ollama model may be loaded. The user keeps it off while
+#: they are using the laptop, because a resident 7B model makes the machine
+#: slow; an unattended run may turn it back on. Gemini exists precisely so that
+#: "off" does not mean "no open-ended answers at all".
+LOCAL_LLM_ENABLED = os.environ.get("CAREEROS_LOCAL_LLM", "on").strip().lower() not in ("off", "0", "false")
+
+
+async def resolve_level_3_gemini(
+    question_text: str,
+    options: list[str] | None,
+    profile: dict[str, Any],
+    company: str = "",
+    role: str = "",
+    resume_text: str = "",
+    canonical_key: str = "",
+    job_description: str = "",
+) -> dict[str, Any] | None:
+    """Level 3a: Gemini, for the open-ended questions it is genuinely better at.
+
+    Returns None whenever Gemini is not the right tool or did not deliver - a
+    deterministic field, no key configured, the circuit open, a rate limit, or
+    an answer that failed the grounding check. The caller then carries on to the
+    local model exactly as it did before this existed.
+
+    Nothing here can fabricate: `answer_application_question` refuses every
+    question type that has a right answer in the profile, and re-checks every
+    technology and figure in the reply against the candidate's own documents
+    before returning it.
+    """
+    try:
+        from app.services.gemini.enrichment import answer_application_question
+
+        enriched = await answer_application_question(
+            question_text,
+            profile=profile,
+            resume_text=resume_text,
+            company=company,
+            role=role,
+            job_description=job_description,
+            canonical_key=canonical_key,
+            options=options,
+            # Autopilot calls this with a browser sitting on a half-filled form,
+            # so it takes the top of the queue.
+            active_application=True,
+        )
+    except Exception:  # noqa: BLE001 - the optional layer must never break answering
+        logger.warning("Gemini answer enrichment raised; falling back", exc_info=True)
+        return None
+
+    if not enriched.available:
+        logger.info(
+            "Gemini did not answer %r (%s); falling back",
+            question_text[:60], enriched.outcome or "unavailable",
+        )
+        return None
+
+    return {
+        "answer": enriched.answer,
+        "confidence": enriched.confidence,
+        "supported": True,
+        "source": ["gemini.grounded", *enriched.evidence[:3]],
+        "reason": enriched.reason or "Grounded in the candidate's own documents.",
+        "needsUserInput": False,
+        "provider": "gemini",
+    }
+
+
 async def resolve_level_3_llm(
     question_text: str,
     options: list[str] | None,
@@ -131,6 +201,29 @@ async def resolve_level_3_llm(
     resume_text: str = "",
 ) -> dict[str, Any]:
     """Level 3: Grounded Agent Answer Generator for open-ended or custom screening questions."""
+    if not LOCAL_LLM_ENABLED:
+        # No local model and no Gemini answer means there is nothing left that
+        # can answer honestly. Staging for review is the correct outcome; making
+        # something up to keep Autopilot moving is not.
+        #
+        # Counted, because "how often does an unavailable Gemini cost us an
+        # application" is the number that decides whether this layer is pulling
+        # its weight or quietly creating manual work.
+        try:
+            from app.services.gemini.telemetry import telemetry
+
+            telemetry.record_review_staging()
+        except Exception:  # noqa: BLE001
+            pass
+        return {
+            "answer": "",
+            "confidence": 0.0,
+            "supported": False,
+            "source": [],
+            "reason": "No answer source available: Gemini did not answer and the local model is switched off",
+            "needsUserInput": True,
+        }
+
     prompt = f"""Target Company: {company or 'Target Employer'}
 Target Role: {role or 'Software Engineer / Target Role'}
 
@@ -177,6 +270,7 @@ async def resolve_application_question(
     company: str = "",
     role: str = "",
     resume_text: str = "",
+    job_description: str = "",
 ) -> dict[str, Any]:
     """Resolve an application question using the 4-level hierarchy with plugin reference and agent answer generation."""
     prof = profile or {}
@@ -219,15 +313,31 @@ async def resolve_application_question(
             "level": 2,
         }
 
-    # Level 3: Grounded Agent Answer Generator with Strict Confidence Gating (>= 0.90)
-    l3 = await resolve_level_3_llm(
+    # Level 3a: Gemini, when it is available and the question is one it may
+    # answer. Deterministic fields never reach it - they were already resolved
+    # at level 1, and `answer_application_question` refuses them again anyway.
+    l3 = await resolve_level_3_gemini(
         question_text=question_text,
         options=options,
         profile=prof,
         company=company,
         role=role,
         resume_text=resume_text,
+        canonical_key=canonical_key,
+        job_description=job_description,
     )
+
+    # Level 3b: the local model, exactly as before. Reached whenever Gemini was
+    # unavailable, declined, or produced something that failed grounding.
+    if l3 is None:
+        l3 = await resolve_level_3_llm(
+            question_text=question_text,
+            options=options,
+            profile=prof,
+            company=company,
+            role=role,
+            resume_text=resume_text,
+        )
     conf = float(l3.get("confidence", 0.0) or 0.0)
     ans = str(l3.get("answer") or "").strip()
 

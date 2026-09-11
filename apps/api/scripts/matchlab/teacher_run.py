@@ -45,6 +45,35 @@ from matchlab.run import build_context  # noqa: E402
 from matchlab.teacher import TEACHER_CACHE_NOTE, build_resume_summary, judge  # noqa: E402
 
 
+def order_by_uncertainty(pairs, ctx) -> list:
+    """Hardest postings first, so a capped run spends its quota where it counts.
+
+    Labelling every posting is the wrong shape for this problem. The postings
+    that move an evaluation are the ones the cheap label sources disagree
+    about, or that they themselves report as undecided; a posting bootstrap and
+    the deterministic scorer both call SKIP teaches almost nothing and costs the
+    same API call as a hard one.
+
+    This orders rather than filters, so --jobs still controls how many get
+    labelled and no posting is permanently excluded from the pool.
+    """
+    from matchlab.dataset import REVIEW
+
+    bootstrap = L.bootstrap_set(pairs)
+    deterministic = L.deterministic_set(pairs, ctx)
+
+    def rank(pair):
+        a = bootstrap.label_for(pair.id)
+        b = deterministic.label_for(pair.id)
+        if a is not None and b is not None and a != b:
+            return 0            # outright disagreement: the most informative
+        if a == REVIEW or b == REVIEW:
+            return 1            # undecided by at least one cheap source
+        return 2                # both already agree; least worth an API call
+
+    return sorted(pairs, key=rank)
+
+
 def collect_teacher(pairs, resume: str, *, offline: bool) -> dict[str, Any]:
     """Run (or load) the teacher for every posting."""
     stored: dict[str, Any] = {}
@@ -119,12 +148,23 @@ def main() -> None:
     ap.add_argument("--jobs", type=int, default=140)
     ap.add_argument("--offline", action="store_true",
                     help="use only cached teacher responses; make no API calls")
+    ap.add_argument("--uncertain-first", action="store_true", default=True,
+                    help="label the postings the cheap sources disagree about first")
+    ap.add_argument("--in-order", dest="uncertain_first", action="store_false",
+                    help="label postings in dataset order instead")
     ap.add_argument("--out", default="data/matchlab_label_study.json")
     args = ap.parse_args()
 
-    pairs = load_pairs(limit=args.jobs)
-    ctx = build_context(pairs)
-    print(f"{len(pairs)} postings\n")
+    # Load the whole pool, then let the sampler decide which of it is worth
+    # spending calls on. Taking the first N postings and ranking them afterwards
+    # would mean the ranking never saw the interesting ones.
+    pool = load_pairs()
+    ctx = build_context(pool)
+    if args.uncertain_first:
+        pool = order_by_uncertainty(pool, ctx)
+    pairs = pool[: args.jobs]
+    print(f"{len(pairs)} postings of {len(pool)} "
+          f"({'uncertainty-sampled' if args.uncertain_first else 'in dataset order'})\n")
 
     print("1. teacher (Gemini, title hidden)")
     resume = build_resume_summary()

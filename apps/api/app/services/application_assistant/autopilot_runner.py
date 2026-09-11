@@ -961,6 +961,53 @@ class AutopilotRunner:
         })
         job_item["currentStep"] = step.value
 
+    async def _gemini_match_gate(
+        self,
+        job_item: dict[str, Any],
+        profile: dict[str, Any],
+        score: float,
+        log: Any,
+    ) -> Any:
+        """One optional second opinion on a posting the matcher could not settle.
+
+        Returns None when the gate cannot run at all, which is treated exactly
+        like "proceed" by the caller - an optional enhancement that is itself
+        unavailable must not change what CareerOS does.
+
+        The posting text is loaded from the discovered-job row, because an
+        Autopilot job row carries only company, title, URL and location. Without
+        the description there is nothing to be ambiguous *about*, so the gate
+        steps aside rather than judging a posting it cannot read.
+        """
+        try:
+            from app.services.gemini import match_gate
+
+            job_for_gate = dict(job_item)
+            if not str(job_for_gate.get("description") or "").strip():
+                source_id = job_item.get("jobId") or job_item.get("id")
+                if source_id:
+                    from app.db.store import get_entity
+                    from app.services.application_assistant.persistence import (
+                        ENTITY_DISCOVERED_JOB,
+                    )
+
+                    with session_scope() as db:
+                        source = get_entity(db, ENTITY_DISCOVERED_JOB, source_id)
+                    if source:
+                        job_for_gate["description"] = source.get("description") or source.get("snippet") or ""
+            if not str(job_for_gate.get("description") or "").strip():
+                return None
+
+            decision = await match_gate.evaluate(
+                job_for_gate, score=score if score > 0 else None, profile=profile
+            )
+            if decision.consulted:
+                log(f"Gemini match gate: {decision.action} — {decision.reason}")
+            return decision
+        except Exception:  # noqa: BLE001 - never let an optional gate fail a run
+            logger.warning("Gemini match gate failed; continuing deterministically", exc_info=True)
+            return None
+
     async def _process_single_job_with_retries(
         self, run_id: str, job_item: dict[str, Any], worker_state: WorkerState | None = None
     ) -> None:
@@ -1279,6 +1326,36 @@ class AutopilotRunner:
             base_match_score = float(job_item.get("matchScore") or 0.0)
         except (TypeError, ValueError):
             base_match_score = 0.0
+
+        # Postings the deterministic matcher could not settle get one optional
+        # second opinion here. Most do not: `evaluate` checks cheaply first and
+        # only reaches Gemini for a genuinely undecided posting, so this adds no
+        # latency to the normal path. The gate can send a job to review; it can
+        # never talk one into being applied to, and a Gemini outage produces
+        # review rather than a failed run.
+        gate = await self._gemini_match_gate(
+            job_item, profile, base_match_score, _granular_log
+        )
+        if gate is not None and not gate.proceed:
+            job_item.update(gate.to_job_fields())
+            job_item["status"] = AutopilotJobStatus.NEEDS_REVIEW.value
+            job_item["skipReason"] = gate.reason
+            job_item["lastError"] = gate.reason
+            job_item["aiExplanation"] = gate.reason
+            self.log_event(
+                f"{w_prefix}Staged {company} — {title} for review: {gate.reason}",
+                level="warning",
+                metadata={"slot": slot_idx, "company": company, "title": title,
+                          "status": "NEEDS_REVIEW", "reason": gate.reason},
+            )
+            self._record_checkpoint(job_item, CheckpointStep.SKIPPED, gate.reason)
+            with self._run_update_lock:
+                with session_scope() as db:
+                    save_autopilot_job(db, job_item)
+            return
+        if gate is not None:
+            job_item.update(gate.to_job_fields())
+
         from app.services.application_assistant.resume_diff_service import (
             generate_role_tailoring_diff,
             render_tailored_resume_pdf,

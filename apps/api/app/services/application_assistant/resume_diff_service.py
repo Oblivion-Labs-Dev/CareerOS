@@ -302,7 +302,13 @@ def _figure_set(text: str) -> set[str]:
     """
     plain = re.sub(r"<[^>]+>", "", text)
     out: set[str] = set()
-    for match in re.finditer(r"(\d[\d,.]*)\s*([KkMmBb%])?", plain):
+    # The lookbehind keeps digits that live inside a word out of the figure set.
+    # Without it "K8s" contributed the figure 8, "Log4j" contributed 4 and "S3"
+    # contributed 3 - so a rewrite that merely mentioned S3 or Log4j was
+    # rejected for introducing a metric the original did not have, and one that
+    # dropped the word was logged as losing a number. Neither is a claim about
+    # scale, which is the only thing this guard is meant to police.
+    for match in re.finditer(r"(?<![A-Za-z0-9])(\d[\d,.]*)\s*([KkMmBb%])?(?![A-Za-z])", plain):
         digits = match.group(1).replace(",", "").rstrip(".")
         if not digits:
             continue
@@ -311,13 +317,94 @@ def _figure_set(text: str) -> set[str]:
     return out
 
 
-async def _complete_batch(client: Any, prompt: str) -> dict[str, Any]:
+_TAILORING_SYSTEM = (
+    "You are an expert ATS resume optimizer. Respond only with a JSON array "
+    "of strings."
+)
+
+#: Gemini may do the rewriting when a key is configured. It costs no local RAM,
+#: which is the constraint that keeps tailoring switched off by default in the
+#: first place. Set CAREEROS_GEMINI_TAILORING=off to keep tailoring purely local.
+_GEMINI_TAILORING = os.environ.get("CAREEROS_GEMINI_TAILORING", "on").strip().lower() not in (
+    "off", "0", "false",
+)
+
+#: Gemini needs an object at the top level, while this prompt was tuned to
+#: return a bare array. Wrapping the array in one key keeps the prompt - and
+#: everything downstream that parses it - exactly as it was.
+_GEMINI_BULLET_SCHEMA = {
+    "type": "object",
+    "properties": {"bullets": {"type": "array", "items": {"type": "string"}}},
+    "required": ["bullets"],
+}
+
+
+async def _complete_batch_via_gemini(prompt: str, expected: int) -> dict[str, Any] | None:
+    """One batch of bullets from Gemini, or None to fall through to the local model.
+
+    The prompt is the same one the local model gets, hard rules and all, and the
+    result goes back through the same parser, the same echo check, the same
+    length clamp and the same `_reject_fabrication` guard. Gemini is a different
+    writer here, not a different set of rules - it gets no more latitude to
+    invent than a local 4B model does.
+    """
+    if not _GEMINI_TAILORING:
+        return None
+    try:
+        from app.services.gemini.gateway import GeminiRequest, Priority, get_gateway
+        from app.services.gemini.schemas import RESUME_TAILORING_VERSION
+
+        result = await get_gateway().submit(GeminiRequest(
+            task="resume_tailoring",
+            system=_TAILORING_SYSTEM,
+            prompt=prompt + (
+                "\n\nReturn a JSON object of the form "
+                '{"bullets": [...]} whose bullets array holds exactly '
+                f"{expected} strings.\n"
+            ),
+            schema=_GEMINI_BULLET_SCHEMA,
+            schema_name="tailored_bullets",
+            prompt_version=RESUME_TAILORING_VERSION,
+            priority=Priority.RESUME_TAILORING,
+            max_tokens=2000,
+            deadline_seconds=150.0,
+        ))
+    except Exception:  # noqa: BLE001 - optional layer, never load-bearing
+        logger.warning("Gemini tailoring raised; using the local model", exc_info=True)
+        return None
+
+    if not result.ok or not result.data:
+        logger.info("Gemini tailoring unavailable (%s); using the local model", result.outcome.value)
+        return None
+
+    bullets = [str(item) for item in (result.data.get("bullets") or []) if str(item).strip()]
+    if len(bullets) != expected:
+        # A wrong count would be silently mapped onto the wrong slots further
+        # down, which is the exact failure that once put bullet 3's text in
+        # slot 1. Treat it as no answer rather than a partial one.
+        logger.info(
+            "Gemini returned %d bullets for a batch of %d; using the local model",
+            len(bullets), expected,
+        )
+        return None
+
+    return {
+        "success": True,
+        "data": json.dumps(bullets),
+        "model": f"gemini ({'cached' if result.cached else 'live'})",
+        "provider": "gemini",
+    }
+
+
+async def _complete_batch(client: Any, prompt: str, expected: int = 0) -> dict[str, Any]:
+    """Gemini when it can, the local model otherwise. Identical output shape."""
+    if expected:
+        via_gemini = await _complete_batch_via_gemini(prompt, expected)
+        if via_gemini is not None:
+            return via_gemini
     return await client.complete(
         prompt,
-        system=(
-            "You are an expert ATS resume optimizer. Respond only with a JSON array "
-            "of strings."
-        ),
+        system=_TAILORING_SYSTEM,
         task="resume_tailoring",
     )
 
@@ -759,7 +846,7 @@ async def generate_role_tailoring_diff(
                     "do not return any other bullet. Each string must be a genuine "
                     "rewrite - do not copy the input text back.\n"
                 )
-                res = await _complete_batch(client, batch_prompt)
+                res = await _complete_batch(client, batch_prompt, expected=len(batch))
 
                 # Any echoed bullet is a missed rewrite, so ask again naming how
                 # many came back untouched. Only one retry: a second model that

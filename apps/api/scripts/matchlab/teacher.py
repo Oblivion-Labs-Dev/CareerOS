@@ -22,11 +22,25 @@ Three rules this module holds to:
   silently reusing answers to a different question.
 
 The teacher's judgement is a *label for evaluation*. It is never a CareerOS
-production score.
+production score, and it is never a human label.
+
+## Why the HTTP no longer lives here
+
+It used to. This module had its own throttle, its own retry loop and its own
+sense of when to give up, and so did every other thing in CareerOS that wanted
+to call Gemini. That is how a batch of 140 postings ends up competing with a
+live application for the same rate limit. All of it now goes through
+`app.services.gemini.gateway`, at the lowest priority in the queue, so a
+labelling run yields to anything a person is waiting on and can never be the
+reason an application went unanswered.
+
+The module keeps its own cache directory as well as the gateway's, because the
+87 labels produced before the move live there and must not be re-charged.
 """
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import os
@@ -36,19 +50,23 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-import httpx
-
 API_ROOT = Path(__file__).resolve().parents[2]
 CACHE_DIR = API_ROOT / "data" / "matchlab_teacher_cache"
-BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai"
-# gemini-flash-latest exhausted its free-tier daily quota part way through the
-# first run; flash-lite has a separate, larger allowance and is ample for a
-# labelling task with a fixed schema. Override with MATCHLAB_TEACHER_MODEL.
-MODEL = os.environ.get("MATCHLAB_TEACHER_MODEL", "gemini-flash-lite-latest")
 
-#: Bump when the prompt or schema changes. Part of the cache key, so old
-#: answers to a different question are never silently reused.
-PROMPT_VERSION = "v1"
+if str(API_ROOT) not in os.sys.path:
+    os.sys.path.insert(0, str(API_ROOT))
+
+from app.services.gemini import config as gemini_config  # noqa: E402
+from app.services.gemini import enrichment  # noqa: E402
+from app.services.gemini import schemas as gemini_schemas  # noqa: E402
+from app.services.gemini.title_redaction import strip_title  # noqa: F401,E402
+
+MODEL = os.environ.get("MATCHLAB_TEACHER_MODEL", gemini_config.MODEL)
+
+#: Part of the legacy cache key. Kept in step with the shared schema version so
+#: the two cache layers invalidate together rather than one silently serving
+#: answers to a question the other has stopped asking.
+PROMPT_VERSION = gemini_schemas.TEACHER_VERSION
 
 #: Shown in the study output so a reader knows results were cached, not re-judged.
 TEACHER_CACHE_NOTE = (
@@ -56,51 +74,9 @@ TEACHER_CACHE_NOTE = (
     "study makes no API calls unless a posting or the prompt changed."
 )
 
-ROLE_FAMILIES = [
-    "backend", "frontend", "platform", "infrastructure", "sre", "mobile",
-    "data", "ml", "security", "fullstack", "embedded", "qa", "other",
-]
-
-SCHEMA: dict[str, Any] = {
-    "type": "object",
-    "properties": {
-        "decision": {"type": "string", "enum": ["APPLY", "REVIEW", "SKIP"]},
-        "primary_role_family": {"type": "string", "enum": ROLE_FAMILIES},
-        "secondary_role_family": {"type": "string", "enum": ROLE_FAMILIES + [""]},
-        "seniority_match": {"type": "boolean"},
-        "critical_mismatch": {"type": "boolean"},
-        "confidence": {"type": "number"},
-        "reason": {"type": "string"},
-    },
-    "required": [
-        "decision", "primary_role_family", "secondary_role_family",
-        "seniority_match", "critical_mismatch", "confidence", "reason",
-    ],
-}
-
-SYSTEM = """You judge whether a candidate should apply to a job, from the job's
-description only. You are never shown the job title; judge from the described work.
-
-Return JSON only.
-
-decision:
-  APPLY  - the described work is the kind of engineering this candidate does, at a
-           compatible level, with no requirement they plainly cannot meet
-  REVIEW - plausible but uncertain, or the description is too vague to judge
-  SKIP   - a different kind of engineering, an incompatible level, or a
-           requirement the candidate clearly cannot meet
-
-primary_role_family / secondary_role_family: the shape of the work described.
-  Use secondary when the job genuinely spans two, otherwise "".
-
-seniority_match: does the described level fit a senior engineer with ~9 years?
-critical_mismatch: is there a must-have requirement the candidate cannot evidence?
-confidence: 0..1, how clearly the description supports your decision. Low when
-  the posting is short, generic, or does not describe the work.
-reason: one sentence, factual, naming the deciding evidence.
-
-Judge the work, not the writing. A vague posting is REVIEW with low confidence,
-not SKIP."""
+ROLE_FAMILIES = gemini_schemas.ROLE_FAMILIES
+SCHEMA = gemini_schemas.TEACHER_SCHEMA
+SYSTEM = gemini_schemas.TEACHER_SYSTEM
 
 
 @dataclass
@@ -123,6 +99,11 @@ class TeacherLabel:
 
     def to_dict(self) -> dict[str, Any]:
         return {
+            # Never "human", and never bare "gemini". A reader of the labels
+            # file has to be able to tell at a glance that a model produced
+            # this, because human labels override automated ones everywhere
+            # they both exist.
+            "label_source": "gemini_teacher",
             "decision": self.decision,
             "primary_role_family": self.primary_role_family,
             "secondary_role_family": self.secondary_role_family,
@@ -133,67 +114,7 @@ class TeacherLabel:
         }
 
 
-# ---------------------------------------------------------------------------
-# Title removal
-# ---------------------------------------------------------------------------
-
-_NOISE = re.compile(r"\b(senior|staff|principal|lead|sr|junior|associate|"
-                    r"software|engineer|engineering|developer|i{1,3}|\d+)\b", re.I)
-
-
-def strip_title(title: str, body: str) -> tuple[str, int]:
-    """Remove the job title from the body. Returns (redacted body, redactions).
-
-    Postings almost always repeat the title as a heading or in the opening
-    line, so omitting the title field alone would not hide it. Both the exact
-    title and its distinctive part - the title with generic words like
-    "Senior Software Engineer" removed - are redacted, because "Engine Systems"
-    leaks the role family just as effectively as the full title does.
-    """
-    redacted = body
-    count = 0
-
-    targets = [title.strip()]
-    distinctive = _NOISE.sub(" ", title)
-    distinctive = re.sub(r"[^\w\s/&+-]", " ", distinctive)
-    distinctive = re.sub(r"\s{2,}", " ", distinctive).strip(" ,-–—|/")
-    if len(distinctive) >= 4:
-        targets.append(distinctive)
-
-    for target in targets:
-        if len(target) < 4:
-            continue
-        pattern = re.compile(re.escape(target).replace(r"\ ", r"[\s\-]+"), re.I)
-        redacted, hits = pattern.subn("[ROLE TITLE REDACTED]", redacted)
-        count += hits
-
-    # A leading line that is short and heading-like is the title even when the
-    # strings did not match exactly.
-    lines = redacted.splitlines()
-    while lines and (not lines[0].strip() or (
-        len(lines[0].strip()) < 70
-        and not lines[0].strip().endswith((".", ":", ";"))
-        and len(lines[0].split()) <= 9
-        and "REDACTED" not in lines[0]
-        and _looks_like_heading(lines[0])
-    )):
-        if lines[0].strip():
-            count += 1
-        lines.pop(0)
-    return "\n".join(lines).strip(), count
-
-
-def _looks_like_heading(line: str) -> bool:
-    words = line.strip().split()
-    if not words:
-        return False
-    capitalised = sum(1 for w in words if w[:1].isupper())
-    return capitalised >= max(1, len(words) // 2)
-
-
-# ---------------------------------------------------------------------------
-# Cache
-# ---------------------------------------------------------------------------
+# ── legacy cache ─────────────────────────────────────────────────────────────
 
 def _cache_key(resume: str, body: str) -> str:
     digest = hashlib.sha256()
@@ -205,118 +126,24 @@ def _cache_key(resume: str, body: str) -> str:
 
 
 def _read_cache(key: str) -> dict[str, Any] | None:
-    path = CACHE_DIR / f"{key}.json"
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
+        return json.loads((CACHE_DIR / f"{key}.json").read_text(encoding="utf-8"))
     except Exception:
         return None
 
 
 def _write_cache(key: str, payload: dict[str, Any]) -> None:
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
-    (CACHE_DIR / f"{key}.json").write_text(
-        json.dumps(payload, indent=1), encoding="utf-8"
-    )
+    (CACHE_DIR / f"{key}.json").write_text(json.dumps(payload, indent=1), encoding="utf-8")
 
 
-# ---------------------------------------------------------------------------
-
-def _api_key() -> str:
-    key = os.environ.get("GEMINI_API_KEY", "").strip()
-    if key:
-        return key
-    env = (API_ROOT / ".env").read_text(encoding="utf-8", errors="ignore")
-    match = re.search(r"^GEMINI_API_KEY=(.+)$", env, re.M)
-    if not match or not match.group(1).strip():
-        raise RuntimeError("GEMINI_API_KEY is not configured")
-    return match.group(1).strip()
+def _from_cached(payload: dict[str, Any]) -> TeacherLabel:
+    label = dict(payload.get("label") or {})
+    label.pop("label_source", None)
+    return TeacherLabel(**label, cached=True)
 
 
-#: Gemini's free tier rate-limits aggressively and returns transient 503s under
-#: load. Neither is a reason to lose a label, so calls are spaced and retried.
-#: Measured: without this, roughly a third of a 140-posting run failed.
-MIN_SECONDS_BETWEEN_CALLS = 2.5
-MAX_ATTEMPTS = 5
-
-_last_call_at = 0.0
-
-
-def _throttle() -> None:
-    global _last_call_at
-    wait = MIN_SECONDS_BETWEEN_CALLS - (time.monotonic() - _last_call_at)
-    if wait > 0:
-        time.sleep(wait)
-    _last_call_at = time.monotonic()
-
-
-def _extract_json(content: str) -> dict[str, Any] | None:
-    """Parse the reply, tolerating a markdown fence or trailing prose.
-
-    The schema is supposed to guarantee bare JSON and usually does, but a
-    malformed reply should cost one retry rather than one lost label.
-    """
-    text = content.strip()
-    if text.startswith("```"):
-        text = re.sub(r"^```(?:json)?\s*|\s*```$", "", text, flags=re.S).strip()
-    try:
-        return json.loads(text)
-    except json.JSONDecodeError:
-        match = re.search(r"\{.*\}", text, re.S)
-        if not match:
-            return None
-        try:
-            return json.loads(match.group(0))
-        except json.JSONDecodeError:
-            return None
-
-
-def _call_with_retry(payload: dict[str, Any], timeout: float) -> dict[str, Any] | None:
-    """One judgement, retried through rate limits and transient server errors."""
-    delay = 5.0
-    for attempt in range(1, MAX_ATTEMPTS + 1):
-        _throttle()
-        try:
-            with httpx.Client(timeout=timeout) as client:
-                response = client.post(
-                    f"{BASE_URL}/chat/completions",
-                    headers={"Authorization": f"Bearer {_api_key()}",
-                             "Content-Type": "application/json"},
-                    json=payload,
-                )
-            if response.status_code in (429, 500, 502, 503, 504):
-                # Honour Retry-After when the server sends one; it knows better
-                # than an exponential guess.
-                hinted = response.headers.get("retry-after")
-                wait = float(hinted) if (hinted or "").replace(".", "", 1).isdigit() else delay
-                if attempt < MAX_ATTEMPTS:
-                    print(f"      {response.status_code}; retrying in {wait:.0f}s "
-                          f"({attempt}/{MAX_ATTEMPTS})", flush=True)
-                    time.sleep(wait)
-                    delay = min(delay * 2, 60.0)
-                    continue
-                print(f"      gave up after {MAX_ATTEMPTS} attempts "
-                      f"({response.status_code})", flush=True)
-                return None
-            response.raise_for_status()
-            parsed = _extract_json(response.json()["choices"][0]["message"]["content"])
-            if parsed is not None:
-                return parsed
-            if attempt < MAX_ATTEMPTS:
-                print(f"      unparseable reply; retrying ({attempt}/{MAX_ATTEMPTS})",
-                      flush=True)
-                continue
-            return None
-        except Exception as exc:  # noqa: BLE001
-            if attempt < MAX_ATTEMPTS:
-                print(f"      {type(exc).__name__}; retrying in {delay:.0f}s "
-                      f"({attempt}/{MAX_ATTEMPTS})", flush=True)
-                time.sleep(delay)
-                delay = min(delay * 2, 60.0)
-                continue
-            print(f"    teacher call failed: {type(exc).__name__}: {str(exc)[:110]}")
-            return None
-    return None
-
+# ── judging ──────────────────────────────────────────────────────────────────
 
 def judge(
     resume_summary: str,
@@ -326,52 +153,38 @@ def judge(
     timeout: float = 60.0,
     allow_network: bool = True,
 ) -> TeacherLabel | None:
-    """Label one posting. Cached; returns None only when the call fails."""
+    """Label one posting. Cached; returns None only when the call fails.
+
+    Synchronous, because the MatchLab scripts are. The gateway is async, so the
+    call is driven on a private event loop - each script process gets its own
+    gateway and the queue is only ever this one run's work.
+    """
     redacted, redactions = strip_title(title, body)
-    prompt = (
-        "CANDIDATE\n"
-        f"{resume_summary[:6000]}\n\n"
-        "JOB DESCRIPTION (title deliberately withheld)\n"
-        f"{redacted[:9000]}\n\n"
-        f"[{redactions} title mention(s) were redacted from this description]"
-    )
 
     key = _cache_key(resume_summary[:6000], redacted[:9000])
     cached = _read_cache(key)
     if cached:
-        return TeacherLabel(**cached["label"], cached=True)
+        return _from_cached(cached)
     if not allow_network:
         return None
 
-    payload = {
-        "model": MODEL,
-        "messages": [
-            {"role": "system", "content": SYSTEM},
-            {"role": "user", "content": prompt},
-        ],
-        "temperature": 0,
-        "max_tokens": 600,
-        "response_format": {
-            "type": "json_schema",
-            "json_schema": {"name": "job_fit", "strict": True, "schema": SCHEMA},
-        },
-    }
-
     started = time.perf_counter()
-    parsed = _call_with_retry(payload, timeout)
-    if parsed is None:
+    result = asyncio.run(
+        enrichment.label_posting(resume_summary, title, body, strip_title=strip_title)
+    )
+    if not result.available:
         return None
 
-    elapsed = (time.perf_counter() - started) * 1000
     label = TeacherLabel(
-        decision=str(parsed["decision"]).upper(),
-        primary_role_family=str(parsed.get("primary_role_family") or "other"),
-        secondary_role_family=str(parsed.get("secondary_role_family") or ""),
-        seniority_match=bool(parsed.get("seniority_match")),
-        critical_mismatch=bool(parsed.get("critical_mismatch")),
-        confidence=float(parsed.get("confidence") or 0.0),
-        reason=str(parsed.get("reason") or "")[:400],
-        latency_ms=round(elapsed, 1),
+        decision=result.decision,
+        primary_role_family=result.primary_role_family or "other",
+        secondary_role_family=result.secondary_role_family,
+        seniority_match=result.seniority_match,
+        critical_mismatch=result.critical_mismatch,
+        confidence=result.confidence,
+        reason=result.reason,
+        cached=result.cached,
+        latency_ms=round((time.perf_counter() - started) * 1000, 1),
     )
     _write_cache(key, {
         "model": MODEL, "promptVersion": PROMPT_VERSION,
@@ -391,3 +204,12 @@ def build_resume_summary() -> str:
     with session_scope() as db:
         documents = get_kv(db, "documents") or {}
     return (extract_resume_text(documents) or "").strip()
+
+
+# Kept so the module's own regex helpers remain importable by anything that
+# reached into them before the redaction moved into `app`.
+_NOISE = re.compile(
+    r"\b(senior|staff|principal|lead|sr|junior|associate|"
+    r"software|engineer|engineering|developer|i{1,3}|\d+)\b",
+    re.I,
+)

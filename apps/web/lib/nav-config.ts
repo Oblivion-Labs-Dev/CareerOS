@@ -44,6 +44,7 @@ export const ALL_NAV_GROUPS: NavGroup[] = [
       { href: "/benchmarks", label: "LLM Benchmarks", icon: "evidence", emoji: "⚡", requiresBackend: true, enabled: true },
       { href: "/benchmarks/matcher", label: "Matcher Benchmark", icon: "evidence", emoji: "🏁", requiresBackend: true, enabled: true },
       { href: "/dev/dummy-job", label: "Dummy Job Test Bed", icon: "evidence", emoji: "🧪", requiresBackend: true, enabled: true },
+      { href: "/diagnostics/gemini", label: "Gemini Layer", icon: "insights", emoji: "✨", requiresBackend: true, enabled: true },
       { href: "/intelligence/signals", label: "Signals", icon: "insights", requiresBackend: true, enabled: false },
       { href: "/intelligence/night-shift", label: "Night Shift", icon: "applypilot", requiresBackend: true, enabled: false },
       { href: "/intelligence/auto-apply", label: "Auto Apply", icon: "applypilot", emoji: "🛫", requiresBackend: true, enabled: false },
@@ -120,6 +121,7 @@ export const NAV_GROUPS: NavGroup[] = [
     items: [
       { href: "/profile", label: "Resume & Profile", icon: "profile", requiresBackend: true, enabled: true },
       { href: "/settings", label: "Settings", icon: "settings", enabled: true },
+      { href: "/diagnostics/gemini", label: "Gemini Layer", icon: "insights", requiresBackend: true, enabled: true },
       { href: "/resume-corpus", label: "Resume Intelligence", icon: "evidence", requiresBackend: true, enabled: false },
       { href: "/intelligence/answers", label: "AI Answers", icon: "answers", requiresBackend: true, enabled: false },
       { href: "/networking", label: "Networking", icon: "relationships", requiresBackend: true, enabled: false },

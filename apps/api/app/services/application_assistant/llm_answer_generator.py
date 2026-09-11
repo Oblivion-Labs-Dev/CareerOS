@@ -199,6 +199,33 @@ async def generate_theory_answer(
     effective_resume = resume_text or profile_data.get("resumeText") or profile_data.get("resume") or ""
     formatted_profile = _format_profile_text(profile_data)
 
+    # Gemini first, when it is available and the question is open-ended. It is
+    # better at this than a 4B local model and costs no local RAM, which is the
+    # whole reason this layer exists. Anything it will not answer honestly falls
+    # through to the paths below unchanged.
+    try:
+        from app.services.gemini.enrichment import answer_application_question
+
+        enriched = await answer_application_question(
+            question,
+            profile=profile_data,
+            resume_text=effective_resume,
+            company=company,
+            role=role,
+            job_description=job_description,
+        )
+        if enriched.available:
+            return {
+                "success": True,
+                "answer": enriched.answer,
+                "question": question,
+                "provider": "gemini",
+                "confidence": enriched.confidence,
+                "evidence": enriched.evidence,
+            }
+    except Exception:  # noqa: BLE001 - optional layer, never load-bearing
+        pass
+
     if not client.enabled:
         fallback_ans = _synthesize_profile_fallback(
             question,
@@ -250,7 +277,7 @@ async def generate_theory_answer(
         return {"success": True, "answer": fallback_ans, "question": question, "insufficientEvidence": True}
 
     # Strip surrounding quotes if present
-    if (raw_text.startswith('"') and raw_text.ends_with('"')) or (raw_text.startswith("'") and raw_text.ends_with("'")):
+    if (raw_text.startswith('"') and raw_text.endswith('"')) or (raw_text.startswith("'") and raw_text.endswith("'")):
         raw_text = raw_text[1:-1].strip()
 
     return {
