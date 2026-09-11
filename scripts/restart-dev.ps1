@@ -102,6 +102,22 @@ function Start-OllamaIfNeeded([string]$BaseUrl) {
     }
 
     Write-Step 'Starting Ollama service...'
+
+    # Memory tuning for a 16GB laptop that also runs the dev stack and a
+    # browser. Measured on qwen3:4b-instruct at an 8192 context: 3.87 GB
+    # resident before, 3.31 GB after, with no context reduction and no change
+    # to output quality.
+    #   FLASH_ATTENTION  - required for the quantised KV cache below
+    #   KV_CACHE_TYPE    - q8_0 roughly halves KV cache memory
+    #   MAX_LOADED_MODELS- stops a second model becoming resident alongside the
+    #                      first; mistral:7b and qwen3:4b were both loaded at
+    #                      once (5.6 + 3.9 GB) before this was set
+    #   NUM_PARALLEL     - each parallel slot allocates its own KV cache
+    $env:OLLAMA_FLASH_ATTENTION   = '1'
+    $env:OLLAMA_KV_CACHE_TYPE     = 'q8_0'
+    $env:OLLAMA_MAX_LOADED_MODELS = '1'
+    $env:OLLAMA_NUM_PARALLEL      = '1'
+
     $ollamaCmd = Get-Command ollama -ErrorAction SilentlyContinue
     $ollamaPath = $null
     if ($ollamaCmd) {
