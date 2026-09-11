@@ -109,7 +109,8 @@ def build_mistral_match_client(*, timeout: int | None = None) -> LLMClient:
     """
     return LLMClient(
         base_url=OLLAMA_BASE_URL,
-        model=MATCH_MODEL,
+        # Read per call so the scoring model can be switched without a restart.
+        model=os.environ.get("CAREEROS_MATCH_MODEL") or MATCH_MODEL,
         api_key="",
         timeout=timeout or MATCH_TIMEOUT,
         max_retries=1,

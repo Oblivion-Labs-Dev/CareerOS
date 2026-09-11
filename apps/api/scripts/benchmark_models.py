@@ -1,0 +1,556 @@
+"""Compare local models on the two jobs CareerOS actually asks them to do.
+
+Those two jobs have different success criteria, so they are measured separately
+and a model can win one and lose the other:
+
+  SCORING   - judge how well a resume matches a posting. This number gates
+              whether an application is sent, so what matters is not the score
+              itself but whether it *separates*: a scorer that rates every
+              posting 80% is useless as a gate however reasonable each number
+              looks. Measured against postings whose correct ranking is known
+              by construction - roles in the candidate's own domain should
+              outscore roles built on skills the evidence ledger lists as gaps.
+
+  TAILORING - rewrite 17 resume bullets against a posting. Measured by whether
+              the result passes the submission gate: genuinely rewritten,
+              structurally sound, and scoring better than the untailored resume.
+
+Two design points worth stating, because they are what make the numbers mean
+anything:
+
+* **The tailoring comparison holds the scorer fixed.** Letting each model score
+  its own output would measure self-agreement, not quality. Every candidate's
+  bullets are scored by one model, in one pass, after all tailoring is done.
+
+* **Only one model is resident at a time.** This machine cannot hold two, so
+  the run is strictly sequential: load, run every case, unload, next. That is
+  also why tailoring and scoring are separate phases rather than interleaved -
+  interleaving would thrash the two models in and out for every single job.
+"""
+
+from __future__ import annotations
+
+import argparse
+import asyncio
+import json
+import os
+import re
+import sqlite3
+import statistics
+import sys
+import time
+from pathlib import Path
+from typing import Any
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+import httpx  # noqa: E402
+
+OLLAMA = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434").replace("/v1", "")
+DB = Path(__file__).resolve().parents[1] / "data" / "career_os.db"
+
+#: Candidates, smallest first so a run that has to be cut short still produced
+#: comparable numbers for the models most likely to be usable here.
+DEFAULT_MODELS = [
+    "qwen2.5:3b",
+    "qwen3:4b-instruct",
+    "mistral:7b-instruct",
+    "qwen3:8b",
+    "gemma3:12b",
+]
+
+#: The scorer used to judge every model's tailoring output. Held fixed.
+REFERENCE_SCORER = os.environ.get("BENCH_REFERENCE_SCORER", "qwen3:4b-instruct")
+
+
+# ---------------------------------------------------------------------------
+# Ollama lifecycle
+# ---------------------------------------------------------------------------
+
+async def unload(model: str) -> None:
+    """Drop a model from memory so the next one has room."""
+    try:
+        async with httpx.AsyncClient(timeout=20) as c:
+            await c.post(f"{OLLAMA}/api/generate", json={"model": model, "keep_alive": 0})
+    except Exception:
+        pass
+
+
+async def resident() -> list[dict[str, Any]]:
+    try:
+        async with httpx.AsyncClient(timeout=10) as c:
+            return (await c.get(f"{OLLAMA}/api/ps")).json().get("models", [])
+    except Exception:
+        return []
+
+
+async def memory_of(model: str) -> dict[str, Any]:
+    """What this model costs while loaded, as Ollama reports it."""
+    for m in await resident():
+        if m.get("name") == model or m.get("model") == model:
+            total = int(m.get("size") or 0)
+            vram = int(m.get("size_vram") or 0)
+            return {
+                "totalBytes": total,
+                "vramBytes": vram,
+                "cpuBytes": max(0, total - vram),
+                # The number that predicts whether this model is usable here:
+                # anything not in VRAM runs on the CPU at a few tokens/second.
+                "vramFraction": round(vram / total, 3) if total else 0.0,
+            }
+    return {}
+
+
+async def assert_alone(model: str) -> None:
+    others = [m.get("name") for m in await resident() if m.get("name") != model]
+    if others:
+        print(f"    ! also resident: {others} - unloading", flush=True)
+        for other in others:
+            await unload(str(other))
+
+
+# ---------------------------------------------------------------------------
+# Fixtures
+# ---------------------------------------------------------------------------
+
+def _jobs_by_title(
+    patterns: list[str], limit: int, min_chars: int = 2500,
+    seen_companies: set[str] | None = None,
+) -> list[dict]:
+    conn = sqlite3.connect(DB)
+    out: list[dict] = []
+    seen_companies = seen_companies if seen_companies is not None else set()
+    for (payload,) in conn.execute(
+        "SELECT payload FROM entities WHERE entity_type='aa_discovered_job'"
+    ):
+        job = json.loads(payload)
+        title = str(job.get("title") or "")
+        desc = str(job.get("description") or "")
+        company = str(job.get("company") or "")
+        if len(desc) < min_chars or company in seen_companies:
+            continue
+        if any(re.search(p, title, re.I) for p in patterns):
+            out.append({"id": job.get("id"), "company": company, "title": title,
+                        "description": desc})
+            seen_companies.add(company)
+        if len(out) >= limit:
+            break
+    return out
+
+
+def build_scoring_set(n_each: int) -> list[dict]:
+    """Postings whose correct ordering is known before any model sees them.
+
+    STRONG are the candidate's own domain - distributed systems, platform and
+    infrastructure work. WEAK are real postings built on skills the evidence
+    ledger reports as unevidenced (mobile, frontend-only, data science). The
+    labels are about relative fit, not absolute scores: a good scorer need not
+    agree with any particular number, it must rank strong above weak.
+    """
+    # One shared exclusion set, so the same employer cannot appear on both
+    # sides and make the comparison look like a contradiction.
+    seen: set[str] = set()
+    strong = _jobs_by_title(
+        [r"distributed", r"\bplatform\b", r"infrastructure", r"\bbackend\b"],
+        n_each, seen_companies=seen,
+    )
+    weak = _jobs_by_title(
+        [r"android", r"\bfrontend\b", r"\bmobile\b", r"data scientist"],
+        n_each, seen_companies=seen,
+    )
+    return (
+        [{**j, "label": "strong"} for j in strong]
+        + [{**j, "label": "weak"} for j in weak]
+    )
+
+
+def build_tailoring_set(n: int) -> list[dict]:
+    conn = sqlite3.connect(DB)
+    rows = conn.execute(
+        "SELECT payload FROM entities WHERE entity_type='aa_autopilot_job' "
+        "AND json_extract(payload,'$.status')='QUEUED' "
+        "ORDER BY json_extract(payload,'$.matchScore') DESC LIMIT 60"
+    ).fetchall()
+    out = []
+    for (payload,) in rows:
+        job = json.loads(payload)
+        from app.db.store import get_entity, session_scope
+        from app.services.application_assistant.persistence import ENTITY_DISCOVERED_JOB
+
+        with session_scope() as db:
+            src = get_entity(db, ENTITY_DISCOVERED_JOB, job["jobId"]) if job.get("jobId") else None
+        desc = (src or {}).get("description") or ""
+        if len(desc) < 3000:
+            continue
+        out.append({**job, "description": desc})
+        if len(out) >= n:
+            break
+    return out
+
+
+# ---------------------------------------------------------------------------
+# Phase 1 - scoring
+# ---------------------------------------------------------------------------
+
+async def bench_scoring(model: str, cases: list[dict], ctx: dict) -> dict[str, Any]:
+    os.environ["CAREEROS_MATCH_MODEL"] = model
+    from app.services.application_assistant.resume_diff_service import CANONICAL_MASTER_BULLETS
+    from app.services.application_assistant.tailored_match import score_tailored_resume
+
+    masters = [b["fullText"] for b in CANONICAL_MASTER_BULLETS]
+    results: list[dict] = []
+    latencies: list[float] = []
+    failures = 0
+    fabricated = 0
+
+    for case in cases:
+        t0 = time.time()
+        scored = await score_tailored_resume(
+            case, masters, profile=ctx["profile"],
+            documents=ctx["documents"], accomplishments=ctx["accomplishments"],
+        )
+        dt = time.time() - t0
+        if not scored:
+            failures += 1
+            print(f"    {case['label']:6} {case['company'][:18]:18} FAILED ({dt:.0f}s)", flush=True)
+            continue
+        latencies.append(dt)
+        fabricated += len(scored.get("unevidencedClaimsDropped") or [])
+        results.append({
+            "label": case["label"], "company": case["company"], "title": case["title"],
+            "score": float(scored.get("matchScore") or 0),
+            "dropped": len(scored.get("unevidencedClaimsDropped") or []),
+        })
+        print(f"    {case['label']:6} {case['company'][:18]:18} "
+              f"{scored.get('matchScore'):5.1f}%  {dt:5.0f}s", flush=True)
+
+    mem = await memory_of(model)
+
+    # Determinism: the same input twice must give the same number, or the score
+    # cannot be used as a gate at all.
+    determinism = None
+    if cases:
+        a = await score_tailored_resume(cases[0], masters, profile=ctx["profile"],
+                                        documents=ctx["documents"],
+                                        accomplishments=ctx["accomplishments"])
+        b = await score_tailored_resume(cases[0], masters, profile=ctx["profile"],
+                                        documents=ctx["documents"],
+                                        accomplishments=ctx["accomplishments"])
+        if a and b:
+            determinism = {
+                "a": float(a.get("matchScore") or 0), "b": float(b.get("matchScore") or 0),
+            }
+            determinism["stable"] = determinism["a"] == determinism["b"]
+
+    strong = [r["score"] for r in results if r["label"] == "strong"]
+    weak = [r["score"] for r in results if r["label"] == "weak"]
+    pairs = [(s, w) for s in strong for w in weak]
+    return {
+        "model": model,
+        "cases": results,
+        "strongMean": round(statistics.mean(strong), 1) if strong else None,
+        "weakMean": round(statistics.mean(weak), 1) if weak else None,
+        # The headline metric: how far apart it puts roles that fit and roles
+        # that do not.
+        "separation": round(statistics.mean(strong) - statistics.mean(weak), 1)
+        if strong and weak else None,
+        "rankAccuracy": round(sum(1 for s, w in pairs if s > w) / len(pairs), 3) if pairs else None,
+        "spread": round(max(strong + weak) - min(strong + weak), 1) if results else None,
+        "unevidencedClaims": fabricated,
+        "failures": failures,
+        "latencyMean": round(statistics.mean(latencies), 1) if latencies else None,
+        "latencyMax": round(max(latencies), 1) if latencies else None,
+        "determinism": determinism,
+        "memory": mem,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Phase 2 - tailoring
+# ---------------------------------------------------------------------------
+
+async def bench_tailoring(model: str, jobs: list[dict], ctx: dict) -> dict[str, Any]:
+    """Produce bullets with this model. Scored later, by the reference scorer."""
+    os.environ["CAREEROS_TAILORING_MODEL"] = model
+    from app.services.application_assistant.resume_diff_service import (
+        generate_role_tailoring_diff,
+    )
+
+    out: list[dict] = []
+    for job in jobs:
+        t0 = time.time()
+        try:
+            diff = await generate_role_tailoring_diff(
+                job, ctx["profile"], ctx["master_resume"], mode="honest",
+                documents=ctx["documents"], accomplishments=ctx["accomplishments"],
+                # Scoring happens later under the reference model.
+                rescore=False,
+            )
+        except Exception as exc:  # noqa: BLE001
+            print(f"    {job.get('company')[:20]:20} ERROR {exc}"[:110], flush=True)
+            out.append({"job": job.get("id"), "company": job.get("company"), "error": str(exc)[:200]})
+            continue
+        dt = time.time() - t0
+        bullets = [b.get("tailored") or b.get("original") for b in diff.get("bulletDiffs") or []]
+        out.append({
+            "job": job.get("id"), "company": job.get("company"), "title": job.get("title"),
+            "changed": diff.get("totalChanges"),
+            "tailoringFailed": diff.get("tailoringFailed"),
+            "latency": round(dt, 1),
+            "bullets": bullets,
+        })
+        print(f"    {str(job.get('company'))[:20]:20} {diff.get('totalChanges'):2}/17 changed "
+              f"{dt:5.0f}s", flush=True)
+
+    mem = await memory_of(model)
+    lat = [r["latency"] for r in out if "latency" in r]
+    return {
+        "model": model,
+        "runs": out,
+        "latencyMean": round(statistics.mean(lat), 1) if lat else None,
+        "memory": mem,
+    }
+
+
+async def score_tailoring_outputs(tailoring: list[dict], jobs: list[dict], ctx: dict) -> None:
+    """One scorer, one pass, over every model's output plus the untailored control."""
+    os.environ["CAREEROS_MATCH_MODEL"] = REFERENCE_SCORER
+    from app.services.application_assistant.resume_diff_service import CANONICAL_MASTER_BULLETS
+    from app.services.application_assistant.resume_quality import assess
+    from app.services.application_assistant.tailored_match import score_tailored_resume
+
+    masters = [b["fullText"] for b in CANONICAL_MASTER_BULLETS]
+    by_id = {j["id"]: j for j in jobs}
+
+    baselines: dict[str, float] = {}
+    for job in jobs:
+        scored = await score_tailored_resume(
+            job, masters, profile=ctx["profile"], documents=ctx["documents"],
+            accomplishments=ctx["accomplishments"],
+        )
+        baselines[job["id"]] = float(scored.get("matchScore") or 0) if scored else 0.0
+        print(f"    baseline {str(job.get('company'))[:20]:20} {baselines[job['id']]:5.1f}%",
+              flush=True)
+
+    for entry in tailoring:
+        for run in entry["runs"]:
+            if "bullets" not in run:
+                continue
+            job = by_id.get(run["job"])
+            if not job:
+                continue
+            scored = await score_tailored_resume(
+                job, run["bullets"], profile=ctx["profile"],
+                documents=ctx["documents"], accomplishments=ctx["accomplishments"],
+            )
+            run["score"] = float(scored.get("matchScore") or 0) if scored else None
+            run["baseline"] = baselines.get(run["job"])
+            run["delta"] = (
+                round(run["score"] - run["baseline"], 1)
+                if run["score"] is not None and run["baseline"] is not None else None
+            )
+            report = assess(
+                masters, run["bullets"],
+                score_before=run["baseline"] or 0, score_after=run["score"] or 0,
+                min_changed=3, require_improvement=True,
+            )
+            run["quality"] = report.to_dict()
+            run["gatePass"] = bool(report.ok and (run["score"] or 0) >= 80)
+            # Drop the bullet text now it has been judged; the report does not
+            # need 17 paragraphs per model per job.
+            run.pop("bullets", None)
+            print(f"    {entry['model'][:20]:20} {str(run['company'])[:16]:16} "
+                  f"{run['baseline']:5.1f} -> {run['score']:5.1f} "
+                  f"({run['delta']:+.1f}) gate={'PASS' if run['gatePass'] else 'fail'}",
+                  flush=True)
+
+    for entry in tailoring:
+        graded = [r for r in entry["runs"] if r.get("score") is not None]
+        entry["passRate"] = (
+            round(sum(1 for r in graded if r["gatePass"]) / len(graded), 3) if graded else None
+        )
+        entry["deltaMean"] = (
+            round(statistics.mean([r["delta"] for r in graded]), 1) if graded else None
+        )
+        entry["changedMean"] = (
+            round(statistics.mean([r["changed"] for r in graded]), 1) if graded else None
+        )
+        entry["errors"] = sum(1 for r in entry["runs"] if "error" in r)
+
+
+# ---------------------------------------------------------------------------
+# Phase 3 - prompt shape, on one model
+# ---------------------------------------------------------------------------
+#
+# Run against a single model rather than every model. A full model x variant
+# cross product costs hours on this hardware and answers a question nobody
+# asked; what is worth knowing is whether these prompt choices earn their keep
+# at all, which one model can establish.
+#
+# Each variant toggles something the tailoring prompt actually does, so a
+# result here is directly actionable:
+#
+#   baseline        - what ships today: retrieved evidence, detected
+#                     requirements, batches of 4.
+#   no-evidence     - drops the retrieved story evidence. Answers whether the
+#                     story index is doing real work or just spending context.
+#   batch-8 / -17   - larger batches. 17 is the single call that was shipping
+#                     before, and the one measured returning bullets in the
+#                     wrong slots; this quantifies what batching bought.
+#   aggressive      - the other mode, same everything else.
+
+PROMPT_VARIANTS: dict[str, dict[str, Any]] = {
+    "baseline": {},
+    "no-evidence": {"evidence_share": 0.0},
+    "batch-8": {"batch_size": 8},
+    "batch-17": {"batch_size": 17},
+    "aggressive": {"mode": "aggressive"},
+}
+
+
+async def bench_variants(
+    model: str, variants: list[str], jobs: list[dict], ctx: dict
+) -> list[dict[str, Any]]:
+    os.environ["CAREEROS_TAILORING_MODEL"] = model
+    import app.services.application_assistant.resume_diff_service as rds
+    from app.services.application_assistant.resume_diff_service import (
+        generate_role_tailoring_diff,
+    )
+
+    original = (rds.EVIDENCE_BUDGET_SHARE, rds.BULLET_BATCH_SIZE)
+    out: list[dict[str, Any]] = []
+
+    for name in variants:
+        cfg = PROMPT_VARIANTS[name]
+        rds.EVIDENCE_BUDGET_SHARE = cfg.get("evidence_share", original[0])
+        rds.BULLET_BATCH_SIZE = cfg.get("batch_size", original[1])
+        mode = cfg.get("mode", "honest")
+        print(f"\n  -- variant '{name}' (evidence={rds.EVIDENCE_BUDGET_SHARE}, "
+              f"batch={rds.BULLET_BATCH_SIZE}, mode={mode})", flush=True)
+
+        runs = []
+        for job in jobs:
+            t0 = time.time()
+            try:
+                diff = await generate_role_tailoring_diff(
+                    job, ctx["profile"], ctx["master_resume"], mode=mode,
+                    documents=ctx["documents"], accomplishments=ctx["accomplishments"],
+                    rescore=False,
+                )
+            except Exception as exc:  # noqa: BLE001
+                runs.append({"job": job.get("id"), "company": job.get("company"),
+                             "error": str(exc)[:200]})
+                continue
+            dt = time.time() - t0
+            runs.append({
+                "job": job.get("id"), "company": job.get("company"),
+                "changed": diff.get("totalChanges"),
+                "tailoringFailed": diff.get("tailoringFailed"),
+                "latency": round(dt, 1),
+                "bullets": [b.get("tailored") or b.get("original")
+                            for b in diff.get("bulletDiffs") or []],
+            })
+            print(f"     {str(job.get('company'))[:20]:20} "
+                  f"{diff.get('totalChanges'):2}/17 changed {dt:5.0f}s", flush=True)
+        out.append({"model": model, "variant": name, "runs": runs})
+
+    rds.EVIDENCE_BUDGET_SHARE, rds.BULLET_BATCH_SIZE = original
+    return out
+
+
+# ---------------------------------------------------------------------------
+
+async def main() -> None:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--models", nargs="*", default=DEFAULT_MODELS)
+    ap.add_argument("--scoring-cases", type=int, default=3, help="per label")
+    ap.add_argument("--tailoring-jobs", type=int, default=2)
+    ap.add_argument("--skip-tailoring", action="store_true")
+    ap.add_argument("--variant-model", default=None,
+                    help="run the prompt-variant sweep on this model")
+    ap.add_argument("--variants", nargs="*", default=list(PROMPT_VARIANTS))
+    ap.add_argument("--out", default="benchmark-results.json")
+    args = ap.parse_args()
+
+    from app.db.store import get_kv, list_entities, session_scope
+
+    with session_scope() as db:
+        ctx = {
+            "profile": get_kv(db, "profile") or {},
+            "documents": get_kv(db, "documents") or {},
+            "master_resume": get_kv(db, "resume_corpus_master") or {},
+            "accomplishments": list_entities(db, "accomplishment"),
+        }
+
+    scoring_cases = build_scoring_set(args.scoring_cases)
+    tailoring_jobs = [] if args.skip_tailoring else build_tailoring_set(args.tailoring_jobs)
+    print(f"scoring cases: {len(scoring_cases)}  tailoring jobs: {len(tailoring_jobs)}")
+    print(f"models: {', '.join(args.models)}")
+    print(f"reference scorer for tailoring: {REFERENCE_SCORER}\n")
+
+    out_path = Path(args.out)
+    results: dict[str, Any] = {
+        "generatedAt": time.strftime("%Y-%m-%d %H:%M"),
+        "referenceScorer": REFERENCE_SCORER,
+        "scoringCases": [
+            {"label": c["label"], "company": c["company"], "title": c["title"],
+             "chars": len(c["description"])}
+            for c in scoring_cases
+        ],
+        "tailoringJobs": [
+            {"company": j.get("company"), "title": j.get("title"),
+             "chars": len(j["description"])}
+            for j in tailoring_jobs
+        ],
+        "scoring": [],
+        "tailoring": [],
+    }
+
+    for model in args.models:
+        print(f"\n=== SCORING: {model} ===", flush=True)
+        await assert_alone(model)
+        try:
+            results["scoring"].append(await bench_scoring(model, scoring_cases, ctx))
+        except Exception as exc:  # noqa: BLE001
+            print(f"    model failed entirely: {exc}"[:160], flush=True)
+            results["scoring"].append({"model": model, "error": str(exc)[:300]})
+        await unload(model)
+        out_path.write_text(json.dumps(results, indent=1), encoding="utf-8")
+
+    if tailoring_jobs:
+        for model in args.models:
+            print(f"\n=== TAILORING: {model} ===", flush=True)
+            await assert_alone(model)
+            try:
+                results["tailoring"].append(await bench_tailoring(model, tailoring_jobs, ctx))
+            except Exception as exc:  # noqa: BLE001
+                print(f"    model failed entirely: {exc}"[:160], flush=True)
+                results["tailoring"].append({"model": model, "error": str(exc)[:300]})
+            await unload(model)
+            out_path.write_text(json.dumps(results, indent=1), encoding="utf-8")
+
+        if args.variant_model:
+            print(f"\n=== PROMPT VARIANTS on {args.variant_model} ===", flush=True)
+            await assert_alone(args.variant_model)
+            try:
+                results["variants"] = await bench_variants(
+                    args.variant_model, args.variants, tailoring_jobs, ctx
+                )
+            except Exception as exc:  # noqa: BLE001
+                print(f"    variant sweep failed: {exc}"[:160], flush=True)
+                results["variants"] = []
+            await unload(args.variant_model)
+            out_path.write_text(json.dumps(results, indent=1), encoding="utf-8")
+
+        print(f"\n=== GRADING with {REFERENCE_SCORER} ===", flush=True)
+        await assert_alone(REFERENCE_SCORER)
+        await score_tailoring_outputs(results["tailoring"], tailoring_jobs, ctx)
+        if results.get("variants"):
+            await score_tailoring_outputs(results["variants"], tailoring_jobs, ctx)
+        await unload(REFERENCE_SCORER)
+
+    out_path.write_text(json.dumps(results, indent=1), encoding="utf-8")
+    print(f"\nwrote {out_path}")
+
+
+asyncio.run(main())

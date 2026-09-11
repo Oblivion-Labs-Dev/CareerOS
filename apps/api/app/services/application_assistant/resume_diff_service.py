@@ -531,7 +531,12 @@ async def generate_role_tailoring_diff(
                 # template and every "tailored" resume came out byte-identical.
                 # mistral:7b-instruct fits entirely in VRAM and does the same
                 # 17-bullet pass in ~9s measured.
-                "model": DEFAULT_LOCAL_MODEL,
+                # Read per call, not at import, so the model can be switched
+                # without restarting the process - which is what lets a
+                # benchmark compare models, and lets the user pick a different
+                # model for tailoring than for scoring.
+                "model": os.environ.get("CAREEROS_TAILORING_MODEL")
+                or DEFAULT_LOCAL_MODEL,
                 "baseUrl": "http://localhost:11434/v1",
                                 # Deliberately short. mistral-small3.2:24b runs mostly on CPU here
                 # (~2.6 tok/s measured), so a 17-bullet completion never finishes no
