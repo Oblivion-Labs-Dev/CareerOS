@@ -413,15 +413,29 @@ async def score_tailoring_outputs(tailoring: list[dict], jobs: list[dict], ctx: 
     masters = [b["fullText"] for b in CANONICAL_MASTER_BULLETS]
     by_id = {j["id"]: j for j in jobs}
 
-    baselines: dict[str, float] = {}
+    async def score_or_none(job: dict, bullets: list[str]) -> float | None:
+        """Score, retrying once. Returns None when it could not be scored.
+
+        Returning 0.0 for a failed call was actively misleading: a baseline
+        that failed to score recorded as 0%, and every tailored resume then
+        looked like a +55 point improvement over nothing. A model outage is
+        missing data, not a bad match.
+        """
+        for _ in range(2):
+            scored = await score_tailored_resume(
+                job, bullets, profile=ctx["profile"], documents=ctx["documents"],
+                accomplishments=ctx["accomplishments"],
+            )
+            if scored:
+                return float(scored.get("matchScore") or 0)
+        return None
+
+    baselines: dict[str, float | None] = {}
     for job in jobs:
-        scored = await score_tailored_resume(
-            job, masters, profile=ctx["profile"], documents=ctx["documents"],
-            accomplishments=ctx["accomplishments"],
-        )
-        baselines[job["id"]] = float(scored.get("matchScore") or 0) if scored else 0.0
-        print(f"    baseline {str(job.get('company'))[:20]:20} {baselines[job['id']]:5.1f}%",
-              flush=True)
+        baselines[job["id"]] = await score_or_none(job, masters)
+        shown = baselines[job["id"]]
+        print(f"    baseline {str(job.get('company'))[:20]:20} "
+              + (f"{shown:5.1f}%" if shown is not None else "COULD NOT SCORE"), flush=True)
 
     for entry in tailoring:
         for run in entry["runs"]:
@@ -430,33 +444,40 @@ async def score_tailoring_outputs(tailoring: list[dict], jobs: list[dict], ctx: 
             job = by_id.get(run["job"])
             if not job:
                 continue
-            scored = await score_tailored_resume(
-                job, run["bullets"], profile=ctx["profile"],
-                documents=ctx["documents"], accomplishments=ctx["accomplishments"],
-            )
-            run["score"] = float(scored.get("matchScore") or 0) if scored else None
+            run["score"] = await score_or_none(job, run["bullets"])
             run["baseline"] = baselines.get(run["job"])
+            gradable = run["score"] is not None and run["baseline"] is not None
             run["delta"] = (
-                round(run["score"] - run["baseline"], 1)
-                if run["score"] is not None and run["baseline"] is not None else None
+                round(run["score"] - run["baseline"], 1) if gradable else None
             )
-            report = assess(
-                masters, run["bullets"],
-                score_before=run["baseline"] or 0, score_after=run["score"] or 0,
-                min_changed=3, require_improvement=True,
-            )
-            run["quality"] = report.to_dict()
-            run["gatePass"] = bool(report.ok and (run["score"] or 0) >= 80)
+            if gradable:
+                report = assess(
+                    masters, run["bullets"],
+                    score_before=run["baseline"], score_after=run["score"],
+                    min_changed=3, require_improvement=True,
+                )
+                run["quality"] = report.to_dict()
+                run["gatePass"] = bool(report.ok and run["score"] >= 80)
+            else:
+                # Ungraded, not failed. Counting an unscorable run as a gate
+                # failure would penalise a model for the scorer's outage.
+                run["quality"] = None
+                run["gatePass"] = None
             # Drop the bullet text now it has been judged; the report does not
             # need 17 paragraphs per model per job.
             run.pop("bullets", None)
-            print(f"    {entry['model'][:20]:20} {str(run['company'])[:16]:16} "
-                  f"{run['baseline']:5.1f} -> {run['score']:5.1f} "
-                  f"({run['delta']:+.1f}) gate={'PASS' if run['gatePass'] else 'fail'}",
-                  flush=True)
+            label = entry.get("model") or entry.get("variant") or "?"
+            if gradable:
+                print(f"    {str(label)[:20]:20} {str(run['company'])[:16]:16} "
+                      f"{run['baseline']:5.1f} -> {run['score']:5.1f} "
+                      f"({run['delta']:+.1f}) gate="
+                      f"{'PASS' if run['gatePass'] else 'fail'}", flush=True)
+            else:
+                print(f"    {str(label)[:20]:20} {str(run['company'])[:16]:16} "
+                      f"COULD NOT SCORE - excluded", flush=True)
 
     for entry in tailoring:
-        graded = [r for r in entry["runs"] if r.get("score") is not None]
+        graded = [r for r in entry["runs"] if r.get("gatePass") is not None]
         entry["passRate"] = (
             round(sum(1 for r in graded if r["gatePass"]) / len(graded), 3) if graded else None
         )
@@ -551,6 +572,10 @@ async def bench_variants(
 
 # ---------------------------------------------------------------------------
 
+def out_path_for(args: Any) -> Path:
+    return Path(args.out)
+
+
 async def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--models", nargs="*", default=DEFAULT_MODELS)
@@ -563,6 +588,8 @@ async def main() -> None:
     ap.add_argument("--out", default="benchmark-results.json")
     ap.add_argument("--resume", action="store_true",
                     help="keep results already in --out and skip those models")
+    ap.add_argument("--grade-only", action="store_true",
+                    help="re-grade tailoring output already in --out; tailor nothing")
     args = ap.parse_args()
 
     from app.db.store import get_kv, list_entities, session_scope
@@ -574,6 +601,26 @@ async def main() -> None:
             "master_resume": get_kv(db, "resume_corpus_master") or {},
             "accomplishments": list_entities(db, "accomplishment"),
         }
+
+    if args.grade_only:
+        # Tailoring output is expensive - minutes per model per job - and the
+        # bullets are kept in the results file until they are graded, so a
+        # grading bug costs a re-grade rather than a re-run.
+        previous = json.loads(out_path_for(args).read_text(encoding="utf-8"))
+        jobs = build_tailoring_set(args.tailoring_jobs)
+        print(f"grading {len(previous.get('tailoring') or [])} models and "
+              f"{len(previous.get('variants') or [])} variants "
+              f"with {REFERENCE_SCORER}\n", flush=True)
+        await assert_alone(REFERENCE_SCORER)
+        install_scorer(REFERENCE_SCORER)
+        if previous.get("tailoring"):
+            await score_tailoring_outputs(previous["tailoring"], jobs, ctx)
+        if previous.get("variants"):
+            await score_tailoring_outputs(previous["variants"], jobs, ctx)
+        await unload(REFERENCE_SCORER)
+        out_path_for(args).write_text(json.dumps(previous, indent=1), encoding="utf-8")
+        print(f"\nwrote {out_path_for(args)}")
+        return
 
     scoring_cases = build_scoring_set(args.scoring_cases)
     tailoring_jobs = [] if args.skip_tailoring else build_tailoring_set(args.tailoring_jobs)

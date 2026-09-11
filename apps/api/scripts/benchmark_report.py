@@ -66,10 +66,20 @@ def pick_scorer(scoring: list[dict]) -> tuple[str | None, list[str]]:
     reasons = [
         f"Separates fitting from unfitting postings by "
         f"{best['separation']} points — the widest margin measured.",
-        f"Ranks strong above weak in {best.get('rankAccuracy', 0) * 100:.0f}% of pairs.",
-        f"Returns the same score twice for the same input.",
-        f"{best.get('latencyMean')}s mean per scoring call.",
+        f"Ranks a fitting role above an unfitting one in "
+        f"{best.get('rankAccuracy', 0) * 100:.0f}% of pairs.",
+        "Returns the same score twice for the same input.",
+        f"{best.get('latencyMean')}s mean per scoring call, "
+        f"{(best.get('memory') or {}).get('totalBytes', 0) / 1e9:.1f}GB resident.",
     ]
+    failures = int(best.get("failures") or 0)
+    if failures:
+        reasons.append(
+            f"CAVEAT: {failures} of 8 calls returned unparseable JSON. Not a "
+            "timeout — the model emits malformed output. In production an "
+            "unscored job never enters the queue, so this must be handled "
+            "before switching."
+        )
     unstable = [s["model"] for s in scoring if (s.get("determinism") or {}).get("stable") is False]
     if unstable:
         reasons.append(
@@ -111,7 +121,7 @@ def scoring_table(scoring: list[dict]) -> str:
         if s.get("error"):
             rows.append(
                 f'<tr><td class="m">{esc(s["model"])}</td>'
-                f'<td colspan="7" class="err">failed: {esc(s["error"][:120])}</td></tr>'
+                f'<td colspan="9" class="err">failed: {esc(s["error"][:120])}</td></tr>'
             )
             continue
         det = s.get("determinism") or {}
@@ -136,13 +146,15 @@ def scoring_table(scoring: list[dict]) -> str:
   <td class="n">{num(round((s.get("rankAccuracy") or 0) * 100)) if s.get("rankAccuracy") is not None else num(None)}{"%" if s.get("rankAccuracy") is not None else ""}</td>
   <td>{det_cell}</td>
   <td class="n">{num(s.get("unevidencedClaims"))}</td>
+  <td class="n {'bad' if (s.get('failures') or 0) else ''}">{num(s.get("failures"))}<span class="sub">of 8</span></td>
   <td class="n">{num(s.get("latencyMean"), "s")}</td>
   <td class="n">{mem_cell}</td>
 </tr>""")
     return f"""<table>
 <thead><tr>
   <th>Model</th><th>Separation</th><th>Fitting</th><th>Unfitting</th>
-  <th>Rank acc.</th><th>Determinism</th><th>Fabricated</th><th>Latency</th><th>Memory</th>
+  <th>Rank acc.</th><th>Determinism</th><th>Fabricated</th><th>Unparseable</th>
+  <th>Latency</th><th>Memory</th>
 </tr></thead>
 <tbody>{"".join(rows)}</tbody></table>"""
 
@@ -362,6 +374,30 @@ def build(resume: dict, questions: dict) -> str:
   <div class="tablewrap">{tailoring_table(tailoring)}</div>
   {var_section}
   {q_section}
+
+  <h2>What this run cannot tell you</h2>
+  <div class="method">
+    <dl>
+      <dt>The 80% submit bar is calibrated to the wrong scorer</dt>
+      <dd>It was set while qwen3:4b-instruct was scoring, and that model rates
+      almost everything in the high 70s and 80s. A better-calibrated scorer puts
+      the same jobs far lower — the Brex posting scores 79.5% under qwen and
+      52.5% under mistral. Switching the scorer without moving the bar would
+      reject every job. The bar is a property of the scorer, not of the
+      candidate, and the two have to move together.</dd>
+
+      <dt>The tailoring comparison rests on one job, not two</dt>
+      <dd>The reference scorer could not parse its own output for the Fieldwire
+      posting on any attempt, so that job is excluded from every model's score.
+      One gradable job is enough to show direction and nowhere near enough to
+      rank models. Treat the tailoring table as provisional.</dd>
+
+      <dt>Nothing cleared the gate, and that is partly the bar</dt>
+      <dd>The best rewrite moved Brex from 52.5% to 58.1%. That is a real
+      improvement and still nowhere near 80%. Whether tailoring "works" cannot
+      be settled until the bar is recalibrated against whichever scorer ships.</dd>
+    </dl>
+  </div>
 
   <h2>How to read this</h2>
   <dl class="method">
