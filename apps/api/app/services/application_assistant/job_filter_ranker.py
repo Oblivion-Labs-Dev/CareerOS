@@ -455,8 +455,27 @@ def filter_and_rank_jobs(
 
     for job in raw_jobs:
         passed, skip_reason = evaluate_hard_filters(job, profile, existing_jobs, opts)
+        manual_reason: tuple[Any, str] | None = None
         if not passed:
-            continue
+            # A hard-filter rejection is not always a dead end. A board behind a
+            # CAPTCHA is live and perfectly submittable by hand - the challenge
+            # exists to stop automation, and must never be defeated, but the
+            # user works these by hand and wants to see them.
+            #
+            # The runner already routes these to MANUAL_REVIEW once they are in
+            # the queue. They were never getting there: selection dropped them
+            # first, so the classifier downstream never saw them. 188 real
+            # postings were excluded this way.
+            from app.services.application_assistant.ineligibility import (
+                MANUAL_REASONS,
+                classify_ineligibility,
+            )
+
+            classified = classify_ineligibility({**job, "skipReason": skip_reason})
+            if classified and classified[0] in MANUAL_REASONS:
+                manual_reason = classified
+            else:
+                continue
 
         match = matches.get(str(job.get("id") or "")) or job.get("mistralMatch")
         if isinstance(match, dict) and match.get("matchScore") is not None:
@@ -491,6 +510,13 @@ def filter_and_rank_jobs(
                 "matchReasons": match_result.get("strongMatches", []) + match_result.get("potentialConcerns", []),
                 "status": AutopilotJobStatus.SCORED.value,
             }
+
+        if manual_reason is not None:
+            # Carried in as a real opportunity, flagged so the automation never
+            # spends a browser session trying to drive a board it cannot.
+            from app.services.application_assistant.ineligibility import apply_ineligibility
+
+            apply_ineligibility(ranked_job, manual_reason[0], manual_reason[1])
 
         ranked_job["queuePriority"] = queue_priority_score(ranked_job)
         all_passing.append(ranked_job)

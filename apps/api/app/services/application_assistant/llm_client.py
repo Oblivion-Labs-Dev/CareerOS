@@ -375,18 +375,28 @@ class LLMClient:
             "max_tokens": max_out,
         }
         if response_schema and self._is_ollama_compat():
-            # Send the schema itself, not the string "json". Ollama constrains
-            # decoding to a supplied JSON Schema (structured outputs, 0.5+;
-            # this host runs 0.32.x), which makes malformed output impossible
-            # rather than merely discouraged.
+            # `response_format`, not `format`. This client talks to Ollama's
+            # OpenAI-compatible endpoint (/v1/chat/completions), which accepts
+            # the OpenAI field and silently ignores Ollama's native `format`.
+            # So the previous `format: "json"` was never doing anything at all,
+            # and neither was passing the schema under that key.
             #
-            # With the weak form, mistral:7b-instruct returned unparseable JSON
-            # on roughly a quarter of match-scoring calls - measured, and not a
-            # timeout: it failed identically at a 420s limit after emitting 192
-            # tokens. A failed score is silently treated as "unscored", and an
-            # unscored job never enters the Autopilot queue, so this was quietly
-            # dropping real postings.
-            payload["format"] = response_schema
+            # Measured A/B on mistral:7b-instruct, same prompt, same seed:
+            #   format: <schema>          -> prose, does not parse
+            #   response_format: schema   -> valid JSON
+            #
+            # This mattered well beyond the benchmark. A response that failed to
+            # parse was recorded as "unscored", and an unscored job never
+            # entered the Autopilot queue, so real postings were being dropped
+            # because of a request field the server was throwing away.
+            payload["response_format"] = {
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "structured_response",
+                    "strict": True,
+                    "schema": response_schema,
+                },
+            }
         self._apply_ollama_thinking_off(payload)
 
         for attempt in range(self.max_retries + 1):
