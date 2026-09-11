@@ -561,6 +561,8 @@ async def main() -> None:
                     help="run the prompt-variant sweep on this model")
     ap.add_argument("--variants", nargs="*", default=list(PROMPT_VARIANTS))
     ap.add_argument("--out", default="benchmark-results.json")
+    ap.add_argument("--resume", action="store_true",
+                    help="keep results already in --out and skip those models")
     args = ap.parse_args()
 
     from app.db.store import get_kv, list_entities, session_scope
@@ -580,6 +582,17 @@ async def main() -> None:
     print(f"reference scorer for tailoring: {REFERENCE_SCORER}\n")
 
     out_path = Path(args.out)
+    # A run measured in hours on constrained hardware will sometimes be killed
+    # part way - this one was, by the OOM killer, with a 12GB model resident.
+    # Resuming keeps every model already measured instead of paying for it
+    # twice; the phases are independent, so a partial file is still valid data.
+    previous: dict[str, Any] = {}
+    if args.resume and out_path.exists():
+        try:
+            previous = json.loads(out_path.read_text(encoding="utf-8"))
+        except Exception:
+            previous = {}
+
     results: dict[str, Any] = {
         "generatedAt": time.strftime("%Y-%m-%d %H:%M"),
         "referenceScorer": REFERENCE_SCORER,
@@ -593,11 +606,19 @@ async def main() -> None:
              "chars": len(j["description"])}
             for j in tailoring_jobs
         ],
-        "scoring": [],
-        "tailoring": [],
+        "scoring": list(previous.get("scoring") or []),
+        "tailoring": list(previous.get("tailoring") or []),
     }
+    done_scoring = {s["model"] for s in results["scoring"] if not s.get("error")}
+    done_tailoring = {t["model"] for t in results["tailoring"] if not t.get("error")}
+    if done_scoring or done_tailoring:
+        print(f"resuming: scoring already done for {sorted(done_scoring)}; "
+              f"tailoring already done for {sorted(done_tailoring)}\n")
 
     for model in args.models:
+        if model in done_scoring:
+            print(f"\n=== SCORING: {model} - already measured, skipping ===", flush=True)
+            continue
         print(f"\n=== SCORING: {model} ===", flush=True)
         await assert_alone(model)
         try:
@@ -610,6 +631,10 @@ async def main() -> None:
 
     if tailoring_jobs:
         for model in args.models:
+            if model in done_tailoring:
+                print(f"\n=== TAILORING: {model} - already measured, skipping ===",
+                      flush=True)
+                continue
             print(f"\n=== TAILORING: {model} ===", flush=True)
             await assert_alone(model)
             try:
