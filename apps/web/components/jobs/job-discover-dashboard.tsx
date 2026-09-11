@@ -2,44 +2,32 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { CareerWorkspaceStrip } from "@/components/career-workspace-strip";
+import { BrowseFilterControls, EMPTY_BROWSE, type BrowseOptions, type BrowseSelection } from "./browse-filter-controls";
+import { ChoiceGroup } from "@/components/ui/choice-group";
+import type { DiscoverJob } from "./discover-job";
+import { DiscoverJobCard } from "./discover-job-card";
+import { WorkspaceLoading } from "@/components/ui/workspace-loading";
+import styles from "./browse-jobs.module.css";
 import { useCareerWorkspace } from "@/hooks/use-career-workspace";
 import { getClientApiBaseUrl } from "@/lib/api";
-import { getScraperSyncStatus, importScraperJob, qwenPrepareJob } from "@/lib/application-assistant-api";
+import {
+  approvePreflightSubmission,
+  getScraperSyncStatus,
+  importScraperJob,
+  qwenPrepareJob,
+} from "@/lib/application-assistant-api";
 import { usePrepQueueStatus } from "@/hooks/use-prep-queue-status";
 import { fetchCachedJson, invalidateCachedByPrefix } from "@/lib/client-fetch-cache";
 import { isDiscoverCacheFresh, readDiscoverCache, writeDiscoverCache } from "@/lib/job-discover-cache";
-import { JobMetaBadges } from "@/components/jobs/job-meta-badges";
-import { DiscoverTriageBar, ShortlistToggle } from "@/components/jobs/discover-triage-bar";
+import { DiscoverTriageBar } from "@/components/jobs/discover-triage-bar";
 import { JobMatchGapPanel, type JobGapAnalysis, type JobGapPanelJob } from "@/components/jobs/job-match-gap-panel";
 import {
   matchesTriageFilters,
-  triageSignals,
   type AtsSource,
   type Seniority,
 } from "@/lib/inbox-triage";
 
-type DiscoverJob = {
-  id: string;
-  companyName: string;
-  title: string;
-  location: string;
-  url: string;
-  description?: string;
-  relevancyScore: number;
-  color: string;
-  keywordsMatched: string[];
-  gapAnalysis?: JobGapAnalysis;
-  gapAnalysisMethod?: string;
-  updatedAt?: string;
-  salaryRange?: string;
-  employmentType?: string;
-  h1bStatus?: "likely" | "unlikely" | "unknown";
-  h1bLabel?: string;
-  h1bReason?: string;
-  h1bSignals?: string[];
-  freshness?: { hours_ago: number; label: string; badge_color: string };
-};
+
 
 type DiscoverResponse = {
   success: boolean;
@@ -140,18 +128,7 @@ const POSTED_AGO_OPTIONS: { value: FreshnessFilter; label: string }[] = [
   { value: "720", label: "Last 30 days" },
 ];
 
-const TOP_10_JOB_TITLES_2026 = [
-  "Senior Software Engineer",
-  "Backend Engineer",
-  "Platform Engineer",
-  "AI / Machine Learning Engineer",
-  "Full Stack Engineer",
-  "Staff Software Engineer",
-  "Infrastructure Engineer",
-  "Site Reliability Engineer (SRE)",
-  "Principal Software Engineer",
-  "Lead Software Engineer",
-];
+
 
 const TOP_50_COMPANIES = [
   "Stripe", "OpenAI", "Anthropic", "Databricks", "Datadog", "Cloudflare", "Figma", "Airbnb",
@@ -193,13 +170,6 @@ function formatScrapeProgress(raw: string, indexed?: number) {
     return `${boards} · ${indexed.toLocaleString()} roles saved`;
   }
   return boards;
-}
-
-function scoreClass(color: string) {
-  if (color === "green") return "discover-score discover-score--green";
-  if (color === "yellow") return "discover-score discover-score--yellow";
-  if (color === "orange") return "discover-score discover-score--orange";
-  return "discover-score";
 }
 
 function formatLocationOption(label: string, count: number) {
@@ -625,6 +595,9 @@ export function JobDiscoverDashboard() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const { prefs, updatePrefs, snapshot, refresh: refreshWorkspace } = useCareerWorkspace();
+  const [facets,setFacets] = useState({specialties:[] as string[],seniorities:[] as string[],workModes:[] as string[],experience:"",companies:[] as string[]});
+  const [filterOptions,setFilterOptions] = useState<BrowseOptions>({titles:["Software Engineer","Product Manager","Business Intelligence Engineer","BIE","Technical Program Manager","Product Designer","Data Analyst"],companies:[],specialties:[]});
+  useEffect(()=>{fetch(`${getClientApiBaseUrl()}/jobs/discover/filter-options`).then(async r=>{if(!r.ok)throw new Error();return r.json();}).then(setFilterOptions).catch(()=>{});},[]);
   const [q, setQ] = useState("");
   const [company, setCompany] = useState("");
   const [location, setLocation] = useState("");
@@ -756,8 +729,8 @@ export function JobDiscoverDashboard() {
   }
 
   const titleComboboxOptions = useMemo(
-    () => TOP_10_JOB_TITLES_2026.map((t) => ({ value: t, label: t })),
-    []
+    () => filterOptions.titles.map((t) => ({ value: t, label: t })),
+    [filterOptions.titles]
   );
 
   const locationComboboxOptions = useMemo(() => {
@@ -860,7 +833,8 @@ export function JobDiscoverDashboard() {
       if (values.role.trim()) params.set("role", values.role.trim());
       if (values.freshness !== "all") params.set("freshness", values.freshness);
       const qs = params.toString();
-      router.replace(qs ? `/jobs/discover?${qs}` : "/jobs/discover", { scroll: false });
+      const target = qs ? `/jobs/discover?${qs}` : "/jobs/discover";
+      if(window.location.pathname + window.location.search !== target) router.replace(target, { scroll: false });
     },
     [q, location, role, freshness, router],
   );
@@ -931,13 +905,21 @@ export function JobDiscoverDashboard() {
     }
   }, []);
 
+  const requestVersion = useRef(0);
   const loadJobs = useCallback(async () => {
+    const version = ++requestVersion.current;
+    setLoading(true);
     setError("");
     const params = new URLSearchParams({
       q,
       company,
       location,
-      role,
+      role: "",
+      specialties:facets.specialties.join(","),
+      seniorities:facets.seniorities.join(","),
+      work_modes:facets.workModes.join(","),
+      experience:facets.experience,
+      companies:JSON.stringify(facets.companies),
       freshness,
       sponsorship,
       sort,
@@ -950,6 +932,7 @@ export function JobDiscoverDashboard() {
         staleMs: scrapingRef.current ? 0 : undefined,
         timeoutMs: scrapingRef.current || rescoringRef.current ? 60_000 : undefined,
       });
+      if(version !== requestVersion.current) return;
       setData(payload);
       if (payload.status?.running) {
         setScraping(true);
@@ -964,6 +947,7 @@ export function JobDiscoverDashboard() {
         });
       }
     } catch {
+      if(version !== requestVersion.current) return;
       const cached = readDiscoverCache();
       if (cached?.jobs.length) {
         setData({
@@ -982,16 +966,17 @@ export function JobDiscoverDashboard() {
         setData(null);
       }
     } finally {
-      setLoading(false);
+      if(version === requestVersion.current) setLoading(false);
     }
-  }, [q, company, location, role, freshness, sponsorship, sort, page]);
+  }, [q, company, location, role, freshness, sponsorship, sort, page, facets]);
 
   useEffect(() => {
     if (skipInitialFetch.current) {
       skipInitialFetch.current = false;
       return;
     }
-    void loadJobs();
+    const timer = setTimeout(()=>void loadJobs(),250);
+    return () => {clearTimeout(timer);requestVersion.current++;};
   }, [loadJobs]);
 
   useEffect(() => {
@@ -1148,7 +1133,7 @@ export function JobDiscoverDashboard() {
   const headerIndexed = scraping && liveCounts ? liveCounts.indexed : globalIndexed;
   const headerCompanies = scraping && liveCounts ? liveCounts.companies : globalStats?.indexedCompanies ?? data?.indexedCompanies ?? 0;
 
-  function removeJobFromList(jobId: string) {
+  function removeJobFromList(jobId: string, queued = false) {
     setData((prev) => {
       if (!prev) return prev;
       const perPage = prev.perPage ?? 30;
@@ -1158,10 +1143,10 @@ export function JobDiscoverDashboard() {
         jobs: prev.jobs.filter((job) => job.id !== jobId),
         total: nextTotal,
         totalPages: Math.max(1, Math.ceil(nextTotal / perPage) || 1),
-        assistantTotal: (prev.assistantTotal ?? syncedAssistantTotal) + 1,
+        assistantTotal: (prev.assistantTotal ?? syncedAssistantTotal) + (queued ? 1 : 0),
       };
     });
-    setSyncedAssistantTotal((prev) => prev + 1);
+    if(queued) setSyncedAssistantTotal((prev) => prev + 1);
   }
 
   async function handleCancelScrape() {
@@ -1220,6 +1205,64 @@ export function JobDiscoverDashboard() {
       setScrapeMsg("");
       const message = err instanceof Error ? err.message : "Scrape failed to start";
       setError(message.includes("API") ? message : `Could not start scrape. ${message}`);
+    }
+  }
+
+  // Two actions, matching what the product actually does with a job:
+  //
+  //   Apply        - import it into the Autopilot queue and submit, the same
+  //                  path the Applications view's Apply uses.
+  //   Add to queue - import only. Deliberately independent of the Qwen prep
+  //                  step, so it keeps working while preprocessing is off;
+  //                  the old "AI Prep" button bundled the two together, which
+  //                  made plain queueing unreachable whenever prep was
+  //                  disabled or its queue was full.
+  //
+  // The previous "Apply" was an <a> to the employer's site, which opened the
+  // posting in a new tab and left CareerOS with no record of it at all.
+  async function queueJob(job: DiscoverJob): Promise<string> {
+    const result = await importScraperJob(job.id);
+    const aaJobId = String((result.job as { id?: string })?.id || "");
+    removeJobFromList(job.id, true);
+    invalidateCachedByPrefix(`${getClientApiBaseUrl()}/jobs/discover?`);
+    void loadJobs();
+    void loadAssistantSyncStatus();
+    window.dispatchEvent(new CustomEvent("careeros-job-counts-changed"));
+    return aaJobId;
+  }
+
+  async function handleAddToQueue(job: DiscoverJob) {
+    setActionMsg("");
+    setError("");
+    if (addingToAssistant === job.id) return;
+    setAddingToAssistant(job.id);
+    try {
+      await queueJob(job);
+      setActionMsg(`Added ${job.companyName} to the Autopilot queue.`);
+    } catch (err) {
+      setActionMsg(err instanceof Error ? err.message : "Could not add this job to the queue.");
+    } finally {
+      setAddingToAssistant(null);
+    }
+  }
+
+  async function handleApplyNow(job: DiscoverJob) {
+    setActionMsg("");
+    setError("");
+    if (addingToAssistant === job.id) return;
+    setAddingToAssistant(job.id);
+    try {
+      const aaJobId = await queueJob(job);
+      if (!aaJobId) {
+        setActionMsg(`Added ${job.companyName} to the queue, but could not start the application.`);
+        return;
+      }
+      await approvePreflightSubmission(aaJobId);
+      setActionMsg(`Applying to ${job.companyName} — follow it on the Autopilot page.`);
+    } catch (err) {
+      setActionMsg(err instanceof Error ? err.message : "Could not start this application.");
+    } finally {
+      setAddingToAssistant(null);
     }
   }
 
@@ -1295,9 +1338,12 @@ export function JobDiscoverDashboard() {
     setLastDismissed(job);
     invalidateCachedByPrefix(`${getClientApiBaseUrl()}/jobs/discover?`);
     try {
-      await fetch(`${getClientApiBaseUrl()}/jobs/discover/${job.id}/dismiss`, { method: "POST" });
+      const response = await fetch(`${getClientApiBaseUrl()}/jobs/discover/${job.id}/dismiss`, { method: "POST" });
+      if(!response.ok) throw new Error();
     } catch {
-      /* fallback locally */
+      setLastDismissed(null);
+      await loadJobs();
+      setError("Could not hide this posting. Please try again.");
     }
   }
 
@@ -1321,6 +1367,14 @@ export function JobDiscoverDashboard() {
       ),
     );
   }, [data?.jobs, atsFilter, seniorityFilter, maxAgeDays]);
+
+  useEffect(() => {
+    const visibleIds = new Set(visibleJobs.map(job=>job.id));
+    setSelectedJobIds(previous => {
+      const next = new Set([...previous].filter(id=>visibleIds.has(id)));
+      return next.size === previous.size ? previous : next;
+    });
+  }, [visibleJobs]);
 
   const triageHidingRows =
     !loading && (data?.jobs?.length ?? 0) > 0 && visibleJobs.length < (data?.jobs?.length ?? 0);
@@ -1498,6 +1552,7 @@ export function JobDiscoverDashboard() {
   }
 
   function clearFilters() {
+    setFacets({specialties:[],seniorities:[],workModes:[],experience:"",companies:[]});
     setQ("");
     setCompany("");
     setLocation("");
@@ -1582,16 +1637,16 @@ export function JobDiscoverDashboard() {
       roleFilter: nextRole,
       freshness,
     });
-    void handleScrape(fetchHours, "ats");
+    void loadJobs();
   }
 
   return (
-    <div className={`target-jobs-dashboard job-discover-dashboard${scraping ? " job-discover-dashboard--scraping" : ""}`}>
-      <CareerWorkspaceStrip active="discover" />
+    <div className={`${styles.browse} target-jobs-dashboard job-discover-dashboard${scraping ? " job-discover-dashboard--scraping" : ""}`}>
+      <header className={styles.pageHeader}><div><span>YOUR NEXT OPPORTUNITY</span><h1>Browse jobs</h1><p>Find your fit. Build a shortlist. Move forward with intention.</p></div><a href="/applications?tab=queued">Open Autopilot queue ↗</a></header>
       <section className="workflow-panel">
         <div className="dashboard-panel-header">
           <div>
-            <span className="toc-card-kicker">Multi-ATS scraper</span>
+            <span className="toc-card-kicker">OPPORTUNITY LIBRARY</span>
             <h2 className={scraping ? "job-discover-live-count" : undefined}>
               {scraping
                 ? `${headerIndexed.toLocaleString()} indexed roles`
@@ -1612,7 +1667,7 @@ export function JobDiscoverDashboard() {
               {scraping ? ` · ${scrapeMsg || "Running…"}` : scrapeMsg ? ` · ${scrapeMsg}` : ""}
             </p>
           </div>
-          <div className="target-jobs-actions">
+          <details className={styles.tools}><summary>Library tools</summary><div className="target-jobs-actions">
             <button type="button" className="btn btn-sm btn-secondary" onClick={() => void handleRescore()} disabled={rescoring || tier1Rescoring}>
               {rescoring || tier1Rescoring ? "Updating scores…" : "Refresh all scores"}
             </button>
@@ -1624,125 +1679,23 @@ export function JobDiscoverDashboard() {
                 Cancel scrape
               </button>
             ) : null}
-          </div>
+          </div></details>
         </div>
 
-        <form className="target-jobs-filters job-discover-filters" onSubmit={handleSearch}>
-          <label>
-            Job Title
-            <SearchableCombobox
-              name="q"
-              value={q}
-              onChange={(val) => setQ(val)}
-              options={titleComboboxOptions}
-              placeholder="e.g. Senior Software Engineer"
-            />
-          </label>
-          <label>
-            Location
-            <MultiSelectCombobox
-              name="location"
-              selectedValues={selectedLocations}
-              onChange={(vals) => {
-                setSelectedLocations(vals);
-                const locStr = vals.join(", ");
-                setLocation(locStr);
-                setPage(1);
-                updatePrefs({ location: locStr });
-              }}
-              options={locationComboboxOptions}
-              placeholder="e.g. Remote, California, Seattle"
-            />
-          </label>
-          <label>
-            Posted ago
-            <div className="job-discover-input-wrap" style={{ position: "relative", display: "inline-flex", width: "100%", alignItems: "center" }}>
-              <select
-                name="freshness"
-                required
-                value={freshness}
-                onChange={(event) => {
-                  setFreshness(event.target.value as FreshnessFilter);
-                  setPage(1);
-                  updatePrefs({ freshness: event.target.value });
-                }}
-                style={{ paddingRight: "1.75rem" }}
-              >
-                {POSTED_AGO_OPTIONS.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-              <span
-                style={{
-                  position: "absolute",
-                  right: "1.6rem",
-                  color: "#ef4444",
-                  fontWeight: "bold",
-                  fontSize: "1rem",
-                  pointerEvents: "none",
-                }}
-              >
-                *
-              </span>
-            </div>
-          </label>
-          <label>
-            H1B / Sponsorship
-            <select value={sponsorship} onChange={(event) => { setSponsorship(event.target.value as SponsorshipFilter); setPage(1); }}>
-              <option value="all">All jobs</option>
-              <option value="likely">H1B friendly</option>
-              <option value="friendly">Visa seeker friendly</option>
-              <option value="unlikely">Unlikely H1B</option>
-            </select>
-          </label>
-          <label>
-            Sort
-            <select
-              value={sort}
-              onChange={(event) => { setSort(event.target.value as SortFilter); setPage(1); }}
-              aria-label="Sort jobs"
-            >
-              <option value="relevancy">⚡ Best Match</option>
-              <option value="date">🕒 Most Recent</option>
-              <option value="company">🏢 Company Name</option>
-            </select>
-          </label>
-          <label>
-            Company
-            <SearchableCombobox
-              name="company"
-              value={company}
-              onChange={(val) => setCompany(val)}
-              options={companyComboboxOptions}
-              placeholder="e.g. Stripe, OpenAI, Datadog"
-            />
-          </label>
-          <button
-            type="submit"
-            className="btn btn-sm btn-primary"
-            disabled={!isFormValid || scraping}
-            title={
-              !isFormValid
-                ? "Please fill in required fields (Job Title * and Location *) before fetching"
-                : `Fetch ${freshness} job postings`
-            }
-          >
-            {fetchLabel}
-          </button>
-          <button
-            type="button"
-            className="btn btn-sm btn-secondary"
-            onClick={clearFilters}
-            disabled={!anyFiltersActive}
-            title="Reset search, location, company, posted date, sponsorship, sort, and quick filters"
-          >
-            Clear filters
-          </button>
-        </form>
+        <BrowseFilterControls value={{q,location,company,...facets,freshness,sponsorship,sort}} options={filterOptions}
+          onChange={patch=>{
+            if(patch.q!==undefined)setQ(patch.q);if(patch.company!==undefined)setCompany(patch.company);
+            if(patch.location!==undefined){setLocation(patch.location);setSelectedLocations(patch.location.split(",").map(v=>v.trim()).filter(Boolean));}
+            if(patch.freshness!==undefined)setFreshness(patch.freshness as FreshnessFilter);
+            if(patch.sponsorship!==undefined)setSponsorship(patch.sponsorship as SponsorshipFilter);
+            if(patch.sort!==undefined)setSort(patch.sort as SortFilter);
+            setFacets(previous=>({specialties:patch.specialties??previous.specialties,seniorities:patch.seniorities??previous.seniorities,workModes:patch.workModes??previous.workModes,experience:patch.experience??previous.experience,companies:patch.companies??previous.companies}));setRole("");setPage(1);
+          }} onClear={clearFilters} onFetch={()=>void handleScrape(fetchHours,"all")} scraping={scraping} total={filteredTotal}
+          titleInput={<SearchableCombobox name="q" value={q} onChange={val=>{setQ(val);setRole("");setPage(1);}} options={titleComboboxOptions} placeholder="Search any role, including PM or BIE"/>}
+          locationInput={<MultiSelectCombobox name="location" selectedValues={selectedLocations} onChange={vals=>{setSelectedLocations(vals);setLocation(vals.join(", "));setPage(1);}} options={locationComboboxOptions} placeholder="Add cities, regions or countries"/>}
+        />
 
-        <div className="job-discover-location-chips" aria-label="Quick location filters">
+        <details className={styles.quickLocations}><summary>Quick location picks</summary><div className="job-discover-location-chips" aria-label="Quick location filters">
           <span className="job-discover-location-chips-label">Location:</span>
           <button
             type="button"
@@ -1766,7 +1719,7 @@ export function JobDiscoverDashboard() {
           })}
         </div>
 
-        <div className="target-jobs-stats">
+        </details><div className="target-jobs-stats">
           <article className="stat-card">
             <p className="stat-label">Strong match</p>
             <p className={`stat-value${scraping ? " job-discover-live-stat" : ""}`}>{stats.strong.toLocaleString()}</p>
@@ -1886,7 +1839,7 @@ export function JobDiscoverDashboard() {
         ) : null}
       </section>
 
-      <section className="workflow-panel data-panel">
+      <section id="browse-results" className="workflow-panel data-panel" aria-busy={loading}>
         <div className="data-panel-header">
           <div>
             <span className="toc-card-kicker">Matches</span>
@@ -1905,7 +1858,7 @@ export function JobDiscoverDashboard() {
           </div>
         </div>
 
-        {!loading && !visibleJobs.length ? (
+        {loading && !(data?.jobs.length) ? <WorkspaceLoading label="Finding your next opportunity…" /> : !visibleJobs.length ? (
           <p className="muted">
             {filterHidingResults
               ? "Widen or clear filters above to see roles to review."
@@ -1918,7 +1871,7 @@ export function JobDiscoverDashboard() {
         ) : (
           <>
             {!loading && (data?.jobs?.length ?? 0) > 0 ? (
-              <DiscoverTriageBar
+              <details className={styles.quickLocations}><summary>Refine this page · source, seniority & shortlist</summary><DiscoverTriageBar
                 jobs={data?.jobs ?? []}
                 atsFilter={atsFilter}
                 seniorityFilter={seniorityFilter}
@@ -1931,7 +1884,7 @@ export function JobDiscoverDashboard() {
                 onClearShortlist={() => setShortlist(new Set())}
                 onScoreShortlist={() => void handleScoreShortlist()}
                 scoringShortlist={scoringShortlist}
-              />
+              /></details>
             ) : null}
 
             {visibleJobs.length > 0 ? (
@@ -2008,176 +1961,20 @@ export function JobDiscoverDashboard() {
                 borderRadius: "10px",
               }}
             >
-              <div style={{ display: "flex", alignItems: "center", gap: "0.45rem", flexWrap: "wrap" }}>
-                <span className="muted text-sm" style={{ fontWeight: 600 }}>Sort:</span>
-                <button
-                  type="button"
-                  className={`btn btn-xs ${sort === "relevancy" ? "btn-primary" : "btn-secondary"}`}
-                  onClick={() => { setSort("relevancy"); setPage(1); }}
-                >
-                  ⚡ Best Match
-                </button>
-                <button
-                  type="button"
-                  className={`btn btn-xs ${sort === "date" ? "btn-primary" : "btn-secondary"}`}
-                  onClick={() => { setSort("date"); setPage(1); }}
-                >
-                  🕒 Most Recent
-                </button>
-                <button
-                  type="button"
-                  className={`btn btn-xs ${sort === "company" ? "btn-primary" : "btn-secondary"}`}
-                  onClick={() => { setSort("company"); setPage(1); }}
-                >
-                  🏢 Company
-                </button>
-              </div>
+              <ChoiceGroup label="Sort results" options={[{value:"relevancy",label:"Best match"},{value:"date",label:"Newest"},{value:"company",label:"Company"}]} value={[sort]} onChange={([value])=>{setSort(value as SortFilter);setPage(1);}}/>
               <span className="muted text-sm">
-                Showing {Math.min((page - 1) * perPage + 1, filteredTotal)}–{Math.min(page * perPage, filteredTotal)} of {filteredTotal.toLocaleString()} roles
+                {visibleJobs.length} visible on this page · {filteredTotal.toLocaleString()} matching roles
               </span>
             </div>
 
-            <div className="cos-job-cards-grid" role="list">
-              {visibleJobs.map((job, index) => {
-                const signals = triageSignals({ id: job.id, title: job.title, url: job.url, updatedAt: job.updatedAt });
-                const rowNumber = (page - 1) * perPage + index + 1;
-                const inPrepQueue = Boolean(queuedStarts[job.id]);
-                const isAdding = addingToAssistant === job.id;
-                const queueFull = (prepQueue?.available ?? 1) <= 0;
-                const isSelected = selectedJobIds.has(job.id);
-                const gapPercent = Math.round(
-                  job.gapAnalysis?.gapPercent ?? Math.max(0, 100 - (job.relevancyScore ?? 0)),
-                );
-                return (
-                <article
-                  className={`cos-job-card${isSelected ? " cos-job-card--selected" : ""}`}
-                  key={job.id}
-                  role="listitem"
-                >
-                  {/* Card Header */}
-                  <div className="cos-job-card-header">
-                    <div style={{ display: "flex", alignItems: "flex-start", gap: "0.6rem", flex: 1, minWidth: 0 }}>
-                      <input
-                        type="checkbox"
-                        checked={isSelected}
-                        onChange={() => toggleSelectJob(job.id)}
-                        title="Select role for batch AI Prep"
-                        style={{ width: "1.15rem", height: "1.15rem", cursor: "pointer", accentColor: "#62ddc5", marginTop: "0.2rem" }}
-                      />
-                      <div className="cos-job-card-title-group">
-                        <div className="cos-job-card-company">
-                          <span>{job.companyName}</span>
-                          <span className="muted text-sm">· #{rowNumber}</span>
-                        </div>
-                        <h3 className="cos-job-card-title">
-                          <a href={job.url} target="_blank" rel="noreferrer">
-                            {job.title}
-                          </a>
-                        </h3>
-                      </div>
-                    </div>
-
-                    <div className="cos-job-card-scores">
-                      <span className={scoreClass(job.color)} title="Fit score from your profile and uploaded resume">
-                        {job.relevancyScore ?? 0}% match
-                      </span>
-                      {gapPercent > 0 ? (
-                        <button
-                          type="button"
-                          className="job-discover-gap-pill"
-                          onClick={() => void openGapPanel(job)}
-                          title="See what the job requires vs what's missing from your resume"
-                        >
-                          {gapPercent}% gap
-                        </button>
-                      ) : null}
-                    </div>
-                  </div>
-
-                  {/* Badges & Source */}
-                  <div style={{ display: "flex", alignItems: "center", gap: "0.35rem", flexWrap: "wrap", marginBlock: "0.25rem" }}>
-                    <span className="phase-pill" style={{ textTransform: "uppercase", fontSize: "0.7rem", fontWeight: 700 }}>
-                      {signals.ats !== "other" ? signals.ats : "ATS / Feed"}
-                    </span>
-                    {signals.seniority ? (
-                      <span className="phase-pill" style={{ fontSize: "0.7rem" }}>
-                        {signals.seniority}
-                      </span>
-                    ) : null}
-                    {fitByJobId[job.id] ? (
-                      <span className="phase-pill" title="Multi-dimension fit score">
-                        {fitByJobId[job.id].verdict} · {fitByJobId[job.id].overallScore}
-                      </span>
-                    ) : null}
-                    {fitByJobId[job.id]?.legitimacy === "caution" ? (
-                      <span className="phase-pill" title="Posting legitimacy check">Review posting</span>
-                    ) : null}
-                  </div>
-
-                  <div className="cos-job-card-badges">
-                    <JobMetaBadges
-                      location={job.location || undefined}
-                      salaryRange={job.salaryRange}
-                      employmentType={job.employmentType}
-                      h1bStatus={job.h1bStatus}
-                      h1bLabel={job.h1bLabel}
-                      h1bReason={job.h1bReason}
-                      h1bSignals={job.h1bSignals}
-                      freshnessLabel={job.freshness?.label}
-                    />
-                  </div>
-
-                  {/* Keywords Preview */}
-                  {job.keywordsMatched?.length ? (
-                    <p className="cos-job-card-keywords">
-                      <strong>Matched skills:</strong> {job.keywordsMatched.slice(0, 8).join(" · ")}
-                    </p>
-                  ) : null}
-
-                  {/* Card Actions Footer */}
-                  <div className="cos-job-card-footer">
-                    <div style={{ display: "flex", alignItems: "center", gap: "0.35rem" }}>
-                      <ShortlistToggle jobId={job.id} shortlist={shortlist} onToggle={toggleShortlist} />
-                      <button
-                        type="button"
-                        className="btn btn-xs btn-secondary"
-                        onClick={() => void handleDismissJob(job)}
-                        title="Mark as not relevant and remove from review queue"
-                      >
-                        Hide
-                      </button>
-                    </div>
-
-                    <div className="cos-job-card-actions">
-                      <button
-                        type="button"
-                        className="btn btn-xs btn-primary"
-                        onClick={() => void handleAddToAssistant(job)}
-                        disabled={isAdding || inPrepQueue || (queueFull && !inPrepQueue)}
-                        title={
-                          inPrepQueue
-                            ? "Already in prep queue"
-                            : queueFull
-                              ? "Prep queue is full"
-                              : "Launch 1-click AI Assistant Prep for this job"
-                        }
-                        style={{
-                          background: "linear-gradient(135deg, #62ddc5 0%, #84cbe6 100%)",
-                          color: "#07130f",
-                          fontWeight: 700,
-                          border: 0,
-                        }}
-                      >
-                        {isAdding ? "Starting…" : inPrepQueue ? "Queued" : "⚡ AI Prep"}
-                      </button>
-                      <a className="btn btn-xs btn-secondary" href={job.url} target="_blank" rel="noreferrer">
-                        Apply ↗
-                      </a>
-                    </div>
-                  </div>
-                </article>
-                );
-              })}
+            <div className={styles.grid} role="list">
+              {visibleJobs.map(job => <DiscoverJobCard key={job.id} job={job}
+                selected={selectedJobIds.has(job.id)} shortlisted={shortlist.has(job.id)}
+                busy={loading || addingToAssistant !== null} queued={Boolean(queuedStarts[job.id])}
+                fit={fitByJobId[job.id]} onSelect={()=>toggleSelectJob(job.id)}
+                onShortlist={()=>toggleShortlist(job.id)} onHide={()=>void handleDismissJob(job)}
+                onDetails={()=>void openGapPanel(job)} onQueue={()=>void handleAddToQueue(job)}
+                onApply={()=>void handleApplyNow(job)}/>) }
             </div>
             </>
           )}
@@ -2197,8 +1994,8 @@ export function JobDiscoverDashboard() {
               <button
                 type="button"
                 className="btn btn-sm btn-secondary"
-                disabled={page <= 1}
-                onClick={() => { setPage((p) => Math.max(1, p - 1)); window.scrollTo({ top: 350, behavior: "smooth" }); }}
+                disabled={loading || page <= 1}
+                onClick={() => { setPage((p) => Math.max(1, p - 1)); document.getElementById("browse-results")?.scrollIntoView({block:"start",behavior:matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth"}); }}
               >
                 ← Previous
               </button>
@@ -2208,8 +2005,8 @@ export function JobDiscoverDashboard() {
               <button
                 type="button"
                 className="btn btn-sm btn-secondary"
-                disabled={page >= (data?.totalPages ?? 1)}
-                onClick={() => { setPage((p) => p + 1); window.scrollTo({ top: 350, behavior: "smooth" }); }}
+                disabled={loading || page >= (data?.totalPages ?? 1)}
+                onClick={() => { setPage((p) => p + 1); document.getElementById("browse-results")?.scrollIntoView({block:"start",behavior:matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth"}); }}
               >
                 Next →
               </button>

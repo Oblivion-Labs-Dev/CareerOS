@@ -13,6 +13,8 @@ All scrapers use httpx (async HTTP) — no browser needed for API-based scraping
 
 import asyncio
 import json
+import os
+import random
 import re
 import ssl
 from collections.abc import Awaitable, Callable
@@ -72,6 +74,66 @@ SCRAPER_TASK_TIMEOUT_SEC = 90
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
+
+async def fetch_with_retry(
+    client: httpx.AsyncClient,
+    url: str,
+    *,
+    max_attempts: int = 3,
+    **kwargs,
+) -> httpx.Response | None:
+    """GET a board, retrying the failures that are worth retrying.
+
+    This module previously had no retry logic at all: every board was fetched
+    exactly once, so one transient blip meant that employer contributed nothing
+    for the whole run - and an empty result is indistinguishable from "this
+    company has no open roles", so the loss was invisible.
+
+    Retries connection errors, timeouts, 429 and 5xx with exponential backoff
+    and jitter. Deliberately does not retry other 4xx: a 404 board slug will
+    still be 404 on the third attempt, and retrying only delays the run.
+
+    Returns the response, or None when every attempt failed - callers already
+    treat a falsy response as "no jobs from this board".
+    """
+    delay = 0.6
+    for attempt in range(max_attempts):
+        try:
+            response = await client.get(url, **kwargs)
+            if response.status_code < 400:
+                return response
+            retryable = response.status_code == 429 or response.status_code >= 500
+            if not retryable or attempt == max_attempts - 1:
+                return response
+        except (httpx.TimeoutException, httpx.TransportError):
+            if attempt == max_attempts - 1:
+                return None
+        # Jitter so a hundred board tasks do not retry in lockstep.
+        await asyncio.sleep(delay + random.uniform(0, delay * 0.3))
+        delay = min(delay * 2, 6.0)
+    return None
+
+
+def build_verified_ssl_context() -> "ssl.SSLContext":
+    """A TLS context that actually verifies the boards we fetch from.
+
+    Both scrapers used to set check_hostname=False and verify_mode=CERT_NONE,
+    which turns off certificate verification for every outbound request. That is
+    not a cosmetic weakness here: the apply URL carried in a scraped posting is
+    what Autopilot later opens in a real browser and submits a resume into, so
+    anyone able to sit between this process and a job board could redirect an
+    application. Verification is on.
+
+    CAREEROS_SCRAPER_CA_BUNDLE points at a PEM bundle for environments behind a
+    TLS-inspecting proxy, which is the legitimate reason someone reaches for
+    CERT_NONE. That keeps verification on against a trusted root instead of
+    disabling it.
+    """
+    bundle = os.environ.get("CAREEROS_SCRAPER_CA_BUNDLE", "").strip()
+    if bundle and Path(bundle).is_file():
+        return ssl.create_default_context(cafile=bundle)
+    return ssl.create_default_context()
+
 
 def load_config() -> dict:
     if CONFIG_FILE.exists():
@@ -262,8 +324,8 @@ async def scrape_greenhouse(
     """Scrape one Greenhouse board via their public JSON API."""
     url = f"https://boards-api.greenhouse.io/v1/boards/{slug}/jobs?content=true"
     try:
-        resp = await client.get(url, timeout=15)
-        if resp.status_code != 200:
+        resp = await fetch_with_retry(client, url, timeout=15)
+        if resp is None or resp.status_code != 200:
             return []
         # With content=true a board runs to several megabytes, and both the JSON
         # parse and strip_html over every description are pure CPU. Dozens of
@@ -309,8 +371,8 @@ async def scrape_lever(
     """Scrape one Lever board via their public JSON API."""
     url = f"https://api.lever.co/v0/postings/{slug}"
     try:
-        resp = await client.get(url, timeout=15)
-        if resp.status_code != 200:
+        resp = await fetch_with_retry(client, url, timeout=15)
+        if resp is None or resp.status_code != 200:
             return []
         postings = resp.json()
         if not isinstance(postings, list):
@@ -363,8 +425,8 @@ async def scrape_ashby(
     """Scrape one Ashby board via their public JSON API."""
     url = f"https://api.ashbyhq.com/posting-api/job-board/{slug}"
     try:
-        resp = await client.get(url, timeout=15)
-        if resp.status_code != 200:
+        resp = await fetch_with_retry(client, url, timeout=15)
+        if resp is None or resp.status_code != 200:
             return []
         data = resp.json()
         jobs = []
@@ -418,8 +480,8 @@ async def scrape_smartrecruiters(
     while True:
         url = f"https://api.smartrecruiters.com/v1/companies/{slug}/postings?offset={offset}&limit={limit}"
         try:
-            resp = await client.get(url, timeout=15)
-            if resp.status_code != 200:
+            resp = await fetch_with_retry(client, url, timeout=15)
+            if resp is None or resp.status_code != 200:
                 break
             data = resp.json()
             postings = data.get("content", [])
@@ -561,8 +623,8 @@ async def scrape_workable(
     """Scrape one Workable board via their widget API."""
     url = f"https://apply.workable.com/api/v1/widget/accounts/{slug}"
     try:
-        resp = await client.get(url, timeout=15)
-        if resp.status_code != 200:
+        resp = await fetch_with_retry(client, url, timeout=15)
+        if resp is None or resp.status_code != 200:
             return []
         data = resp.json()
         jobs = []
@@ -600,7 +662,7 @@ async def scrape_yc_jobs(
     while len(all_jobs) < max_results and page < max_pages:
         try:
             # YC WAAS has a public JSON API
-            resp = await client.get(
+            resp = await fetch_with_retry(client, 
                 "https://www.workatastartup.com/companies/jobs",
                 params={
                     "page": page,
@@ -618,7 +680,7 @@ async def scrape_yc_jobs(
                 headers={"Accept": "application/json"},
                 timeout=20,
             )
-            if resp.status_code != 200:
+            if resp is None or resp.status_code != 200:
                 break
             data = resp.json()
 
@@ -742,9 +804,9 @@ async def scrape_wellfound(
                     timeout=20,
                 )
 
-                if resp.status_code != 200:
+                if resp is None or resp.status_code != 200:
                     # Fallback: try the public noscript/REST search
-                    resp2 = await client.get(
+                    resp2 = await fetch_with_retry(client, 
                         f"https://wellfound.com/role/{search_term.lower().replace(' ', '-')}",
                         params={"page": page},
                         headers={"Accept": "application/json"},
@@ -873,13 +935,13 @@ async def scrape_arbeitnow(
 
     while len(all_jobs) < max_results and page <= max_pages:
         try:
-            resp = await client.get(
+            resp = await fetch_with_retry(client, 
                 "https://www.arbeitnow.com/api/job-board-api",
                 params={"page": page},
                 headers={"Accept": "application/json"},
                 timeout=20,
             )
-            if resp.status_code != 200:
+            if resp is None or resp.status_code != 200:
                 break
             data = resp.json()
             postings = data.get("data") or []
@@ -947,12 +1009,12 @@ async def scrape_remotive(
     all_jobs: list[dict] = []
 
     try:
-        resp = await client.get(
+        resp = await fetch_with_retry(client, 
             "https://remotive.com/api/remote-jobs",
             headers={"Accept": "application/json"},
             timeout=20,
         )
-        if resp.status_code != 200:
+        if resp is None or resp.status_code != 200:
             return []
         data = resp.json()
         postings = data.get("jobs") or []
@@ -992,6 +1054,50 @@ async def scrape_remotive(
 
 
 # ── Unified Scraper Entry Point ──────────────────────────────────────────────
+
+# Per-source outcome of the most recent scrape_jobs() call, for observability.
+# scrape_jobs used to swallow every per-source exception into a bare `except:
+# pass`, which is how four adapter-based sources sat broken and invisible.
+LAST_SOURCE_REPORT: dict[str, dict] = {"counts": {}, "errors": {}, "scrapedAt": None}
+
+
+def _serpapi_key() -> str:
+    """SerpApi key, if one is configured. Google Jobs bills per call, so the
+    adapter stays out of the run entirely when no key is present."""
+    import os
+
+    key = os.environ.get("SERPAPI_KEY") or os.environ.get("SERPAPI_API_KEY") or ""
+    return key.strip()
+
+
+def _as_job_dicts(result) -> list[dict]:
+    """Coerce a source's result into US-filtered plain dicts for persistence.
+
+    Sources come in two shapes: the legacy scrape_* functions return dicts,
+    while JobSourceAdapter subclasses return NormalizedJob dataclasses. The
+    persistence path (_normalize_scraped_job) only speaks dict, so everything
+    is converted here before it can reach on_batch.
+
+    The US filter is applied here too. It used to run only on scrape_jobs'
+    return value, which nothing persists — so non-US postings reached the
+    index anyway. Filtering at the point of persistence makes what is stored
+    match what this module documents itself as returning.
+    """
+    if not isinstance(result, list):
+        return []
+    jobs: list[dict] = []
+    for item in result:
+        if hasattr(item, "to_dict"):
+            job = item.to_dict()
+        elif isinstance(item, dict):
+            job = item
+        else:
+            continue
+        if is_us_location(job.get("location", "")):
+            jobs.append(job)
+    return jobs
+
+
 
 async def scrape_jobs(
     companies: list[str] | None = None,
@@ -1079,134 +1185,214 @@ async def scrape_jobs(
     for company, _slug in wa_companies.items():
         task_labels.append(f"workable/{company}")
 
+    # iCIMS
+    ic_map = config.get("icims", {})
+    if companies:
+        ic_companies = {c: ic_map[c] for c in companies if c in ic_map}
+    else:
+        ic_companies = dict(ic_map)
+    for company in ic_companies:
+        task_labels.append(f"icims/{company}")
+
+    # Oracle Cloud Recruiting
+    or_map = config.get("oracle", {})
+    if companies:
+        or_companies = {c: or_map[c] for c in companies if c in or_map}
+    else:
+        or_companies = dict(or_map)
+    for company in or_companies:
+        task_labels.append(f"oracle/{company}")
+
+    # GitHub machine-readable feeds (not company-scoped)
+    gh_feeds = {} if companies else dict(config.get("github_feeds", {}))
+    for feed_name in gh_feeds:
+        task_labels.append(f"github_feed/{feed_name}")
+
     len(task_labels)
     completed = 0
     all_jobs = []
     progress_total = [0]
+    source_counts: dict[str, int] = {}
+    source_errors: dict[str, str] = {}
 
-    async def run_with_sem(coro):
+    async def run_with_sem(label: str, coro):
         nonlocal completed
         async with sem:
             try:
                 result = await asyncio.wait_for(coro, timeout=SCRAPER_TASK_TIMEOUT_SEC)
-            except (TimeoutError, Exception):
+            except TimeoutError:
+                source_errors[label] = f"timed out after {SCRAPER_TASK_TIMEOUT_SEC}s"
+                result = []
+            except Exception as exc:
+                source_errors[label] = f"{type(exc).__name__}: {exc}"
                 result = []
             completed += 1
             if progress_callback and progress_total[0]:
                 progress_callback(completed, progress_total[0])
-            if on_batch and isinstance(result, list) and result:
+            # Adapter-based sources (Jobicy, Himalayas, WeWorkRemotely, Hacker
+            # News) return NormalizedJob dataclasses, not dicts. on_batch feeds
+            # straight into _normalize_scraped_job, which calls .get() on each
+            # item — so an unconverted dataclass raised AttributeError, the
+            # except below swallowed it, and the source silently contributed
+            # nothing. The snapshot is written ONLY by on_batch (the list this
+            # function returns is used for counts), so a swallowed batch means
+            # the jobs are lost entirely. Convert here, once, for every source.
+            batch = _as_job_dicts(result)
+            if batch:
+                source_counts[label] = source_counts.get(label, 0) + len(batch)
+            if on_batch and batch:
                 try:
-                    batch_result = on_batch(result)
+                    batch_result = on_batch(batch)
                     if asyncio.iscoroutine(batch_result):
                         await batch_result
-                except Exception:
-                    pass
-            return result
+                except Exception as exc:
+                    source_errors[label] = f"on_batch {type(exc).__name__}: {exc}"
+            return batch
 
     # Run all scrapers concurrently with shared httpx client
-    ssl_ctx = ssl.create_default_context()
-    ssl_ctx.check_hostname = False
-    ssl_ctx.verify_mode = ssl.CERT_NONE
+    ssl_ctx = build_verified_ssl_context()
 
     async with httpx.AsyncClient(
         headers=HEADERS,
         verify=ssl_ctx,
         follow_redirects=True,
         timeout=httpx.Timeout(20.0, connect=10.0),
+        # Socket-level reconnects, under the status-code retries in
+        # fetch_with_retry. The two layers cover different failures.
+        transport=httpx.AsyncHTTPTransport(retries=2, verify=ssl_ctx),
     ) as client:
+        # Imported here rather than at module scope: the adapters import
+        # helpers back out of this module, and a top-level import would make
+        # that circular.
+        from app.services.job_discover.sources.github_feed import GitHubFeedSource
+        from app.services.job_discover.sources.hackernews import HackerNewsSource
+        from app.services.job_discover.sources.himalayas import HimalayasSource
+        from app.services.job_discover.sources.icims import ICIMSSource
+        from app.services.job_discover.sources.jobicy import JobicySource
+        from app.services.job_discover.sources.oracle import OracleSource
+        from app.services.job_discover.sources.serpapi_google_jobs import SerpApiGoogleJobsSource
+        from app.services.job_discover.sources.weworkremotely import WeWorkRemotelySource
+
         coros = []
 
         # Greenhouse tasks
         for company, slug in gh_companies.items():
             coros.append(run_with_sem(
-                scrape_greenhouse(client, company, slug, compiled, cutoff, role_keys)
+                f"greenhouse/{company}",
+                scrape_greenhouse(client, company, slug, compiled, cutoff, role_keys),
             ))
 
         # Lever tasks
         for company, slug in lever_companies.items():
             coros.append(run_with_sem(
-                scrape_lever(client, company, slug, compiled, cutoff, role_keys)
+                f"lever/{company}",
+                scrape_lever(client, company, slug, compiled, cutoff, role_keys),
             ))
 
         # Ashby tasks
         for company, slug in ashby_companies.items():
             coros.append(run_with_sem(
-                scrape_ashby(client, company, slug, compiled, cutoff, role_keys)
+                f"ashby/{company}",
+                scrape_ashby(client, company, slug, compiled, cutoff, role_keys),
             ))
 
         # SmartRecruiters tasks
         for company, slug in sr_companies.items():
             coros.append(run_with_sem(
-                scrape_smartrecruiters(client, company, slug, compiled, cutoff, role_keys)
+                f"smartrecruiters/{company}",
+                scrape_smartrecruiters(client, company, slug, compiled, cutoff, role_keys),
             ))
 
         # Workday tasks
         for company, wd_config in wd_companies.items():
             coros.append(run_with_sem(
-                scrape_workday(client, company, wd_config, compiled, cutoff, role_keys)
+                f"workday/{company}",
+                scrape_workday(client, company, wd_config, compiled, cutoff, role_keys),
             ))
 
         # Workable tasks
         for company, slug in wa_companies.items():
             coros.append(run_with_sem(
-                scrape_workable(client, company, slug, compiled, cutoff, role_keys)
+                f"workable/{company}",
+                scrape_workable(client, company, slug, compiled, cutoff, role_keys),
+            ))
+
+        # iCIMS tasks
+        for company, ic_config in ic_companies.items():
+            coros.append(run_with_sem(
+                f"icims/{company}",
+                ICIMSSource().fetch_jobs(client, company, ic_config, compiled, cutoff, role_keys),
+            ))
+
+        # Oracle Cloud Recruiting tasks
+        for company, or_config in or_companies.items():
+            coros.append(run_with_sem(
+                f"oracle/{company}",
+                OracleSource().fetch_jobs(client, company, or_config, compiled, cutoff, role_keys),
             ))
 
         # YC Work at a Startup
-        task_labels.append("yc/workatastartup")
         coros.append(run_with_sem(
-            scrape_yc_jobs(client, compiled, cutoff, role_keys, max_results=200)
+            "yc/workatastartup",
+            scrape_yc_jobs(client, compiled, cutoff, role_keys, max_results=200),
         ))
 
         # Wellfound (AngelList)
-        task_labels.append("wellfound/all")
         coros.append(run_with_sem(
-            scrape_wellfound(client, compiled, cutoff, role_keys, max_results=200)
+            "wellfound/all",
+            scrape_wellfound(client, compiled, cutoff, role_keys, max_results=200),
         ))
 
         # Arbeitnow (free, no API key)
-        task_labels.append("arbeitnow/all")
         coros.append(run_with_sem(
-            scrape_arbeitnow(client, compiled, cutoff, role_keys, max_results=200)
+            "arbeitnow/all",
+            scrape_arbeitnow(client, compiled, cutoff, role_keys, max_results=200),
         ))
 
         # Remotive (free, no API key)
-        task_labels.append("remotive/all")
         coros.append(run_with_sem(
-            scrape_remotive(client, compiled, cutoff, role_keys, max_results=200)
+            "remotive/all",
+            scrape_remotive(client, compiled, cutoff, role_keys, max_results=200),
         ))
 
         # Jobicy (free remote jobs API, no API key)
-        from app.services.job_discover.sources.jobicy import JobicySource
-        jobicy_adapter = JobicySource()
-        task_labels.append("jobicy/all")
         coros.append(run_with_sem(
-            jobicy_adapter.fetch_jobs(client, compiled_patterns=compiled, cutoff=cutoff, role_keys=role_keys)
+            "jobicy/all",
+            JobicySource().fetch_jobs(client, compiled_patterns=compiled, cutoff=cutoff, role_keys=role_keys),
         ))
 
         # Hacker News 'Who is Hiring?' (free Algolia API, no API key)
-        from app.services.job_discover.sources.hackernews import HackerNewsSource
-        hn_adapter = HackerNewsSource()
-        task_labels.append("hackernews/whoishiring")
         coros.append(run_with_sem(
-            hn_adapter.fetch_jobs(client, compiled_patterns=compiled, cutoff=cutoff, role_keys=role_keys)
+            "hackernews/whoishiring",
+            HackerNewsSource().fetch_jobs(client, compiled_patterns=compiled, cutoff=cutoff, role_keys=role_keys),
         ))
 
         # Himalayas (live public API, 100k+ remote jobs)
-        from app.services.job_discover.sources.himalayas import HimalayasSource
-        himalayas_adapter = HimalayasSource()
-        task_labels.append("himalayas/all")
         coros.append(run_with_sem(
-            himalayas_adapter.fetch_jobs(client, company="all", config={}, compiled_patterns=compiled, cutoff=cutoff, role_keys=role_keys)
+            "himalayas/all",
+            HimalayasSource().fetch_jobs(client, company="all", config={}, compiled_patterns=compiled, cutoff=cutoff, role_keys=role_keys),
         ))
 
         # WeWorkRemotely (live developer & devops RSS feeds)
-        from app.services.job_discover.sources.weworkremotely import WeWorkRemotelySource
-        wwr_adapter = WeWorkRemotelySource()
-        task_labels.append("weworkremotely/all")
         coros.append(run_with_sem(
-            wwr_adapter.fetch_jobs(client, company="all", config={}, compiled_patterns=compiled, cutoff=cutoff, role_keys=role_keys)
+            "weworkremotely/all",
+            WeWorkRemotelySource().fetch_jobs(client, company="all", config={}, compiled_patterns=compiled, cutoff=cutoff, role_keys=role_keys),
         ))
+
+        # GitHub machine-readable job feeds (SimplifyJobs New-Grad-Positions et al.)
+        for feed_name, feed_config in gh_feeds.items():
+            coros.append(run_with_sem(
+                f"github_feed/{feed_name}",
+                GitHubFeedSource().fetch_jobs(client, feed_name, feed_config, compiled, cutoff, role_keys),
+            ))
+
+        # Google Jobs via SerpApi — only when an API key is configured, since
+        # every call bills against a quota.
+        if _serpapi_key():
+            coros.append(run_with_sem(
+                "serpapi_google_jobs/all",
+                SerpApiGoogleJobsSource().fetch_jobs(client, "all", {}, compiled, cutoff, role_keys),
+            ))
 
         progress_total[0] = len(coros)
 
@@ -1214,14 +1400,14 @@ async def scrape_jobs(
         results = await asyncio.gather(*coros, return_exceptions=True)
 
         for result in results:
+            # run_with_sem already converted every source's output to
+            # US-filtered dicts, so nothing further is needed here.
             if isinstance(result, list):
-                for item in result:
-                    if hasattr(item, "to_dict"):
-                        all_jobs.append(item.to_dict())
-                    elif isinstance(item, dict):
-                        all_jobs.append(item)
+                all_jobs.extend(result)
 
-    # Filter to US-only locations and sort by recency
-    us_jobs = [j for j in all_jobs if is_us_location(j.get("location", ""))]
-    us_jobs.sort(key=lambda j: j.get("updated_at", j.get("first_published", "")), reverse=True)
-    return us_jobs
+    LAST_SOURCE_REPORT["counts"] = dict(source_counts)
+    LAST_SOURCE_REPORT["errors"] = dict(source_errors)
+    LAST_SOURCE_REPORT["scrapedAt"] = datetime.now(UTC).isoformat()
+
+    all_jobs.sort(key=lambda j: j.get("updated_at", j.get("first_published", "")), reverse=True)
+    return all_jobs

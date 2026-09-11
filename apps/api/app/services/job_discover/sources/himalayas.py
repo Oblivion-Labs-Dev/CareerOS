@@ -27,6 +27,8 @@ class HimalayasSource(JobSourceAdapter):
     priority = 80
 
     API_BASE = "https://himalayas.app/jobs/api"
+    PAGE_SIZE = 20      # the API's hard per-page cap
+    MAX_PAGES = 60      # ~1200 most-recent postings per run
 
     def supports(self, source_type: str, config: dict[str, Any] | None = None) -> bool:
         return source_type.lower() in ("himalayas", "himalayas_remote")
@@ -45,27 +47,49 @@ class HimalayasSource(JobSourceAdapter):
         start_time = datetime.now(UTC)
         discovered_jobs: list[NormalizedJob] = []
 
-        params: dict[str, Any] = {"limit": 50}
         headers = {
             "User-Agent": "CareerOS-JobIngestion/2.0 (+https://careeros.dev)",
             "Accept": "application/json",
         }
 
         try:
-            resp = await self.execute_request(
-                client,
-                self.API_BASE,
-                params=params,
-                headers=headers,
-                timeout=15.0,
-            )
-            if not resp or resp.status_code != 200:
-                duration_ms = (datetime.now(UTC) - start_time).total_seconds() * 1000.0
-                self.record_failure(f"Himalayas HTTP {resp.status_code if resp else 'No response'}", duration_ms)
-                return []
+            # The feed carries ~100k postings and caps a page at 20 regardless
+            # of the limit asked for. A single page of 20 unfiltered jobs almost
+            # never contains an engineering title, which is why this source
+            # reported healthy while contributing nothing. Page with the cursor
+            # the API documents as preferred.
+            raw_jobs: list[dict[str, Any]] = []
+            cursor: str | None = None
+            for _page in range(self.MAX_PAGES):
+                params: dict[str, Any] = {"limit": self.PAGE_SIZE}
+                if cursor:
+                    params["cursor"] = cursor
+                resp = await self.execute_request(
+                    client,
+                    self.API_BASE,
+                    params=params,
+                    headers=headers,
+                    timeout=15.0,
+                )
+                if not resp or resp.status_code != 200:
+                    if not raw_jobs:
+                        duration_ms = (datetime.now(UTC) - start_time).total_seconds() * 1000.0
+                        self.record_failure(
+                            f"Himalayas HTTP {resp.status_code if resp else 'No response'}", duration_ms
+                        )
+                        return []
+                    break
 
-            data = resp.json()
-            raw_jobs = data.get("jobs", []) if isinstance(data, dict) else []
+                data = resp.json()
+                if not isinstance(data, dict):
+                    break
+                page_jobs = data.get("jobs") or []
+                if not page_jobs:
+                    break
+                raw_jobs.extend(page_jobs)
+                cursor = data.get("nextCursor")
+                if not cursor:
+                    break
 
             for item in raw_jobs:
                 if not isinstance(item, dict):

@@ -449,6 +449,33 @@ def job_discover_status(db: Session = Depends(db_session)) -> dict[str, Any]:
     }
 
 
+@router.get("/jobs/discover/sources/report")
+def job_discover_sources_report() -> dict[str, Any]:
+    """Per-source outcome of the most recent scrape: jobs kept and any error.
+
+    Complements /sources/health, which reports the V2 registry's own counters.
+    This reports what the scrape actually run by /jobs/discover/scrape did,
+    including sources that failed — those used to vanish into a bare except.
+    """
+    from app.services.job_discover.scraper_service import LAST_SOURCE_REPORT
+
+    counts = LAST_SOURCE_REPORT.get("counts") or {}
+    errors = LAST_SOURCE_REPORT.get("errors") or {}
+    by_platform: dict[str, int] = {}
+    for label, count in counts.items():
+        platform = label.split("/", 1)[0]
+        by_platform[platform] = by_platform.get(platform, 0) + count
+    return {
+        "success": True,
+        "scrapedAt": LAST_SOURCE_REPORT.get("scrapedAt"),
+        "byPlatform": dict(sorted(by_platform.items(), key=lambda kv: -kv[1])),
+        "bySource": dict(sorted(counts.items(), key=lambda kv: -kv[1])),
+        "errors": errors,
+        "totalKept": sum(counts.values()),
+        "failingSources": len(errors),
+    }
+
+
 @router.post("/jobs/discover/scrape/cancel")
 def cancel_job_discover_scrape() -> dict[str, Any]:
     return job_discover.cancel_scrape()
@@ -551,6 +578,11 @@ def list_discovered_jobs(
     location: str = Query(default=""),
     role: str = Query(default=""),
     source: str = Query(default="all"),
+    specialties: str = Query(default=""),
+    seniorities: str = Query(default=""),
+    work_modes: str = Query(default=""),
+    experience: str = Query(default=""),
+    companies: str = Query(default=""),
     freshness: str = Query(default="all"),
     sponsorship: str = Query(default="all"),
     sort: str = Query(default="relevancy"),
@@ -568,6 +600,8 @@ def list_discovered_jobs(
         job for job in (snapshot.get("jobs") or [])
         if job.get("id") not in synced_ids and job.get("id") not in dismissed_ids
     ]
+    from app.services.job_discover.browse_filters import filter_facets
+    available_jobs = filter_facets(available_jobs, specialties=specialties, seniorities=seniorities, work_modes=work_modes, experience=experience, companies=companies)
     jobs, total = job_discover.filter_jobs(
         available_jobs,
         q=q,
@@ -600,6 +634,12 @@ def list_discovered_jobs(
         "indexedCompanies": snapshot.get("companies", 0),
         "status": job_discover.get_status(),
     }
+
+
+@router.get("/jobs/discover/filter-options")
+def browse_filter_options(db: Session = Depends(db_session)):
+    from app.services.job_discover.browse_filters import filter_options
+    return filter_options(job_discover.get_snapshot(db).get("jobs") or [])
 
 
 @router.get("/jobs/discover/lookup")
@@ -689,7 +729,9 @@ def list_applications(db: Session = Depends(db_session)) -> dict[str, Any]:
 
 @router.get("/tracker/summary")
 def get_tracker_summary(db: Session = Depends(db_session)) -> dict[str, Any]:
-    return tracker_summary(db)
+    from app.services.tracker.outcomes import dashboard_outcomes
+
+    return {**tracker_summary(db), "outcomes": dashboard_outcomes(db)}
 
 
 @router.post("/tracker/sync-gmail")

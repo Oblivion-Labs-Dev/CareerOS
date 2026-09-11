@@ -6,7 +6,7 @@ import base64
 import json
 import os
 import time
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 import httpx
@@ -40,7 +40,7 @@ class GitHubFeedSource(JobSourceAdapter):
         cutoff: datetime | None = None,
         role_keys: list[str] | None = None,
     ) -> list[NormalizedJob]:
-        from app.services.job_discover.scraper_service import matches_title, s
+        from app.services.job_discover.scraper_service import is_recent, matches_title, s
 
         start_time = time.perf_counter()
         cfg = config or {}
@@ -87,7 +87,27 @@ class GitHubFeedSource(JobSourceAdapter):
         try:
             data = resp.json()
             content_encoded = data.get("content", "")
-            raw_bytes = base64.b64decode(content_encoded)
+            if content_encoded:
+                raw_bytes = base64.b64decode(content_encoded)
+            else:
+                # The Contents API only inlines base64 up to 1 MB and returns
+                # an empty "content" above that, with no error. The feeds worth
+                # ingesting are far larger than that (SimplifyJobs' listings.json
+                # is ~14 MB), so an enabled feed silently produced zero jobs.
+                # Fall back to the raw download URL it hands us.
+                download_url = data.get("download_url")
+                if not download_url:
+                    self.record_failure(f"No inline content or download_url for {etag_key}")
+                    return []
+                raw_resp = await self.execute_request(
+                    client, download_url, headers={"User-Agent": headers["User-Agent"]}, timeout=60.0
+                )
+                if not raw_resp or raw_resp.status_code != 200:
+                    self.record_failure(
+                        f"Raw download HTTP {raw_resp.status_code if raw_resp else 'No response'}"
+                    )
+                    return []
+                raw_bytes = raw_resp.content
             items = json.loads(raw_bytes.decode("utf-8"))
 
             if not isinstance(items, list):
@@ -99,9 +119,32 @@ class GitHubFeedSource(JobSourceAdapter):
                 if compiled_patterns and not matches_title(title, compiled_patterns):
                     continue
 
+                # These feeds are append-only archives: SimplifyJobs' listings
+                # carries ~20k entries of which only ~3k are still open. The
+                # adapter ignored both flags, so enabling it would have buried
+                # the queue in long-closed postings.
+                if item.get("active") is False or item.get("is_visible") is False:
+                    continue
+
+                posted_raw = item.get("date_posted") or item.get("date_updated")
+                posted_iso = ""
+                if isinstance(posted_raw, (int, float)):
+                    try:
+                        posted_iso = datetime.fromtimestamp(posted_raw, tz=UTC).isoformat()
+                    except (ValueError, OSError, OverflowError):
+                        posted_iso = ""
+                elif isinstance(posted_raw, str):
+                    posted_iso = posted_raw
+                if cutoff and posted_iso and not is_recent(posted_iso, cutoff):
+                    continue
+
                 comp_name = item.get("company_name") or item.get("company", "Unknown Company")
                 raw_url = item.get("url") or item.get("link", "")
-                loc = item.get("location", "United States")
+                item_locations = item.get("locations")
+                if isinstance(item_locations, list) and item_locations:
+                    loc = ", ".join(str(x) for x in item_locations[:3])
+                else:
+                    loc = item.get("location", "United States")
 
                 item_id = s(item.get("id") or item.get("uuid") or hash(raw_url))
                 is_remote = any(k in f"{loc} {title}".lower() for k in ("remote", "virtual", "wfh"))

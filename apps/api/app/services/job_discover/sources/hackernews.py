@@ -39,19 +39,33 @@ class HackerNewsSource(JobSourceAdapter):
 
         start_time = time.perf_counter()
 
-        # Step 1: Find latest "Ask HN: Who is hiring?" story
-        search_url = "https://hn.algolia.com/api/v1/search?tags=story,author_whoishiring&query=Who%20is%20hiring&hitsPerPage=1"
+        # Step 1: Find latest "Ask HN: Who is hiring?" story.
+        #
+        # This must use search_by_date, not search. Algolia's /search endpoint
+        # ranks by RELEVANCE, and its top hit for this query is a one-off 2020
+        # thread ("Ask HN: Who is hiring right now?") — so the adapter was
+        # faithfully parsing a six-year-old thread every run, and every posting
+        # it produced was then dropped by the freshness cutoff.
+        search_url = (
+            "https://hn.algolia.com/api/v1/search_by_date"
+            "?tags=story,author_whoishiring&query=Who%20is%20hiring&hitsPerPage=5"
+        )
         resp = await self.execute_request(client, search_url, timeout=15.0)
         if not resp or resp.status_code != 200:
             self.record_failure("Failed to find latest Who is Hiring story")
             return []
 
         hits = resp.json().get("hits", [])
-        if not hits:
+        # whoishiring posts "Who is hiring?" and "Who wants to be hired?" in the
+        # same minute; only the former lists employers.
+        story = next(
+            (h for h in hits if "who is hiring" in str(h.get("title") or "").lower()),
+            None,
+        )
+        if not story:
             self.record_failure("No Who is Hiring story found")
             return []
 
-        story = hits[0]
         story_id = story.get("objectID")
         story_created = story.get("created_at", "")
 

@@ -73,6 +73,70 @@ def compute_fuzzy_signature(company: str, title: str, location: str = "", descri
     return hashlib.sha256(key.encode("utf-8")).hexdigest()[:16]
 
 
+# Location strings that carry no city-level information. When either side of a
+# candidate cross-source match reduces to one of these, the two records are
+# treated as location-compatible: aggregators routinely flatten a specific
+# "San Francisco, CA" posting down to "USA" or "Remote".
+_GENERIC_LOCATIONS = frozenset({
+    "", "remote", "remoteus", "remoteusa", "us", "usa", "unitedstates",
+    "unitedstatesofamerica", "anywhere", "worldwide", "global", "multiple",
+    "multiplelocations", "various", "variouslocations", "flexible",
+})
+
+
+def _location_bucket(location: str) -> str:
+    """Reduce a location to a comparable token, or "" when uninformative."""
+    if not location:
+        return ""
+    loc = location.lower()
+    # "Remote (USA)" / "Remote - San Francisco, CA" → drop the remote wrapper
+    # and keep whatever geography remains, so a remote posting can still match
+    # the same posting listed with its office city.
+    loc = re.sub(r"\b(remote|hybrid|onsite|on-site|work from home|wfh)\b", " ", loc)
+    loc = re.sub(r"[^\w\s,]", " ", loc)
+    head = loc.split(",")[0]
+    token = re.sub(r"[^\w]", "", head)
+    if token in _GENERIC_LOCATIONS:
+        return ""
+    return token[:20]
+
+
+def locations_compatible(a: str, b: str) -> bool:
+    """Whether two location strings could describe the same posting."""
+    bucket_a, bucket_b = _location_bucket(a), _location_bucket(b)
+    if not bucket_a or not bucket_b:
+        return True
+    return bucket_a == bucket_b
+
+
+def compute_cross_source_key(company: str, title: str) -> str:
+    """Identity key for matching the SAME posting across DIFFERENT sources.
+
+    Deliberately excludes URL and description — the two fields that always
+    differ between an ATS board and an aggregator that relists it. Jobicy
+    truncates the description and rewrites the link, so compute_fuzzy_signature
+    (which hashes the first 300 description chars) can never match across
+    sources; that is why the same role appeared twice in the index.
+
+    Because this key is coarse, callers must only use it to merge records whose
+    sources differ AND whose locations are compatible. Two same-source postings
+    sharing a company and title are usually two genuine requisitions.
+    """
+    clean_company = re.sub(r"[^\w]", "", company.lower())
+    clean_title = re.sub(
+        r"\b(senior|sr\.?|junior|jr\.?|staff|principal|lead|i|ii|iii|iv|v)\b", "", title.lower()
+    )
+    clean_title = re.sub(r"[^\w]", "", clean_title)
+    if not clean_company or not clean_title:
+        return ""
+    return hashlib.sha256(f"{clean_company}:{clean_title}".encode("utf-8")).hexdigest()[:16]
+
+
+def source_label(job: dict[str, Any]) -> str:
+    """Best available provenance label for a job record."""
+    return str(job.get("source") or job.get("canonicalSource") or "").strip().lower()
+
+
 def get_source_priority(job: dict[str, Any]) -> int:
     """Determine integer priority tier (100 highest -> 40 lowest) for a job record."""
     if job.get("sourcePriority") is not None:
@@ -120,9 +184,12 @@ def merge_job_records(existing: dict[str, Any], incoming: dict[str, Any]) -> dic
         if s and s not in disc_sources:
             disc_sources.append(s)
 
-    inc_src = incoming.get("source")
-    if inc_src and inc_src not in disc_sources:
-        disc_sources.append(inc_src)
+    # Both records' own source labels count as provenance. Only the incoming
+    # one used to be recorded, so when a lower-priority record was displaced as
+    # the base its origin vanished from the merged job's provenance.
+    for own_src in (existing.get("source"), incoming.get("source")):
+        if own_src and own_src not in disc_sources:
+            disc_sources.append(own_src)
 
     # Date provenance: retain earliest firstSeenDate, latest lastSeenDate
     first_seen = existing.get("firstSeenDate") or existing.get("first_seen_at")
@@ -178,12 +245,136 @@ def merge_job_records(existing: dict[str, Any], incoming: dict[str, Any]) -> dic
         return merged
 
 
+class DedupeIndex:
+    """The lookup tables cross_source_deduplicate builds, kept across calls.
+
+    A scrape used to call cross_source_deduplicate(existing + incoming) once per
+    board batch. With 638 batches over a 3,400-job corpus that rebuilt every
+    index from scratch 638 times and re-fingerprinted the whole corpus each
+    time - O(batches x corpus). It is the single reason a scrape that takes 43
+    seconds in memory took about twelve minutes when persisted.
+
+    Holding the index and feeding it only the new batch makes the same work
+    O(corpus + total_incoming). The matching rules are unchanged: `add` is the
+    body of the original loop, so both entry points share one implementation.
+    """
+
+    __slots__ = ("by_id", "url_to_id", "req_to_id", "fuzzy_to_id", "coarse_to_ids", "order")
+
+    def __init__(self) -> None:
+        self.by_id: dict[str, dict[str, Any]] = {}
+        self.url_to_id: dict[str, str] = {}
+        self.req_to_id: dict[str, str] = {}
+        self.fuzzy_to_id: dict[str, str] = {}
+        self.coarse_to_ids: dict[str, list[str]] = {}
+        self.order: list[str] = []
+
+    def extend(self, jobs: list[dict[str, Any]]) -> None:
+        for job in jobs:
+            self.add(job)
+
+    def values(self) -> list[dict[str, Any]]:
+        """Surviving records, in the order they were first seen."""
+        return [self.by_id[key] for key in self.order if key in self.by_id]
+
+    def add(self, job: dict[str, Any]) -> None:
+        by_id = self.by_id
+        url_to_id = self.url_to_id
+        req_to_id = self.req_to_id
+        fuzzy_to_id = self.fuzzy_to_id
+        coarse_to_ids = self.coarse_to_ids
+
+        raw_id = job.get("id") or compute_job_fingerprint(
+            job.get("companyName") or job.get("company", ""),
+            job.get("title", ""),
+            job.get("location", ""),
+            job.get("url", ""),
+        )
+        url = canonicalize_url(job.get("canonicalUrl") or job.get("url", ""))
+        comp = (job.get("companyName") or job.get("company", "")).strip().lower()
+        req_id = str(job.get("requisition_id") or job.get("externalId") or job.get("greenhouse_id") or "").strip()
+        req_key = f"{comp}:{req_id}" if comp and req_id else ""
+
+        fuzzy_sig = compute_fuzzy_signature(
+            comp,
+            job.get("title", ""),
+            job.get("location", ""),
+            job.get("description", ""),
+        )
+        coarse_key = compute_cross_source_key(comp, job.get("title", ""))
+        job_source = source_label(job)
+
+        matched_id: str | None = None
+
+        # 1. Exact ID match
+        if raw_id in by_id:
+            matched_id = raw_id
+        # 2. Canonical URL match
+        elif url and url in url_to_id:
+            matched_id = url_to_id[url]
+        # 3. Requisition ID + Company match
+        elif req_key and req_key in req_to_id:
+            matched_id = req_to_id[req_key]
+        # 4. Fuzzy signature match
+        elif fuzzy_sig and fuzzy_sig in fuzzy_to_id:
+            matched_id = fuzzy_to_id[fuzzy_sig]
+        # 5. Cross-source match: same company and title, compatible location,
+        #    but a DIFFERENT source.
+        elif coarse_key and job_source:
+            for candidate_id in coarse_to_ids.get(coarse_key, []):
+                candidate = by_id.get(candidate_id)
+                if candidate is None:
+                    continue
+                if source_label(candidate) == job_source:
+                    continue
+                if not locations_compatible(candidate.get("location", ""), job.get("location", "")):
+                    continue
+                matched_id = candidate_id
+                break
+
+        if matched_id and matched_id in by_id:
+            by_id[matched_id] = merge_job_records(by_id[matched_id], job)
+        else:
+            job["id"] = raw_id
+            if url:
+                job["canonicalUrl"] = url
+                job["url"] = url
+            by_id[raw_id] = job
+            matched_id = raw_id
+            self.order.append(raw_id)
+
+        if url:
+            url_to_id[url] = matched_id
+        if req_key:
+            req_to_id[req_key] = matched_id
+        if fuzzy_sig:
+            fuzzy_to_id[fuzzy_sig] = matched_id
+        if coarse_key:
+            bucket = coarse_to_ids.setdefault(coarse_key, [])
+            if matched_id not in bucket:
+                bucket.append(matched_id)
+
+
 def cross_source_deduplicate(jobs: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Deduplicate job list using multi-index deterministic matching (exact ID, canonical URL, requisition, fuzzy)."""
+    index = DedupeIndex()
+    index.extend(jobs)
+    return index.values()
+
+
+def _legacy_cross_source_deduplicate(jobs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """The original single-pass implementation, kept as a differential oracle.
+
+    tests/test_dedupe_index_equivalence.py asserts the incremental index agrees
+    with this on real corpus data, so the optimisation cannot drift from the
+    behaviour it replaced without a test failing.
+    """
     by_id: dict[str, dict[str, Any]] = {}
     url_to_id: dict[str, str] = {}
     req_to_id: dict[str, str] = {}
     fuzzy_to_id: dict[str, str] = {}
+    # company+title -> candidate ids, used only for cross-source matching.
+    coarse_to_ids: dict[str, list[str]] = {}
 
     for job in jobs:
         raw_id = job.get("id") or compute_job_fingerprint(
@@ -203,6 +394,8 @@ def cross_source_deduplicate(jobs: list[dict[str, Any]]) -> list[dict[str, Any]]
             job.get("location", ""),
             job.get("description", ""),
         )
+        coarse_key = compute_cross_source_key(comp, job.get("title", ""))
+        job_source = source_label(job)
 
         matched_id: str | None = None
 
@@ -218,6 +411,23 @@ def cross_source_deduplicate(jobs: list[dict[str, Any]]) -> list[dict[str, Any]]
         # 4. Fuzzy signature match
         elif fuzzy_sig and fuzzy_sig in fuzzy_to_id:
             matched_id = fuzzy_to_id[fuzzy_sig]
+        # 5. Cross-source match: same company and title, compatible location,
+        #    but a DIFFERENT source. This is the aggregator case — the same
+        #    Greenhouse posting relisted on Jobicy, Himalayas, WeWorkRemotely
+        #    or Hacker News under a different URL and a rewritten description,
+        #    which no earlier index can catch. Restricted to differing sources
+        #    so two genuine same-board requisitions are never collapsed.
+        elif coarse_key and job_source:
+            for candidate_id in coarse_to_ids.get(coarse_key, []):
+                candidate = by_id.get(candidate_id)
+                if candidate is None:
+                    continue
+                if source_label(candidate) == job_source:
+                    continue
+                if not locations_compatible(candidate.get("location", ""), job.get("location", "")):
+                    continue
+                matched_id = candidate_id
+                break
 
         if matched_id and matched_id in by_id:
             existing_job = by_id[matched_id]
@@ -238,6 +448,10 @@ def cross_source_deduplicate(jobs: list[dict[str, Any]]) -> list[dict[str, Any]]
             req_to_id[req_key] = matched_id
         if fuzzy_sig:
             fuzzy_to_id[fuzzy_sig] = matched_id
+        if coarse_key:
+            bucket = coarse_to_ids.setdefault(coarse_key, [])
+            if matched_id not in bucket:
+                bucket.append(matched_id)
 
     return list(by_id.values())
 

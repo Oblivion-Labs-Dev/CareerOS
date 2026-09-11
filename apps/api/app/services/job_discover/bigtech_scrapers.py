@@ -135,7 +135,10 @@ def matches_role(title: str, role_keys: list[str] | None = None) -> bool:
     Uses the shared exclusion list to reject irrelevant titles like
     'Financial Analyst', 'Legal Counsel', 'Construction Project Manager'.
     """
-    from app.services.role_classifier import _is_excluded
+    # role_classifier lives under job_discover, not services root. This import
+    # was wrong from the start but never ran, because matches_role had no
+    # callers until it was wired into scrape_bigtech.
+    from app.services.job_discover.role_classifier import _is_excluded
     if _is_excluded(title):
         return False
     return any(p.search(title) for p in COMPILED_ROLES)
@@ -746,10 +749,11 @@ async def scrape_bigtech(
     Returns:
         Flat list of job dicts.
     """
-    import ssl
-    ssl_ctx = ssl.create_default_context()
-    ssl_ctx.check_hostname = False
-    ssl_ctx.verify_mode = ssl.CERT_NONE
+    # Verification stays on - see build_verified_ssl_context for why, and for
+    # the CA-bundle escape hatch used behind TLS-inspecting proxies.
+    from app.services.job_discover.scraper_service import build_verified_ssl_context
+
+    ssl_ctx = build_verified_ssl_context()
 
     targets = companies or list(BIGTECH_SCRAPERS.keys())
     valid_targets = [c for c in targets if c in BIGTECH_SCRAPERS]
@@ -772,5 +776,13 @@ async def scrape_bigtech(
             if progress_callback:
                 progress_callback(i + 1, total)
 
-    # Filter to US-only locations
-    return [j for j in all_jobs if is_us_location(j.get("location", ""))]
+    # Filter to US-only locations AND to relevant roles. matches_role has
+    # existed in this module (documented "Always filters — never stores junk")
+    # without a single caller, so a "Software Engineer" search on Apple's board
+    # was storing hits like "Senior Privacy Counsel". The per-company scrapers
+    # only pass search_terms to the remote site, which does loose text matching
+    # — the local role filter is what actually keeps the index clean.
+    return [
+        j for j in all_jobs
+        if is_us_location(j.get("location", "")) and matches_role(j.get("title", ""))
+    ]

@@ -6,6 +6,7 @@ import asyncio
 import hashlib
 import json
 import logging
+import os
 from collections import Counter
 from datetime import UTC, datetime
 from pathlib import Path
@@ -26,7 +27,15 @@ from app.services.job_discover.h1b_sponsorship import apply_h1b_fields
 logger = logging.getLogger("career_os.job_discover_store")
 
 KV_KEY = "job_discover"
-DATA_DIR = Path(__file__).resolve().parents[3] / "data" / "job_discover"
+# Overridable so the test suite cannot reach the real snapshot. It previously
+# resolved from __file__ only, so running pytest truncated the live
+# jobs_snapshot.json to a single fixture row - harmless because the database is
+# the source of truth and the file is a secondary artifact, but a suite that can
+# write production state is one refactor away from doing real damage.
+DATA_DIR = Path(
+    os.environ.get("CAREEROS_JOB_DISCOVER_DATA_DIR")
+    or Path(__file__).resolve().parents[3] / "data" / "job_discover"
+)
 SNAPSHOT_FILE = DATA_DIR / "jobs_snapshot.json"
 
 SortOption = Literal["relevancy", "date", "company"]
@@ -40,6 +49,8 @@ MAX_SCRAPE_HOURS = 2160
 
 _scrape_lock = asyncio.Lock()
 _save_lock = asyncio.Lock()
+# Set for the duration of a scrape; see _append_scraped_batch.
+_scrape_dedupe_index: Any = None
 _scrape_task: asyncio.Task[None] | None = None
 SCRAPE_STALE_SECONDS = 20 * 60
 _scrape_status: dict[str, Any] = {
@@ -406,9 +417,21 @@ async def _append_scraped_batch(
         # stays on this thread, since a Session is not safe to share across
         # threads.
         existing_jobs = snapshot.get("jobs") or []
-        merged = await asyncio.to_thread(
-            lambda: _prune_stale_jobs(_merge_jobs(existing_jobs, scored))
-        )
+        # During a scrape the dedupe index is held across batches, so each batch
+        # is matched against tables that already exist instead of rebuilding
+        # them from the whole corpus. Outside a scrape (a one-off import, say)
+        # there is no index and the original whole-corpus merge still runs.
+        index = _scrape_dedupe_index
+        if index is not None:
+            def _merge_incremental() -> list[dict[str, Any]]:
+                index.extend(scored)
+                return _prune_stale_jobs(index.values())
+
+            merged = await asyncio.to_thread(_merge_incremental)
+        else:
+            merged = await asyncio.to_thread(
+                lambda: _prune_stale_jobs(_merge_jobs(existing_jobs, scored))
+            )
         partial_at = _utc_now()
         updated = {
             **snapshot,
@@ -889,6 +912,11 @@ def filter_jobs(
 
     if q:
         needle = q.lower()
+        aliases = {"bie", "bi engineer", "business intelligence engineer"}
+        if needle.strip() in aliases:
+            from app.services.job_discover.browse_filters import title_matches
+            filtered = [job for job in filtered if title_matches(job.get("title", ""), {"bie"})]
+            needle = ""
         filtered = [
             job
             for job in filtered
@@ -1135,11 +1163,17 @@ async def run_scrape(
             lastProgressAt=_utc_now(),
             **_snapshot_stats(existing_jobs),
         )
+        global _scrape_dedupe_index
         try:
             hours = clamp_scrape_hours(hours)
             role_keys = [part.strip() for part in roles.split(",") if part.strip()] or None
             profile = get_kv(db, "profile") or {}
             raw_jobs: list[dict[str, Any]] = []
+
+            from app.services.job_discover.dedup import DedupeIndex
+
+            _scrape_dedupe_index = DedupeIndex()
+            _scrape_dedupe_index.extend(existing_jobs)
 
             def on_progress(done: int, total: int, label: str = "companies") -> None:
                 _touch_scrape_progress(f"{done}/{total} {label}")
@@ -1246,6 +1280,10 @@ async def run_scrape(
             message = str(exc)
             _scrape_status.update(running=False, progress="Failed", lastResult=message)
             return {"success": False, "error": message}
+        finally:
+            # Release the index: it holds the whole corpus and must not outlive
+            # the scrape that built it.
+            _scrape_dedupe_index = None
 
 
 async def start_scrape_background(
