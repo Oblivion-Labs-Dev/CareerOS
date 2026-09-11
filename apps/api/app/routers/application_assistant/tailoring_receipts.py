@@ -40,7 +40,7 @@ async def get_job_tailor_diff(id: str, mode: str | None = None) -> dict[str, Any
     """
     from app.services.application_assistant.persistence import get_autopilot_job, get_settings
     from app.services.application_assistant.resume_diff_service import generate_role_tailoring_diff
-    from app.db.store import get_kv, session_scope
+    from app.db.store import get_kv, list_entities, session_scope
 
     with session_scope() as db:
         active_mode = mode or get_settings(db).get("tailoringMode", "honest")
@@ -58,8 +58,24 @@ async def get_job_tailor_diff(id: str, mode: str | None = None) -> dict[str, Any
 
         profile = get_kv(db, "profile") or {}
         master_resume = get_kv(db, "resume_corpus_master") or {}
+        # The preview must be the same document Autopilot would submit, which
+        # means scoring it against the same evidence base. Without these the
+        # preview re-scores against the bullets alone and reports a number the
+        # real run will not reproduce.
+        documents = get_kv(db, "documents") or {}
+        try:
+            accomplishments = list_entities(db, "accomplishment")
+        except Exception:
+            accomplishments = []
 
-    diff_data = await generate_role_tailoring_diff(job, profile, master_resume, mode=active_mode)
+    diff_data = await generate_role_tailoring_diff(
+        job,
+        profile,
+        master_resume,
+        mode=active_mode,
+        documents=documents,
+        accomplishments=accomplishments,
+    )
     return {"success": True, "diff": diff_data}
 
 
@@ -74,7 +90,7 @@ async def get_job_tailor_resume_pdf(id: str, mode: str | None = None) -> Respons
         generate_role_tailoring_diff,
         render_tailored_resume_pdf,
     )
-    from app.db.store import get_kv, session_scope
+    from app.db.store import get_kv, list_entities, session_scope
 
     with session_scope() as db:
         active_mode = mode or get_settings(db).get("tailoringMode", "honest")
@@ -91,8 +107,24 @@ async def get_job_tailor_resume_pdf(id: str, mode: str | None = None) -> Respons
 
         profile = get_kv(db, "profile") or {}
         master_resume = get_kv(db, "resume_corpus_master") or {}
+        # The preview must be the same document Autopilot would submit, which
+        # means scoring it against the same evidence base. Without these the
+        # preview re-scores against the bullets alone and reports a number the
+        # real run will not reproduce.
+        documents = get_kv(db, "documents") or {}
+        try:
+            accomplishments = list_entities(db, "accomplishment")
+        except Exception:
+            accomplishments = []
 
-    diff_data = await generate_role_tailoring_diff(job, profile, master_resume, mode=active_mode)
+    diff_data = await generate_role_tailoring_diff(
+        job,
+        profile,
+        master_resume,
+        mode=active_mode,
+        documents=documents,
+        accomplishments=accomplishments,
+    )
     pdf_bytes = render_tailored_resume_pdf(diff_data, profile)
 
     company_slug = "".join(c for c in job.get("company", "Role") if c.isalnum() or c in ("-", "_"))

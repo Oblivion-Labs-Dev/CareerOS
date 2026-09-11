@@ -115,6 +115,8 @@ def build_mistral_match_client(*, timeout: int | None = None) -> LLMClient:
         max_retries=1,
         provider="ollama",
         context_window=DEFAULT_CONTEXT_WINDOW,
+        # Deterministic: this number gates whether an application is sent.
+        temperature=0.0,
     )
 
 

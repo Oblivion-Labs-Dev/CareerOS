@@ -47,6 +47,17 @@ _LEAKED = re.compile(
 #: A run of letters too long to be a real English or technical word.
 _LONG_RUN = re.compile(r"[A-Za-z]{26,}")
 
+#: Words a finished sentence does not end on. A bullet stopping here has been
+#: cut off mid-clause, whether or not something appended a full stop after.
+_DANGLING_TAILS = frozenset(
+    """
+    a an the and or but with to of for in on at by from into across using
+    via per plus including while where when that which who whose as than
+    through toward towards under over between among during within without
+    after before since about against upon onto off out up down
+    """.split()
+)
+
 
 def strip_markup(text: str) -> str:
     return re.sub(r"<[^>]+>", "", str(text or "")).strip()
@@ -109,8 +120,13 @@ def inspect_bullet(tailored: str, original: str, *, max_chars: int) -> list[str]
     # --- truncation: the most visible failure on the rendered page ----------
     if not _ENDS_CLEANLY.search(plain):
         problems.append("does not end in a complete sentence")
-    if plain.endswith((" a", " an", " the", " and", " or", " with", " to", " of", " for", " in")):
-        problems.append("ends on a dangling word")
+    # Check the last real word, not the punctuation. Testing the punctuated
+    # string never matched, so "...create pull requests with automated." passed
+    # as a complete sentence purely because something had appended a full stop
+    # to a severed clause.
+    tail = plain.rstrip(".!?;:, ").rsplit(" ", 1)[-1].lower()
+    if tail in _DANGLING_TAILS:
+        problems.append(f"ends on a dangling word ('{tail}')")
 
     # --- language ----------------------------------------------------------
     if _DOUBLED_WORD.search(plain):

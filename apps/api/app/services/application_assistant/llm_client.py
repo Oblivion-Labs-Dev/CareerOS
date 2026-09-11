@@ -140,6 +140,7 @@ class LLMClient:
         provider: str = "ollama",
         context_window: int = DEFAULT_CONTEXT_WINDOW,
         max_output_tokens: int = 2000,
+        temperature: float | None = None,
     ):
         self.base_url = base_url.rstrip("/")
         self.model = model
@@ -156,6 +157,13 @@ class LLMClient:
         # large prompts (resume tailoring) size themselves against this.
         self.context_window = context_window
         self.max_output_tokens = max_output_tokens
+        # Sampling temperature. None keeps each call path's own default; a
+        # caller that needs a reproducible answer sets it explicitly. Match
+        # scoring does: a score used as a gate has to be the same number twice
+        # for the same input, and at the default the identical resume came back
+        # at 77.9% and 86.5% minutes apart, which made "did tailoring improve
+        # this resume" unanswerable.
+        self.temperature = temperature
 
     @property
     def enabled(self) -> bool:
@@ -231,7 +239,7 @@ class LLMClient:
         payload = {
             "model": self.model,
             "messages": payload_messages,
-            "temperature": 0.7,
+            "temperature": 0.7 if self.temperature is None else self.temperature,
             "max_tokens": 2000,
             "stream": False,
         }
@@ -363,7 +371,7 @@ class LLMClient:
         payload = {
             "model": self.model,
             "messages": messages,
-            "temperature": 0.1,
+            "temperature": 0.1 if self.temperature is None else self.temperature,
             "max_tokens": max_out,
         }
         if response_schema and self._is_ollama_compat():

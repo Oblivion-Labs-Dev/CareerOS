@@ -224,15 +224,18 @@ def clamp_bullet_length(text: str, max_len: int, original: str | None = None) ->
         if cut > budget * 0.55:
             trimmed = window[: cut + 1].rstrip()
             return f"<b>{lead}</b>{sep}{trimmed}"
-        # A bullet that is one long clause has no interior boundary to cut at.
-        # Ending it with a full stop at a word boundary is acceptable only when
-        # almost all of it survives; otherwise the meaning is gone.
-        if budget >= len(rest) * 0.9:
-            trimmed = window.rsplit(" ", 1)[0].rstrip(",;: ")
-            if trimmed:
-                return f"<b>{lead}</b>{sep}{trimmed}."
 
-    return original if original else f"<b>{lead}</b>{sep}{rest[:budget].rsplit(' ', 1)[0].rstrip(',;: ')}."
+    # No sentence boundary inside the budget, so there is no honest way to
+    # shorten this bullet without cutting a clause in half. Keep the original.
+    #
+    # Trimming at a word boundary and adding a full stop was tried and is worse
+    # than it looks: it produced "...validate end-to-end behavior in
+    # production-like." and "...create pull requests with automated." on a real
+    # rendered resume. Both read as sentences to any automated check - they end
+    # in a word and a period - while being obvious gibberish to a human. A slot
+    # that keeps its original wording costs one rewrite; a slot containing a
+    # severed clause costs the application.
+    return original if original else text
 
 
 def compute_text_diff_chunks(original: str, modified: str) -> list[dict[str, str]]:
@@ -930,12 +933,14 @@ async def generate_role_tailoring_diff(
     # matchScoreAtSubmission a record of a document nobody submitted.
     base_match_score = job_match_score(job)
     match_score = base_match_score
+    baseline_score = base_match_score
     tailored_match: dict[str, Any] | None = None
     if rescore and valid_mode != "off" and tailored_bullets and not tailoring_failed:
         from app.services.application_assistant.tailored_match import score_tailored_resume
 
+        scored_job = {**job, "description": description}
         tailored_match = await score_tailored_resume(
-            {**job, "description": description},
+            scored_job,
             tailored_bullets,
             profile=profile,
             documents=documents,
@@ -943,9 +948,22 @@ async def generate_role_tailoring_diff(
         )
         if tailored_match:
             match_score = float(tailored_match.get("matchScore") or 0.0)
+            # The control: the untailored resume, scored the same way in the
+            # same run. Without it "did the resume improve" is a comparison
+            # between two samples of a noisy scorer taken at different times.
+            baseline_match = await score_tailored_resume(
+                scored_job,
+                master_bullets,
+                profile=profile,
+                documents=documents,
+                accomplishments=accomplishments,
+            )
+            if baseline_match:
+                baseline_score = float(baseline_match.get("matchScore") or 0.0)
             logger.info(
-                "Tailored resume re-scored for %s - %s: %.1f%% (was %.1f%%)",
-                company, title, match_score, base_match_score,
+                "Re-scored for %s - %s: tailored %.1f%% vs untailored %.1f%% "
+                "(stored queue score %.1f%%)",
+                company, title, match_score, baseline_score, base_match_score,
             )
     work_auth = authorization_summary(profile)
 
@@ -967,7 +985,7 @@ async def generate_role_tailoring_diff(
     quality_report = _assess_quality(
         master_bullets,
         tailored_bullets,
-        score_before=base_match_score,
+        score_before=baseline_score,
         score_after=match_score,
         min_changed=MIN_TAILORED_BULLETS,
         # Only ask for an improvement when a real re-score happened; otherwise
@@ -1018,6 +1036,9 @@ async def generate_role_tailoring_diff(
         # Kept separate so a caller can always tell the tailored document's score
         # from the stored one, and see whether re-scoring ran at all.
         "baseMatchScore": base_match_score,
+        # The untailored resume scored in this same run. This, not the stored
+        # queue score, is what the tailored number should be compared against.
+        "baselineMatchScore": baseline_score,
         "matchRescored": bool(tailored_match),
         "matchReason": (tailored_match or {}).get("matchReason", ""),
         "missingSkills": (tailored_match or {}).get("missingSkills", []),
