@@ -375,7 +375,18 @@ class LLMClient:
             "max_tokens": max_out,
         }
         if response_schema and self._is_ollama_compat():
-            payload["format"] = "json"
+            # Send the schema itself, not the string "json". Ollama constrains
+            # decoding to a supplied JSON Schema (structured outputs, 0.5+;
+            # this host runs 0.32.x), which makes malformed output impossible
+            # rather than merely discouraged.
+            #
+            # With the weak form, mistral:7b-instruct returned unparseable JSON
+            # on roughly a quarter of match-scoring calls - measured, and not a
+            # timeout: it failed identically at a 420s limit after emitting 192
+            # tokens. A failed score is silently treated as "unscored", and an
+            # unscored job never enters the Autopilot queue, so this was quietly
+            # dropping real postings.
+            payload["format"] = response_schema
         self._apply_ollama_thinking_off(payload)
 
         for attempt in range(self.max_retries + 1):

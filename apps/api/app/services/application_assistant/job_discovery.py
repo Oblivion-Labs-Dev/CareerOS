@@ -195,15 +195,23 @@ def filter_jobs(
     include_keywords: list[str] | None = None,
     exclude_keywords: list[str] | None = None,
 ) -> list[dict[str, Any]]:
-    """Filter and rank discovered jobs."""
+    """Filter and rank discovered jobs.
+
+    ``min_match_score`` ranks; it does not exclude. Keyword filters below still
+    exclude, because those express what the user is looking for rather than a
+    model's opinion of how well they match it.
+    """
     results = []
     for job in jobs:
         job_id = job.get("id", "")
         match = matches.get(job_id, {})
-        score = match.get("overallScore", 0)
-
-        if score < min_match_score:
-            continue
+        raw_score = match.get("overallScore")
+        # An unscored job has no opinion attached to it, which is not the same
+        # as a bad one. Defaulting the missing value to 0 and comparing it
+        # against the bar deleted every posting the scorer had not reached yet,
+        # or had failed on - and the local scorer fails often enough for that
+        # to matter.
+        score = float(raw_score) if isinstance(raw_score, (int, float)) else None
 
         title_lower = job.get("title", "").lower()
         desc_lower = job.get("description", "").lower()
@@ -216,7 +224,17 @@ def filter_jobs(
             if any(kw.lower() in title_lower or kw.lower() in desc_lower for kw in exclude_keywords):
                 continue
 
-        results.append({**job, "match": match})
+        results.append({**job, "match": match, "_meetsBar": score is not None and score >= min_match_score})
 
-    results.sort(key=lambda j: j.get("match", {}).get("overallScore", 0), reverse=True)
+    # Jobs that clear the bar first, then by score. Unscored jobs sort last
+    # rather than vanishing, so the user still sees them.
+    results.sort(
+        key=lambda j: (
+            bool(j.get("_meetsBar")),
+            j.get("match", {}).get("overallScore") or 0,
+        ),
+        reverse=True,
+    )
+    for job in results:
+        job.pop("_meetsBar", None)
     return results

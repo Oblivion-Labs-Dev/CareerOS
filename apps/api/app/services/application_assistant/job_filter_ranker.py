@@ -498,9 +498,28 @@ def filter_and_rank_jobs(
     # Sort descending by queue priority (tier bonus + match score), then datePosted
     all_passing.sort(key=lambda j: (j.get("queuePriority", 0.0), j.get("datePosted") or ""), reverse=True)
 
+    # minMatchScore orders the queue; it does not remove anything from it.
+    #
+    # This used to drop every job below the bar whenever at least one job
+    # cleared it, which threw away postings for two reasons that are both bad.
+    # A job with no score is missing data, not a poor match - when the local
+    # model is down or returns unparseable output the score is absent, and
+    # filtering on a field that defaults to 0.0 deleted real postings for a
+    # reason that had nothing to do with the job. And a genuinely low score is
+    # a judgement from a small local model that is often wrong; the user works
+    # these lists by hand and may well want to apply anyway.
+    #
+    # Nothing here weakens the submission bar: a low-scoring job still is not
+    # auto-submitted, it just stays visible. Hard eligibility filters above
+    # still exclude genuine dead ends.
     if min_score > 0:
-        qualified = [j for j in all_passing if j.get("matchScore", 0.0) >= min_score]
-        if qualified:
-            return qualified[:max_apps] if max_apps > 0 else qualified
+        all_passing.sort(
+            key=lambda j: (
+                float(j.get("matchScore") or 0.0) >= min_score,
+                j.get("queuePriority", 0.0),
+                j.get("datePosted") or "",
+            ),
+            reverse=True,
+        )
 
     return all_passing[:max_apps] if max_apps > 0 else all_passing
