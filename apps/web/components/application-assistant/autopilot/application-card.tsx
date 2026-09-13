@@ -18,8 +18,15 @@ export function ApplicationCard({ job, busy, onDetails, onApply, onAssistedFill,
   const shownScore = useCountUp(score);
   const canApply = job.status === "QUEUED" || (job.status === "SKIPPED" && job.skipReason?.startsWith("Match score stayed below"));
   const initials = (job.company || "?").split(/\s+/).slice(0, 2).map(word => word[0]).join("").toUpperCase();
-  // Automation can reach this posting and fill it; it just must not submit it.
-  const canAssist = job.status === "MANUAL_REVIEW";
+  // Every bucket the user finishes by hand gets the same offer. Assisted fill
+  // was restricted to MANUAL_REVIEW, so a Failed or Review application the user
+  // intended to complete themselves had no way to get the form pre-filled and
+  // they retyped it from scratch. These are exactly the buckets the state
+  // selector already lets them relabel - the ones they are working through -
+  // so the two should agree. QUEUED is excluded because the automation still
+  // intends to try it, and SUBMITTED because it is already done.
+  const ASSISTABLE = ["MANUAL_REVIEW", "FAILED", "NEEDS_REVIEW", "STAGED"];
+  const canAssist = ASSISTABLE.includes(job.status || "");
   // A failed attempt is usually a bug we have since fixed, but without this the
   // card is a dead end: the only other action is claiming a submission that
   // never happened. Retry puts the job back in the queue and applies again.
@@ -32,7 +39,7 @@ export function ApplicationCard({ job, busy, onDetails, onApply, onAssistedFill,
     // panel, not here.
     <article
       ref={surface}
-      className={styles.card}
+      className={`${styles.card} appCard`}
       title={reason || undefined}
       data-status={status.key}
       data-job-id={job.id}

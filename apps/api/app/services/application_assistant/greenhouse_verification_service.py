@@ -29,6 +29,11 @@ from app.config import settings
 
 logger = logging.getLogger("career_os.greenhouse_verification")
 
+# How long to keep watching for the security-code step to appear after the
+# submit click. Long enough to cover a slow board, short enough that a form
+# which never asks for a code is not held up meaningfully.
+PROMPT_WAIT_SECONDS = float(os.environ.get("GREENHOUSE_PROMPT_WAIT_SECONDS", "30"))
+
 
 def _decode_header(val: str | None) -> str:
     if not val:
@@ -167,7 +172,7 @@ def _poll_gmail_for_code_once(
                             is_for_company = True
                         elif stem_match:
                             is_for_company = True
-                        elif msg_ts > since_timestamp:
+                        elif msg_ts > since_timestamp - 10:
                             # The subject names a company that is not this job's
                             # at all. That is normal for a subsidiary: Segment's
                             # code arrives as "your application to Twilio", and
@@ -176,6 +181,14 @@ def _poll_gmail_for_code_once(
                             # (APPLY_CONCURRENCY = 1), so a Greenhouse
                             # security-code email that arrived *after* this
                             # attempt began can only belong to this attempt.
+                            #
+                            # Same 10s grace as the age-cutoff filter above
+                            # (line ~135) - without it, four straight Segment
+                            # jobs lost their own Twilio-branded code to this
+                            # branch's stricter comparison: the email landed
+                            # 1s *before* since_timestamp (ordinary clock/
+                            # delivery skew, not a stale email), passed the
+                            # lenient age check, then failed this one instead.
                             logger.info(
                                 "Accepting Greenhouse code addressed to '%s' for %s: it arrived "
                                 "after this attempt started and no other application is in flight.",
@@ -296,19 +309,38 @@ async def handle_greenhouse_verification_flow(
             or "security code" in low
         )
 
+    # Poll for the prompt rather than looking once.
+    #
+    # Greenhouse renders the security-code step after the submit POST comes
+    # back, and how long that takes varies with the board. The caller checks
+    # roughly four seconds after the click, and a single look at that moment is
+    # a race: when the step rendered slower, this returned False silently, the
+    # run carried on to its confirmation check, and the application was recorded
+    # as blocked while the page sat there waiting for a code that was already in
+    # the inbox. Seen live on two DoorDash postings minutes apart - one rendered
+    # inside four seconds and submitted, the other did not and was written off.
+    #
+    # Polling costs nothing when the prompt is absent for a real reason: a form
+    # that never asks for a code simply never matches, and we give up after this
+    # short window and let the normal confirmation logic decide.
     page_text = ""
     has_verification_prompt = False
-    for scope_candidate in (target_frame, page):
-        if scope_candidate is None:
-            continue
-        try:
-            candidate_text = await scope_candidate.inner_text("body")
-        except Exception:
-            continue
-        if _has_prompt(candidate_text):
-            page_text = candidate_text
-            has_verification_prompt = True
+    deadline = asyncio.get_running_loop().time() + PROMPT_WAIT_SECONDS
+    while True:
+        for scope_candidate in (target_frame, page):
+            if scope_candidate is None:
+                continue
+            try:
+                candidate_text = await scope_candidate.inner_text("body")
+            except Exception:
+                continue
+            if _has_prompt(candidate_text):
+                page_text = candidate_text
+                has_verification_prompt = True
+                break
+        if has_verification_prompt or asyncio.get_running_loop().time() >= deadline:
             break
+        await asyncio.sleep(1.0)
 
     if not has_verification_prompt:
         return False

@@ -19,30 +19,9 @@ def _norm(name: str) -> str:
     return re.sub(r"[^a-z0-9]", "", (name or "").lower())
 
 
-# ── TIER 1: Top 20 dream companies — NEVER auto-applied ───────────────────────
+# ── TIER 1: Top 20 dream companies — intentionally empty per operator choice ──
 # Each entry: canonical name → set of normalized aliases that identify it.
-TIER_1_COMPANIES: dict[str, set[str]] = {
-    "Google":            {"google", "googledeepmind", "deepmind"},
-    "Microsoft":         {"microsoft", "msft"},
-    "Amazon":            {"amazon", "amazonwebservices", "aws"},
-    "Meta":              {"meta", "facebook", "metaplatforms"},
-    "Apple":             {"apple"},
-    "Adobe":             {"adobe"},
-    "Salesforce":        {"salesforce", "salesforcecom"},
-    "ServiceNow":        {"servicenow"},
-    "Databricks":        {"databricks"},
-    "Snowflake":         {"snowflake"},
-    "NVIDIA":            {"nvidia"},
-    "Cisco":             {"cisco"},
-    "VMware":            {"vmware"},
-    "Palantir":          {"palantir", "palantirtechnologies"},
-    "MongoDB":           {"mongodb"},
-    "Atlassian":         {"atlassian"},
-    "GitHub":            {"github"},
-    "Capital One":       {"capitalone"},
-    "Intuit":            {"intuit"},
-    # AWS listed in user's Top 20 (#9) — folded into Amazon aliases above.
-}
+TIER_1_COMPANIES: dict[str, set[str]] = {}
 
 # Flat set of all Tier-1 normalized aliases, for fast lookup.
 _TIER_1_ALIASES: set[str] = set()

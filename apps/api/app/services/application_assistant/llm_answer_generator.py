@@ -126,53 +126,98 @@ def _synthesize_profile_fallback(
     company: str = "",
     role: str = ""
 ) -> str:
-    """Fall back gracefully when LLM endpoint is unreachable, synthesizing a specific answer matching the question keywords."""
+    """A last-resort answer drawn only from values the profile actually holds.
+
+    This used to carry keyword-triggered paragraphs of invented experience —
+    "I built agentic AI workflows, LLM orchestration layers, and RAG pipelines"
+    for any question mentioning AI, "I designed developer APIs, internal CLI
+    tools, and web microservices" for any mentioning developers. None of it was
+    checked against the resume, and it was returned with `success: True`, so
+    the executor filled it in and submitted. Two of those templates went to
+    real employers verbatim.
+
+    Returning "" instead is the honest outcome: the caller leaves the field
+    empty and the application goes to review, which is what the candidate
+    actually wants for a question nothing in their profile answers.
+    """
     from app.services.answer_engine import generate_answer
     engine_ans = generate_answer(question, company=company, role_title=role, profile=profile_data)
     if engine_ans:
         return engine_ans
 
+    # Only questions whose answer is a literal profile field are safe to
+    # complete without a model. Everything else is a claim about the
+    # candidate's experience, and inventing one is the thing this must not do.
     q_lower = question.lower()
-    github = profile_data.get("github") or "https://github.com"
-    portfolio = profile_data.get("portfolio") or profile_data.get("linkedin") or ""
-    current_title = profile_data.get("currentTitle") or "Software Engineer"
-    current_company = profile_data.get("currentCompany") or ""
-    company_context = f" at {current_company}" if current_company else ""
-
     if "github" in q_lower:
-        return github
+        return str(profile_data.get("github") or "")
     if "linkedin" in q_lower:
-        return profile_data.get("linkedin") or ""
+        return str(profile_data.get("linkedin") or "")
     if "portfolio" in q_lower or "website" in q_lower:
-        return portfolio
-    if "relocat" in q_lower or "in-office" in q_lower or "hybrid" in q_lower:
-        return "Yes, I am open to hybrid or in-office work schedules and relocating if required for the role."
+        return str(profile_data.get("portfolio") or profile_data.get("linkedin") or "")
 
-    # Question specific to LLM / ML / Agentic applications
-    if any(k in q_lower for k in ["llm", "ml", "agent", "ai", "machine learning", "model"]):
-        return (
-            f"At {current_company or 'my current role'}, I built agentic AI workflows, LLM orchestration layers, and RAG pipelines "
-            "using Python and local model runtimes. I've designed autonomous developer tooling and agent systems that execute multi-step tasks."
-        )
+    return ""
 
-    # Question specific to Developer products / APIs / SDKs / CLIs
-    if any(k in q_lower for k in ["developer", "api", "sdk", "cli", "sandbox", "tool"]):
-        return (
-            f"As a {current_title}{company_context}, I designed developer APIs, internal CLI tools, and web microservices. "
-            "My focus included building intuitive developer abstractions, SDK wrappers, and automated testing sandbox environments."
-        )
 
-    # Question specific to experience / background / intro
-    if any(k in q_lower for k in ["why", "about yourself", "tell me", "motivation", "interest"]):
-        return (
-            f"I am a {current_title}{company_context} with a focus on building resilient software platforms and developer tools. "
-            f"I am interested in {company or 'this opportunity'} because of the opportunity to solve complex engineering challenges."
-        )
+# Wording that means the model declined rather than answered. The system prompt
+# asks for "INSUFFICIENT_EVIDENCE: ..." but models say it in their own words far
+# more often than they emit the token — and one such sentence was submitted to
+# an employer intact: "I don't have information about my interest in working at
+# Discord. My profile shows I'm currently a Senior Software Engineer at
+# Microsoft, and I haven't expressed any specific interest in joining Discord."
+_NON_ANSWER_PATTERNS = (
+    "insufficient_evidence",
+    "i don't have information",
+    "i do not have information",
+    "i don't have enough information",
+    "i do not have enough information",
+    "my profile doesn't include",
+    "my profile does not include",
+    "my profile shows",
+    "there's no evidence in my background",
+    "there is no evidence in my background",
+    "no evidence in my background",
+    "i haven't expressed",
+    "i have not expressed",
+    "the resume doesn't",
+    "the resume does not",
+    "as an ai",
+    "i cannot answer",
+    "i can't answer",
+    "i'm unable to",
+    "i am unable to",
+    "based on the information provided, i",
+)
 
-    return (
-        f"In my work as a {current_title}{company_context}, I've focused on engineering scalable backend services and developer tooling. "
-        "I approach problems by breaking down technical requirements, building reliable abstractions, and shipping clean, tested code."
-    )
+
+def _is_non_answer(text: str) -> bool:
+    """Whether the model declined instead of answering.
+
+    Checked on the model's own output before it can reach a form. A decline is
+    a legitimate result — the question genuinely has no answer in the profile —
+    but it belongs in review, not in the textarea.
+    """
+    lowered = (text or "").strip().lower()
+    if not lowered:
+        return True
+    return any(pattern in lowered for pattern in _NON_ANSWER_PATTERNS)
+
+
+def _declined(question: str, reason: str) -> dict[str, Any]:
+    """No honest answer exists, so return none.
+
+    The executor's contract already covers this case - an empty value leaves
+    the field blank and sends the application to review instead of submitting
+    it. What was missing was any path that actually produced an empty value:
+    every branch here returned `success: True` with something invented.
+    """
+    return {
+        "success": False,
+        "answer": "",
+        "question": question,
+        "insufficientEvidence": True,
+        "reason": reason,
+    }
 
 
 async def generate_theory_answer(
@@ -214,7 +259,7 @@ async def generate_theory_answer(
             role=role,
             job_description=job_description,
         )
-        if enriched.available:
+        if enriched.available and not _is_non_answer(enriched.answer):
             return {
                 "success": True,
                 "answer": enriched.answer,
@@ -234,6 +279,8 @@ async def generate_theory_answer(
             company=company,
             role=role
         )
+        if not fallback_ans:
+            return _declined(question, "no profile evidence answers this question")
         return {"success": True, "answer": fallback_ans, "question": question, "fallback": True}
 
     # Construct user prompt adhering strictly to user template
@@ -261,12 +308,16 @@ async def generate_theory_answer(
             company=company,
             role=role
         )
+        if not fallback_ans:
+            return _declined(question, "no profile evidence answers this question")
         return {"success": True, "answer": fallback_ans, "question": question, "fallback": True}
 
     raw_text = str(response.get("data", "")).strip()
 
-    # If LLM returns INSUFFICIENT_EVIDENCE fallback gracefully
-    if "INSUFFICIENT_EVIDENCE" in raw_text:
+    # The model either said it had nothing to go on, or said so in its own
+    # words. Either way this is not an answer, and the only safe fallback is a
+    # value the profile literally holds - never a synthesised claim.
+    if _is_non_answer(raw_text):
         fallback_ans = _synthesize_profile_fallback(
             question,
             profile_data,
@@ -274,11 +325,16 @@ async def generate_theory_answer(
             company=company,
             role=role
         )
+        if not fallback_ans:
+            return _declined(question, "the model found no supporting evidence in the resume or profile")
         return {"success": True, "answer": fallback_ans, "question": question, "insufficientEvidence": True}
 
     # Strip surrounding quotes if present
     if (raw_text.startswith('"') and raw_text.endswith('"')) or (raw_text.startswith("'") and raw_text.endswith("'")):
         raw_text = raw_text[1:-1].strip()
+
+    if _is_non_answer(raw_text):
+        return _declined(question, "the model declined to answer from the available evidence")
 
     return {
         "success": True,

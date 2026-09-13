@@ -1074,16 +1074,26 @@ async def generate_role_tailoring_diff(
 
     from app.services.application_assistant.resume_quality import assess as _assess_quality
 
-    quality_report = _assess_quality(
-        master_bullets,
-        tailored_bullets,
-        score_before=baseline_score,
-        score_after=match_score,
-        min_changed=MIN_TAILORED_BULLETS,
-        # Only ask for an improvement when a real re-score happened; otherwise
-        # both numbers are the same stored value and the check is meaningless.
-        require_improvement=bool(tailored_match),
-    )
+    if valid_mode == "off":
+        from app.services.application_assistant.resume_quality import QualityReport
+        quality_report = QualityReport(
+            ok=True,
+            changed=0,
+            total=len(master_bullets),
+            score_before=baseline_score,
+            score_after=match_score,
+        )
+    else:
+        quality_report = _assess_quality(
+            master_bullets,
+            tailored_bullets,
+            score_before=baseline_score,
+            score_after=match_score,
+            min_changed=MIN_TAILORED_BULLETS,
+            # Only ask for an improvement when a real re-score happened; otherwise
+            # both numbers are the same stored value and the check is meaningless.
+            require_improvement=bool(tailored_match),
+        )
     if not quality_report.ok:
         logger.info(
             "Tailored resume for %s - %s is not submittable: %s",

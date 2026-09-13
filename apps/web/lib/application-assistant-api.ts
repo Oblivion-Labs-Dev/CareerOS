@@ -302,6 +302,72 @@ export async function enqueueJobForAutopilot(job: Record<string, any>) {
   });
 }
 
+/** What happened to one pasted link. */
+export type EnqueueResult = {
+  url: string;
+  state: "queued" | "duplicate" | "filtered" | "error";
+  company?: string;
+  title?: string;
+  message?: string;
+};
+
+/** Queue many postings from their links alone — the company, title and location
+ *  are read from each posting server-side, so nothing else has to be typed. */
+export async function enqueueJobsForAutopilot(urls: string[], tailoringMode?: string) {
+  // Every link is a live fetch of the posting server-side, eight at a time with
+  // a 12s ceiling each, so a long paste legitimately outlives aaFetch's 45s
+  // default - the browser then aborts a request the server is still working on
+  // and the panel reports the abort as "Failed to fetch". Scale the client's
+  // patience to the work actually asked for, with headroom for the slowest
+  // board in the batch.
+  const budgetMs = 30_000 + Math.ceil(urls.length / 8) * 20_000;
+  return aaFetch<{ success: boolean; queued: number; total: number; results: EnqueueResult[] }>(
+    "/autopilot/enqueue-batch",
+    {
+      method: "POST",
+      body: JSON.stringify({ urls, tailoringMode }),
+    },
+    budgetMs,
+  );
+}
+
+/** Repoint jobs stored at an aggregator listing (Himalayas etc.) to the
+ *  employer's own board, so they become applications Autopilot can submit. */
+export async function resolveAggregatorUrls() {
+  return aaFetch<{
+    success: boolean;
+    examined: number;
+    resolved: number;
+    duplicates: number;
+    unresolved: number;
+    message: string;
+  }>("/autopilot/resolve-aggregator-urls", { method: "POST" }, 180_000);
+}
+
+/** Collapse rows that are the same posting under the same URL, keeping the
+ *  record that got furthest and retiring the rest as duplicates. */
+export async function dedupeApplications(dryRun = false) {
+  return aaFetch<{
+    success: boolean;
+    duplicateGroups: number;
+    retired: number;
+    message: string;
+  }>("/autopilot/dedupe-applications", {
+    method: "POST",
+    body: JSON.stringify({ dryRun }),
+  }, 120_000);
+}
+
+/** Send every application in one bucket (review or failed) back to the queue.
+ *  Clears the reason each was parked, which cannot be undone. */
+export async function requeueBucket(bucket: "review" | "failed") {
+  return aaFetch<{ success: boolean; bucket: string; moved: number; message: string }>(
+    "/autopilot/requeue-bucket",
+    { method: "POST", body: JSON.stringify({ bucket }) },
+    120_000,
+  );
+}
+
 export async function resetSubmittedAutopilotJobs(status?: string) {
   return aaFetch<{ success: boolean; resetCount: number; message: string }>("/autopilot/reset-submitted", {
     method: "POST",

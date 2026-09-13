@@ -99,6 +99,10 @@ class IneligibilityReason(str, Enum):
     # specific unverifiable experience claim). Permanent until the candidate
     # supplies it — and never something to invent.
     REQUIRES_UNAVAILABLE_INFORMATION = "REQUIRES_UNAVAILABLE_INFORMATION"
+    # A Tier-1 target company. Nothing is wrong with the posting or the
+    # candidate — the operator has reserved these for a hand-written
+    # application, so the batch declines to submit on their behalf.
+    MANUAL_APPLICATION_REQUIRED = "MANUAL_APPLICATION_REQUIRED"
 
 
 class ApplicationErrorType(str, Enum):

@@ -263,11 +263,16 @@ def generate_answer(
     elif qtype == "start_date":
         return "2 weeks notice - flexible"
 
+    # Work authorisation and sponsorship are facts about the candidate's legal
+    # status, so a default is a statement made on their behalf that may be
+    # false. This candidate does require sponsorship, and the old "No" default
+    # here would have told an employer otherwise the moment the profile key was
+    # missing or renamed. Return nothing and let the field go to review.
     elif qtype == "work_auth":
-        return normalized_profile.get("work_auth", "Yes")
+        return normalized_profile.get("work_auth", "")
 
     elif qtype == "sponsorship":
-        return normalized_profile.get("sponsorship", "No")
+        return normalized_profile.get("sponsorship", "")
 
     elif qtype == "referral":
         return "Online Job Board"

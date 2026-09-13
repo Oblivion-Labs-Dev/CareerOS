@@ -63,6 +63,17 @@ export type ConcurrencyMetrics = {
   totalJobsFinished: number;
 };
 
+/** The configuration the running batch is actually using, reported by the
+ *  runner rather than echoed from the request the console sent. */
+export type AutopilotBatchConfig = {
+  batchSize: number;
+  minMatchScore: number;
+  tierGuardrails: boolean;
+  selfHealing: boolean;
+  aiModel: string;
+  tailoringMode: string;
+};
+
 export type AutopilotState = {
   running: boolean;
   /** Raw backend run status: RUNNING | PAUSED | STOPPED | COMPLETED | RECOVERING */
@@ -76,6 +87,7 @@ export type AutopilotState = {
   concurrency: number;
   concurrencyMetrics: ConcurrencyMetrics | null;
   selfHealing: SelfHealingState | null;
+  batchConfig: AutopilotBatchConfig | null;
 };
 
 /** What the header badge shows. Derived only from real backend status. */
@@ -137,6 +149,31 @@ export function useAutopilotState(pollMs = 10_000) {
           setLoading(false);
         } catch {
           /* malformed frame — the poll below still corrects it */
+        }
+      });
+      es.addEventListener("autopilot_event", (event: MessageEvent) => {
+        try {
+          const payload = JSON.parse(event.data);
+          setState((previous) => {
+            if (!previous) return previous;
+            return {
+              ...previous,
+              activeJob: payload.company
+                ? {
+                    company: payload.company,
+                    title: payload.title,
+                    currentStep: payload.workflowStep,
+                    stage: payload.stage,
+                    model: payload.model,
+                    provider: payload.provider,
+                    durationMs: payload.durationMs,
+                    message: payload.message,
+                  }
+                : previous.activeJob,
+            };
+          });
+        } catch {
+          /* malformed frame */
         }
       });
       es.addEventListener("log", (event: MessageEvent) => {

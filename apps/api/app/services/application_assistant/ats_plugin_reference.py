@@ -520,9 +520,39 @@ def extract_canonical_value(
     if key == "raceEthnicity":
         r = profile.get("raceEthnicity") or APPLICATION_FIELD_DEFAULTS["raceEthnicity"]
         if options:
-            matched = pick_best_matching_option(options, r)
-            if matched:
-                return matched, "Matched race/ethnicity option"
+            # Never fuzzy-match a self-identification onto a narrower option.
+            #
+            # pick_best_matching_option("Asian") against a list offering East
+            # Asian / South Asian / Southeast Asian returns "East Asian" on
+            # shared letters, which states an ancestry the candidate never
+            # claimed - on a real application, in their name. Reported live on a
+            # Roblox form. profile_answer_resolver._resolve_race already refuses
+            # to guess here; this second path did not, so fixing the resolver
+            # alone left the bug in place.
+            #
+            # Only an option that names the stored value as a whole word counts,
+            # and only when exactly one does. Anything else declines.
+            import re as _re
+
+            target = str(r or "").strip()
+            if target:
+                word = _re.compile(rf"\b{_re.escape(target)}\b", _re.I)
+                fitting = [o for o in options if word.search(o)]
+                if len(fitting) == 1:
+                    return fitting[0], "Matched race/ethnicity option"
+                if len(fitting) > 1:
+                    decline = next(
+                        (o for o in options
+                         if _re.search(r"prefer not|decline|do not wish|don't wish", o, _re.I)),
+                        None,
+                    )
+                    if decline:
+                        return decline, (
+                            f"'{target}' fits {len(fitting)} of the offered options, so it is "
+                            "ambiguous here - declined rather than asserting one"
+                        )
+                    return "", "Ambiguous race/ethnicity options; left for review"
+            return "", "Race/ethnicity could not be matched exactly; left for review"
         return r, "Demographic default"
 
     if key == "hispanic":

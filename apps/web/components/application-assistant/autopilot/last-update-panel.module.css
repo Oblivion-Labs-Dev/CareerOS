@@ -1,0 +1,133 @@
+/* Last update — its own column beside the Night Batch card.
+   Shares the card's night palette so the pair reads as one band, but stays a
+   separate surface: one is the run you are about to start, the other is what
+   already happened. */
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  min-width: 0;
+  padding: 1.1rem 1.15rem;
+  border-radius: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  background:
+    radial-gradient(ellipse at 80% -20%, rgba(46, 232, 201, 0.09), transparent 60%),
+    linear-gradient(180deg, #0b1119, #080d14);
+}
+
+.head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.kicker {
+  font-size: 0.63rem;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #64748b;
+}
+
+.when {
+  font-size: 0.7rem;
+  color: #94a3b8;
+  white-space: nowrap;
+}
+
+.empty {
+  font-size: 0.78rem;
+  line-height: 1.55;
+  color: #64748b;
+}
+
+/* ── The most recent application ── */
+
+.activity {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.45rem;
+  min-width: 0;
+}
+
+.badge {
+  padding: 0.14rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.61rem;
+  font-weight: 800;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: #94a3b8;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+}
+.badge[data-kind="submitted"] { color: #2ee8c9; border-color: rgba(46, 232, 201, 0.45); background: rgba(46, 232, 201, 0.08); }
+.badge[data-kind="review"]    { color: #fbbf24; border-color: rgba(251, 191, 36, 0.45); background: rgba(251, 191, 36, 0.08); }
+.badge[data-kind="failed"]    { color: #f87171; border-color: rgba(248, 113, 113, 0.45); background: rgba(248, 113, 113, 0.08); }
+.badge[data-kind="manual"]    { color: #a78bfa; border-color: rgba(167, 139, 250, 0.45); background: rgba(167, 139, 250, 0.08); }
+.badge[data-kind="applying"]  { color: #38bdf8; border-color: rgba(56, 189, 248, 0.45); background: rgba(56, 189, 248, 0.08); }
+.badge[data-kind="ineligible"],
+.badge[data-kind="skipped"]   { color: #94a3b8; }
+
+.what {
+  min-width: 0;
+  font-size: 0.8rem;
+  line-height: 1.45;
+  color: #cbd5e1;
+  overflow-wrap: anywhere;
+}
+.what strong { display: block; color: #e2e8f0; font-weight: 700; }
+.what span { display: block; margin-top: 0.1rem; color: #94a3b8; font-size: 0.76rem; }
+
+.reason {
+  font-size: 0.71rem;
+  line-height: 1.5;
+  color: #7c8ba1;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* ── The run that produced it ── */
+
+.runBlock {
+  padding-top: 0.75rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+.runHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+  font-size: 0.63rem;
+  font-weight: 800;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: #64748b;
+}
+
+.stats {
+  list-style: none;
+  margin: 0.45rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.75rem;
+}
+
+.stats li {
+  font-size: 0.73rem;
+  color: #94a3b8;
+  white-space: nowrap;
+}
+.stats strong { font-variant-numeric: tabular-nums; }
+.stats li[data-tone="total"] strong { color: #e2e8f0; }
+.stats li[data-tone="success"] strong { color: #2ee8c9; }
+.stats li[data-tone="warning"] strong { color: #fbbf24; }
+.stats li[data-tone="danger"] strong { color: #f87171; }
+.stats li[data-tone="muted"] strong { color: #94a3b8; }

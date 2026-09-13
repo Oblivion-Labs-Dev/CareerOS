@@ -96,7 +96,7 @@ export function RecruiterInbox() {
   }, [activeFilter, query]);
 
   return <div className={styles.workspace}>
-    <div className={styles.toolbar}><div><span className={styles.eyebrow}>CONVERSATIONS / RECRUITER EMAIL</span><h1>Your next conversation.</h1><p>Recent recruiter messages, organized by what comes next.</p></div><button onClick={() => void load()} disabled={loading}>Refresh inbox ↻</button></div>
+    <div className={styles.toolbar}><div><h1>Inbox</h1></div><button onClick={() => void load()} disabled={loading}>Refresh inbox ↻</button></div>
     <div className={styles.stats}>
       {[['Recent messages', threads.length], ['Interviews', counts.interview || 0], ['Assessments', counts.assessment || 0], ['Offers', counts.offer || 0]].map(([label,value]) => <div key={label} className={styles.stat}><span>{label}</span><strong>{loading ? '—' : value}</strong></div>)}
     </div>
@@ -118,7 +118,7 @@ export function RecruiterInbox() {
         </button></Fragment>)}
         {pageCount > 1 && <div className={styles.pagination}><button disabled={safePage === 0} onClick={() => setPage(p => p - 1)}>Previous</button><span>{safePage + 1} / {pageCount}</span><button disabled={safePage >= pageCount - 1} onClick={() => setPage(p => p + 1)}>Next</button></div>}
       </section>
-      <aside className={styles.preview} aria-label="Message preview">{selected ? <><span className={styles.category} data-category={selected.category}>{selected.categoryLabel || selected.category}</span><h3>{selected.subject || 'No subject'}</h3><p className={styles.caption}>{selected.fromName}<br />{selected.fromAddress} · {formatDate(selected.date)}</p><div className={styles.previewBody}>{selected.snippet || 'This message has no saved preview.'}</div><p className={styles.caption}>Saved email preview. Open your email provider to read the full message or reply.</p></> : <div className={styles.empty}><span aria-hidden="true">✉</span><h3>A little context,<br />a better next step.</h3><p>Select a conversation to read its saved preview.</p></div>}</aside>
+      <aside className={styles.preview} aria-label="Message preview">{selected ? <><span className={styles.category} data-category={selected.category}>{selected.categoryLabel || selected.category}</span><h3>{selected.subject || 'No subject'}</h3><p className={styles.caption}>{selected.fromName}<br />{selected.fromAddress} · {formatDate(selected.date)}</p><div className={styles.previewBody}>{selected.snippet || 'This message has no saved preview.'}</div><p className={styles.caption}>Saved email preview. Open your email provider to read the full message or reply.</p></> : <div className={styles.empty}><span aria-hidden="true">✉</span><p>Select a conversation to read its saved preview.</p></div>}</aside>
     </div>
   </div>;
 }

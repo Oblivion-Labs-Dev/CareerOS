@@ -5,6 +5,7 @@ test("browse cards, search, selection and responsive themes",async({page})=>{
   await page.route("**/api/backend/jobs/discover**",async route=>{
     const url=new URL(route.request().url());
     if(url.pathname.endsWith("/scrape")){scrapeCalls++;return route.fulfill({json:{success:true}});}
+    if(url.pathname.endsWith("/filter-options"))return route.fulfill({json:{titles:["Senior Platform Engineer","Backend Engineer","Staff Engineer"],companies:["Acme","Orbit","North"],specialties:[{value:"swe",label:"Software Engineering"}],seniorities:["senior","staff","unspecified"],workModes:["remote","unspecified"],experience:["unspecified"]}});
     if(url.pathname.endsWith("/stats"))return route.fulfill({json:{totalJobs:3,indexedCompanies:3,strongMatch:1,moderateMatch:1,fresh48h:2}});
     if(url.pathname.endsWith("/locations"))return route.fulfill({json:{locations:[]}});
     if(url.pathname.endsWith("/status"))return route.fulfill({json:{success:true,running:false}});
@@ -27,7 +28,7 @@ test("browse cards, search, selection and responsive themes",async({page})=>{
   await expect(first.getByRole("button",{name:/Remove from shortlist/})).toHaveAttribute("aria-pressed","true");
   await first.getByRole("checkbox").check();
   await expect(first).toHaveAttribute("data-selected","true");
-  await page.getByRole("button",{name:"Search library",exact:true}).click();
+  await page.getByRole("button",{name:/Show 3 results/}).click();
   await expect(first).toBeVisible();expect(scrapeCalls).toBe(0);
   await page.locator('[class*="browse-jobs_grid"]').screenshot({path:"test-results/browse-cards-dark.png"});
   await page.getByRole("button",{name:"Next →",exact:true}).click();

@@ -21,7 +21,7 @@ _ALLOWLIST_PREFIXES = ("/auth/", "/health", "/favicon.ico", "/static/")
 # and breaks most of the dashboard. Until that migration happens, the Next.js
 # middleware's page-level redirect (middleware.ts) is the actual gate a casual
 # visitor hits; this only additionally locks down the live-submission surface.
-_ENFORCED_PREFIXES = ("/application-assistant/",)
+_ENFORCED_PREFIXES = ("/application-assistant/", "/diagnostic/")
 
 
 class AuthGateMiddleware(BaseHTTPMiddleware):

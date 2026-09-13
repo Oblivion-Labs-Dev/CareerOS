@@ -153,6 +153,16 @@ SENSITIVE_FACTUAL_TYPES: frozenset[QuestionType] = frozenset({
     QuestionType.ADDRESS_LINE_2,
     QuestionType.ZIP,
     QuestionType.COUNTRY,
+    # The preferred name is the candidate's own first name and belongs with the
+    # other identity fields above. It was omitted, so an answer-library entry
+    # holding the full name ("Akshay Borse") outranked the resolver — which
+    # returns the first name and says so in a comment — and 26 submitted
+    # applications carried a full name in a "Preferred First Name" box.
+    QuestionType.PREFERRED_NAME,
+    # Willingness to move is a commitment the candidate makes, recorded on the
+    # profile. A library entry saved against one employer's phrasing must not
+    # answer another's, and neither must a guess.
+    QuestionType.RELOCATE,
 })
 
 
@@ -211,6 +221,8 @@ _CLASSIFICATION_RULES: list[tuple[QuestionType, list[str]]] = [
         r"ai\s+system,?\s+language\s+model,?\s+or\s+automated\s+agent",
         r"use\s+ai[\s-]*powered\s+tools\s+during\s+our\s+evaluation",
         r"simulate\s+real[\s-]*world\s+workflows",
+        r"ai\s*policy\s*for\s*(interviews|interviewers|application)",
+        r"acknowledge.*ai\s*policy",
     ]),
     # Must come before CITIZENSHIP/EXPORT_CONTROL below: contains neither
     # "citizen" nor "export control" verbatim, but is the same "answer No,
@@ -306,6 +318,19 @@ _CLASSIFICATION_RULES: list[tuple[QuestionType, list[str]]] = [
     ]),
 
     # ── Identity ──
+    # A name question can be about somebody else. The identity patterns below
+    # match "name" anywhere in the text and answer with the candidate's own,
+    # so these have to be caught first: LaunchDarkly asks "Were you referred to
+    # this role by a current employee?" and then "If yes, please provide the
+    # full name and work email of the referrer" — the second matched
+    # `full\s*name` and seven submitted applications answered "No" to the first
+    # and named the candidate as his own referrer in the second.
+    (QuestionType.REFERRAL, [
+        r"name[^?]{0,60}\breferr?(er|ed|al)\b",
+        r"\breferr?(er|ed|al)\b[^?]{0,60}\bname\b",
+        r"name[^?]{0,40}\b(reference|referral\s+contact)\b",
+    ]),
+
     # A question asking for first AND last name wants the whole name. This
     # used to fall through to LAST_NAME, so "What is your preferred first and
     # last name?" was answered "Borse" on a submitted application.
@@ -339,7 +364,7 @@ _CLASSIFICATION_RULES: list[tuple[QuestionType, list[str]]] = [
     ]),
     (QuestionType.CITY, [r"\bcity\b", r"municipality"]),
     (QuestionType.ZIP, [r"\bzip\b", r"postal\s*code", r"postcode"]),
-    (QuestionType.COUNTRY, [r"\bcountry\b(?!.*code)"]),
+    (QuestionType.COUNTRY, [r"\bcountr(y|ies)\b(?!.*code)"]),
     # A secondary address line (apartment/suite/unit) is a different question
     # from the street address itself — must be checked first, since "address"
     # and "street" both match it too and would otherwise duplicate line 1's
@@ -390,7 +415,9 @@ _CLASSIFICATION_RULES: list[tuple[QuestionType, list[str]]] = [
         # deliberately not matched here.
         r"do\s+you\s+(currently\s+|permanently\s+)?reside\s+(in|within)",
         r"(permanently|currently)\s+reside\s+(in|within)",
-        r"do\s+you\s+(currently\s+)?live\s+(in|within)\s+the\s+(united\s+states|u\.?s\.?a?)",
+        r"do\s+you\s+(currently\s+)?live\s+(in|within)\s+the\s+(united\s+states|u\.?s\.?a? )",
+        r"are\s+you\s+(currently\s+)?(a\s+)?(united\s+states|u\.?s\.?)\s+resident",
+        r"are\s+you\s+(currently\s+)?(a\s+)?resident\s+of\s+(the\s+)?(united\s+states|u\.?s\.?)",
         # Compound office-location questions ("...based in SF/NYC and willing
         # to come in 2-3x per week, or 2) based out of Seattle?"). These are a
         # yes/no about where the candidate already lives, which the profile
@@ -400,6 +427,14 @@ _CLASSIFICATION_RULES: list[tuple[QuestionType, list[str]]] = [
         r"are\s+you\s+located\s+in",
         r"live\s+in\s+one\s+of\s+the\s+following",
         r"based\s+in\s+any\s+of\s+these",
+        # Oscar: "Do you acknowledge the work location expectations listed on
+        # this job posting?" — a yes/no about accepting the office requirement.
+        # Gomotive: "Are you willing to work from the office(s) listed..."
+        r"acknowledge.*work\s+location\s+expectations",
+        r"willing\s+to\s+work\s+from\s+the\s+office",
+        # Samsara: "I confirm I reside in the US except the San Francisco Bay
+        # Metro Area..."
+        r"I\s+confirm\s+I\s+reside",
     ]),
     # Must come before LOCATION below: "Are you willing to relocate to one of
     # our hub locations...?" contains the bare word "locations", which
@@ -412,6 +447,11 @@ _CLASSIFICATION_RULES: list[tuple[QuestionType, list[str]]] = [
         r"city.*state",
         r"where.*(live|located)",
         r"work\s+location",
+        # Figma phrases the plain city/state ask as "From where do you intend
+        # to work?" - no "location" word and no "live"/"located", so it fell
+        # through every pattern above and stayed unresolved on 8 straight
+        # postings despite the candidate's city/state already being on file.
+        r"where.*intend.*work",
     ]),
 
     # ── Professional ──
@@ -436,6 +476,15 @@ _CLASSIFICATION_RULES: list[tuple[QuestionType, list[str]]] = [
         r"how\s*many\s*years",
         r"hands-on\s*experience",
         r"early\s+career",
+        # Figma's "Have you worked as a full-time software engineer in a
+        # professional setting (excluding internships)?" is a Yes/No
+        # gatekeeping question with no "experience" or "years" word at all -
+        # it fell through to the generic default and stayed unresolved on 8
+        # straight postings. The resolver already answers a Yes/No
+        # experience question correctly from yearsExperience; this only adds
+        # the missing route to it.
+        r"worked\s+as\s+a\s+full[\s-]*time",
+        r"excluding\s+internships?",
     ]),
     (QuestionType.TECH_STACK_EXPERIENCE, [
         r"which\s+of\s+the\s+following.*(experience|familiar|use)",
@@ -453,6 +502,7 @@ _CLASSIFICATION_RULES: list[tuple[QuestionType, list[str]]] = [
         r"referred\s+(to\s+)?(this|the)\s+(position|role|job|opening)",
         r"referred\s+by\s+(a|an|any|someone|a\s+current)",
         r"who\s+referred\s+you",
+        r"refer\s+you",
         r"name\s+of\s+(the\s+)?(person|employee|team\s+member)\s+who\s+referred",
         r"referral\s+(name|source)",
         r"employee\s+referral",
@@ -462,9 +512,14 @@ _CLASSIFICATION_RULES: list[tuple[QuestionType, list[str]]] = [
         r"preferred\s+programming\s+language",
         r"favorite\s+programming\s+language",
         r"which\s+programming\s+language.*prefer",
+        # Anthropic: "Which programming language would you likely use for a
+        # coding interview?"
+        r"which\s+programming\s+language.*(coding\s+interview|interview)",
+        r"most\s+proficient\s+programming\s+language",
+        r"programming\s+language.*coding\s+interview",
     ]),
     (QuestionType.LINKEDIN, [r"linkedin"]),
-    (QuestionType.GITHUB, [r"github"]),
+    (QuestionType.GITHUB, [r"\bgithub\b(?!\s*copilot)"]),
     (QuestionType.WEBSITE, [
         r"portfolio",
         r"website",
@@ -480,7 +535,7 @@ _CLASSIFICATION_RULES: list[tuple[QuestionType, list[str]]] = [
     # ── Documents ──
     (QuestionType.RESUME, [r"resume", r"\bcv\b", r"curriculum\s*vitae"]),
     (QuestionType.COVER_LETTER, [r"cover\s*letter", r"writing\s*sample"]),
-    (QuestionType.TRANSCRIPT, [r"transcript"]),
+    (QuestionType.TRANSCRIPT, [r"(?<!interview\s)(?<!audio,\s)(?<!video,\s)(?<!and/or\s)\bacademic\s*transcript\b|\bcollege\s*transcript\b|\bofficial\s*transcript\b|^\s*transcripts?\s*\*?$"]),
 
     # ── Education ──
     (QuestionType.SCHOOL, [r"school", r"university", r"college", r"institution"]),
@@ -515,18 +570,24 @@ _CLASSIFICATION_RULES: list[tuple[QuestionType, list[str]]] = [
     ]),
 
     # ── Availability / Compliance ──
-    (QuestionType.SALARY, [r"salary", r"compensation", r"desired\s*pay", r"expected\s*salary"]),
+    (QuestionType.SALARY, [
+        r"salary", r"compensation", r"desired\s*pay", r"expected\s*salary",
+        # Samsara: "[Compensation] Do you accept the listed salary range for
+        # this position?" — the [Compensation] prefix hides the salary keyword
+        # behind a bracket, but the body mentions it.
+        r"accept\s+(the\s+)?listed\s+salary\s+range",
+    ]),
     (QuestionType.NOTICE_PERIOD, [
         r"notice\s*period",
         r"start\s*date",
         r"available\s*to\s*start",
+        r"able\s*to\s*start",
         r"how\s*soon",
-        # "When can you start a new role?" (seen on every OpenAI posting)
-        # matched none of the patterns above and fell through to UNKNOWN,
-        # leaving a required field empty on seventeen applications.
-        r"when\s+(?:can|could|would)\s+you\s+start",
+        r"when\s+(?:can|could|would|are\s+you\s+able\s+to)\s+start",
         r"earliest\s+(?:possible\s+)?start",
         r"availability\s+to\s+start",
+        r"how\s+active\s+are\s+you\s+(in|with)\s+your\s+job\s+search",
+        r"job\s*search\s*(activity|status)",
     ]),
     (QuestionType.WORK_ARRANGEMENT, [
         r"hybrid",
@@ -561,12 +622,22 @@ _CLASSIFICATION_RULES: list[tuple[QuestionType, list[str]]] = [
         r"how\s*did\s*you\s*hear",
         r"how\s*did\s*you\s*find\s*us",
         r"where\s*did\s*you.*hear",
+        r"where\s+(have\s+you|did\s+you)\s+learn(ed)?\s+about",
         r"learn\s*about.*employer",
         r"how.*first\s+learn",
+        # DoorDash: "How much did content from the DoorDash Engineering blog
+        # influence your decision to apply for a role at DoorDash?"
+        r"engineering\s+blog",
+        r"content\s+from.{0,40}blog.{0,40}influence",
     ]),
     (QuestionType.COMPANY_FAMILIARITY, [
         r"how\s+familiar\s+were\s+you",
         r"familiarity\s+with\s+(the\s+)?company",
+        # Robinhood: "Have you used Robinhood?" / Twitch: "Are you familiar
+        # with Twitch?" — these are factual product-use questions, not the
+        # employment-history type handled by COMPANY_HISTORY.
+        r"have\s+you\s+used\s+\w+",
+        r"are\s+you\s+familiar\s+with\s+\w+",
     ]),
     (QuestionType.PRIVACY_CONSENT, [
         r"privacy\s*policy",
@@ -576,6 +647,13 @@ _CLASSIFICATION_RULES: list[tuple[QuestionType, list[str]]] = [
         r"privacy\s*acknowledg",
         r"acknowledge.*read\s+and\s+understand",
         r"consent\s+to.*process",
+        r"interview\s+(may\s+be\s+)?recorded",
+        r"recordings?\s+will\s+not\s+be\s+shared",
+        r"recorded\s+in\s+various\s+formats",
+        # Block: standalone "Accept" checkbox — a single-word consent prompt.
+        r"^\s*accept\s*$",
+        # Ethena: "I acknowledge that I have read and understand Ethena's ..."
+        r"I\s+acknowledge\s+that\s+I\s+have\s+read",
     ]),
     (QuestionType.ENGLISH_PROFICIENCY, [r"english\s*proficiency", r"english\s*language", r"fluent\s*in\s*english"]),
     (QuestionType.BACKGROUND_CHECK, [r"background\s*check"]),
@@ -589,6 +667,7 @@ _CLASSIFICATION_RULES: list[tuple[QuestionType, list[str]]] = [
         r"relationships?\s*\(current\s+\w+\s+employees",
         r"(inventions?|trademarks?|copyrights?|patents?).*(retain|carve\s*out|exclude)",
         r"wish\s+to\s+retain\s+and/?or\s+create",
+        r"previously\s+applied",
         r"previously\s*(worked|employed|consulted|been\s+employed)",
         r"previously\s+been\s+employed",
         r"worked\s+at\s+or\s+consulted",
@@ -600,6 +679,10 @@ _CLASSIFICATION_RULES: list[tuple[QuestionType, list[str]]] = [
         r"do\s+you\s+currently[^?]{0,60}(worked|work|been\s+employed)\s*(at|for|by)",
         r"currently[,\s]+or\s+have\s+you\s+previously",
         r"have\s+you\s+(ever\s+)?been\s+employed\s*(by|at|for)",
+        # Block: "Have you ever been employed full-time at Block or its
+        # subsidiaries?" — "full-time" sits between "employed" and "at",
+        # breaking the tighter pattern above.
+        r"employed\s+full[- ]?time\s+(at|by|for)",
         r"have\s+you\s+(ever\s+)?worked\s*(at|for)",
         r"worked\s+for\s+\w+\s+as\s+an\s+employee,?\s+intern",
         r"employed\s+by\s+\w+\s+before",
@@ -624,6 +707,12 @@ _CLASSIFICATION_RULES: list[tuple[QuestionType, list[str]]] = [
         r"technologies.*experience",
         r"(do\s+you\s+have\s+)?(at\s+least|\d+\+?)\s+years?.*(experience|working\s+with)",
         r"experience\s+(with|in|using)\s+[a-zA-Z0-9#+]+",
+        r"experience\s+(using|with)\s+ai[\s-]*assisted",
+        r"(github\s+copilot|cursor|chatgpt).*workflow",
+        r"experience\s+writing\s+code",
+        r"reliable,\s*durable,\s*and\s*easily\s*maintained",
+        r"coordinating\s+cross-functionally",
+        r"stakeholders\s+throughout\s+the\s+software\s+development\s+lifecycle",
     ]),
     (QuestionType.ACCURACY_CONFIRMATION, [
         r"essential\s+functions",
@@ -662,6 +751,9 @@ _FREE_TEXT_INTENT_RULES: list[tuple[QuestionType, list[str]]] = [
         r"why.*(company|us|join|interested|apply|this\s+role)",
         r"what\s+excites\s+you",
         r"motivat.*(apply|join|role)",
+        # Anthropic: "Why Anthropic?" or "Why do you want to work at Anthropic?"
+        r"why\s+\w+\s*\?",
+        r"why\s+do\s+you\s+want\s+to\s+work\s+at",
     ]),
     (QuestionType.FREE_TEXT_PROJECT, [
         r"project\s+you.*(built|worked|proud)",

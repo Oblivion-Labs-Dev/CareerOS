@@ -1,4 +1,5 @@
 "use client";
+import {ChoiceGroup} from "@/components/ui/choice-group";
 
 import { useEffect, useMemo, useState } from "react";
 import { postJson } from "@/lib/api";
@@ -137,6 +138,27 @@ const GROUPS: Group[] = [
         placeholder: "No",
       },
       {
+        key: "workAuthorization",
+        label: "Are you legally authorized to work in the U.S.?",
+        hint: "Yes or No. Independent of sponsorship — you can be authorized today and still need sponsorship later.",
+        placeholder: "Yes",
+      },
+      {
+        key: "sponsorship",
+        label: "Now, or in the future, will you require sponsorship?",
+        hint: "Yes or No. Answered on every application, so a wrong value here misstates your status to employers.",
+        placeholder: "Yes",
+      },
+      {
+        key: "raceEthnicity",
+        label: "Race / ethnicity (EEO self-identification)",
+        hint:
+          "Use the exact wording employers offer, e.g. “South Asian” rather than " +
+          "“Asian” — a broad value that fits several options is declined rather " +
+          "than guessed at.",
+        placeholder: "South Asian",
+      },
+      {
         key: "exportControlStatus",
         label: "Export-control / ITAR status",
         hint: "The exact category these forms list, e.g. “U.S. permanent resident (Green Card holder)”.",
@@ -246,7 +268,9 @@ export function ProfileApplicationDetailsForm({
               gridTemplateColumns: "repeat(auto-fit, minmax(15rem, 1fr))",
             }}
           >
-            {group.fields.map((field) => (
+            {group.fields.map((field) => ["relocate","usCitizen","mayContactCurrentEmployer"].includes(field.key) ? (
+              <ChoiceGroup key={field.key} label={field.label} options={[{value:"",label:"Not answered"},{value:"Yes",label:"Yes"},{value:"No",label:"No"},...(!["","Yes","No"].includes(values[field.key]||"")?[{value:values[field.key],label:values[field.key]}]:[])]} value={[values[field.key]||""]} onChange={([value])=>setValues(previous=>({...previous,[field.key]:value}))}/>
+            ) : (
               <label key={field.key} style={{ display: "flex", flexDirection: "column", gap: "0.3rem" }}>
                 <span style={{ fontSize: "0.8rem", fontWeight: 600 }}>{field.label}</span>
                 <input

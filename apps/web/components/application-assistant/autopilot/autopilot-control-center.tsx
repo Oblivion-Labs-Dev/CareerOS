@@ -18,7 +18,8 @@ import {
 import { AutopilotApplicationsView } from "./autopilot-applications-view";
 import styles from "./control-center.module.css";
 import { RecentSubmissions } from "./recent-submissions";
-import { WorkspaceScene } from "@/components/ui/workspace-scene";
+import { NightBatchCard, type NightBatchConfig } from "./night-batch-card";
+import { LastUpdatePanel } from "./last-update-panel";
 
 type SectionId = "overview" | "applications" | "review" | "diagnostics";
 
@@ -62,7 +63,7 @@ export function AutopilotControlCenter({
   const [section, setSection] = useState<SectionId>(initialSection);
   const [jobs, setJobs] = useState<AutopilotJobRow[]>([]);
   const [jobsLoading, setJobsLoading] = useState(true);
-  const [activityExpanded, setActivityExpanded] = useState(false);
+  const [batchPanelOpen, setBatchPanelOpen] = useState(false);
   const [controlBusy, setControlBusy] = useState(false);
   const [controlError, setControlError] = useState<string | null>(null);
 
@@ -118,20 +119,44 @@ export function AutopilotControlCenter({
   // Real live job: the worker actually holding one, else the run's activeJob.
   const liveWorker = (state?.workers || []).find((w) => w.currentJob);
   const liveJob = liveWorker?.currentJob
-    ? { company: liveWorker.currentJob.company, title: liveWorker.currentJob.title, step: liveWorker.currentStep }
+    ? {
+        company: liveWorker.currentJob.company,
+        title: liveWorker.currentJob.title,
+        step: liveWorker.currentStep,
+        stage: undefined,
+        model: state?.batchConfig?.aiModel || "Qwen3:4b-instruct",
+        durationMs: undefined,
+        message: undefined,
+      }
     : state?.activeJob
       ? {
           company: String(state.activeJob.company ?? ""),
           title: String(state.activeJob.title ?? ""),
           step: String(state.activeJob.currentStep ?? ""),
+          stage: state.activeJob.stage as string | undefined,
+          model: (state.activeJob.model as string | undefined) || state?.batchConfig?.aiModel || "Qwen3:4b-instruct",
+          durationMs: state.activeJob.durationMs as number | undefined,
+          message: state.activeJob.message as string | undefined,
         }
       : null;
 
-  const activeStageIndex = stageIndexForStep(liveJob?.step);
+  // Stage position comes from the job record's checkpoint code, never from the
+  // worker's `currentStep`. The worker reports a human sentence for the live
+  // caption ("Clicking 'button:has-text(\"Apply\")' to expose application
+  // form..."), which matches no entry in PIPELINE_STAGES, so deriving the stage
+  // from it pinned the pipeline at -1 and every stage rendered as pending for
+  // the whole run. The job row carries the real code (FORM_DISCOVERED,
+  // QUESTIONS_COMPLETED, ...), which is what the stage list is keyed on.
+  const activeStageIndex = stageIndexForStep(
+    (state?.activeJob?.currentStep as string | undefined) || liveJob?.step,
+  );
 
   const today = useMemo(() => {
     const now = new Date();
-    const submitted = jobs.filter((j) => j.status === "SUBMITTED" && isSameDay(j.submittedAt || j.updatedAt, now)).length;
+    // A re-discovered posting that was already submitted can end up applied
+    // to twice - a real duplicate submission, flagged duplicateSubmission so
+    // it isn't double-counted here even though the row itself stays SUBMITTED.
+    const submitted = jobs.filter((j) => j.status === "SUBMITTED" && !j.duplicateSubmission && isSameDay(j.submittedAt || j.updatedAt, now)).length;
     const skipped = jobs.filter((j) => j.status === "SKIPPED" && isSameDay(j.updatedAt, now)).length;
     const failed = jobs.filter((j) => j.status === "FAILED" && isSameDay(j.updatedAt, now)).length;
     const review = jobs.filter((j) => (j.status === "NEEDS_REVIEW" || j.status === "STAGED")).length;
@@ -170,18 +195,14 @@ export function AutopilotControlCenter({
     return "healthy" as const;
   }, [connectionError, state?.selfHealing?.status, authJobs.length]);
 
-  const runControl = async (action: "start" | "pause" | "stop") => {
+  // Pause/stop only. Starting a run goes through the Night Batch card, which is
+  // the single place a batch is configured — there is deliberately no second
+  // start path with its own hard-coded batch size and match floor.
+  const runControl = async (action: "pause" | "stop") => {
     setControlBusy(true);
     setControlError(null);
     try {
-      // minMatchScore matters: the queue is ranked by tier bonus + match score +
-      // recency, so without a floor a weakly-matched posting with a strong tier
-      // bonus can outrank a genuinely good one and get applied to. The server
-      // default is 0, which is no floor at all.
-      if (action === "start") {
-        await startAutopilot({ targetProcessCount: 10, concurrency: 1, minMatchScore: 80 });
-      }
-      else if (action === "pause") await pauseAutopilot();
+      if (action === "pause") await pauseAutopilot();
       else await stopAutopilot();
       await refresh();
     } catch (err) {
@@ -191,141 +212,157 @@ export function AutopilotControlCenter({
     }
   };
 
+  const handleStartNightBatch = async (config: NightBatchConfig) => {
+    setControlBusy(true);
+    setControlError(null);
+    try {
+      // Both keys are sent because the runner accepts either; `minMatchScore`
+      // is the one that matters most — it is the bar a tailored resume has to
+      // clear before an application is actually sent to an employer.
+      await startAutopilot({
+        targetProcessCount: config.batchSize,
+        batchSize: config.batchSize,
+        concurrency: 1,
+        minMatchScore: config.minMatchScore,
+        tierGuardrails: config.tierGuardrails,
+        selfHealing: config.selfHealing,
+      });
+      await refresh();
+      void loadJobs();
+    } catch (err) {
+      setControlError(err instanceof Error ? err.message : "Could not start Night Batch");
+    } finally {
+      setControlBusy(false);
+    }
+  };
+
+  // The most recently touched application, whatever moved it: a batch
+  // submission, a single Apply, a stage to review, a failure. QUEUED rows are
+  // excluded because being queued is not something happening to an application,
+  // and a bulk requeue would otherwise make 50 rows look like the latest news.
+  const lastActivity = useMemo(() => {
+    const touched = jobs
+      .filter((job) => job.status && job.status !== "QUEUED" && job.updatedAt)
+      .sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)));
+    const latest = touched[0];
+    if (!latest) return null;
+    return {
+      company: latest.company,
+      title: latest.title,
+      status: latest.status,
+      updatedAt: latest.updatedAt,
+      reason:
+        latest.status === "SUBMITTED"
+          ? ""
+          : (latest.skipReason || latest.lastError || latest.ineligibilityDetail || "")
+              .split(String.fromCharCode(10))[0].trim(),
+    };
+  }, [jobs]);
+
+  // Scores of everything still queued — the card draws the match floor against
+  // this so the floor's reach is visible before the run, not after it.
+  const queueScores = useMemo(
+    () => jobs.filter((j) => j.status === "QUEUED").map((j) => Number(j.matchScore ?? 0)),
+    [jobs],
+  );
+
   return (
     <div className={styles.page}>
-      <header className={styles.liveHeader}>
-        <h1 className={styles.title}>Autopilot</h1>
-        <div className={styles.headerRight}>
-          <div className={styles.statusPill} data-state={opState}>
-            <span className={`${styles.statusDot} ${isLive ? styles.statusDotLive : ""}`} />
-            <span className={styles.statusText}>
-              <span className={styles.statusLabel}>{opCopy.label}</span>
-              <span className={styles.statusDetail}>{opCopy.detail}</span>
-            </span>
-          </div>
-
-          {isLive ? (
-            <>
-              <button type="button" className={styles.filterChip} disabled={controlBusy} onClick={() => void runControl("pause")}>
-                Pause
-              </button>
-              <button type="button" className={styles.filterChip} disabled={controlBusy} onClick={() => void runControl("stop")}>
-                Stop
-              </button>
-            </>
-          ) : (
-            <button
-              type="button"
-              className={`${styles.filterChip} ${styles.filterChipActive}`}
-              disabled={controlBusy || connectionError}
-              onClick={() => void runControl("start")}
-            >
-              {controlBusy ? "Starting…" : "Start run"}
-            </button>
-          )}
-        </div>
-      </header>
+      <h1 className={styles.accessibleTitle}>Autopilot</h1>
 
       {controlError && <div className={styles.empty}>{controlError}</div>}
 
-      <section className={styles.activityDock} aria-label="Live activity dock">
-        <span className={`${styles.statusDot} ${isLive ? styles.statusDotLive : ""}`} />
-        <div><strong>{opState === "recovering" ? "Self-healing in progress" : liveJob ? `${liveJob.company} · ${liveJob.title}` : opCopy.label}</strong><small>{opState === "recovering" ? `${state?.selfHealing?.status} · Round ${state?.selfHealing?.currentRound} of ${state?.selfHealing?.maxRounds}` : liveJob?.step || opCopy.detail}</small></div>
-        <button className={styles.filterChip} aria-expanded={activityExpanded} aria-controls="expanded-activity" onClick={() => setActivityExpanded(value => !value)}>{activityExpanded ? "Collapse activity" : "Expand activity"}</button>
-      </section>
-      <div id="expanded-activity" hidden={!activityExpanded}>
-      <div className={styles.liveWorkspace}>
-            {/* ── Live activity ── */}
-            <section className={styles.panel}>
-              <div className={styles.panelHead}>
-                <span className={styles.panelTitle}>Live Autopilot Activity</span>
-                {isLive && (
-                  <span className={styles.liveTag}>
-                    <span className={`${styles.statusDot} ${styles.statusDotLive}`} style={{ background: "var(--success)" }} />
-                    Live
-                  </span>
-                )}
-              </div>
-              <div className={styles.panelBody}>
-                {loading ? (
-                  <p className={styles.loadingText}>Loading Autopilot state…</p>
-                 ) : opState === "recovering" ? (
-                  <div className={styles.healingActivity} role="status">
-                    <span className={styles.healingGlyph} aria-hidden="true">↻</span>
-                    <div><strong>Self-healing in progress</strong><p>{state?.selfHealing?.status || "Recovering"} · Round {state?.selfHealing?.currentRound ?? "—"} of {state?.selfHealing?.maxRounds ?? "—"}</p><p>{state?.selfHealing?.lastPatchSummary || "Inspecting the automation issue before retrying."}</p>{state?.selfHealing?.lastError && <p>{state.selfHealing.lastError}</p>}</div>
-                  </div>
-                ) : liveJob ? (
-                  <>
-                    <div className={styles.liveJobCompany}>Applying to {liveJob.company || "Unknown company"}</div>
-                    <div className={styles.liveJobRole}>{liveJob.title || "Unknown role"}</div>
+      {/* Slim status bar: what's happening now, and how to start something new.
+          Night Batch itself is a subset reached from here rather than an
+          always-on hero — it only renders below while live or explicitly
+          opened via "Night Batch Run". */}
+      {section === "overview" && (
+        <>
+          <section className={styles.activityDock} aria-label="Autopilot status">
+            <span className={`${styles.statusDot} ${isLive ? styles.statusDotLive : ""}`} />
+            <div>
+              <strong>{opState === "recovering" ? "Self-healing in progress" : isLive ? "Currently running" : "Ready"}</strong>
+              <small>
+                {opState === "recovering"
+                  ? `${state?.selfHealing?.status} · Round ${state?.selfHealing?.currentRound} of ${state?.selfHealing?.maxRounds}`
+                  : isLive && liveJob
+                    ? `${liveJob.company} · ${liveJob.title}`
+                    : opCopy.detail}
+              </small>
+            </div>
+            {isLive ? (
+              <>
+                <button className={styles.filterChip} disabled={controlBusy} onClick={() => void runControl("pause")}>Pause</button>
+                <button className={styles.filterChip} disabled={controlBusy} onClick={() => void runControl("stop")}>Stop</button>
+              </>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  className={`${styles.filterChip} ${batchPanelOpen ? styles.filterChipActive : ""}`}
+                  aria-pressed={batchPanelOpen}
+                  aria-controls="night-batch"
+                  onClick={() => setBatchPanelOpen((value) => !value)}
+                >
+                  Night Batch Run
+                </button>
+                <button
+                  type="button"
+                  className={styles.filterChip}
+                  disabled={controlBusy}
+                  onClick={() =>
+                    void handleStartNightBatch({
+                      batchSize: 1,
+                      minMatchScore: 60,
+                      tierGuardrails: true,
+                      selfHealing: true,
+                    })
+                  }
+                >
+                  Single Apply
+                </button>
+              </>
+            )}
+          </section>
 
-                    {liveJob.step && (
-                      <div className={styles.liveOperation}>
-                        <span className={styles.liveOperationLabel}>Current operation</span>
-                        {liveJob.step}
-                      </div>
-                    )}
+          {(isLive || batchPanelOpen) && (
+            <div id="night-batch" className={styles.batchRow} data-has-history={Boolean(lastActivity || (state?.run?.processedCount ?? 0) > 0)}>
+              <NightBatchCard
+                isLive={isLive}
+                onStartBatch={handleStartNightBatch}
+                onPause={() => runControl("pause")}
+                onStop={() => runControl("stop")}
+                busy={controlBusy}
+                liveJob={liveJob}
+                targetCount={state?.run?.targetProcessCount ?? 10}
+                processedCount={state?.run?.processedCount ?? 0}
+                submittedCount={state?.run?.submittedCount ?? 0}
+                stagedCount={state?.run?.stagedCount ?? 0}
+                queueScores={queueScores}
+                queueLoading={jobsLoading}
+                liveConfig={state?.batchConfig ?? null}
+                stageIndex={activeStageIndex}
+                logs={state?.recentLogs ?? []}
+                healing={state?.selfHealing ?? null}
+              />
+              {(lastActivity || (state?.run?.processedCount ?? 0) > 0) && <LastUpdatePanel
+                lastActivity={lastActivity}
+                lastRun={state?.run ?? null}
+                isLive={isLive}
+              />}
+            </div>
+          )}
 
-                    <div className={styles.pipeline}>
-                      {PIPELINE_STAGES.map((stage, i) => {
-                        const cls =
-                          activeStageIndex < 0
-                            ? ""
-                            : i < activeStageIndex
-                              ? styles.stageDone
-                              : i === activeStageIndex
-                                ? styles.stageActive
-                                : "";
-                        const glyph = activeStageIndex >= 0 && i < activeStageIndex ? "✓" : i === activeStageIndex ? "◉" : "○";
-                        return (
-                          <React.Fragment key={stage.id}>
-                            <div className={`${styles.stage} ${cls}`}>
-                              <span className={styles.stageMarker}>{glyph}</span>
-                              <span className={styles.stageLabel}>{stage.label}</span>
-                            </div>
-                            {i < PIPELINE_STAGES.length - 1 && (
-                              <span
-                                className={`${styles.stageConnector} ${
-                                  activeStageIndex >= 0 && i < activeStageIndex ? styles.stageConnectorDone : ""
-                                }`}
-                              />
-                            )}
-                          </React.Fragment>
-                        );
-                      })}
-                    </div>
-                  </>
-                ) : (
-                  <div className={styles.idleState}>
-                    <WorkspaceScene kind="discover" compact />
-                    <div className={styles.idleCopy}>
-                    <strong>{opState === "paused" ? "A moment to regroup." : opState === "error" ? "Let’s reconnect." : "Ready when you are."}</strong>
-                    <p>
-                    {opState === "paused"
-                      ? "Autopilot is paused."
-                      : opState === "error"
-                        ? "Can't reach the Autopilot service."
-                        : state && state.queueSize > 0
-                          ? `Idle — ${state.queueSize} job${state.queueSize === 1 ? "" : "s"} queued and ready to run.`
-                          : "Your next opportunity starts with a search."}
-                    </p>
-                    <div className={styles.journey} aria-hidden="true"><span>Discover</span><i /><span>Prepare</span><i /><span>Apply</span></div>
-                    </div>
-                  </div>
-                )}
-              </div>
-              <div className={styles.liveLogTrail} aria-label="Recent Autopilot activity">
-                {(state?.recentLogs || []).slice(-3).reverse().map(log => <div key={log.id}><time>{timeOfDay(log.timestamp)}</time><span>{log.message}</span></div>)}
-              </div>
-            </section>
-
-        <RecentSubmissions />
-      </div>
-      </div>
+          <div className={styles.liveWorkspace} data-idle={!loading && !isLive && !(state?.recentLogs?.length)}>
+            <RecentSubmissions />
+          </div>
+        </>
+      )}
       <nav className={styles.tabs}>
         {([
           ["overview", "Overview", 0],
           ["applications", "Applications", 0],
+          ["review", "Review", reviewJobs.length],
           ["diagnostics", "Diagnostics", 0],
         ] as [SectionId, string, number][]).map(([id, label, count]) => (
           <button

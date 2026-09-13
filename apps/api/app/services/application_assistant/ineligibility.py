@@ -58,6 +58,32 @@ _ERROR_TEXT_RULES: tuple[tuple[IneligibilityReason, tuple[str, ...]], ...] = (
         ),
     ),
     (
+        # The automation reached a live posting but there is no form it can
+        # drive from that URL: the employer's apply flow starts somewhere else
+        # (Workday's account-gated flow, a custom careers app, or a listing on
+        # a site that is not a job board at all). None of that is breakage and
+        # none of it is expiry - the posting is open and the candidate can
+        # submit it by hand - so it belongs in manual review, not in FAILED
+        # where it would be retried forever, and not in a terminal bucket where
+        # a real opportunity would be buried.
+        #
+        # Observed in one batch of ten: a CrowdStrike Workday posting, a
+        # ByteDance careers-app posting, and a Hacker News "who is hiring"
+        # thread, all three recorded as technical failures.
+        IneligibilityReason.MANUAL_APPLICATION_REQUIRED,
+        (
+            r"no application form on the posting page",
+            r"apply flow starts elsewhere",
+            r"cannot be driven from this url",
+            # Workday keeps its eight-step wizard behind a per-employer
+            # candidate account. The posting is live and the candidate can
+            # apply by hand; the automation will not create accounts or type
+            # passwords, so this is manual by policy, not by breakage.
+            r"workday requires a candidate account",
+            r"requires a candidate account",
+        ),
+    ),
+    (
         IneligibilityReason.POSTING_EXPIRED,
         (
             r"posting has expired",
@@ -191,6 +217,7 @@ TERMINAL_REASONS = frozenset({
 # buried in the terminal bucket or cluttering the answer-a-question review list.
 MANUAL_REASONS = frozenset({
     IneligibilityReason.BOT_PROTECTED_BOARD,
+    IneligibilityReason.MANUAL_APPLICATION_REQUIRED,
 })
 
 

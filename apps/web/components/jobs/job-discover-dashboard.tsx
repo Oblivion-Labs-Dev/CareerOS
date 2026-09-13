@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { BrowseFilterControls, EMPTY_BROWSE, type BrowseOptions, type BrowseSelection } from "./browse-filter-controls";
+import {SearchableCombobox, MultiSelectCombobox} from "./browse-comboboxes";
+import { BrowseFilterControls, type BrowseOptions } from "./browse-filter-controls";
 import { ChoiceGroup } from "@/components/ui/choice-group";
 import type { DiscoverJob } from "./discover-job";
 import { DiscoverJobCard } from "./discover-job-card";
@@ -130,30 +131,6 @@ const POSTED_AGO_OPTIONS: { value: FreshnessFilter; label: string }[] = [
 
 
 
-const TOP_50_COMPANIES = [
-  "Stripe", "OpenAI", "Anthropic", "Databricks", "Datadog", "Cloudflare", "Figma", "Airbnb",
-  "Vercel", "Supabase", "Notion", "Brex", "Ramp", "Snowflake", "Reddit", "Discord",
-  "SpaceX", "Anduril", "Spotify", "Netflix", "Palantir", "Atlassian", "Grammarly", "Plaid",
-  "Deel", "Sentry", "Salesforce", "Nvidia", "Zoom", "Google", "Amazon", "Microsoft",
-  "Meta", "Apple", "Uber", "DoorDash", "Pinterest", "Roblox", "Coinbase", "Block",
-  "Robinhood", "Linear", "Miro", "Canva", "Postman", "HubSpot", "GitLab", "Docker", "Snyk", "Twilio"
-];
-
-const LOCATION_QUICK_PICKS = [
-  "United States",
-  "Remote US",
-  "California",
-  "Washington",
-  "New York",
-  "Texas",
-  "Massachusetts",
-  "Colorado",
-  "Illinois",
-  "Seattle",
-  "San Francisco",
-  "Austin",
-];
-
 function postedAgoLabel(value: FreshnessFilter) {
   return POSTED_AGO_OPTIONS.find((option) => option.value === value)?.label ?? value;
 }
@@ -177,435 +154,24 @@ function formatLocationOption(label: string, count: number) {
   return `${short} (${count.toLocaleString()})`;
 }
 
-type ComboboxOption = {
-  value: string;
-  label?: string;
-  sublabel?: string;
-};
-
-type SearchableComboboxProps = {
-  name: string;
-  value: string;
-  onChange: (val: string) => void;
-  options: ComboboxOption[];
-  placeholder: string;
-  required?: boolean;
-  style?: React.CSSProperties;
-};
-
-function SearchableCombobox({
-  name,
-  value,
-  onChange,
-  options,
-  placeholder,
-  required = false,
-  style,
-}: SearchableComboboxProps) {
-  const [open, setOpen] = useState(false);
-  const [highlightIndex, setHighlightIndex] = useState(0);
-  const containerRef = useRef<HTMLDivElement>(null);
-
-  const filteredOptions = useMemo(() => {
-    const query = value.trim().toLowerCase();
-    if (!query) return options;
-    return options.filter(
-      (opt) =>
-        opt.value.toLowerCase().includes(query) ||
-        (opt.label && opt.label.toLowerCase().includes(query))
-    );
-  }, [options, value]);
-
-  useEffect(() => {
-    function handleClickOutside(event: MouseEvent) {
-      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
-        setOpen(false);
-      }
-    }
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
-
-  return (
-    <div
-      ref={containerRef}
-      className="cos-combobox-wrap"
-      style={{ position: "relative", width: "100%", ...style }}
-    >
-      <input
-        name={name}
-        type="text"
-        value={value}
-        required={required}
-        placeholder={placeholder}
-        onChange={(e) => {
-          onChange(e.target.value);
-          setOpen(true);
-          setHighlightIndex(0);
-        }}
-        onFocus={() => setOpen(true)}
-        onKeyDown={(e) => {
-          if (e.key === "ArrowDown") {
-            e.preventDefault();
-            setOpen(true);
-            setHighlightIndex((prev) => Math.min(prev + 1, Math.max(0, filteredOptions.length - 1)));
-          } else if (e.key === "ArrowUp") {
-            e.preventDefault();
-            setHighlightIndex((prev) => Math.max(prev - 1, 0));
-          } else if (e.key === "Enter" && open && filteredOptions[highlightIndex]) {
-            e.preventDefault();
-            onChange(filteredOptions[highlightIndex].value);
-            setOpen(false);
-          } else if (e.key === "Escape") {
-            setOpen(false);
-          }
-        }}
-        className="cos-combobox-input"
-        style={{ paddingRight: required ? "1.75rem" : "0.75rem" }}
-        autoComplete="off"
-      />
-      {required ? (
-        <span
-          className="cos-required-badge"
-          style={{
-            position: "absolute",
-            right: "0.65rem",
-            top: "50%",
-            transform: "translateY(-50%)",
-            color: "#ef4444",
-            fontWeight: 700,
-            fontSize: "1rem",
-            pointerEvents: "none",
-            lineHeight: 1,
-          }}
-          title="Required field"
-        >
-          *
-        </span>
-      ) : null}
-
-      {open && filteredOptions.length > 0 ? (
-        <ul
-          className="cos-combobox-dropdown"
-          style={{
-            position: "absolute",
-            top: "calc(100% + 4px)",
-            left: 0,
-            right: 0,
-            maxHeight: "220px",
-            overflowY: "auto",
-            backgroundColor: "#11161d",
-            border: "1px solid rgba(166, 181, 201, 0.22)",
-            borderRadius: "10px",
-            boxShadow: "0 12px 32px rgba(0, 0, 0, 0.5)",
-            zIndex: 100,
-            padding: "0.35rem",
-            margin: 0,
-            listStyle: "none",
-          }}
-        >
-          {filteredOptions.slice(0, 40).map((opt, idx) => {
-            const isHighlighted = idx === highlightIndex;
-            return (
-              <li
-                key={opt.value}
-                onMouseDown={(e) => {
-                  e.preventDefault();
-                  onChange(opt.value);
-                  setOpen(false);
-                }}
-                onMouseEnter={() => setHighlightIndex(idx)}
-                style={{
-                  padding: "0.45rem 0.65rem",
-                  borderRadius: "6px",
-                  cursor: "pointer",
-                  fontSize: "0.875rem",
-                  color: isHighlighted ? "#62ddc5" : "#f5f8fb",
-                  backgroundColor: isHighlighted ? "#19212b" : "transparent",
-                  display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "center",
-                  transition: "background-color 0.12s ease",
-                }}
-              >
-                <span>{opt.label ?? opt.value}</span>
-                {opt.sublabel ? (
-                  <span style={{ fontSize: "0.75rem", color: "#9aa8b9", marginLeft: "0.5rem" }}>
-                    {opt.sublabel}
-                  </span>
-                ) : null}
-              </li>
-            );
-          })}
-        </ul>
-      ) : null}
-    </div>
-  );
-}
-
-type MultiSelectComboboxProps = {
-  name: string;
-  selectedValues: string[];
-  onChange: (vals: string[]) => void;
-  options: ComboboxOption[];
-  placeholder: string;
-  required?: boolean;
-  style?: React.CSSProperties;
-};
-
-function MultiSelectCombobox({
-  name,
-  selectedValues,
-  onChange,
-  options,
-  placeholder,
-  required = false,
-  style,
-}: MultiSelectComboboxProps) {
-  const [inputValue, setInputValue] = useState("");
-  const [open, setOpen] = useState(false);
-  const [highlightIndex, setHighlightIndex] = useState(0);
-  const containerRef = useRef<HTMLDivElement>(null);
-
-  const selectedSet = useMemo(
-    () => new Set(selectedValues.map((v) => v.toLowerCase())),
-    [selectedValues]
-  );
-
-  const filteredOptions = useMemo(() => {
-    const query = inputValue.trim().toLowerCase();
-    const available = options.filter((opt) => !selectedSet.has(opt.value.toLowerCase()));
-    if (!query) return available;
-    return available.filter(
-      (opt) =>
-        opt.value.toLowerCase().includes(query) ||
-        (opt.label && opt.label.toLowerCase().includes(query))
-    );
-  }, [options, inputValue, selectedSet]);
-
-  useEffect(() => {
-    function handleClickOutside(event: MouseEvent) {
-      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
-        setOpen(false);
-      }
-    }
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
-
-  function addValue(val: string) {
-    const clean = val.trim();
-    if (!clean) return;
-    if (!selectedValues.some((v) => v.toLowerCase() === clean.toLowerCase())) {
-      onChange([...selectedValues, clean]);
-    }
-    setInputValue("");
-    setOpen(false);
-  }
-
-  function removeValue(val: string) {
-    onChange(selectedValues.filter((v) => v.toLowerCase() !== val.toLowerCase()));
-  }
-
-  return (
-    <div
-      ref={containerRef}
-      className="cos-multiselect-combobox-wrap"
-      style={{ position: "relative", width: "100%", ...style }}
-    >
-      <input type="hidden" name={name} value={selectedValues.join(", ")} />
-      <div
-        className="cos-multiselect-box"
-        onClick={() => setOpen(true)}
-        style={{
-          display: "flex",
-          flexWrap: "wrap",
-          alignItems: "center",
-          gap: "0.35rem",
-          minHeight: "2.6rem",
-          padding: "0.3rem 0.5rem",
-          backgroundColor: "var(--bg)",
-          border: "1px solid var(--border)",
-          borderRadius: "var(--cos-radius-control)",
-          cursor: "text",
-          position: "relative",
-        }}
-      >
-        {selectedValues.map((val) => (
-          <span
-            key={val}
-            className="cos-location-tag-pill"
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: "0.25rem",
-              padding: "0.15rem 0.45rem",
-              backgroundColor: "rgba(98, 221, 197, 0.15)",
-              border: "1px solid rgba(98, 221, 197, 0.35)",
-              color: "#62ddc5",
-              borderRadius: "6px",
-              fontSize: "0.8rem",
-              fontWeight: 600,
-            }}
-          >
-            {val}
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                removeValue(val);
-              }}
-              style={{
-                background: "none",
-                border: 0,
-                color: "#62ddc5",
-                cursor: "pointer",
-                padding: 0,
-                fontSize: "0.85rem",
-                lineHeight: 1,
-              }}
-            >
-              ✕
-            </button>
-          </span>
-        ))}
-
-        <input
-          type="text"
-          value={inputValue}
-          placeholder={selectedValues.length === 0 ? placeholder : "Add location…"}
-          onChange={(e) => {
-            setInputValue(e.target.value);
-            setOpen(true);
-            setHighlightIndex(0);
-          }}
-          onFocus={() => setOpen(true)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") {
-              e.preventDefault();
-              if (open && filteredOptions[highlightIndex]) {
-                addValue(filteredOptions[highlightIndex].value);
-              } else if (inputValue.trim()) {
-                addValue(inputValue);
-              }
-            } else if (e.key === "Backspace" && !inputValue && selectedValues.length > 0) {
-              removeValue(selectedValues[selectedValues.length - 1]);
-            } else if (e.key === "ArrowDown") {
-              e.preventDefault();
-              setOpen(true);
-              setHighlightIndex((prev) => Math.min(prev + 1, Math.max(0, filteredOptions.length - 1)));
-            } else if (e.key === "ArrowUp") {
-              e.preventDefault();
-              setHighlightIndex((prev) => Math.max(prev - 1, 0));
-            } else if (e.key === "Escape") {
-              setOpen(false);
-            }
-          }}
-          style={{
-            flex: 1,
-            minWidth: "120px",
-            background: "transparent",
-            border: 0,
-            color: "var(--text)",
-            fontSize: "0.875rem",
-            outline: "none",
-            padding: "0.2rem",
-          }}
-          autoComplete="off"
-        />
-
-        {required && selectedValues.length === 0 && !inputValue ? (
-          <span
-            style={{
-              position: "absolute",
-              right: "0.65rem",
-              top: "50%",
-              transform: "translateY(-50%)",
-              color: "#ef4444",
-              fontWeight: 700,
-              fontSize: "1rem",
-              pointerEvents: "none",
-            }}
-            title="Required field"
-          >
-            *
-          </span>
-        ) : null}
-      </div>
-
-      {open && filteredOptions.length > 0 ? (
-        <ul
-          className="cos-combobox-dropdown"
-          style={{
-            position: "absolute",
-            top: "calc(100% + 4px)",
-            left: 0,
-            right: 0,
-            maxHeight: "220px",
-            overflowY: "auto",
-            backgroundColor: "#11161d",
-            border: "1px solid rgba(166, 181, 201, 0.22)",
-            borderRadius: "10px",
-            boxShadow: "0 12px 32px rgba(0, 0, 0, 0.5)",
-            zIndex: 100,
-            padding: "0.35rem",
-            margin: 0,
-            listStyle: "none",
-          }}
-        >
-          {filteredOptions.slice(0, 40).map((opt, idx) => {
-            const isHighlighted = idx === highlightIndex;
-            return (
-              <li
-                key={opt.value}
-                onMouseDown={(e) => {
-                  e.preventDefault();
-                  addValue(opt.value);
-                }}
-                onMouseEnter={() => setHighlightIndex(idx)}
-                style={{
-                  padding: "0.45rem 0.65rem",
-                  borderRadius: "6px",
-                  cursor: "pointer",
-                  fontSize: "0.875rem",
-                  color: isHighlighted ? "#62ddc5" : "#f5f8fb",
-                  backgroundColor: isHighlighted ? "#19212b" : "transparent",
-                  display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "center",
-                  transition: "background-color 0.12s ease",
-                }}
-              >
-                <span>{opt.label ?? opt.value}</span>
-                {opt.sublabel ? (
-                  <span style={{ fontSize: "0.75rem", color: "#9aa8b9", marginLeft: "0.5rem" }}>
-                    {opt.sublabel}
-                  </span>
-                ) : null}
-              </li>
-            );
-          })}
-        </ul>
-      ) : null}
-    </div>
-  );
-}
-
 export function JobDiscoverDashboard() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const { prefs, updatePrefs, snapshot, refresh: refreshWorkspace } = useCareerWorkspace();
-  const [facets,setFacets] = useState({specialties:[] as string[],seniorities:[] as string[],workModes:[] as string[],experience:"",companies:[] as string[]});
-  const [filterOptions,setFilterOptions] = useState<BrowseOptions>({titles:["Software Engineer","Product Manager","Business Intelligence Engineer","BIE","Technical Program Manager","Product Designer","Data Analyst"],companies:[],specialties:[]});
+  const [facets,setFacets] = useState(()=>{
+    const read=(key:string)=>{try{const value=JSON.parse(searchParams.get(key)||"[]");return Array.isArray(value)?value.filter((v:unknown):v is string=>typeof v==="string"):[];}catch{return [];}};
+    return {specialties:read("specialties"),seniorities:read("seniorities"),workModes:read("workModes"),experience:searchParams.get("experience")||"",companies:read("companies")};
+  });
+  const [filterOptions,setFilterOptions] = useState<BrowseOptions>({titles:[],companies:[],specialties:[],seniorities:[],workModes:[],experience:[]});
   useEffect(()=>{fetch(`${getClientApiBaseUrl()}/jobs/discover/filter-options`).then(async r=>{if(!r.ok)throw new Error();return r.json();}).then(setFilterOptions).catch(()=>{});},[]);
   const [q, setQ] = useState("");
-  const [company, setCompany] = useState("");
+  const [company, setCompany] = useState(searchParams.get("company")||"");
   const [location, setLocation] = useState("");
   const [selectedLocations, setSelectedLocations] = useState<string[]>([]);
   const [role, setRole] = useState("");
   const [freshness, setFreshness] = useState<FreshnessFilter>("all");
-  const [sponsorship, setSponsorship] = useState<SponsorshipFilter>("all");
-  const [sort, setSort] = useState<SortFilter>("relevancy");
+  const [sponsorship, setSponsorship] = useState<SponsorshipFilter>((searchParams.get("sponsorship")||"all") as SponsorshipFilter);
+  const [sort, setSort] = useState<SortFilter>((searchParams.get("sort")||"relevancy") as SortFilter);
   const [page, setPage] = useState(1);
   const [data, setData] = useState<DiscoverResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -739,19 +305,9 @@ export function JobDiscoverDashboard() {
       label: opt.label,
       sublabel: `${opt.count.toLocaleString()} roles`,
     }));
-    const existing = new Set(customList.map((c) => c.value.toLowerCase()));
-    LOCATION_QUICK_PICKS.forEach((pick) => {
-      if (!existing.has(pick.toLowerCase())) {
-        customList.push({ value: pick, label: pick, sublabel: "Quick pick" });
-      }
-    });
     return customList;
   }, [locationOptions]);
 
-  const companyComboboxOptions = useMemo(
-    () => TOP_50_COMPANIES.map((c) => ({ value: c, label: c })),
-    []
-  );
   const skipInitialFetch = useRef(false);
   const initializedFromWorkspace = useRef(false);
   const scrapingRef = useRef(false);
@@ -832,11 +388,16 @@ export function JobDiscoverDashboard() {
       if (values.location.trim()) params.set("location", values.location.trim());
       if (values.role.trim()) params.set("role", values.role.trim());
       if (values.freshness !== "all") params.set("freshness", values.freshness);
+      for(const key of ["specialties","seniorities","workModes","companies"] as const)if(facets[key].length)params.set(key,JSON.stringify(facets[key]));
+      if(facets.experience)params.set("experience",facets.experience);
+      if(company)params.set("company",company);
+      if(sponsorship!=="all")params.set("sponsorship",sponsorship);
+      if(sort!=="relevancy")params.set("sort",sort);
       const qs = params.toString();
       const target = qs ? `/jobs/discover?${qs}` : "/jobs/discover";
       if(window.location.pathname + window.location.search !== target) router.replace(target, { scroll: false });
     },
-    [q, location, role, freshness, router],
+    [q, location, role, freshness, router, facets, company, sponsorship, sort],
   );
 
   useEffect(() => {
@@ -1123,7 +684,7 @@ export function JobDiscoverDashboard() {
   const filteredTotal = data?.total ?? 0;
   const assistantTotal = Math.max(data?.assistantTotal ?? 0, syncedAssistantTotal);
   const perPage = data?.perPage ?? 30;
-  const filtersActive = Boolean(q || company || location || role || freshness !== "all" || sponsorship !== "all");
+  const filtersActive = Boolean(facets.specialties.length || facets.seniorities.length || facets.workModes.length || facets.experience || facets.companies.length || q || company || location || role || freshness !== "all" || sponsorship !== "all");
   const triageFiltersActive = atsFilter !== "all" || seniorityFilter !== "all" || maxAgeDays !== "all";
   const anyFiltersActive = filtersActive || triageFiltersActive || sort !== "relevancy";
   const filterHidingResults = !scraping && filteredTotal === 0 && filtersActive;
@@ -1642,7 +1203,7 @@ export function JobDiscoverDashboard() {
 
   return (
     <div className={`${styles.browse} target-jobs-dashboard job-discover-dashboard${scraping ? " job-discover-dashboard--scraping" : ""}`}>
-      <header className={styles.pageHeader}><div><span>YOUR NEXT OPPORTUNITY</span><h1>Browse jobs</h1><p>Find your fit. Build a shortlist. Move forward with intention.</p></div><a href="/applications?tab=queued">Open Autopilot queue ↗</a></header>
+      <header className={styles.pageHeader}><div><h1>Browse jobs</h1></div><a href="/applications?tab=queued">Open Autopilot queue ↗</a></header>
       <section className="workflow-panel">
         <div className="dashboard-panel-header">
           <div>
@@ -1695,31 +1256,7 @@ export function JobDiscoverDashboard() {
           locationInput={<MultiSelectCombobox name="location" selectedValues={selectedLocations} onChange={vals=>{setSelectedLocations(vals);setLocation(vals.join(", "));setPage(1);}} options={locationComboboxOptions} placeholder="Add cities, regions or countries"/>}
         />
 
-        <details className={styles.quickLocations}><summary>Quick location picks</summary><div className="job-discover-location-chips" aria-label="Quick location filters">
-          <span className="job-discover-location-chips-label">Location:</span>
-          <button
-            type="button"
-            className={`job-discover-location-chip${selectedLocations.length === 0 ? " job-discover-location-chip--active" : ""}`}
-            onClick={() => applyLocationFilter("")}
-          >
-            All
-          </button>
-          {LOCATION_QUICK_PICKS.map((pick) => {
-            const active = selectedLocations.some((l) => l.toLowerCase() === pick.toLowerCase());
-            return (
-              <button
-                key={pick}
-                type="button"
-                className={`job-discover-location-chip${active ? " job-discover-location-chip--active" : ""}`}
-                onClick={() => applyLocationFilter(pick)}
-              >
-                {pick}
-              </button>
-            );
-          })}
-        </div>
-
-        </details><div className="target-jobs-stats">
+        <div className="target-jobs-stats">
           <article className="stat-card">
             <p className="stat-label">Strong match</p>
             <p className={`stat-value${scraping ? " job-discover-live-stat" : ""}`}>{stats.strong.toLocaleString()}</p>

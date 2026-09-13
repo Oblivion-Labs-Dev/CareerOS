@@ -21,3 +21,8 @@ warn_redundant_casts = true
 warn_unused_ignores = true
 show_error_codes = true
 pretty = true
+
+[tool.pytest.ini_options]
+markers = [
+    "network: reaches a real external API; skip with -m \"not network\" when offline",
+]

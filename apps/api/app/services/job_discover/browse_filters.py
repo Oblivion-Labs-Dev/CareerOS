@@ -13,10 +13,7 @@ EXTRA_PATTERNS = {
 }
 LABELS = {**ROLE_LABELS, "bie": "Business Intelligence / BIE", "data": "Data & Analytics",
           "backend": "Backend", "frontend": "Frontend", "platform": "Platform / Infrastructure", "ml": "AI / ML"}
-TITLE_SEEDS = ["Software Engineer", "Product Manager", "Technical Program Manager", "Business Intelligence Engineer", "BIE",
-               "Product Analyst", "UX Designer", "Product Designer", "Data Scientist", "Data Analyst", "Data Engineer",
-               "Solutions Engineer", "Hardware Engineer", "Backend Engineer", "Frontend Engineer", "Platform Engineer",
-               "Machine Learning Engineer", "Site Reliability Engineer", "QA Engineer", "Security Engineer"]
+
 
 
 def split_values(value):
@@ -88,6 +85,6 @@ def filter_facets(jobs, *, specialties="", seniorities="", work_modes="", experi
 
 
 def filter_options(jobs):
-    titles = sorted(set(TITLE_SEEDS) | {j["title"] for j in jobs if isinstance(j.get("title"), str) and j["title"].strip()}, key=str.casefold)
+    titles = sorted({j["title"] for j in jobs if isinstance(j.get("title"), str) and j["title"].strip()}, key=str.casefold)
     companies = sorted({j["companyName"] for j in jobs if j.get("companyName")}, key=str.casefold)
-    return {"titles": titles, "companies": companies, "specialties": [{"value": key, "label": label} for key, label in LABELS.items()]}
+    return {"titles": titles, "companies": companies, "specialties": [{"value": key, "label": label} for key, label in LABELS.items() if any(title_matches(title, {key}) for title in titles)], "seniorities": sorted({seniority_for(title) for title in titles}), "workModes": sorted({work_mode_for(job) for job in jobs}), "experience": [band for band in ["0-2", "3-5", "6-9", "10+", "unspecified"] if filter_facets(jobs, experience=band)]}

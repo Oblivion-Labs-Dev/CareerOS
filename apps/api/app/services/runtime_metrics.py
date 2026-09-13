@@ -138,6 +138,7 @@ class RuntimeMetricsStore:
 
 
 metrics_store = RuntimeMetricsStore()
+runtime_metrics = metrics_store
 
 
 def should_skip_metrics(path: str) -> bool:

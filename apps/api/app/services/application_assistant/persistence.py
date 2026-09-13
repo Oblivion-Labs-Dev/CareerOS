@@ -663,6 +663,28 @@ def save_autopilot_job(db: Session, payload: dict[str, Any]) -> dict[str, Any]:
         payload["id"] = new_id("apjob_")
     if "discoveredAt" not in payload:
         payload["discoveredAt"] = now_iso()
+
+    # A submitted application must not keep carrying the verdict of the attempt
+    # that failed before it. Observed live: a DoorDash posting was blocked, then
+    # submitted successfully on a retry, and the row ended up reading
+    # status=SUBMITTED alongside "reCAPTCHA bot protection blocked the
+    # submission" and hasPersistentBlock=true - so the card said submitted while
+    # the panel explained why it could not be. The block flag is worse than
+    # cosmetic: it keeps the job out of every retry path.
+    #
+    # This clears at the single funnel every submit path already goes through,
+    # rather than at each of the five call sites.
+    if payload.get("status") == "SUBMITTED":
+        for stale in (
+            "ineligibilityReason",
+            "ineligibilityDetail",
+            "lastError",
+            "lastErrorType",
+            "skipReason",
+        ):
+            payload.pop(stale, None)
+        payload["hasPersistentBlock"] = False
+
     saved = upsert_entity(db, ENTITY_AUTOPILOT_JOB, payload)
     # Every path that marks a job submitted - the executor, the assisted-fill
     # hand-off, the "mark submitted" button, the inbox reconciler and the

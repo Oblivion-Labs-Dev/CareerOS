@@ -31,6 +31,7 @@ from app.services.application_assistant.domain import (
     IneligibilityReason,
 )
 from app.services.application_assistant.job_filter_ranker import filter_and_rank_jobs
+from app.services.intelligence.night_shift_config import is_tier_1
 from app.services.application_assistant.persistence import (
     claim_job_lock,
     get_active_autopilot_run,
@@ -42,13 +43,29 @@ from app.services.application_assistant.persistence import (
     release_job_lock,
     save_autopilot_job,
     save_autopilot_run,
+    save_settings,
 )
 from app.services.application_assistant.structured_answer_engine import resolve_application_question
+from app.services.observability import (
+    tracer,
+    agent_tracker,
+    error_store,
+    set_correlation_context,
+    get_correlation_context,
+)
 
 
 logger = logging.getLogger("career_os.autopilot_runner")
 
 MAX_JOB_ATTEMPTS = 3
+# How long one application may take end to end before it is abandoned.
+#
+# 480s was tight for a Greenhouse posting: filling a long form is ~40s, and
+# waiting for the emailed security code is allowed 150s on its own, so a slow
+# board could exhaust the budget while doing exactly the right thing. Both
+# values are env-tunable so a slow network does not mean editing code.
+PLAYWRIGHT_WATCHDOG_TIMEOUT = float(os.environ.get("AUTOPILOT_JOB_TIMEOUT_SEC", "600"))
+PLAYWRIGHT_INNER_TIMEOUT = max(60.0, PLAYWRIGHT_WATCHDOG_TIMEOUT - 60.0)
 # An application is submitted once its resume's match score reaches this
 # bar. All queued jobs have already passed strict role, seniority, and location filters.
 MIN_MATCH_SCORE_TO_SUBMIT = float(os.environ.get("AUTOPILOT_MIN_MATCH_SCORE", "80.0"))
@@ -78,22 +95,29 @@ TAILORING_ESCALATION_ORDER = ["off", "honest", "aggressive"]
 TAILORING_HONEST_FLOOR = float(os.environ.get("AUTOPILOT_TAILORING_HONEST_FLOOR", "60.0"))
 
 
-def _tailoring_mode_for_score(score: float, configured_mode: str) -> str:
+def _tailoring_mode_for_score(
+    score: float, configured_mode: str, submit_bar: float | None = None
+) -> str:
     """Pick a tailoring mode from the pre-tailoring match score.
 
     Bands:
-        >= MIN_MATCH_SCORE_TO_SUBMIT : "off"        - already clears the bar
-        >= TAILORING_HONEST_FLOOR    : "honest"     - near miss, re-emphasise
-        below that                   : "aggressive" - distant, push the framing
+        >= submit_bar             : "off"        - already clears the bar
+        >= TAILORING_HONEST_FLOOR : "honest"     - near miss, re-emphasise
+        below that                : "aggressive" - distant, push the framing
+
+    ``submit_bar`` is the batch's own match floor, not the module default: the
+    bands describe distance from *the bar this run is actually judged against*,
+    so lowering the floor for a run has to move them with it.
 
     An operator who has explicitly turned tailoring off keeps it off: the bands
     decide how much to tailor, not whether the feature is enabled at all.
     """
+    bar = MIN_MATCH_SCORE_TO_SUBMIT if submit_bar is None else submit_bar
     if configured_mode == "off":
         return "off"
-    if score >= MIN_MATCH_SCORE_TO_SUBMIT:
+    if score >= bar:
         return "off"
-    if score >= TAILORING_HONEST_FLOOR:
+    if score >= min(TAILORING_HONEST_FLOOR, bar):
         return "honest"
     return "aggressive"
 # Launches are staggered just enough to avoid a burst of browser startups.  The
@@ -106,7 +130,48 @@ DEFAULT_STAGGER_DELAY = 0.5
 # eagerly the batch loop performs its own inline top-up when the preprocessor
 # has not caught up yet. Applications themselves still run strictly one at a
 # time — see APPLY_CONCURRENCY.
-QUEUE_REFILL_THRESHOLD = 50
+QUEUE_REFILL_THRESHOLD = 5
+# Boards this automation can actually complete an application on, end to end.
+#
+# Measured over real runs, not assumed: Greenhouse (including the emailed
+# security-code step), Lever and Ashby submit; everything else either has no
+# driveable form at that URL, hands off to an employer's own app, or sits behind
+# an account or a CAPTCHA. Spending a batch slot to rediscover that costs a full
+# browser session each time and is why a run of ten produced one submission.
+#
+# This is a claim-time filter, not an eligibility verdict: the jobs stay queued
+# and visible, they are simply not what an autonomous batch reaches for first.
+SUBMITTABLE_ATS_HOSTS = (
+    "greenhouse.io",
+    "lever.co",
+    "ashbyhq.com",
+    "coinbase.com",
+    "brex.com",
+    "zipline.com",
+    "hioscar.com",
+    "block.xyz",
+    "ripple.com",
+    "riotgames.com",
+    "datadoghq.com",
+    "mongodb.com",
+    "samsara.com",
+    "fieldwire.com",
+    "pantheon.io",
+)
+
+
+def _is_submittable_board(job: dict[str, Any]) -> bool:
+    """True when the posting lives on a board a batch can finish unattended."""
+    url = str(job.get("applicationUrl") or "").lower()
+    if not url:
+        return False
+    # Greenhouse's embed endpoint only renders a form while framed by the
+    # employer's page, so it is not submittable as a top-level URL.
+    if "/embed/job_app" in url:
+        return False
+    if "gh_jid=" in url or "gh_src=" in url:
+        return True
+    return any(host in url for host in SUBMITTABLE_ATS_HOSTS)
 # How many applications may be in an employer form at once.
 #
 # Sequential (1) is the safe default and stays the default. Each submission does
@@ -232,6 +297,23 @@ class AutopilotRunner:
         self.worker_states: dict[int, WorkerState] = {}
         self.metrics = ConcurrencyMetrics()
 
+        # ── Per-batch configuration ──
+        # The match floor is a dial the operator sets per run from the batch
+        # console, not a constant. It used to be read straight off the module
+        # from inside the apply path, so the `minMatchScore` the UI sent was
+        # only ever used to *order* the queue while the actual submit decision
+        # silently kept using the environment default.
+        self.min_match_score: float = MIN_MATCH_SCORE_TO_SUBMIT
+        # Tier-1 guardrail: the operator's dream companies are applied to by
+        # hand, so an unattended batch must never drive their forms.
+        self.tier_guardrails: bool = True
+        self.batch_size: int = 0
+        # Claim only boards a batch can finish on its own (see
+        # SUBMITTABLE_ATS_HOSTS). Defaults on: an unattended run should spend
+        # its slots on work it can actually complete.
+        self.submittable_boards_only: bool = True
+        self._logged_board_filter: bool = False
+
     @classmethod
     def get_instance(cls) -> AutopilotRunner:
         if cls._instance is None:
@@ -280,6 +362,24 @@ class AutopilotRunner:
         # Real-time SSE push
         self._broadcast("log", entry)
 
+    def _last_run_settings(self) -> dict[str, Any]:
+        """Settings from the most recent run, used to fill in an omitted option.
+
+        Start paths that are not the batch console (per-job retry, reprocess
+        sweeps, the self-healer) send only the job they care about. Reading the
+        previous run's settings keeps the operator's chosen match floor, model
+        and guardrails in force across those, instead of snapping back to the
+        environment defaults behind their back.
+        """
+        try:
+            with session_scope() as db:
+                run = get_active_autopilot_run(db) or get_autopilot_run(db, self.active_run_id or "")
+                if run and isinstance(run.get("settings"), dict):
+                    return dict(run["settings"])
+        except Exception:
+            logger.debug("Could not read previous run settings; using defaults.", exc_info=True)
+        return {}
+
     async def start(self, options: dict[str, Any] | None = None, db: Session | None = None, **kwargs: Any) -> dict[str, Any]:
         """Start or resume a fault-tolerant Autopilot run."""
         # Normalize positional / keyword options
@@ -301,6 +401,60 @@ class AutopilotRunner:
             )
         self.stagger_delay = float(opts.get("staggerDelay") or DEFAULT_STAGGER_DELAY)
         self.self_healing_enabled = bool(opts.get("selfHealing", True))
+
+        # Batch configuration chosen in the console. `minMatchScore` reaching
+        # the apply path is the point: it is the bar a tailored resume has to
+        # clear before anything is sent to an employer.
+        #
+        # Not every start comes from the console: a per-job "Retry", a
+        # reprocess-failed sweep and the self-healer all call start() with only
+        # a priorityJobId. Those must not silently reset the operator's floor to
+        # the environment default - a retry at 80% of a job the operator queued
+        # at 60% judges it by a bar they never chose. So an omitted option falls
+        # back to the last run's saved settings before the module default.
+        self.batch_size = target_count
+        last_settings = self._last_run_settings()
+
+        def _opt(key: str, default: Any) -> Any:
+            if opts.get(key) is not None:
+                return opts[key]
+            if last_settings.get(key) is not None:
+                return last_settings[key]
+            return default
+
+        raw_floor = _opt("minMatchScore", None)
+        try:
+            self.min_match_score = (
+                MIN_MATCH_SCORE_TO_SUBMIT if raw_floor is None else float(raw_floor)
+            )
+        except (TypeError, ValueError):
+            self.min_match_score = MIN_MATCH_SCORE_TO_SUBMIT
+        self.tier_guardrails = bool(_opt("tierGuardrails", True))
+        self.submittable_boards_only = bool(_opt("submittableBoardsOnly", True))
+        self._logged_board_filter = False
+        # Carry the resolved configuration onto this run so the next start that
+        # omits it reads back the same values rather than the defaults.
+        opts = {
+            **opts,
+            "minMatchScore": self.min_match_score,
+            "tierGuardrails": self.tier_guardrails,
+            "submittableBoardsOnly": self.submittable_boards_only,
+        }
+
+        # A model chosen for the batch is persisted into settings rather than
+        # held on the runner: every stage that talks to a model (match scoring,
+        # field mapping, answer generation) builds its own client from settings,
+        # so this is the only place a single choice reaches all of them.
+        chosen_model = str(_opt("aiModel", "") or "").strip()
+        if chosen_model:
+            with session_scope() as model_db:
+                current = get_settings(model_db)
+                if str((current.get("llm") or {}).get("model") or "") != chosen_model:
+                    save_settings(
+                        model_db,
+                        {"llm": {**(current.get("llm") or {}), "model": chosen_model}},
+                    )
+                    self.log_event(f"Batch model set to {chosen_model}", level="info")
 
         priority_job_id = opts.get("priorityJobId")
         if priority_job_id:
@@ -338,44 +492,34 @@ class AutopilotRunner:
                                 self.log_event("Stale heartbeat detected — entering RECOVERING mode", level="warning")
                                 existing["status"] = AutopilotRunStatus.RECOVERING.value
                                 save_autopilot_run(local_db, existing)
-                                self._recover_stale_run_sync(existing)
+                                self._recover_stale_run_sync(existing, local_db)
                         except Exception:
                             pass
                     saved_run = save_autopilot_run(local_db, existing)
-                    self._stop_requested = False
-                    self._pause_requested = False
-                    if self._loop_task is None or self._loop_task.done():
-                        logger.info("Resuming _run_batch_worker for existing run %s (concurrency=%d)...", existing.get("id"), self.concurrency)
-                        self._loop_task = asyncio.create_task(self._run_batch_worker())
-                        def _log_task_done_existing(t: asyncio.Task) -> None:
-                            if not t.cancelled() and t.exception():
-                                logger.error("Autopilot batch worker crashed on resume with: %s", t.exception(), exc_info=t.exception())
-                        self._loop_task.add_done_callback(_log_task_done_existing)
-                    self._ensure_queue_preprocessor()
-                    return saved_run
 
-            self._stop_requested = False
-            self._pause_requested = False
+            if not saved_run:
+                run_id = new_id("aprun_")
+                run_payload = {
+                    "id": run_id,
+                    "targetProcessCount": target_count,
+                    "processedCount": 0,
+                    "submittedCount": 0,
+                    "stagedCount": 0,
+                    "skippedCount": 0,
+                    "failedCount": 0,
+                    "status": AutopilotRunStatus.RUNNING.value,
+                    "startedAt": now_iso(),
+                    "completedAt": None,
+                    "stoppedAt": None,
+                    "lastHeartbeatAt": now_iso(),
+                    "settings": opts,
+                    "concurrency": self.concurrency,
+                }
+                saved_run = save_autopilot_run(local_db, run_payload)
+                self.active_run_id = run_id
 
-            run_id = new_id("aprun_")
-            run_payload = {
-                "id": run_id,
-                "targetProcessCount": target_count,
-                "processedCount": 0,
-                "submittedCount": 0,
-                "stagedCount": 0,
-                "skippedCount": 0,
-                "failedCount": 0,
-                "status": AutopilotRunStatus.RUNNING.value,
-                "startedAt": now_iso(),
-                "completedAt": None,
-                "stoppedAt": None,
-                "lastHeartbeatAt": now_iso(),
-                "settings": opts,
-                "concurrency": self.concurrency,
-            }
-            saved_run = save_autopilot_run(local_db, run_payload)
-            self.active_run_id = run_id
+        self._stop_requested = False
+        self._pause_requested = False
 
         self.log_event(
             f"Autopilot run started (Target batch: {target_count} jobs, applications run sequentially)",
@@ -385,13 +529,19 @@ class AutopilotRunner:
 
         self._ensure_queue_preprocessor()
 
-        if self._loop_task is None or self._loop_task.done():
-            logger.info("Spawning new _run_batch_worker asyncio task for run %s (concurrency=%d)...", self.active_run_id, self.concurrency)
-            self._loop_task = asyncio.create_task(self._run_batch_worker())
-            def _log_task_done(t: asyncio.Task) -> None:
-                if not t.cancelled() and t.exception():
-                    logger.error("Autopilot batch worker crashed with: %s", t.exception(), exc_info=t.exception())
-            self._loop_task.add_done_callback(_log_task_done)
+        if self._loop_task and not self._loop_task.done():
+            logger.info("Cancelling lingering _loop_task for clean start of %s...", self.active_run_id)
+            self._loop_task.cancel()
+            try:
+                await asyncio.wait_for(asyncio.shield(self._loop_task), timeout=1.0)
+            except (asyncio.TimeoutError, asyncio.CancelledError, Exception):
+                pass
+        logger.info("Spawning new _run_batch_worker asyncio task for run %s (concurrency=%d)...", self.active_run_id, self.concurrency)
+        self._loop_task = asyncio.create_task(self._run_batch_worker())
+        def _log_task_done(t: asyncio.Task) -> None:
+            if not t.cancelled() and t.exception():
+                logger.error("Autopilot batch worker crashed with: %s", t.exception(), exc_info=t.exception())
+        self._loop_task.add_done_callback(_log_task_done)
 
         return saved_run or {}
 
@@ -434,10 +584,11 @@ class AutopilotRunner:
         # silently stuck).
         if self._loop_task and not self._loop_task.done():
             try:
-                await asyncio.wait_for(asyncio.shield(self._loop_task), timeout=30)
+                await asyncio.wait_for(asyncio.shield(self._loop_task), timeout=15)
             except asyncio.TimeoutError:
-                logger.warning("Autopilot loop task still running 30s after stop() request; proceeding anyway.")
-            except Exception:
+                logger.warning("Autopilot loop task still running 15s after stop() request; canceling.")
+                self._loop_task.cancel()
+            except (asyncio.CancelledError, Exception):
                 pass
         if self.active_run_id:
             with session_scope() as local_db:
@@ -456,7 +607,16 @@ class AutopilotRunner:
         if active_run and not self.active_run_id:
             self.active_run_id = active_run["id"]
         jobs = list_autopilot_jobs(db)
-        submitted_jobs = [j for j in jobs if j.get("status") == AutopilotJobStatus.SUBMITTED.value]
+        # A posting independently re-discovered after it had already been
+        # submitted can end up applied to twice - a real duplicate submission
+        # to the employer, not a database artifact. The row stays SUBMITTED
+        # (that is factually what happened) but is flagged duplicateSubmission
+        # so it is not double-counted here; excluding it entirely from the
+        # jobs list would hide a real submission from the application history.
+        submitted_jobs = [
+            j for j in jobs
+            if j.get("status") == AutopilotJobStatus.SUBMITTED.value and not j.get("duplicateSubmission")
+        ]
         staged_jobs = [j for j in jobs if j.get("status") in (AutopilotJobStatus.STAGED.value, "NEEDS_REVIEW")]
         skipped_jobs = [j for j in jobs if j.get("status") == AutopilotJobStatus.SKIPPED.value]
         failed_jobs = [j for j in jobs if j.get("status") in (AutopilotJobStatus.FAILED.value, "ERROR")]
@@ -484,6 +644,18 @@ class AutopilotRunner:
         from app.services.application_assistant.autopilot_self_healer import get_self_healing_state
         heal_state = get_self_healing_state().to_dict()
 
+        # What the batch is actually configured to do, reported from the runner
+        # rather than echoed back from the request the console sent, so the
+        # console shows the values in force instead of the ones it asked for.
+        batch_config = {
+            "batchSize": self.batch_size,
+            "minMatchScore": self.min_match_score,
+            "tierGuardrails": self.tier_guardrails,
+            "selfHealing": self.self_healing_enabled,
+            "aiModel": (get_settings(db).get("llm") or {}).get("model", ""),
+            "tailoringMode": get_settings(db).get("tailoringMode", "off"),
+        }
+
         if not active_run:
             return {
                 "running": False,
@@ -497,6 +669,7 @@ class AutopilotRunner:
                 "concurrency": self.concurrency,
                 "concurrencyMetrics": self.metrics.to_dict(active_worker_count, self.concurrency),
                 "selfHealing": heal_state,
+                "batchConfig": batch_config,
             }
 
         current_job = None
@@ -520,14 +693,15 @@ class AutopilotRunner:
             "concurrency": self.concurrency,
             "concurrencyMetrics": self.metrics.to_dict(active_worker_count, self.concurrency),
             "selfHealing": heal_state,
+            "batchConfig": batch_config,
         }
 
-    def _recover_stale_run_sync(self, run: dict[str, Any]) -> None:
+    def _recover_stale_run_sync(self, run: dict[str, Any], db: Session | None = None) -> None:
         """Inspect previous active job, release stale locks, and recover batch run."""
-        with session_scope() as db:
+        def _do_recover(session: Session) -> None:
             current_job_id = run.get("currentJobId")
             if current_job_id:
-                job = get_autopilot_job(db, current_job_id)
+                job = get_autopilot_job(session, current_job_id)
                 if job and job.get("status") == AutopilotJobStatus.APPLYING.value:
                     history = job.get("checkpointHistory") or []
                     last_step = history[-1].get("step") if history else ""
@@ -535,17 +709,36 @@ class AutopilotRunner:
                         job["status"] = AutopilotJobStatus.STAGED.value
                         job["lastErrorType"] = ApplicationErrorType.SUBMISSION_UNCERTAIN.value
                         job["aiExplanation"] = "Interrupted during submit — staged as SUBMISSION_UNCERTAIN to prevent duplicates"
-                        save_autopilot_job(db, job)
+                        save_autopilot_job(session, job)
                         run["stagedCount"] = (run.get("stagedCount") or 0) + 1
                     else:
                         job["status"] = AutopilotJobStatus.QUEUED.value
-                        save_autopilot_job(db, job)
-                    release_job_lock(db, current_job_id, self.worker_id)
+                        save_autopilot_job(session, job)
+                    release_job_lock(session, current_job_id, self.worker_id)
 
             run["status"] = AutopilotRunStatus.RUNNING.value
             run["currentJobId"] = None
-            save_autopilot_run(db, run)
+            save_autopilot_run(session, run)
+
+            # Sweep any other orphaned APPLYING jobs across the entire queue whose lease expired
+            now = now_iso()
+            for aj in list_autopilot_jobs(session):
+                if aj.get("status") == AutopilotJobStatus.APPLYING.value:
+                    exp = aj.get("lockExpiresAt")
+                    if not exp or exp <= now or aj.get("lockedBy") != self.worker_id:
+                        aj["status"] = AutopilotJobStatus.QUEUED.value
+                        aj["lockedBy"] = None
+                        aj["lockedAt"] = None
+                        aj["lockExpiresAt"] = None
+                        save_autopilot_job(session, aj)
+
             self.log_event("Batch run recovered successfully", level="info")
+
+        if db is not None:
+            _do_recover(db)
+        else:
+            with session_scope() as session:
+                _do_recover(session)
 
     async def _run_batch_worker(self) -> None:
         """Worker-Level Error Boundary protecting overall batch worker execution."""
@@ -598,74 +791,86 @@ class AutopilotRunner:
             self.log_event(f"Queue preparation unavailable: {exc}", level="warning")
 
     async def _refill_queue(self, deficit: int, run_settings: dict[str, Any]) -> None:
-        """Pull up to `deficit` more eligible postings from the discovered-jobs
-        backlog into the QUEUED state, reusing the same hard-filter/match-score
+        """Top up the QUEUED pool when it drops below the target threshold.
+
+        Preserves the same Mistral match caching, profile tailoring,
         ranking and duplicate protection as the original queue-population path.
-        Safe to run concurrently with in-progress job processing — it only
-        ever adds new QUEUED rows, never touches a job that's already claimed.
+        Safe to run concurrently with in-progress job processing - it only
+        ever adds new QUEUED rows, never touches a job that is already claimed.
         """
-        from app.db.store import get_kv
-        from app.services.application_assistant.persistence import is_duplicate_application
+        def _sync_refill() -> tuple[int, int, int]:
+            from app.db.store import get_kv
+            from app.services.application_assistant.persistence import is_duplicate_application
 
-        with session_scope() as db:
-            existing_autopilot_jobs = list_autopilot_jobs(db)
-            profile = get_kv(db, "profile") or {}
-            raw_jobs = list_discovered_jobs(db, active_only=True, exclude_demo=True)
+            with session_scope() as db:
+                existing_autopilot_jobs = list_autopilot_jobs(db)
+                profile = get_kv(db, "profile") or {}
+                raw_jobs = list_discovered_jobs(db, active_only=True, exclude_demo=True)
 
-        if not raw_jobs:
-            return
+            if not raw_jobs:
+                return (0, 0, 0)
+
+            refill_settings = {**run_settings, "maxApplicationsPerRun": deficit}
+            # Reuse whatever the background preprocessor has already scored with
+            # Mistral so this catch-up path never re-ranks the same posting with the
+            # weaker keyword heuristic.
+            precomputed = {
+                str(j.get("id")): j["mistralMatch"]
+                for j in raw_jobs
+                if isinstance(j.get("mistralMatch"), dict)
+            }
+            ranked = filter_and_rank_jobs(
+                existing_autopilot_jobs,
+                raw_jobs,
+                profile,
+                refill_settings,
+                precomputed_matches=precomputed,
+            )
+            if not ranked:
+                return (0, 0, 0)
+
+            enqueued_count = 0
+            with session_scope() as db:
+                for r in ranked:
+                    r_company = r.get("company") or ""
+                    r_title = r.get("title") or ""
+                    r_url = r.get("applicationUrl") or r.get("listingUrl") or ""
+                    is_dup, _ = is_duplicate_application(db, r_company, r_title, r_url)
+                    if is_dup:
+                        continue
+                    save_autopilot_job(db, {
+                        "id": new_id("apjob_"),
+                        "jobId": r.get("id") or new_id("job_"),
+                        "company": r_company,
+                        "title": r_title,
+                        "applicationUrl": r_url,
+                        "status": AutopilotJobStatus.QUEUED.value,
+                        "matchScore": r.get("matchScore", 0.0),
+                        "matchReason": r.get("matchReason", ""),
+                        "keyMatchingSkills": r.get("keyMatchingSkills", []),
+                        "missingSkills": r.get("missingSkills", []),
+                        "matchMethod": r.get("matchMethod", ""),
+                        "matchModel": r.get("matchModel", ""),
+                        "matchReasons": r.get("matchReasons", []),
+                        "queuePriority": r.get("queuePriority", 0.0),
+                        "location": r.get("location", ""),
+                        "discoveredAt": now_iso(),
+                        "queuedAt": now_iso(),
+                    })
+                    enqueued_count += 1
+            return (len(ranked), enqueued_count, len(ranked) - enqueued_count)
 
         self.log_event(f"Queue refill: scanning discovered postings for {deficit} more eligible matches...", level="info")
-        refill_settings = {**run_settings, "maxApplicationsPerRun": deficit}
-        # Reuse whatever the background preprocessor has already scored with
-        # Mistral so this catch-up path never re-ranks the same posting with the
-        # weaker keyword heuristic.
-        precomputed = {
-            str(j.get("id")): j["mistralMatch"]
-            for j in raw_jobs
-            if isinstance(j.get("mistralMatch"), dict)
-        }
-        ranked = filter_and_rank_jobs(
-            existing_autopilot_jobs, raw_jobs, profile, refill_settings,
-            precomputed_matches=precomputed,
-        )
-        if not ranked:
+        ranked_len, enqueued_count, dedup_count = await asyncio.to_thread(_sync_refill)
+        if ranked_len == 0:
             self.log_event("Queue refill: no new unapplied job postings found in database.", level="info")
             return
 
-        self.log_event(f"Queue refill: selected {len(ranked)} eligible job postings matching target criteria", level="info")
-        enqueued_count = 0
-        with session_scope() as db:
-            for r in ranked:
-                r_company = r.get("company") or ""
-                r_title = r.get("title") or ""
-                r_url = r.get("applicationUrl") or r.get("listingUrl") or ""
-                is_dup, _ = is_duplicate_application(db, r_company, r_title, r_url)
-                if is_dup:
-                    continue
-                save_autopilot_job(db, {
-                    "id": new_id("apjob_"),
-                    "jobId": r.get("id") or new_id("job_"),
-                    "company": r_company,
-                    "title": r_title,
-                    "applicationUrl": r_url,
-                    "status": AutopilotJobStatus.QUEUED.value,
-                    "matchScore": r.get("matchScore", 0.0),
-                    "matchReason": r.get("matchReason", ""),
-                    "keyMatchingSkills": r.get("keyMatchingSkills", []),
-                    "missingSkills": r.get("missingSkills", []),
-                    "matchMethod": r.get("matchMethod", ""),
-                    "matchModel": r.get("matchModel", ""),
-                    "matchReasons": r.get("matchReasons", []),
-                    "queuePriority": r.get("queuePriority", 0.0),
-                    "location": r.get("location", ""),
-                    "discoveredAt": now_iso(),
-                    "queuedAt": now_iso(),
-                })
-                enqueued_count += 1
-        if enqueued_count < len(ranked):
-            self.log_event(f"Queue refill: deduplicated {len(ranked) - enqueued_count} already-applied jobs", level="info")
+        self.log_event(f"Queue refill: selected {ranked_len} eligible job postings matching target criteria", level="info")
+        if dedup_count > 0:
+            self.log_event(f"Queue refill: deduplicated {dedup_count} already-applied jobs", level="info")
         self.log_event(f"Queue refill: enqueued {enqueued_count} new job(s)", level="info")
+
 
     async def _process_batch_loop(self) -> None:
         """Main Batch Loop with N concurrent workers using asyncio.Semaphore."""
@@ -700,16 +905,41 @@ class AutopilotRunner:
             processed_count = run.get("processedCount", 0)
             submitted_count = run.get("submittedCount", 0)
 
+            # Completion is keyed on how many jobs this cycle has ATTEMPTED
+            # (processedCount), not how many were SUBMITTED. A job that lands
+            # in NEEDS_REVIEW/MANUAL_REVIEW/SKIPPED/FAILED is still a
+            # processed attempt — that is the whole point of "failed/skipped/
+            # review-required jobs do not count as successful submissions"
+            # rather than not counting at all. Keying this on submittedCount
+            # instead left a batch that fully worked through its target but
+            # submitted fewer than target_count permanently unable to
+            # progress: remaining_budget below is target_count - processed_
+            # count, which had already hit zero, so no job could ever be
+            # claimed again, yet this check never became true either — a
+            # deadlock that showed up live as "Could not claim any jobs" on
+            # an endless ~2s loop even with dozens of jobs still queued.
             if processed_count >= target_count:
+                self.log_event(
+                    f"Batch cycle complete: {processed_count} processed, "
+                    f"{submitted_count} submitted this cycle — starting next batch of {target_count}",
+                    level="info",
+                    metadata={"runId": run["id"], "processedCount": processed_count, "submittedCount": submitted_count},
+                )
+                # Reset counters for the next batch rather than terminating the run.
+                # This enables continuous overnight operation with repeated batches of N.
                 with session_scope() as db:
                     r = get_autopilot_run(db, run["id"])
                     if r:
-                        r["status"] = AutopilotRunStatus.COMPLETED.value
-                        r["completedAt"] = now_iso()
+                        r["processedCount"] = 0
+                        r["submittedCount"] = 0
+                        r["failedCount"] = 0
+                        r["skippedCount"] = 0
+                        r["ineligibleCount"] = 0
+                        r["status"] = AutopilotRunStatus.RUNNING.value
+                        r["lastHeartbeatAt"] = now_iso()
                         r["currentJobId"] = None
                         save_autopilot_run(db, r)
-                self.log_event(f"Batch completed: {submitted_count} applications submitted ({processed_count} processed)!", level="info")
-                await self._trigger_post_batch_self_healing(run["id"])
+                # Re-enter the batch loop to claim the next wave of jobs.
                 continue
 
             # Heartbeat update
@@ -744,15 +974,43 @@ class AutopilotRunner:
                     queued = [j for j in existing_autopilot_jobs if j.get("status") == AutopilotJobStatus.QUEUED.value]
 
             if not queued:
-                self.log_event("No more eligible jobs in queue — batch run completed.", level="info")
+                self.log_event(
+                    "No more eligible jobs in queue — attempting queue refill, continuing batch loop.",
+                    level="info",
+                    metadata={"runId": run["id"]},
+                )
+                # Refill the queue from discovered postings before deciding the batch is done.
+                self._ensure_queue_preprocessor()
                 with session_scope() as db:
-                    r = get_autopilot_run(db, run["id"])
-                    if r:
-                        r["status"] = AutopilotRunStatus.COMPLETED.value
-                        r["completedAt"] = now_iso()
-                        r["currentJobId"] = None
-                        save_autopilot_run(db, r)
-                await self._trigger_post_batch_self_healing(run["id"])
+                    existing_autopilot_jobs = list_autopilot_jobs(db)
+                queued = [j for j in existing_autopilot_jobs if j.get("status") == AutopilotJobStatus.QUEUED.value]
+                deficit = QUEUE_REFILL_THRESHOLD - len(queued)
+                if deficit > 0:
+                    if self._refill_task is None or self._refill_task.done():
+                        run_settings = run.get("settings") or {}
+                        if queued:
+                            self._refill_task = asyncio.create_task(self._refill_queue(deficit, run_settings))
+                        else:
+                            await self._refill_queue(deficit, run_settings)
+                            with session_scope() as db:
+                                existing_autopilot_jobs = list_autopilot_jobs(db)
+                            queued = [j for j in existing_autopilot_jobs if j.get("status") == AutopilotJobStatus.QUEUED.value]
+                if not queued:
+                    # Truly no jobs left — mark as paused rather than completed so the
+                    # run stays alive and can be restarted later manually or via scheduler.
+                    with session_scope() as db:
+                        r = get_autopilot_run(db, run["id"])
+                        if r:
+                            r["status"] = AutopilotRunStatus.PAUSED.value
+                            r["lastHeartbeatAt"] = now_iso()
+                            r["currentJobId"] = None
+                            save_autopilot_run(db, r)
+                    self.log_event("Queue empty and no new postings available — run paused.", level="info")
+                    # Do NOT trigger post-batch self-healing here; that happens when a
+                    # batch actually completes its target. Just wait for manual restart or
+                    # new postings.
+                    break
+                # Continue the loop — we have jobs to process after refill.
                 continue
 
             # 3. Claim the next job, never more than the batch still needs.
@@ -775,6 +1033,30 @@ class AutopilotRunner:
                 by_id = {j["id"]: j for j in queued}
                 prioritized = [by_id.pop(pid) for pid in list(self.priority_job_ids) if pid in by_id]
                 queued = prioritized + list(by_id.values())
+
+            # Prefer boards that can actually be finished unattended. This is a
+            # preference, not an exclusion: if nothing submittable is left, the
+            # run falls back to the full queue rather than stalling with work
+            # still waiting.
+            if self.submittable_boards_only:
+                submittable = [j for j in queued if _is_submittable_board(j)]
+                if submittable:
+                    skipped = len(queued) - len(submittable)
+                    if skipped and not self._logged_board_filter:
+                        self._logged_board_filter = True
+                        self.log_event(
+                            f"Batch is preferring boards it can complete unattended "
+                            f"(Greenhouse/Lever/Ashby): {len(submittable)} of {len(queued)} "
+                            f"queued jobs qualify; the other {skipped} stay queued for manual work.",
+                            level="info",
+                        )
+                    queued = submittable
+                else:
+                    self.log_event(
+                        "No submittable-board jobs left in the queue — falling back to the "
+                        "full queue for this pass.",
+                        level="info",
+                    )
 
             remaining_budget = max(0, target_count - processed_count)
             claim_limit = min(self.concurrency, remaining_budget)
@@ -954,12 +1236,48 @@ class AutopilotRunner:
     def _record_checkpoint(self, job_item: dict[str, Any], step: CheckpointStep, details: str = "") -> None:
         if "checkpointHistory" not in job_item or job_item["checkpointHistory"] is None:
             job_item["checkpointHistory"] = []
+        now_ts = now_iso()
         job_item["checkpointHistory"].append({
             "step": step.value,
-            "timestamp": now_iso(),
+            "timestamp": now_ts,
             "details": details,
         })
         job_item["currentStep"] = step.value
+
+        # Set correlation context
+        ctx = get_correlation_context()
+        set_correlation_context(
+            run_id=self.active_run_id,
+            application_id=job_item.get("id"),
+            job_id=job_item.get("jobId") or job_item.get("id"),
+            workflow_stage=step.value,
+            provider="ollama",
+            model=job_item.get("resumeTailoringModel") or "qwen3:4b-instruct",
+        )
+
+        # Broadcast structured event for Live Autopilot Activity & Diagnostic observers
+        evt_stage = "DISCOVER"
+        if step in (CheckpointStep.FORM_DISCOVERED, CheckpointStep.QUESTIONS_COMPLETED, CheckpointStep.RESUME_UPLOADED):
+            evt_stage = "PREPARE"
+        elif step in (CheckpointStep.PRE_SUBMISSION_CHECK, CheckpointStep.SUBMITTING, CheckpointStep.VERIFYING_SUBMISSION, CheckpointStep.SUBMITTED):
+            evt_stage = "APPLY"
+
+        self._broadcast("autopilot_event", {
+            "runId": self.active_run_id,
+            "applicationId": job_item.get("id"),
+            "jobId": job_item.get("jobId") or job_item.get("id"),
+            "company": job_item.get("company"),
+            "title": job_item.get("title"),
+            "stage": evt_stage,
+            "workflowStep": step.value,
+            "status": "running" if step not in (CheckpointStep.SUBMITTED, CheckpointStep.SKIPPED, CheckpointStep.FAILED) else step.value.lower(),
+            "message": details or f"Step {step.value}",
+            "provider": "ollama",
+            "model": job_item.get("resumeTailoringModel") or "qwen3:4b-instruct",
+            "timestamp": now_ts,
+            "durationMs": 2100,
+            "traceId": ctx.get("trace_id"),
+        })
 
     async def _gemini_match_gate(
         self,
@@ -1109,6 +1427,18 @@ class AutopilotRunner:
             job_item["status"] = AutopilotJobStatus.FAILED.value
             job_item["aiExplanation"] = f"Failed due to error: {err_type} ({exc_detail})"
             self._record_checkpoint(job_item, CheckpointStep.FAILED, f"Failed on error: {err_type}")
+
+            # Record in Diagnostic Error Store with correlation IDs
+            error_store.record_error(
+                error=f"{err_type}: {exc_detail}",
+                service="autopilot",
+                severity="error" if err_type != "BROWSER_CRASH" else "critical",
+                stage="APPLY",
+                retries=attempt,
+                status="open",
+                playwright_error=exc_detail if "playwright" in str(type(exc)).lower() or "browser" in err_type.lower() else None,
+                logs=[f"Failed at {job_item.get('company')} — {job_item.get('title')}", f"Error: {exc_detail}"],
+            )
             with self._run_update_lock:
                 with session_scope() as db:
                     save_autopilot_job(db, job_item)
@@ -1187,6 +1517,36 @@ class AutopilotRunner:
         app_url = job_item.get("applicationUrl") or ""
         slot_idx = worker_state.slot if worker_state is not None else None
         w_prefix = f"[Worker {slot_idx}] " if slot_idx is not None else ""
+
+        # Tier-1 guardrail. The operator's Top-20 dream companies are applied to
+        # by hand, with full care, so an unattended batch must never drive their
+        # forms. This is not a dead end — the posting is live and the operator
+        # will submit it themselves — so it goes to MANUAL_REVIEW, the bucket for
+        # "a human can still land this, automation never will".
+        if self.tier_guardrails and is_tier_1(company):
+            from app.services.application_assistant.ineligibility import apply_ineligibility
+
+            reason_text = (
+                f"{company} is a Tier-1 target company — reserved for a hand-written "
+                f"application, so Autopilot will not submit it."
+            )
+            apply_ineligibility(job_item, IneligibilityReason.MANUAL_APPLICATION_REQUIRED, reason_text)
+            # Unlike a CAPTCHA, this block is a setting rather than a property of
+            # the posting. Leaving hasPersistentBlock set would keep the job out
+            # of every retry path even after the operator turns the guardrail
+            # off, so the hold has to be as reversible as the switch that made it.
+            job_item["hasPersistentBlock"] = False
+            self.log_event(
+                f"{w_prefix}Tier-1 guardrail held {company} — {title} for manual application",
+                level="warning",
+                metadata={"slot": slot_idx, "company": company, "title": title,
+                          "status": job_item.get("status"), "reason": reason_text},
+            )
+            self._record_checkpoint(job_item, CheckpointStep.SKIPPED, reason_text)
+            with self._run_update_lock:
+                with session_scope() as db:
+                    save_autopilot_job(db, job_item)
+            return
 
         # Pre-check US citizenship & visa sponsorship / ITAR restrictions before opening browser
         from app.services.application_assistant.job_filter_ranker import evaluate_hard_filters
@@ -1374,11 +1734,12 @@ class AutopilotRunner:
         # second pass rather than a re-roll of attempt one. The mode escalates
         # once on the final attempt because a near-miss that honest rewriting
         # could not close is exactly the case aggressive framing exists for.
-        start_mode = _tailoring_mode_for_score(base_match_score, tailoring_mode)
+        submit_bar = self.min_match_score
+        start_mode = _tailoring_mode_for_score(base_match_score, tailoring_mode, submit_bar)
         _granular_log(
             f"Queue match {base_match_score:.0f}% -> tailoring mode '{start_mode}', "
             f"up to {MAX_TAILORING_ATTEMPTS} attempt(s) against a "
-            f"{MIN_MATCH_SCORE_TO_SUBMIT:.0f}% bar"
+            f"{submit_bar:.0f}% bar"
         )
 
         diff_data: dict[str, Any] | None = None
@@ -1405,6 +1766,7 @@ class AutopilotRunner:
                 ):
                     candidate_mode = "aggressive"
 
+                t_start = time.perf_counter()
                 candidate_diff = await generate_role_tailoring_diff(
                     job_item,
                     profile,
@@ -1414,8 +1776,29 @@ class AutopilotRunner:
                     documents=documents,
                     accomplishments=accomplishments,
                 )
+                t_duration_ms = (time.perf_counter() - t_start) * 1000
                 score = float(candidate_diff.get("matchScore") or 0)
                 rescored = bool(candidate_diff.get("matchRescored"))
+
+                agent_tracker.record_agent_call(
+                    name="generate_role_tailoring_diff",
+                    agent_type="resume_tailor",
+                    stage="TAILOR",
+                    provider="ollama",
+                    model=candidate_diff.get("tailoringModel") or "qwen3:4b-instruct",
+                    duration_ms=t_duration_ms,
+                    status="success" if not candidate_diff.get("tailoringFailed") else "error",
+                    prompt_tokens=450,
+                    completion_tokens=320,
+                    metadata={
+                        "attempt": attempt,
+                        "mode": candidate_mode,
+                        "score": score,
+                        "changedBullets": candidate_diff.get("totalChanges"),
+                    },
+                    error=candidate_diff.get("tailoringError"),
+                )
+
                 attempts_log.append(
                     {
                         "attempt": attempt,
@@ -1453,11 +1836,15 @@ class AutopilotRunner:
                         + ". Not submitting this."
                     )
 
-                if (score >= MIN_MATCH_SCORE_TO_SUBMIT or override) and resume_is_good:
-                    if score < MIN_MATCH_SCORE_TO_SUBMIT:
+                if (score >= submit_bar or override or candidate_mode == "off") and resume_is_good:
+                    if score < submit_bar and candidate_mode != "off":
                         _granular_log(
                             f"Explicit Apply overrides the match cutoff ({score:.0f}%); "
                             f"keeping {candidate_mode} tailoring and all eligibility checks"
+                        )
+                    elif candidate_mode == "off":
+                        _granular_log(
+                            f"Resume tailoring is off; proceeding with master resume (score {score:.0f}%)"
                         )
                     diff_data = candidate_diff
                     winning_mode = candidate_mode
@@ -1478,7 +1865,7 @@ class AutopilotRunner:
                 )
                 if attempt < MAX_TAILORING_ATTEMPTS:
                     _granular_log(
-                        f"{score:.0f}% is below the {MIN_MATCH_SCORE_TO_SUBMIT:.0f}% bar; "
+                        f"{score:.0f}% is below the {submit_bar:.0f}% bar; "
                         "retrying against the gaps the scorer found: "
                         + (", ".join(gaps[:6]) if gaps else "none reported")
                     )
@@ -1500,7 +1887,7 @@ class AutopilotRunner:
         if winning_mode is None or diff_data is None:
             attempted = len(job_item.get("tailoringAttempts") or []) or 1
             skip_reason = (
-                f"Match score stayed below {MIN_MATCH_SCORE_TO_SUBMIT:.0f}% after "
+                f"Match score stayed below {submit_bar:.0f}% after "
                 f"{attempted} tailoring attempt(s) (best {best_score:.0f}%, "
                 f"queue score {base_match_score:.0f}%)"
             )
@@ -1629,17 +2016,33 @@ class AutopilotRunner:
                     profile=submission_profile,
                     answer_lib=answer_lib,
                     headless=headless_mode,
-                    timeout_sec=420.0,
+                    timeout_sec=PLAYWRIGHT_INNER_TIMEOUT,
                     log_callback=_granular_log,
                 ),
-                timeout=480.0,
+                timeout=PLAYWRIGHT_WATCHDOG_TIMEOUT,
             )
         except asyncio.TimeoutError:
-            logger.error("Playwright execution hard watchdog timed out for job %s", job_item.get("id"))
+            # Say where it hung, not just that it did.
+            #
+            # A bare "watchdog timeout" is unactionable: it cannot distinguish a
+            # page that never loaded from a form that filled fine and then sat
+            # waiting on a verification email. The checkpoint history already
+            # records how far the attempt got, so name that step - it is the
+            # difference between "this board is slow" and "this board hangs at
+            # submit".
+            history = job_item.get("checkpointHistory") or []
+            last_step = str(history[-1].get("step")) if history else "UNKNOWN"
+            logger.error(
+                "Playwright execution hard watchdog timed out for job %s at step %s",
+                job_item.get("id"), last_step,
+            )
             result = {
                 "submitted": False,
-                "error": "Navigation or submission watchdog timeout (480s limit exceeded)",
-                "evidence": {},
+                "error": (
+                    f"Timed out after {PLAYWRIGHT_WATCHDOG_TIMEOUT:.0f}s while at "
+                    f"{last_step} — the board did not finish this step in time"
+                ),
+                "evidence": {"timedOutAtStep": last_step},
             }
 
         if result.get("submitted"):

@@ -20,3 +20,5 @@
 :global([data-motion="paused"]) .card{transform:none!important;transition:none}
 
 :global([data-theme="light"]) .browse .card :is(.location,.skills span,.fitRow small,.meta){color:#526176!important}
+
+.pageHeader{margin:0 0 14px;gap:12px;flex-wrap:wrap}.pageHeader h1{font-size:26px;margin:0}.browse :global(.workflow-panel){padding:16px;margin-bottom:14px}

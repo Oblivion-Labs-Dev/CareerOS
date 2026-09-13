@@ -87,6 +87,7 @@ with session_scope() as db:
             "title": cand["title"],
             "location": cand["location"],
             "applyUrl": cand["url"],
+            "applicationUrl": cand["url"],
             "listingUrl": cand["url"],
             "status": "QUEUED",
             "matchScore": cand["matchScore"],

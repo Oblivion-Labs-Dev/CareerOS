@@ -33,3 +33,8 @@
 @media (max-width: 1000px) { .art { flex: 0 1 220px; } }
 @media (max-width: 650px) { .header { display: block; padding-top: 25px; } .copy { position: relative; z-index: 1; } .art { position: absolute; right: -20px; top: -14px; opacity: .28; pointer-events: none; } .eyebrow { max-width: 65%; } .header p { max-width: 90%; } }
 @media (max-width: 480px) { .header { border-radius: 18px; } .header p { font-size: .85rem; } .actions { width: 100%; } .actions a { flex: 1 1 auto; } }
+
+.compactHeader {display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;margin:0 0 18px;padding:4px 0 14px;border-bottom:1px solid var(--border)}
+.compactHeader h1 {font-size:clamp(1.45rem,2.5vw,1.9rem);letter-spacing:-.035em;margin:0}
+.compactHeader .actions {margin:0;gap:8px}
+.compactHeader p {font-size:.82rem;color:var(--muted);margin:6px 0 0}

@@ -121,7 +121,7 @@ export function GeminiDiagnostics() {
   if (error) {
     return (
       <article className="workflow-panel">
-        <h2>Gemini layer</h2>
+        <h1 style={{fontSize:"1.6rem",margin:0}}>Gemini</h1>
         <p className="muted">Could not load diagnostics: {error}</p>
       </article>
     );
@@ -129,7 +129,7 @@ export function GeminiDiagnostics() {
   if (!data) {
     return (
       <article className="workflow-panel">
-        <h2>Gemini layer</h2>
+        <h1 style={{fontSize:"1.6rem",margin:0}}>Gemini</h1>
         <p className="muted">Loading…</p>
       </article>
     );
@@ -143,14 +143,7 @@ export function GeminiDiagnostics() {
       <article className="workflow-panel dashboard-panel--wide">
         <div className="dashboard-panel-header">
           <div>
-            <span className="toc-card-kicker">Optional intelligence layer</span>
-            <h2>Gemini</h2>
-            <p className="muted" style={{ marginTop: "0.4rem", maxWidth: "64ch" }}>
-              Gemini enriches open-ended answers, resume wording and the job matches CareerOS
-              cannot settle on its own. Everything below can be zero and CareerOS still runs
-              normally — deterministic matching, profile answers and submission do not depend
-              on it.
-            </p>
+            <h1 style={{fontSize:"1.6rem",margin:0}}>Gemini</h1>
           </div>
           <span className={`gemini-health gemini-health--${healthKey}`}>
             <i aria-hidden="true" />

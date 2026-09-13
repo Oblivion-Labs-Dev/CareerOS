@@ -77,9 +77,15 @@ class SmartRecruitersSource(JobSourceAdapter):
                     is_hybrid = "hybrid" in f"{location} {title}".lower()
                     remote_status = "REMOTE" if is_remote else ("HYBRID" if is_hybrid else "ONSITE")
 
-                    # Links
+                    # Links. The listing endpoint's "ref" field is the API's own
+                    # self-link (api.smartrecruiters.com/v1/companies/.../postings/...),
+                    # never the public posting page - it is present on every item, so
+                    # trusting it here was sending Playwright at a raw JSON endpoint
+                    # with no submit button on it. The public board only needs the
+                    # company slug and posting id; the human-facing title slug in the
+                    # real URL is cosmetic and the bare id path still resolves.
                     job_id = s(job.get("id") or job.get("uuid", ""))
-                    hosted_url = job.get("ref") or f"https://jobs.smartrecruiters.com/{slug}/{job_id}"
+                    hosted_url = f"https://jobs.smartrecruiters.com/{slug}/{job_id}"
                     apply_url = job.get("applyUrl") or hosted_url
 
                     normalized = NormalizedJob(

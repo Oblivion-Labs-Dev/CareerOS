@@ -14,6 +14,9 @@ import {
   getAutopilotJobs,
   setAutopilotJobState,
   reprocessSingleAutopilotJob,
+  resolveAggregatorUrls,
+  dedupeApplications,
+  requeueBucket,
   resetSubmittedAutopilotJobs,
   skipStagedApplication,
 } from "@/lib/application-assistant-api";
@@ -41,6 +44,10 @@ export function AutopilotApplicationsView({
   const [filter, setFilter] = useSessionState<StatusFilter>("applications-filter", FILTERS.some(item => item.id === linkedFilter) ? linkedFilter as StatusFilter : "all");
   const [sortMode, setSortMode] = useSessionState<SortMode>("applications-sort", "priority");
   const [query, setQuery] = useSessionState("applications-query", "");
+  // Which bulk requeue is awaiting confirmation, if any. Held as state rather
+  // than using window.confirm so the warning can say exactly what is about to
+  // happen and how many rows it touches.
+  const [confirmRequeue, setConfirmRequeue] = useState<"review" | "failed" | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [detail, setDetail] = useState<AutopilotJobRow | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -242,6 +249,59 @@ export function AutopilotApplicationsView({
     }
   };
 
+  /** Jobs stored at an aggregator listing have no application form at that
+   *  URL. This looks each one up on the employer's own board and repoints it. */
+  const fixAggregatorLinks = async () => {
+    setBusy("aggregator");
+    setNote(null);
+    setMenuOpen(false);
+    try {
+      const res = await resolveAggregatorUrls();
+      setNote(res.message);
+      pages.refresh();
+      onJobsChanged();
+    } catch (err) {
+      setNote(err instanceof Error ? err.message : "Could not resolve aggregator links");
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  /** The same posting can be discovered many times; this keeps the record that
+   *  got furthest and retires the rest so the lists stop repeating. */
+  const removeDuplicates = async () => {
+    setBusy("dedupe");
+    setNote(null);
+    setMenuOpen(false);
+    try {
+      const res = await dedupeApplications();
+      setNote(res.message);
+      pages.refresh();
+      onJobsChanged();
+    } catch (err) {
+      setNote(err instanceof Error ? err.message : "Could not remove duplicates");
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  /** Send the whole Review or Failed list back to the queue. */
+  const doRequeueBucket = async (bucket: "review" | "failed") => {
+    setConfirmRequeue(null);
+    setBusy("requeue");
+    setNote(null);
+    try {
+      const res = await requeueBucket(bucket);
+      setNote(res.message);
+      pages.refresh();
+      onJobsChanged();
+    } catch (err) {
+      setNote(err instanceof Error ? err.message : "Could not requeue those applications");
+    } finally {
+      setBusy(null);
+    }
+  };
+
   const skipJob = async (job: AutopilotJobRow) => {
     setBusy(job.id);
     try {
@@ -399,6 +459,19 @@ export function AutopilotApplicationsView({
           ))}
         </select>
 
+        {(filter === "review" || filter === "failed") && (counts[filter] ?? 0) > 0 && (
+          <button
+            type="button"
+            className={styles.filterChip}
+            disabled={busy === "requeue"}
+            onClick={() => setConfirmRequeue(filter as "review" | "failed")}
+          >
+            {busy === "requeue"
+              ? "Moving…"
+              : `Move all ${counts[filter] ?? 0} to queue`}
+          </button>
+        )}
+
         <div className={styles.overflowWrap} ref={menuRef}>
           <button type="button" className={styles.overflowBtn} onClick={() => setMenuOpen((v) => !v)} aria-label="More actions">
             ⋯
@@ -406,6 +479,12 @@ export function AutopilotApplicationsView({
           {menuOpen && (
             <div className={styles.overflowMenu}>
               <button type="button" onClick={() => void downloadJson()}>Download submitted as JSON</button>
+              <button type="button" disabled={busy === "aggregator"} onClick={() => void fixAggregatorLinks()}>
+                {busy === "aggregator" ? "Resolving links…" : "Resolve aggregator links"}
+              </button>
+              <button type="button" disabled={busy === "dedupe"} onClick={() => void removeDuplicates()}>
+                {busy === "dedupe" ? "Removing duplicates…" : "Remove duplicate applications"}
+              </button>
               <button type="button" className={styles.overflowDanger} disabled={busy === "reset"} onClick={() => void resetAll()}>
                 Reset all to unapplied…
               </button>
@@ -413,6 +492,41 @@ export function AutopilotApplicationsView({
           )}
         </div>
       </div>
+
+      {confirmRequeue && (
+        <div className={styles.confirmBackdrop} role="presentation" onClick={() => setConfirmRequeue(null)}>
+          <div
+            className={styles.confirmCard}
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="requeue-confirm-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <h3 id="requeue-confirm-title" className={styles.confirmTitle}>
+              Move all {counts[confirmRequeue] ?? 0}{" "}
+              {confirmRequeue === "review" ? "review" : "failed"} applications back to the queue?
+            </h3>
+            <p className={styles.confirmBody}>
+              Autopilot will try each of them again. The reason each one was set aside — the
+              question that still needed answering, or the error that broke the attempt — is
+              cleared so it can be retried.
+            </p>
+            <p className={styles.confirmWarning}>This cannot be undone.</p>
+            <div className={styles.confirmActions}>
+              <button type="button" className={styles.filterChip} onClick={() => setConfirmRequeue(null)}>
+                Cancel
+              </button>
+              <button
+                type="button"
+                className={styles.confirmDanger}
+                onClick={() => void doRequeueBucket(confirmRequeue)}
+              >
+                Yes, move them to the queue
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {note && <div className={styles.empty} style={{ marginBottom: "0.75rem" }}>{note}</div>}
 

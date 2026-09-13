@@ -20,29 +20,27 @@ async def start_autopilot(
     # runner opens its own short-lived sessions internally) is what previously
     # exhausted the connection pool. See approve_preflight_submission for the
     # same fix applied to the single-job apply path.
+    logger.info("start_autopilot called with options: %s", options)
     from app.services.application_assistant.autopilot_runner import AutopilotRunner
     runner = AutopilotRunner.get_instance()
     run = await runner.start(options=options)
+    logger.info("start_autopilot finished runner.start(), returning run id: %s", (run or {}).get("id"))
     return {"success": True, "run": run}
 
 
 @router.post("/autopilot/pause")
-async def pause_autopilot(
-    db: Session = Depends(db_session),
-) -> dict[str, Any]:
+async def pause_autopilot() -> dict[str, Any]:
     from app.services.application_assistant.autopilot_runner import AutopilotRunner
     runner = AutopilotRunner.get_instance()
-    run = await runner.pause(db)
+    run = await runner.pause()
     return {"success": True, "run": run}
 
 
 @router.post("/autopilot/stop")
-async def stop_autopilot(
-    db: Session = Depends(db_session),
-) -> dict[str, Any]:
+async def stop_autopilot() -> dict[str, Any]:
     from app.services.application_assistant.autopilot_runner import AutopilotRunner
     runner = AutopilotRunner.get_instance()
-    run = await runner.stop(db)
+    run = await runner.stop()
     return {"success": True, "run": run}
 
 
@@ -527,6 +525,72 @@ async def classify_pending_questions(id: str) -> dict[str, Any]:
     return {"success": True, "pendingQuestions": pending_questions}
 
 
+def _resolve_job_fields(payload: dict[str, Any]) -> dict[str, Any]:
+    """Fill in whatever the pasted link can tell us about the posting.
+
+    A job URL already carries its own company, title and location - the ATS
+    marks the page up with Schema.org JobPosting - so asking a person to retype
+    them is busywork, and the values they type are the ones most likely to be
+    wrong (a company named differently from the board slug breaks the duplicate
+    guard). Anything the caller supplied explicitly still wins; this only fills
+    the gaps, and falls back to the board slug in the URL when the fetch fails.
+    """
+    from app.services.job_discover.url_import import (
+        autoextract_job_from_url,
+        guess_company_from_url,
+    )
+
+    resolved = dict(payload)
+    url = str(resolved.get("applicationUrl") or "").strip()
+    if not url:
+        return resolved
+
+    # An aggregator listing is not an application form. Resolve it to the
+    # employer's own board first, so what gets stored is a URL the automation
+    # can actually submit rather than a page it will never get past.
+    from app.services.job_discover.aggregator_resolve import (
+        is_aggregator_url,
+        resolve_aggregator_url,
+    )
+
+    if is_aggregator_url(url):
+        found = resolve_aggregator_url(
+            url,
+            company_name=str(resolved.get("company") or ""),
+            title=str(resolved.get("title") or ""),
+        )
+        if found:
+            resolved["applicationUrl"] = found["applicationUrl"]
+            resolved["aggregatorUrl"] = url
+            resolved.setdefault("company", found.get("company") or "")
+            if not str(resolved.get("title") or "").strip():
+                resolved["title"] = found.get("title") or ""
+            url = found["applicationUrl"]
+
+    needs = not str(resolved.get("company") or "").strip() or not str(resolved.get("title") or "").strip()
+    if not needs:
+        return resolved
+
+    extracted = None
+    try:
+        extracted = autoextract_job_from_url(url)
+    except Exception:
+        logger.debug("Could not auto-extract %s", url, exc_info=True)
+
+    if extracted:
+        for key in ("company", "title", "location"):
+            if not str(resolved.get(key) or "").strip() and extracted.get(key):
+                resolved[key] = extracted[key]
+        if extracted.get("description") and not resolved.get("description"):
+            resolved["description"] = extracted["description"]
+
+    # Even a failed fetch leaves the board slug, which is a far better company
+    # name than "Unknown Company" - it is what the dedupe key is built from.
+    if not str(resolved.get("company") or "").strip():
+        resolved["company"] = guess_company_from_url(url) or ""
+    return resolved
+
+
 @router.post("/autopilot/enqueue")
 def enqueue_job_for_autopilot(
     payload: dict[str, Any] = Body(default_factory=dict),
@@ -535,6 +599,7 @@ def enqueue_job_for_autopilot(
     from app.services.application_assistant.persistence import save_autopilot_job, is_duplicate_application
     from app.db.store import new_id, now_iso
 
+    payload = _resolve_job_fields(payload)
     company = payload.get("company") or "Unknown Company"
     title = payload.get("title") or "Unknown Role"
     app_url = payload.get("applicationUrl") or ""
@@ -568,6 +633,9 @@ def enqueue_job_for_autopilot(
         "company": company,
         "title": title,
         "applicationUrl": app_url,
+        # Where the link came from, when it was an aggregator listing that got
+        # resolved to the employer's board.
+        "aggregatorUrl": payload.get("aggregatorUrl"),
         "status": "QUEUED",
         "matchScore": float(payload.get("matchScore") or 85.0),
         "location": payload.get("location", ""),
@@ -578,6 +646,378 @@ def enqueue_job_for_autopilot(
         job_item["tailoringMode"] = payload["tailoringMode"]
     saved = save_autopilot_job(db, job_item)
     return {"success": True, "deduplicated": False, "job": saved}
+
+
+@router.post("/autopilot/enqueue-batch")
+def enqueue_jobs_for_autopilot(
+    payload: dict[str, Any] = Body(default_factory=dict),
+    db: Session = Depends(db_session),
+) -> dict[str, Any]:
+    """Queue many postings from their links alone.
+
+    People collect job links in bulk - a dozen tabs, a list from a newsletter -
+    and the details are already on the far end of every one of them, so the only
+    thing worth asking for is the links. Each URL is resolved to its company,
+    title and location, then run through exactly the same duplicate guard and
+    hard filters as a single add, and every one gets its own outcome back so a
+    posting that was filtered or already queued says so rather than vanishing.
+    """
+    import re as _re
+    from concurrent.futures import ThreadPoolExecutor
+
+    raw = payload.get("urls")
+    if isinstance(raw, str):
+        raw = [raw]
+    if not isinstance(raw, list):
+        raise HTTPException(status_code=400, detail="Expected 'urls' to be a list of job links.")
+
+    # Accept a pasted block: newlines, spaces, commas, or a mix of them.
+    urls: list[str] = []
+    seen: set[str] = set()
+    for entry in raw:
+        for candidate in _re.split(r"[\s,]+", str(entry or "")):
+            candidate = candidate.strip()
+            if not candidate:
+                continue
+            if not candidate.lower().startswith(("http://", "https://")):
+                continue
+            if candidate in seen:
+                continue
+            seen.add(candidate)
+            urls.append(candidate)
+
+    if not urls:
+        raise HTTPException(status_code=400, detail="No usable http(s) job links were found in that input.")
+    if len(urls) > 50:
+        raise HTTPException(status_code=400, detail=f"{len(urls)} links is more than the 50 this accepts at once.")
+
+    tailoring_mode = payload.get("tailoringMode")
+
+    # Resolution is a network fetch per link, so do those together rather than
+    # one after another; the database writes below stay sequential on the single
+    # request session.
+    def _resolve(url: str) -> dict[str, Any]:
+        return _resolve_job_fields({"applicationUrl": url, "tailoringMode": tailoring_mode})
+
+    with ThreadPoolExecutor(max_workers=min(8, len(urls))) as pool:
+        resolved = list(pool.map(_resolve, urls))
+
+    results: list[dict[str, Any]] = []
+    queued = 0
+    for url, item in zip(urls, resolved):
+        try:
+            outcome = enqueue_job_for_autopilot(payload=item, db=db)
+        except HTTPException:
+            raise
+        except Exception as exc:
+            logger.exception("Could not queue %s", url)
+            results.append({"url": url, "state": "error", "message": str(exc)[:200]})
+            continue
+
+        if outcome.get("deduplicated"):
+            state = "duplicate"
+        elif outcome.get("filtered") or outcome.get("success") is False:
+            state = "filtered"
+        else:
+            state = "queued"
+            queued += 1
+        job = outcome.get("job") or {}
+        results.append({
+            "url": url,
+            "state": state,
+            "company": job.get("company") or item.get("company") or "",
+            "title": job.get("title") or item.get("title") or "",
+            "message": outcome.get("message") or "",
+        })
+
+    return {
+        "success": True,
+        "queued": queued,
+        "total": len(urls),
+        "results": results,
+    }
+
+
+@router.post("/autopilot/resolve-aggregator-urls")
+def resolve_aggregator_urls(
+    payload: dict[str, Any] = Body(default_factory=dict),
+    db: Session = Depends(db_session),
+) -> dict[str, Any]:
+    """Repoint jobs stored at an aggregator listing to the employer's own board.
+
+    Ingestion resolves these going forward, but rows queued before that are
+    stuck at a URL with no application form on it. This walks the existing rows
+    and fixes the ones whose posting can be found on a public board API.
+
+    A row whose resolved URL already belongs to another application is retired
+    as a duplicate rather than left as a second copy of the same posting.
+    """
+    from concurrent.futures import ThreadPoolExecutor
+
+    from app.services.application_assistant.domain import IneligibilityReason
+    from app.services.application_assistant.ineligibility import apply_ineligibility
+    from app.services.application_assistant.persistence import (
+        list_autopilot_jobs,
+        save_autopilot_job,
+    )
+    from app.services.job_discover.aggregator_resolve import (
+        is_aggregator_url,
+        resolve_aggregator_url,
+    )
+
+    statuses = payload.get("statuses") or ["QUEUED", "MANUAL_REVIEW", "FAILED", "NEEDS_REVIEW"]
+    wanted = {str(s).upper() for s in statuses}
+
+    all_jobs = list_autopilot_jobs(db)
+    targets = [
+        j for j in all_jobs
+        if str(j.get("status") or "").upper() in wanted
+        and is_aggregator_url(str(j.get("applicationUrl") or ""))
+    ]
+    if not targets:
+        return {"success": True, "examined": 0, "resolved": 0, "duplicates": 0, "unresolved": 0,
+                "message": "No jobs are stored at an aggregator listing."}
+
+    def _lookup(job: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any] | None]:
+        try:
+            return job, resolve_aggregator_url(
+                str(job.get("applicationUrl") or ""),
+                company_name=str(job.get("company") or ""),
+                title=str(job.get("title") or ""),
+            )
+        except Exception:
+            logger.exception("Aggregator resolve failed for %s", job.get("id"))
+            return job, None
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        results = list(pool.map(_lookup, targets))
+
+    # URLs already spoken for, so a resolved row does not become a second copy.
+    def _canon(url: str) -> str:
+        return str(url or "").lower().split("?")[0].rstrip("/")
+
+    taken = {
+        _canon(j.get("applicationUrl")): j
+        for j in all_jobs
+        if j.get("applicationUrl") and not is_aggregator_url(str(j.get("applicationUrl")))
+    }
+
+    resolved = duplicates = 0
+    details: list[dict[str, Any]] = []
+    for job, found in results:
+        if not found:
+            continue
+        new_url = found["applicationUrl"]
+        existing = taken.get(_canon(new_url))
+        if existing and existing.get("id") != job.get("id"):
+            apply_ineligibility(
+                job,
+                IneligibilityReason.DUPLICATE_APPLICATION,
+                f"The same posting is already tracked as {existing.get('status')} "
+                f"({existing.get('id')}) once its aggregator link was resolved.",
+            )
+            save_autopilot_job(db, job)
+            duplicates += 1
+            details.append({"id": job["id"], "company": job.get("company"), "state": "duplicate"})
+            continue
+
+        job["aggregatorUrl"] = job.get("applicationUrl")
+        job["applicationUrl"] = new_url
+        if found.get("title"):
+            job["title"] = found["title"]
+        # The row was parked for a reason that no longer applies: it is now a
+        # normal posting on a board the automation can drive.
+        if str(job.get("status") or "").upper() != "QUEUED":
+            job["status"] = "QUEUED"
+            job["queuedAt"] = now_iso()
+            job["attemptCount"] = 0
+        job["hasPersistentBlock"] = False
+        job["lastError"] = None
+        job["lastErrorType"] = None
+        job.pop("ineligibilityReason", None)
+        job.pop("ineligibilityDetail", None)
+        save_autopilot_job(db, job)
+        taken[_canon(new_url)] = job
+        resolved += 1
+        details.append({"id": job["id"], "company": job.get("company"),
+                        "state": "resolved", "url": new_url})
+
+    unresolved = len(targets) - resolved - duplicates
+    return {
+        "success": True,
+        "examined": len(targets),
+        "resolved": resolved,
+        "duplicates": duplicates,
+        "unresolved": unresolved,
+        "details": details[:60],
+        "message": (
+            f"Resolved {resolved} of {len(targets)} aggregator listings to the employer's board"
+            + (f", retired {duplicates} as duplicates" if duplicates else "")
+            + f". {unresolved} could not be found on a public board."
+        ),
+    }
+
+
+@router.post("/autopilot/dedupe-applications")
+def dedupe_applications(
+    payload: dict[str, Any] = Body(default_factory=dict),
+    db: Session = Depends(db_session),
+) -> dict[str, Any]:
+    """Collapse rows that are the same posting under the same URL.
+
+    ``close_duplicate_applications`` already retires siblings the moment one
+    record is submitted, but a posting that was re-discovered many times and
+    never submitted keeps every copy. One Roblox posting had 34 rows, all
+    carrying the same jobId, which made the Manual Review list read as 32
+    different jobs when it held one.
+
+    The survivor is the most advanced record - a submitted one always wins, then
+    the one that got furthest - and ties break to the oldest so the original
+    discovery is kept. Everything else is retired as a duplicate, which is a
+    terminal bucket, so the lists the user works through stop repeating.
+    """
+    from app.services.application_assistant.domain import IneligibilityReason
+    from app.services.application_assistant.ineligibility import apply_ineligibility
+    from app.services.application_assistant.persistence import (
+        canonical_application_url,
+        list_autopilot_jobs,
+        save_autopilot_job,
+    )
+
+    dry_run = bool(payload.get("dryRun"))
+
+    # Most-finished first: the record that got furthest is the one worth keeping.
+    RANK = {
+        "SUBMITTED": 0, "APPLYING": 1, "NEEDS_REVIEW": 2, "STAGED": 2,
+        "MANUAL_REVIEW": 3, "FAILED": 4, "QUEUED": 5, "SKIPPED": 6, "INELIGIBLE": 7,
+    }
+
+    groups: dict[str, list[dict[str, Any]]] = {}
+    for job in list_autopilot_jobs(db):
+        key = canonical_application_url(job.get("applicationUrl") or "")
+        if not key:
+            continue
+        groups.setdefault(key, []).append(job)
+
+    retired = 0
+    collapsed = 0
+    examples: list[dict[str, Any]] = []
+    for key, rows in groups.items():
+        # Already-retired duplicates are not worth reconsidering.
+        live = [r for r in rows if r.get("ineligibilityReason") != "DUPLICATE_APPLICATION"]
+        if len(live) < 2:
+            continue
+        live.sort(key=lambda r: (RANK.get(str(r.get("status") or "").upper(), 9),
+                                 str(r.get("discoveredAt") or "")))
+        keeper, extras = live[0], live[1:]
+        collapsed += 1
+        if len(examples) < 12:
+            examples.append({
+                "url": key[:110],
+                "company": keeper.get("company"),
+                "title": str(keeper.get("title") or "")[:60],
+                "kept": keeper.get("status"),
+                "retiring": len(extras),
+            })
+        if dry_run:
+            retired += len(extras)
+            continue
+        for extra in extras:
+            apply_ineligibility(
+                extra,
+                IneligibilityReason.DUPLICATE_APPLICATION,
+                f"The same posting is tracked as {keeper.get('status')} ({keeper.get('id')}).",
+            )
+            save_autopilot_job(db, extra)
+            retired += 1
+
+    return {
+        "success": True,
+        "dryRun": dry_run,
+        "duplicateGroups": collapsed,
+        "retired": retired,
+        "examples": examples,
+        "message": (
+            f"{'Would retire' if dry_run else 'Retired'} {retired} duplicate row(s) across "
+            f"{collapsed} posting(s)."
+            if collapsed else "No duplicate applications found."
+        ),
+    }
+
+
+# Buckets the user may sweep back into the queue wholesale, and what each one
+# actually covers. Deliberately narrow: a bulk requeue must never pull in
+# SKIPPED, INELIGIBLE, MANUAL_REVIEW or SUBMITTED work. Those were set aside for
+# reasons an automated retry cannot resolve - a dead posting, a CAPTCHA, an
+# application already sent - and sweeping them back would refill the queue with
+# the exact jobs the user has already worked through and dismissed.
+REQUEUABLE_BUCKETS: dict[str, tuple[str, ...]] = {
+    "review": ("NEEDS_REVIEW", "STAGED"),
+    "failed": ("FAILED",),
+}
+
+
+@router.post("/autopilot/requeue-bucket")
+def requeue_bucket(
+    payload: dict[str, Any] = Body(default_factory=dict),
+    db: Session = Depends(db_session),
+) -> dict[str, Any]:
+    """Send every application in one bucket back to the queue.
+
+    Used after a fix lands: the whole Review or Failed list is worth another
+    attempt, and relabelling them one at a time through the side panel is not
+    practical once there are dozens.
+
+    This is destructive in one specific way the caller must warn about: the
+    reason each job was parked - the question that needed answering, the error
+    that broke the attempt - is cleared so the runner will pick it up again, and
+    that record is not recoverable.
+    """
+    from app.services.application_assistant.persistence import (
+        list_autopilot_jobs,
+        save_autopilot_job,
+    )
+
+    bucket = str(payload.get("bucket") or "").strip().lower()
+    if bucket not in REQUEUABLE_BUCKETS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported bucket '{bucket}'. Allowed: {', '.join(REQUEUABLE_BUCKETS)}",
+        )
+
+    wanted = set(REQUEUABLE_BUCKETS[bucket])
+    moved = 0
+    for job in list_autopilot_jobs(db):
+        if str(job.get("status") or "").upper() not in wanted:
+            continue
+        job["previousStatus"] = job.get("status")
+        job["status"] = "QUEUED"
+        job["queuedAt"] = now_iso()
+        job["updatedAt"] = now_iso()
+        job["stateSetBy"] = "user"
+        job["attemptCount"] = 0
+        # Everything that would keep the runner away from it has to go, or the
+        # job sits in the queue and is skipped on every pass.
+        job["hasPersistentBlock"] = False
+        job["lastError"] = None
+        job["lastErrorType"] = None
+        job["skipReason"] = None
+        job["submittedAt"] = None
+        job["submissionSource"] = None
+        job.pop("ineligibilityReason", None)
+        job.pop("ineligibilityDetail", None)
+        save_autopilot_job(db, job)
+        moved += 1
+
+    return {
+        "success": True,
+        "bucket": bucket,
+        "moved": moved,
+        "message": (
+            f"Moved {moved} application{'' if moved == 1 else 's'} back to the queue."
+            if moved else "Nothing in that bucket to requeue."
+        ),
+    }
 
 
 @router.post("/autopilot/reset-submitted")
@@ -786,6 +1226,35 @@ async def _run_assisted_fill(job_id: str, job: dict[str, Any], profile: dict[str
         execute_live_playwright_submission,
     )
 
+    def _record_submitted(evidence: dict[str, Any]) -> None:
+        """Mark the job submitted. Called the instant a confirmation is seen."""
+        with session_scope() as db:
+            current = get_autopilot_job(db, job_id) or job
+            if current.get("status") == "SUBMITTED":
+                return
+            current["previousStatus"] = current.get("status")
+            current["status"] = "SUBMITTED"
+            current["submittedAt"] = now_iso()
+            current["submissionSource"] = "manual-assisted"
+            current["hasPersistentBlock"] = False
+            current["lastError"] = None
+            current["answers"] = {
+                **(current.get("answers") or {}),
+                **(evidence.get("fieldsFilled") or {}),
+            }
+            current["submissionEvidence"] = {
+                **(current.get("submissionEvidence") or {}),
+                "confirmationText": "Confirmed on screen during assisted hand-off",
+                "confirmationUrl": evidence.get("confirmationUrl") or "",
+            }
+            save_autopilot_job(db, current)
+        logger.info("Assisted submission recorded immediately for %s", job_id)
+
+    async def _on_confirmed(evidence: dict[str, Any]) -> None:
+        # The hand-off loop runs on the browser thread's event loop, so the DB
+        # write goes to a worker thread rather than blocking it.
+        await asyncio.to_thread(_record_submitted, evidence)
+
     try:
         result = await execute_live_playwright_submission(
             job_item=job,
@@ -796,6 +1265,10 @@ async def _run_assisted_fill(job_id: str, job: dict[str, Any], profile: dict[str
             timeout_sec=timeout_sec,
             fill_only=True,
             hand_off_seconds=ASSISTED_HANDOFF_SECONDS,
+            # Persist the submission when it happens, not when the window
+            # finally closes - the user expects the app to reflect what they
+            # just did while they are still looking at it.
+            on_confirmed=_on_confirmed,
         )
         filled = result.get("fieldsFilled") or {}
         if result.get("submitted"):
@@ -889,6 +1362,12 @@ async def assisted_fill(id: str) -> dict[str, Any]:
 # them relabel a job the automation is still working.
 USER_SETTABLE_STATES: dict[str, dict[str, Any]] = {
     "SUBMITTED": {"label": "Submitted - I applied myself"},
+    # Putting a job back in the queue is the natural move once the reason it
+    # was parked turns out to be wrong - a board reported as bot-protected that
+    # actually loads fine, or a posting parked before a fix landed. Without
+    # this the only way back was to re-add the URL by hand, which created a
+    # duplicate rather than reviving the row.
+    "QUEUED": {"label": "Queue it again - Autopilot should retry this"},
     "MANUAL_REVIEW": {"label": "Manual review - I need to finish this by hand"},
     "NEEDS_REVIEW": {"label": "Needs review - a question still needs answering"},
     "FAILED": {"label": "Failed - the attempt broke"},
@@ -968,6 +1447,19 @@ def set_autopilot_job_state(
             job["submissionSource"] = job.get("submissionSource") or "manual"
             job["hasPersistentBlock"] = False
             job["lastError"] = None
+        elif requested == "QUEUED":
+            # Everything that kept the runner away from this job has to go, or
+            # it sits in the queue and is skipped every pass: the persistent
+            # block flag, the ineligibility verdict, and the stale error that
+            # would otherwise still describe it on the card.
+            job["hasPersistentBlock"] = False
+            job["lastError"] = None
+            job["lastErrorType"] = None
+            job["skipReason"] = None
+            job["submittedAt"] = None
+            job["submissionSource"] = None
+            job["queuedAt"] = now_iso()
+            job["attemptCount"] = 0
         else:
             # Leaving SUBMITTED means it was not actually sent.
             job["submittedAt"] = None

@@ -89,6 +89,7 @@ from app.routers.repair_demo import router as repair_demo_router
 from app.routers.repair_manual import router as repair_manual_router
 from app.routers.resume_intelligence import router as resume_intelligence_router
 from app.routers.gemini import router as gemini_router
+from app.routers.diagnostic import router as diagnostic_router
 from app.routers.gmail_archive import router as gmail_archive_router
 from app.routers.matcher_benchmark import router as matcher_benchmark_router
 from app.routers.story_map import router as story_map_router
@@ -306,6 +307,7 @@ app.include_router(story_map_router)
 app.include_router(matcher_benchmark_router)
 app.include_router(gmail_archive_router)
 app.include_router(gemini_router)
+app.include_router(diagnostic_router)
 
 
 @app.exception_handler(Exception)

@@ -35,7 +35,7 @@ with session_scope() as db:
     print("\n--- Current Top 15 in Queue ---")
     for idx, q in enumerate(queued_jobs[:15]):
         bonus = role_location_priority_bonus(q)
-        print(f"#{idx+1} [{bonus:.1f} pts] [{q.get('company')}] {q.get('title')} | Loc: {q.get('location')} | URL: {q.get('applyUrl')}")
+        print(f"#{idx+1} [{bonus:.1f} pts] [{q.get('company')}] {q.get('title')} | Loc: {q.get('location')} | URL: {q.get('applicationUrl')}")
 
     # Inspect discovered jobs to see if we need more Senior SWE WA / Senior SWE US candidates
     discovered = list_discovered_jobs(db)

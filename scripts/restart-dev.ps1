@@ -177,6 +177,29 @@ Get-CimInstance Win32_Process | Where-Object { $_.Name -eq 'python.exe' -and $_.
     Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue
 }
 Start-Sleep -Seconds 1
+
+# Orphaned worker processes must go too, and this is not tidiness.
+#
+# The API spawns multiprocessing workers, and a worker INHERITS the listening
+# socket on the API port. When the uvicorn parent dies without reaping them,
+# the orphan keeps that socket open and keeps answering requests - with the
+# code it was started with. The restart then appears to succeed, the health
+# check passes, and every subsequent edit looks like it had no effect because
+# a months-old process is still serving. Observed with three orphans holding
+# port 4000 at once, serving routes that no longer matched the source.
+#
+# Get-NetTCPConnection attributes that socket to the DEAD parent pid, so the
+# port-based sweep below cannot find them; they have to be matched by command
+# line instead.
+Get-CimInstance Win32_Process | Where-Object {
+    $_.Name -like 'python*' -and $_.CommandLine -like '*multiprocessing.spawn*'
+} | ForEach-Object {
+    $parent = Get-Process -Id $_.ParentProcessId -ErrorAction SilentlyContinue
+    $tag = if ($parent) { 'child of ' + $_.ParentProcessId } else { 'ORPHAN, parent ' + $_.ParentProcessId + ' is gone' }
+    Write-Host ('  Stopping spawned worker PID ' + $_.ProcessId + ' (' + $tag + ')')
+    Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue
+}
+Start-Sleep -Seconds 1
 foreach ($port in @($ApiPort, $WebPort, 8001)) {
     $count = Stop-PortListener -Port $port
     if ($count -eq 0) {

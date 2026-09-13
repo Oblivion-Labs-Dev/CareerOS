@@ -72,6 +72,69 @@ def _normalise(name: str) -> str:
     return re.sub(r"[^a-z0-9]+", "", (name or "").lower())
 
 
+def _legacy_key(company: Any, sent_at: Any) -> str:
+    """Identifies a confirmation email without its UID.
+
+    Jobs marked before UIDs were recorded carry only the employer and the
+    email's timestamp, which together still pick out one email. Without this
+    every one of those emails would look unspent on the next run and be
+    credited to a second job all over again.
+    """
+    stamp = sent_at.isoformat() if isinstance(sent_at, datetime) else str(sent_at or "")
+    return f"legacy:{_normalise(company)}|{stamp}"
+
+
+def _spent_confirmations(jobs: list[dict[str, Any]]) -> set[str]:
+    """Confirmation emails already credited to some job.
+
+    The in-run `consumed` set only ever protected a single call. The reconciler
+    runs repeatedly, and each fresh run started with an empty set, so the same
+    email was free to mark a second job, then a third. Reading back what earlier
+    runs recorded is what makes "one email, one application" actually hold.
+    """
+    spent: set[str] = set()
+    for job in jobs:
+        if job.get("submissionSource") != "email-detected":
+            continue
+        evidence = job.get("submissionEvidence") or {}
+        uid = str(evidence.get("confirmationUid") or "")
+        if uid:
+            spent.add(uid)
+        else:
+            # Only rows written before UIDs were recorded need the coarser key.
+            # Applying it to every row would make two genuine confirmations that
+            # happen to share a timestamp look like one.
+            spent.add(_legacy_key(job.get("company"), job.get("submittedAt")))
+    return spent
+
+
+def _title_in_subject(title: Any, subject: str) -> bool:
+    """Whether the subject names this specific role.
+
+    Only a handful of employers put the role in the subject ("We've received
+    your application for Senior CIAM Software Engineer at Affirm"), but when one
+    does, the email belongs to exactly one open application and should not be
+    spent on a sibling posting at the same company.
+    """
+    title_words = _significant_title_words(str(title or ""))
+    if len(title_words) < 2:
+        return False
+    subject_words = _significant_title_words(subject)
+    return title_words.issubset(subject_words)
+
+
+_TITLE_STOPWORDS = frozenset({
+    "the", "and", "for", "at", "of", "to", "a", "an", "in", "on",
+    "thank", "thanks", "you", "your", "applying", "application", "received",
+    "we", "ve", "have", "interest", "joining", "position", "role",
+})
+
+
+def _significant_title_words(text: str) -> set[str]:
+    words = re.findall(r"[a-z0-9]+", (text or "").lower())
+    return {w for w in words if w not in _TITLE_STOPWORDS and len(w) > 1}
+
+
 def _parse_date(value: Any) -> datetime | None:
     if isinstance(value, datetime):
         return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
@@ -129,13 +192,22 @@ def reconcile_manual_submissions(
 ) -> dict[str, Any]:
     """Mark manually-completed applications submitted from their confirmation email."""
     def _run(session: Session) -> dict[str, Any]:
+        all_jobs = list_autopilot_jobs(session)
         candidates = [
-            job for job in list_autopilot_jobs(session)
+            job for job in all_jobs
             if job.get("status") in RECONCILABLE_STATUSES and job.get("company")
         ]
         candidates.sort(key=lambda j: str(j.get("updatedAt") or ""), reverse=True)
         if not candidates:
             return {"success": True, "checked": 0, "marked": 0, "jobs": []}
+
+        # Emails already spent on an earlier run of this reconciler. Without
+        # this the `consumed` set below only held for the length of one call,
+        # so the next run re-spent the same email on the next open job at that
+        # employer: one "Thank you for applying to Coinbase" marked fifteen
+        # Coinbase jobs submitted across fifteen runs, ServiceNow twelve —
+        # including jobs whose last checkpoint was FAILED or SKIPPED.
+        already_spent = _spent_confirmations(all_jobs)
 
         try:
             threads = _fetch_confirmations(limit)
@@ -149,12 +221,20 @@ def reconcile_manual_submissions(
         # name only the employer ("Thank you for applying to Robinhood"), so
         # without this a single email marked every open Robinhood job as
         # submitted — six applications the candidate had not actually sent.
-        consumed: set[str] = set()
+        # Seeded from what previous runs already spent, so the guard holds
+        # across calls and not merely within one.
+        consumed: set[str] = set(already_spent)
 
-        for job in candidates:
+        claimed: set[str] = set()
+
+        def _eligible(job: dict[str, Any], haystack: str, sent_at: datetime) -> bool:
+            if job["id"] in claimed:
+                return False
             company_key = _normalise(job.get("company"))
             if not company_key:
-                continue
+                return False
+            if company_key not in haystack:
+                return False
             # Anchor on when the job entered the queue, not on updatedAt.
             # updatedAt moves for any bookkeeping write — a status correction, a
             # re-run of this very reconciler — and using it made every
@@ -162,41 +242,86 @@ def reconcile_manual_submissions(
             attempted_at = _parse_date(
                 job.get("queuedAt") or job.get("discoveredAt") or job.get("updatedAt")
             )
+            # An old confirmation for the same employer is not evidence for
+            # this attempt. Allow a little slack for clock skew only.
+            if attempted_at and sent_at < attempted_at - timedelta(minutes=10):
+                return False
+            return True
 
-            for thread in threads:
-                uid = str(thread.get("uid") or "")
+        def _mark(job: dict[str, Any], subject: str, sent_at: datetime, uid: str, matched_on: str) -> None:
+            job["previousStatus"] = job.get("status")
+            job["status"] = "SUBMITTED"
+            job["submittedAt"] = sent_at.isoformat()
+            job["submissionSource"] = "email-detected"
+            job["hasPersistentBlock"] = False
+            evidence = dict(job.get("submissionEvidence") or {})
+            evidence["confirmationText"] = subject[:200]
+            evidence["confirmationSource"] = "gmail"
+            # Recorded so a later run can see this email is already spent.
+            evidence["confirmationUid"] = uid
+            evidence["confirmationMatchedOn"] = matched_on
+            job["submissionEvidence"] = evidence
+            job["updatedAt"] = now_iso()
+            save_autopilot_job(session, job)
+            if uid:
+                consumed.add(uid)
+            else:
+                consumed.add(_legacy_key(job.get("company"), sent_at))
+            claimed.add(job["id"])
+            marked.append({"id": job["id"], "company": job.get("company", ""), "subject": subject[:90]})
+            logger.info(
+                "Marked %s (%s) submitted from its confirmation email, matched on %s",
+                job.get("company"), job.get("title", ""), matched_on,
+            )
+
+        # Iterate emails, not jobs: an email is the scarce thing here, and each
+        # one may be spent at most once. Title-bearing subjects are resolved
+        # first, because they name the single application they belong to; only
+        # what is left over is matched on the employer alone.
+        usable: list[tuple[str, str, datetime, str]] = []
+        for thread in threads:
+            uid = str(thread.get("uid") or "")
+            if uid and uid in consumed:
+                continue
+            subject = str(thread.get("subject") or "")
+            if not CONFIRMATION_PATTERN.search(subject):
+                continue
+            sent_at = _parse_date(thread.get("date"))
+            if sent_at is None or sent_at < cutoff:
+                continue
+            haystack = _normalise(f"{subject} {thread.get('fromName') or ''}")
+            usable.append((subject, haystack, sent_at, uid))
+
+        for pass_name in ("title", "company"):
+            for subject, haystack, sent_at, uid in usable:
                 if uid and uid in consumed:
                     continue
-                subject = str(thread.get("subject") or "")
-                if not CONFIRMATION_PATTERN.search(subject):
+                matches = [job for job in candidates if _eligible(job, haystack, sent_at)]
+                # Drop any whose employer already has this exact email spent on
+                # an older row that predates confirmationUid.
+                matches = [
+                    job for job in matches
+                    if _legacy_key(job.get("company"), sent_at) not in consumed
+                ]
+                if not matches:
                     continue
-                haystack = _normalise(f"{subject} {thread.get('fromName') or ''}")
-                if company_key not in haystack:
-                    continue
-                sent_at = _parse_date(thread.get("date"))
-                if sent_at is None or sent_at < cutoff:
-                    continue
-                # An old confirmation for the same employer is not evidence for
-                # this attempt. Allow a little slack for clock skew only.
-                if attempted_at and sent_at < attempted_at - timedelta(minutes=10):
-                    continue
-
-                job["previousStatus"] = job.get("status")
-                job["status"] = "SUBMITTED"
-                job["submittedAt"] = sent_at.isoformat()
-                job["submissionSource"] = "email-detected"
-                job["hasPersistentBlock"] = False
-                evidence = dict(job.get("submissionEvidence") or {})
-                evidence["confirmationText"] = subject[:200]
-                evidence["confirmationSource"] = "gmail"
-                job["submissionEvidence"] = evidence
-                job["updatedAt"] = now_iso()
-                save_autopilot_job(session, job)
-                if uid:
-                    consumed.add(uid)
-                marked.append({"id": job["id"], "company": job.get("company", ""), "subject": subject[:90]})
-                logger.info("Marked %s submitted from its confirmation email", job.get("company"))
-                break
+                if pass_name == "title":
+                    matches = [job for job in matches if _title_in_subject(job.get("title"), subject)]
+                    if len(matches) != 1:
+                        # Either the subject names no role, or it names one that
+                        # fits several open jobs. Leave it for the company pass.
+                        continue
+                elif pass_name == "company":
+                    # Company-only match: at most ONE job gets credit. Pick the
+                    # most recently attempted (the likeliest to be the one the
+                    # candidate just submitted manually). Without this cap the
+                    # same email marked every open job at the same employer.
+                    matches.sort(
+                        key=lambda j: str(j.get("updatedAt") or j.get("queuedAt") or ""),
+                        reverse=True,
+                    )
+                    matches = matches[:1]
+                _mark(matches[0], subject, sent_at, uid, pass_name)
 
         return {"success": True, "checked": len(candidates), "marked": len(marked), "jobs": marked}
 

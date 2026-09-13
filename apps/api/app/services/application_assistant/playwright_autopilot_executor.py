@@ -30,6 +30,7 @@ from app.services.application_assistant.question_classifier import (
 from app.services.application_assistant.profile_answer_resolver import (
     resolve_answer,
     AnswerResolution,
+    PROFILE_EXACT,
 )
 from app.services.application_assistant.cross_field_validator import (
     validate_answers,
@@ -47,6 +48,21 @@ from app.services.tracking_email import derive_contact_email
 logger = logging.getLogger("career_os.playwright_autopilot")
 
 SCREENSHOTS_DIR = Path(__file__).resolve().parents[3] / "data" / "application_assistant" / "screenshots"
+# Where the assisted hand-off keeps its browser profile.
+#
+# An application a person finishes by hand is far easier when the browser
+# remembers them: the addresses, phone numbers and answers Chrome has autofilled
+# before, and any board they have already signed into. A throwaway context has
+# none of that, so every assisted application started from nothing.
+#
+# This is CareerOS's own profile directory, deliberately not the user's live
+# Chrome profile: Chrome locks its user-data-dir, so driving the real one would
+# mean quitting every Chrome window first. Here the main browser stays open, and
+# what the user types during an assisted application is remembered for the next.
+ASSISTED_PROFILE_DIR = Path(
+    os.environ.get("CAREEROS_ASSISTED_PROFILE_DIR")
+    or (Path(__file__).resolve().parents[3] / "data" / "application_assistant" / "chrome-profile")
+)
 SCREENSHOTS_DIR.mkdir(parents=True, exist_ok=True)
 
 PRIMARY_RESUME_PATH = Path(r"D:\3 - Resources\Docs\Interview\Resume\Akshay_Borse_Resume.pdf")
@@ -139,6 +155,50 @@ async def _expand_combobox_options(page: Page, fields: list[dict[str, Any]], lim
                 await asyncio.sleep(0.15)
             except Exception:
                 pass
+
+
+# Characters boards sprinkle around required markers that are invisible on
+# screen but defeat exact matching against the answer library.
+_INVISIBLE_CHARS = dict.fromkeys(map(ord, "​‌‍⁠﻿"), None)
+
+# Words that are an answer, never a question.
+_ANSWER_WORDS = frozenset({
+    "yes", "no", "other", "true", "false", "n/a", "select...",
+    "prefer not to say", "decline to answer", "i decline to answer",
+})
+
+
+def _looks_like_field_handle(text: str) -> bool:
+    """True for an opaque id used where a question should be (CA_47143, QA_12203581)."""
+    if not text:
+        return True
+    if re.fullmatch(r"[A-Za-z]{0,4}[_-]?\d{3,}", text):
+        return True
+    if re.fullmatch(r"[0-9a-f]{8,}", text, re.I):
+        return True
+    return re.search(r"[a-z]{3}", text, re.I) is None
+
+
+def sanitize_field_label(raw: str) -> str:
+    """Clean a question label, or return "" when it is not a question at all.
+
+    The review list is only usable if every row states a question a person can
+    answer. Three kinds of junk were reaching it: an option's own text ("Yes"),
+    the field's internal id ("CA_47143"), and invisible word-joiner characters
+    left around required markers. The browser-side extraction avoids all three
+    now; this is the net underneath it, and unlike the injected JavaScript it
+    can be tested directly.
+    """
+    text = (raw or "").translate(_INVISIBLE_CHARS)
+    text = re.sub(r"\s+", " ", text).strip()
+    text = re.sub(r"[\s*:•\-]+$", "", text).strip()
+    if not text:
+        return ""
+    if text.lower() in _ANSWER_WORDS:
+        return ""
+    if _looks_like_field_handle(text):
+        return ""
+    return text
 
 
 async def _extract_dom_form_state(page: Page, expand_comboboxes: bool = False) -> tuple[list[dict[str, Any]], list[str]]:
@@ -244,7 +304,78 @@ async def _extract_dom_form_state(page: Page, expand_comboboxes: bool = False) -
                     else label = (parent.innerText || '').split('\\n')[0];
                 }
             }
-            label = (label || ariaLabel || name || id).trim();
+            // Clean and sanity-check the label before trusting it.
+            //
+            // Three things were reaching the review list as "questions" that
+            // are not questions at all, and each one makes the list unusable in
+            // its own way:
+            //   'Yes'          - an option's own text, grabbed by the
+            //                    parent-innerText fallback below, so the user
+            //                    is asked to answer a question called "Yes".
+            //   'CA_47143'     - the field's id, used because nothing else was
+            //   'QA_12203581'    found. An opaque token tells the user nothing
+            //                    and the resolver nothing.
+            //   '...*⁠:'   - word-joiner and zero-width characters that
+            //                    boards sprinkle around required markers, which
+            //                    defeat exact matching against the answer
+            //                    library and look like mojibake on screen.
+            var cleanLabel = function (raw) {
+                return (raw || '')
+                    .replace(/[​‌‍⁠﻿]/g, '')  // zero-width / word joiner
+                    .replace(/\s+/g, ' ')
+                    .replace(/[\s*:•\-]+$/, '')                     // trailing required markers
+                    .trim();
+            };
+            // An id-shaped token (CA_47143, QA_12203581, q_8f3a2b, 12345) is a
+            // handle, not a question.
+            var looksLikeId = function (text) {
+                if (!text) return true;
+                if (/^[A-Za-z]{0,4}[_-]?\d{3,}$/.test(text)) return true;
+                if (/^[0-9a-f]{8,}$/i.test(text)) return true;
+                return !/[a-z]{3}/i.test(text);
+            };
+            // The option list is built further down, so this compares against
+            // the control's own value and the handful of words that are always
+            // an answer rather than a question.
+            var isOptionText = function (text) {
+                if (!text) return false;
+                var t = text.toLowerCase().trim();
+                var own = (el.value || '').toLowerCase().trim();
+                if (own && own !== 'on' && own === t) return true;
+                return ['yes', 'no', 'other', 'true', 'false', 'n/a', 'select...',
+                        'prefer not to say', 'decline to answer',
+                        'i decline to answer'].indexOf(t) !== -1;
+            };
+
+            label = cleanLabel(label);
+            if (!label || isOptionText(label) || looksLikeId(label)) {
+                // Try the honest sources in turn before giving up on the id.
+                var better = '';
+                try {
+                    var lb = el.getAttribute('aria-labelledby');
+                    if (lb) {
+                        var lbEl = document.getElementById(lb.split(/\s+/)[0]);
+                        if (lbEl) better = cleanLabel(lbEl.innerText);
+                    }
+                } catch (err) {}
+                if ((!better || isOptionText(better)) && el.closest) {
+                    var grp = el.closest('fieldset, [role="group"], [role="radiogroup"]');
+                    if (grp) {
+                        var lg2 = grp.querySelector('legend, .question-label, .field__label, label');
+                        if (lg2) better = cleanLabel(lg2.innerText);
+                    }
+                }
+                if (!better || isOptionText(better) || looksLikeId(better)) {
+                    better = cleanLabel(ariaLabel) || better;
+                }
+                label = better || '';
+            }
+            // Only fall back to a raw handle when there is genuinely nothing
+            // else, and mark it so the reviewer can see it was never a label.
+            if (!label) {
+                var handle = cleanLabel(name) || cleanLabel(id);
+                label = handle && !looksLikeId(handle) ? handle : (handle ? 'Unlabelled field (' + handle + ')' : '');
+            }
 
             var val = el.value || '';
             if (inputType === 'radio') {
@@ -277,6 +408,18 @@ async def _extract_dom_form_state(page: Page, expand_comboboxes: bool = False) -
             // validation, via aria-invalid. Treat those as required so the
             // pre-submit healer gets a chance to resolve them.
             var isRequired = el.required || el.getAttribute('aria-required') === 'true' || el.getAttribute('aria-invalid') === 'true' || label.indexOf('*') !== -1;
+
+            // Ashby renders its custom questions as radio groups that carry NO
+            // requiredness signal anywhere in the DOM: the individual inputs
+            // have required=false, the fieldset has no aria-required, and the
+            // question title has no '*'. Requiredness lives only in the app's
+            // own state and surfaces after submit as "Missing entry for
+            // required field: ...". So for a choice group, required===false is
+            // an ABSENCE OF INFORMATION, not evidence the question is optional
+            // - and the pre-submit audit must not read it as a pass.
+            // Observed live: a Whatnot/Ashby application audited "100% PASS"
+            // with two unanswered required questions and was rejected on submit.
+            var requirednessUnknown = (inputType === 'radio' || inputType === 'checkbox' || isCombobox) && !isRequired;
 
             // Option list. Without this the resolver was handed
             // {fieldType: "div", options: []} for every custom dropdown and had
@@ -312,6 +455,7 @@ async def _extract_dom_form_state(page: Page, expand_comboboxes: bool = False) -
                 isCombobox: isCombobox,
                 checked: !!el.checked,
                 required: isRequired,
+                requirednessUnknown: requirednessUnknown,
                 value: val,
                 options: opts
             });
@@ -323,12 +467,177 @@ async def _extract_dom_form_state(page: Page, expand_comboboxes: bool = False) -
     try:
         data = await page.evaluate(js_code)
         fields = data.get("fields", [])
+        # Second net under the browser-side cleaning: a label that is not
+        # a question is dropped rather than shown to the user as one.
+        for field in fields:
+            field["label"] = sanitize_field_label(field.get("label", ""))
         if expand_comboboxes and fields:
             await _expand_combobox_options(page, fields)
         return fields, data.get("errors", [])
     except Exception as ex:
         logger.warning("Error extracting DOM state: %s", ex)
         return [], []
+
+
+# Questions employers are legally required to present as voluntary. Leaving one
+# blank is a valid, complete answer, so an unanswered one must never block a
+# submission - which matters because these are almost always radio groups, and
+# the audit below otherwise treats an unanswered choice group as unresolved.
+_VOLUNTARY_DISCLOSURE_PATTERNS = (
+    "gender", "race", "ethnic", "hispanic", "latino", "veteran", "disability",
+    "disabled", "self-identif", "self identif", "eeo", "equal employment",
+    "protected veteran", "sexual orientation", "transgender", "pronoun",
+)
+
+
+def _is_voluntary_disclosure(label: str) -> bool:
+    """True when a question is an optional demographic self-identification."""
+    text = (label or "").lower()
+    return any(pattern in text for pattern in _VOLUNTARY_DISCLOSURE_PATTERNS)
+
+
+async def _advance_workday_to_form(page: Any, log_callback: Any = None) -> str:
+    """Move a Workday posting from its chooser to the real application form.
+
+    Returns:
+        "form"          - an application form is reachable on the current page.
+        "needs_account" - the sign-in / create-account step is in the way.
+        "unknown"       - neither could be established.
+
+    Workday serves the posting, the "/apply" chooser and the wizard as three
+    different pages, and only the third has inputs. Nothing here types a
+    password or creates an account; it only clicks through the menu so the
+    person is handed the page they actually need, or so the runner can report
+    the sign-in gate accurately instead of "no application form".
+    """
+    url = page.url or ""
+    try:
+        # The posting URL and the apply URL are different pages; the chooser
+        # only exists at /apply.
+        if "/apply" not in url:
+            target = url.split("?")[0].rstrip("/") + "/apply"
+            await page.goto(target, wait_until="domcontentloaded", timeout=45000)
+            await asyncio.sleep(3.0)
+
+        for label in ("Apply Manually", "Autofill with Resume", "Use My Last Application"):
+            try:
+                choice = page.get_by_role("button", name=label).first
+                if await choice.count() == 0:
+                    choice = page.get_by_text(label, exact=True).first
+                if await choice.count() and await choice.is_visible():
+                    if log_callback:
+                        log_callback(f"Workday: choosing '{label}' on the apply menu...")
+                    await choice.click(timeout=8000)
+                    await asyncio.sleep(4.0)
+                    break
+            except Exception:
+                continue
+
+        state = await page.evaluate(
+            "() => {"
+            "  const pw = document.querySelectorAll('input[type=password]').length;"
+            "  const text = (document.body.innerText || '').toLowerCase();"
+            "  const gate = pw > 0 || /create account|sign in to (?:your )?account/.test(text);"
+            "  const fields = document.querySelectorAll("
+            "     'input[type=text],input[type=email],input[type=tel],textarea,select,input[type=file]').length;"
+            "  return {gate, fields};"
+            "}"
+        )
+        if state.get("gate"):
+            return "needs_account"
+        if int(state.get("fields") or 0) > 0:
+            if log_callback:
+                log_callback("Workday: already signed in — the application form is reachable.")
+            return "form"
+        return "unknown"
+    except Exception as exc:
+        logger.warning("Could not advance the Workday flow: %s", exc)
+        return "unknown"
+
+
+_OPEN_ENDED_HINTS = (
+    "why ", "what ", "how ", "describe", "tell us", "tell me", "explain",
+    "share ", "cover letter", "in your own words", "interest",
+)
+
+
+def _is_open_ended_question(dom_field: dict[str, Any] | None, label: str) -> bool:
+    """True for a free-text question no profile field can answer.
+
+    Deliberately narrow: a textarea, or a plain text input asking something
+    essay-shaped. Anything with options is a choice question and belongs to the
+    resolver, which can pick honestly from what is offered.
+    """
+    field = dom_field or {}
+    if field.get("options"):
+        return False
+    tag = str(field.get("tag") or "").lower()
+    ftype = str(field.get("type") or "").lower()
+    if tag == "textarea":
+        return True
+    if tag == "input" and ftype in ("text", ""):
+        low = (label or "").lower()
+        return any(hint in low for hint in _OPEN_ENDED_HINTS) and len(label or "") > 15
+    return False
+
+
+_EXPLANATION_HINTS = (
+    "please explain", "explain why", "explain how", "please describe",
+    "tell us", "tell me", "please state where", "please specify",
+    "in your own words", "please elaborate", "please provide details",
+    "what is the basis of", "if so,", "if yes,",
+)
+
+_TOKEN_ANSWERS = frozenset({
+    "yes", "no", "y", "n", "true", "false", "n/a", "na", "none",
+    "checked", "agree", "i agree", "acknowledge",
+})
+
+
+def _is_token_answer_in_prose_box(
+    dom_field: dict[str, Any] | None, label: str, value: Any
+) -> bool:
+    """True when a one-word answer is about to be typed into an essay field.
+
+    A question can open with a Yes/No clause and still want a paragraph ("Have
+    you recently worked at a FinTech company? If yes, please state where."),
+    and a resolver keyed on the first clause answers the wrong half of it. The
+    field's own shape settles the argument: an options-less textarea is asking
+    for prose whatever the wording suggests, so a bare token there is a
+    non-answer rather than a short one.
+    """
+    field = dom_field or {}
+    if field.get("options"):
+        return False
+    text = str(value or "").strip()
+    if not text:
+        return False
+
+    is_textarea = str(field.get("tag") or "").lower() == "textarea"
+    low = (label or "").lower()
+    wants_prose = is_textarea or any(hint in low for hint in _EXPLANATION_HINTS)
+    if not wants_prose:
+        return False
+
+    if text.lower().strip(" .!") in _TOKEN_ANSWERS:
+        return True
+    # A profile token ("Washington", "Microsoft") is no better an answer to an
+    # essay question than "Yes" is, so anything under a handful of words in a
+    # textarea that asked to be explained is treated the same way.
+    if is_textarea and any(hint in low for hint in _EXPLANATION_HINTS):
+        return len(text.split()) < 5
+    return False
+
+
+async def _load_settings_for_generation() -> dict[str, Any]:
+    """Settings for the answer generator, read off the main thread."""
+    try:
+        from app.services.application_assistant.persistence import get_settings
+
+        with session_scope() as db:
+            return get_settings(db)
+    except Exception:
+        return {}
 
 
 def _keyboard(page: Any) -> Any:
@@ -488,8 +797,8 @@ async def _fill_first_visible(page_or_frame: Any, selectors: list[str], value: s
             for i in range(count):
                 el = loc.nth(i)
                 if await el.is_visible():
-                    await el.scroll_into_view_if_needed()
-                    await el.fill(str(value))
+                    await el.scroll_into_view_if_needed(timeout=2500)
+                    await el.fill(str(value), timeout=3500)
                     return True
         except Exception:
             continue
@@ -1253,6 +1562,13 @@ async def _fill_ashby_fields(
                     if not texts:
                         continue
                     pick = _pick_location_option(texts, answer, profile)
+                    if pick is None and texts:
+                        for idx, opt_txt in enumerate(texts):
+                            opt_low = opt_txt.lower()
+                            ans_low = answer.lower()
+                            if opt_low == ans_low or ans_low in opt_low or (head.lower() and head.lower() in opt_low):
+                                pick = idx
+                                break
                     if pick is not None:
                         await options.nth(pick).click(force=True)
                         chosen_text = texts[pick]
@@ -2091,6 +2407,7 @@ async def execute_live_playwright_submission(
     log_callback: Any = None,
     fill_only: bool = False,
     hand_off_seconds: float | None = 0.0,
+    on_confirmed: Any = None,
 ) -> dict[str, Any]:
     """Run the submission on the dedicated Proactor-loop thread (see browser_runner._ensure_playwright_loop).
 
@@ -2123,6 +2440,7 @@ async def execute_live_playwright_submission(
                 log_callback=log_callback,
                 fill_only=fill_only,
                 hand_off_seconds=hand_off_seconds,
+                on_confirmed=on_confirmed,
             ),
             # hand_off_seconds=None means the window stays open until the
             # candidate closes it, so there is no deadline to enforce here
@@ -2140,6 +2458,7 @@ async def execute_live_playwright_submission(
         log_callback=log_callback,
         fill_only=fill_only,
         hand_off_seconds=hand_off_seconds,
+        on_confirmed=on_confirmed,
     )
 
 
@@ -2152,6 +2471,7 @@ async def _execute_live_playwright_submission_impl(
     log_callback: Any = None,
     fill_only: bool = False,
     hand_off_seconds: float | None = 0.0,
+    on_confirmed: Any = None,
 ) -> dict[str, Any]:
     """Execute autonomous browser submission with strict pre-submit and post-submit verification.
 
@@ -2248,28 +2568,97 @@ async def _execute_live_playwright_submission_impl(
 
     resume_file = get_resume_upload_payload(profile)
 
+    # An assisted hand-off gets a persistent profile so the candidate's own
+    # autofill builds up across applications; autonomous runs stay on a fresh,
+    # throwaway context, because they run unattended and in sequence and must
+    # not accumulate or share state between postings.
+    use_profile = fill_only and not headless
+
     async with async_playwright() as p:
-        browser: Browser = await p.chromium.launch(
-            headless=headless,
-            args=[
-                "--disable-blink-features=AutomationControlled",
-                "--no-sandbox",
-                "--disable-dev-shm-usage",
-                # Some Greenhouse-hosted boards reset the HTTP/2 connection mid-
-                # handshake, which Chromium surfaces as a hard
-                # net::ERR_HTTP2_PROTOCOL_ERROR on page.goto and which retrying
-                # never clears - observed deterministically on all three Roblox
-                # postings, whose URLs load fine over HTTP/1.1. Forcing HTTP/1.1
-                # costs a little connection reuse and makes those pages reachable.
-                "--disable-http2",
-            ],
-        )
-        context: BrowserContext = await browser.new_context(
-            viewport={"width": 1280, "height": 900},
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-        )
-        page: Page = await context.new_page()
+        browser: Browser | None = None
+        launch_args = [
+            "--disable-blink-features=AutomationControlled",
+            "--no-sandbox",
+            "--disable-dev-shm-usage",
+            # Some Greenhouse-hosted boards reset the HTTP/2 connection mid-
+            # handshake, which Chromium surfaces as a hard
+            # net::ERR_HTTP2_PROTOCOL_ERROR on page.goto and which retrying
+            # never clears - observed deterministically on all three Roblox
+            # postings, whose URLs load fine over HTTP/1.1. Forcing HTTP/1.1
+            # costs a little connection reuse and makes those pages reachable.
+            "--disable-http2",
+        ]
+        # A window a person is going to drive must open maximized, and its page
+        # viewport must track the real window (no_viewport below). With a fixed
+        # 1280x900 viewport and no window size, Chromium opens a smaller window
+        # and renders the page into a surface larger than what is visible, so
+        # the bottom of a long application form - the Submit button - sits
+        # outside the window and cannot be scrolled to normally.
+        if not headless:
+            launch_args.append("--start-maximized")
+
+        # Headless runs keep a fixed viewport so form geometry is
+        # deterministic; a visible window takes its size from the window
+        # itself, which is the only way scrolling behaves for the person
+        # who has to finish the form.
+        context_opts: dict[str, Any] = {
+            "no_viewport": not headless,
+            "viewport": None if not headless else {"width": 1280, "height": 900},
+            "user_agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+            ),
+        }
+
+        context: BrowserContext
+        if use_profile:
+            ASSISTED_PROFILE_DIR.mkdir(parents=True, exist_ok=True)
+            try:
+                # channel="chrome" runs the real Chrome rather than the bundled
+                # Chromium, so the profile is one Chrome itself can read and the
+                # autofill UI behaves the way the candidate expects.
+                context = await p.chromium.launch_persistent_context(
+                    str(ASSISTED_PROFILE_DIR),
+                    channel="chrome",
+                    headless=headless,
+                    args=launch_args,
+                    **context_opts,
+                )
+                logger.info("Assisted window using the CareerOS Chrome profile at %s", ASSISTED_PROFILE_DIR)
+                if log_callback:
+                    log_callback(
+                        "Opening in your CareerOS Chrome profile — what you fill in here is "
+                        "remembered for the next application.",
+                    )
+            except Exception as profile_err:
+                # Chrome missing, or the profile directory already locked by
+                # another assisted window. Neither is worth failing the whole
+                # hand-off over; fall back to a throwaway context so the user
+                # still gets a filled form, just without the saved autofill.
+                logger.warning(
+                    "Could not open the persistent Chrome profile (%s); falling back to a "
+                    "throwaway context.", profile_err,
+                )
+                if log_callback:
+                    log_callback(
+                        "Could not open the saved Chrome profile (is another assisted window "
+                        "open?) — continuing without your saved autofill.",
+                        lvl="warning",
+                    )
+                browser = await p.chromium.launch(headless=headless, args=launch_args)
+                context = await browser.new_context(**context_opts)
+        else:
+            browser = await p.chromium.launch(headless=headless, args=launch_args)
+            context = await browser.new_context(**context_opts)
+
+        # A persistent context opens with a page already in it; reusing that one
+        # keeps the window count at one instead of leaving a blank tab behind.
+        page: Page = context.pages[0] if context.pages else await context.new_page()
         page.set_default_timeout(timeout_sec * 1000)
+        # Set once the assisted hand-off loop has actually run, so the teardown
+        # below can tell "the person has had their turn with this window" from
+        # "we bailed out before they ever saw it".
+        handed_off = False
 
         # Apply Cloud Stealth Anti-Fingerprinting Profile
         from app.services.application_assistant.stealth_browser_profile import apply_stealth_profile
@@ -2408,6 +2797,38 @@ async def _execute_live_playwright_submission_impl(
             # inputs and a file input with no bot wall.
             on_form_already = await _page_has_form_inputs(page)
             already_on_ats = on_form_already or "oneclick-ui" in page.url
+            # Greenhouse's /embed/job_app endpoint only works while it is framed
+            # by the employer's page. Opened as a top-level document it returns a
+            # stub: a few inputs and NO submit control at all. Measured on two
+            # postings, in-frame vs. the identical URL standalone:
+            #
+            #   Databricks  47 inputs + "Submit application"  ->  3 inputs, none
+            #   Datadog     26 inputs + "Submit application"  ->  1 input,  none
+            #
+            # So navigating to it throws away the real form. An autonomous run
+            # then reports "Application form and submit button not found" (that
+            # is the Datadog failure), and an assisted hand-off leaves the
+            # candidate staring at a form with no Apply button - reported live on
+            # the Databricks posting.
+            #
+            # The iframe switch immediately below reaches the very same form from
+            # the employer's page, so there is nothing to gain by leaving it.
+            # Standalone ATS URLs (jobs.lever.co/.../apply, a real Greenhouse
+            # job page, Ashby application URLs) are unaffected: they are proper
+            # top-level pages and are still followed.
+            if embed_src and "/embed/job_app" in embed_src:
+                logger.info(
+                    "Not following %s: Greenhouse's embed endpoint only renders a "
+                    "submittable form while framed. Staying on %s and driving the "
+                    "form through its iframe instead.",
+                    embed_src, page.url,
+                )
+                if log_callback:
+                    log_callback(
+                        "Staying on the employer's page — its embedded form only works there.",
+                    )
+                embed_src = ""
+
             if embed_src and not already_on_ats:
                 logger.info("Employer page points at an ATS form; navigating directly to %s", embed_src)
                 if log_callback:
@@ -2442,17 +2863,51 @@ async def _execute_live_playwright_submission_impl(
                 except Exception:
                     pass
 
+            # Dismiss any cookie / GDPR consent overlays immediately so inputs and frames are reachable
+            for consent_sel in (
+                'button:has-text("Accept All")',
+                'button:has-text("Accept all")',
+                'button:has-text("Accept Cookies")',
+                'button:has-text("I Accept")',
+                'button:has-text("Accept")',
+                '.cky-btn-accept',
+                '#onetrust-accept-btn-handler',
+            ):
+                try:
+                    consent_btn = page.locator(consent_sel).first
+                    if await consent_btn.count() > 0 and await consent_btn.is_visible():
+                        await consent_btn.click(timeout=1500)
+                        await asyncio.sleep(0.3)
+                        break
+                except Exception:
+                    pass
+
             # If application form is not yet visible, check for matching job links or "Apply" buttons
             # A bare `form` element is not evidence of an application form: every
             # careers page has a site-search form, and matching it meant the
             # "Apply" button below never got clicked on a job-description page.
             # Look for inputs only a real application has.
+            #
+            # A bare file input is NOT enough evidence either: Microsoft's job
+            # description page (apply.careers.microsoft.com) has a standalone
+            # "Upload your resume" quick-upload widget with nothing else on it,
+            # which satisfied `input[type="file"]` alone and made every attempt
+            # skip the Apply-link click below, permanently stalling on the
+            # description page ("Submit button not found") no matter what the
+            # click selectors further down could match. A real application form
+            # reliably has at least one identity field (name/email/candidate);
+            # a lone upload widget does not.
             APPLICATION_FORM_SELECTOR = (
-                'input[type="file"], #first_name, #email, input[id*="first_name" i], '
+                '#first_name, #email, input[id*="first_name" i], '
                 'input[name*="first_name" i], input[name*="last_name" i], '
                 'input[autocomplete="given-name"], input[id*="candidate" i]'
             )
             try:
+                # Checked live against Microsoft's page: a bare file-input +
+                # single-text-input fallback was tried here and immediately
+                # false-positived too (the page header's job search box is
+                # itself one text input), so identity fields are the only
+                # reliable signal - no fallback.
                 form_present = await target_frame.locator(APPLICATION_FORM_SELECTOR).count() > 0
                 if not form_present:
                     # Check for direct link to specific job if gh_jid was in the URL
@@ -2483,6 +2938,23 @@ async def _execute_live_playwright_submission_impl(
                         'button:has-text("Apply")',
                         '[data-qa="apply-button"]',
                         '.btn-apply',
+                        # Microsoft's careers site (apply.careers.microsoft.com)
+                        # renders "Apply now" as an <a> whose visible label is
+                        # not exposed as matchable text content (a custom-
+                        # rendered/ARIA-managed label), so every :has-text()
+                        # selector above silently misses it and the run stalls
+                        # on the job-description page with no form. The link
+                        # target itself is stable and site-specific.
+                        'a[href*="/careers/apply?"]',
+                        # Apple's careers site (jobs.apple.com) labels its link
+                        # "Submit Resume" rather than "Apply" at all, so no
+                        # text-based selector above ever matches it. The href
+                        # itself is a stable "/apply/<job id>" pattern, and
+                        # this generic form (rather than Apple's exact path)
+                        # also covers other ATS/career sites using the same
+                        # "/apply/" URL convention with non-"Apply" wording.
+                        'a:has-text("Submit Resume")',
+                        'a[href*="/apply/"]',
                     ]
                     for ab_sel in apply_btn_selectors:
                         ab = page.locator(ab_sel).first
@@ -2525,6 +2997,43 @@ async def _execute_live_playwright_submission_impl(
             # job burned the full 480s watchdog before being marked FAILED with a
             # timeout that says nothing about the real cause. Detect it here and
             # say so immediately.
+            # ── Workday: get past the chooser before deciding there is no form ──
+            #
+            # A Workday posting's /apply URL is not a form at all. It is a menu -
+            # "Autofill with Resume", "Apply Manually", "Use My Last Application" -
+            # with zero inputs on it, so the check below concluded "no application
+            # form on the posting page" and gave up on a perfectly live posting.
+            # Verified on Blue Origin's tenant.
+            #
+            # Choosing "Apply Manually" advances to step 1 of 8, which is
+            # Create Account / Sign In. That account is a hard gate: the seven
+            # steps that hold the actual application are behind it, and creating
+            # it (or typing a password) is not something this automation does.
+            # So the goal here is narrow and honest - drive the posting as far as
+            # it legitimately can go, then say precisely what is blocking it.
+            if "myworkdayjobs.com" in (page.url or "").lower():
+                workday_state = await _advance_workday_to_form(page, log_callback)
+                if workday_state == "needs_account":
+                    reason = (
+                        "Workday requires a candidate account on this employer's tenant, and "
+                        "the application form is behind that sign-in. Sign in once in this "
+                        "window and the account is remembered for next time."
+                    )
+                    if fill_only:
+                        # The window is handed over below by the teardown path;
+                        # the candidate signs in and completes the wizard.
+                        if log_callback:
+                            log_callback(reason, lvl="warning")
+                    else:
+                        return {
+                            "submitted": False,
+                            "error": reason,
+                            "evidence": {"atsPlatform": "workday", "workdayStep": "sign-in"},
+                            "fieldsFilled": {},
+                        }
+                # "form" falls through to the normal filling path below: the
+                # profile is already signed in and the wizard is reachable.
+
             try:
                 has_form = await target_frame.locator(APPLICATION_FORM_SELECTOR).count() > 0
             except Exception:
@@ -2612,7 +3121,28 @@ async def _execute_live_playwright_submission_impl(
                     and (f.get("type") or "").lower() != "file"
                 ]
 
-                if not validation_errors and not missing_req:
+                # A choice group whose requiredness the DOM never states (see
+                # requirednessUnknown in _extract_dom_form_state) cannot be
+                # waved through just because nothing marked it required. An
+                # entirely unanswered question is not a verified form, so it
+                # goes to the healing round that already resolves questions
+                # from the profile - and, failing that, stages for review
+                # instead of being submitted into a validation error.
+                unanswered_unknown = [
+                    f for f in dom_fields
+                    if f.get("requirednessUnknown")
+                    and not f.get("value")
+                    and not _is_voluntary_disclosure(f.get("label", ""))
+                ]
+                if unanswered_unknown:
+                    logger.info(
+                        "Pre-submission audit: %d unanswered question(s) with no requiredness "
+                        "signal in the DOM — routing to healing rather than fast-approving: %s",
+                        len(unanswered_unknown),
+                        [f.get("label", "")[:60] for f in unanswered_unknown][:5],
+                    )
+
+                if not validation_errors and not missing_req and not unanswered_unknown:
                     logger.info("Deterministic Pre-Submission Review: 100% APPROVED (0 errors, 0 missing required)")
                     if log_callback:
                         log_callback(f"Deterministic Pre-Submission Audit: 100% PASS [OK] (Instant <5ms)")
@@ -2677,13 +3207,89 @@ async def _execute_live_playwright_submission_impl(
                             continue
 
                     # ── Use centralized resolver instead of if/elif heuristics ──
-                    if not fix_val:
-                        heal_resolution = resolve_answer(
-                            question_text=f_label,
-                            profile=profile,
-                            answer_lib=answer_lib,
-                        )
+                    #
+                    # Always ask the resolver, even when the review already
+                    # suggested a value. A fact the profile states outright is
+                    # not the LLM's to revise: Discord asks "Are you currently
+                    # based in or willing to relocate to the Bay Area for this
+                    # position?", the profile says the candidate is willing, and
+                    # the review's "No" was submitted over it — an answer the
+                    # candidate never gave, on a question that decides the
+                    # application.
+                    heal_resolution = resolve_answer(
+                        question_text=f_label,
+                        profile=profile,
+                        answer_lib=answer_lib,
+                    )
+                    if heal_resolution.answer and heal_resolution.resolution_method == PROFILE_EXACT:
+                        if fix_val and str(fix_val).strip() != str(heal_resolution.answer).strip():
+                            logger.warning(
+                                "Review suggested %r for %r; using the profile's %r instead",
+                                str(fix_val)[:40], f_label[:60], str(heal_resolution.answer)[:40],
+                            )
                         fix_val = heal_resolution.answer
+                    elif not fix_val:
+                        fix_val = heal_resolution.answer
+
+                    # A prose box wants prose. Both the LLM's suggested fix and
+                    # the resolver will happily hand back a one-word answer for
+                    # a question whose text merely starts like a Yes/No, and it
+                    # gets typed in verbatim: "What is your experience with
+                    # backend development in a team production environment
+                    # using Python? Please explain." was submitted answering
+                    # "Yes", and "Have you recently worked at a FinTech or
+                    # FinServ company? If yes, please state where." answering
+                    # "Washington". Dropping the token here lets the generator
+                    # below write a real answer, or sends the job to review.
+                    if fix_val and _is_token_answer_in_prose_box(
+                        dom_fields_by_id.get(f_id or ""), f_label, fix_val
+                    ):
+                        logger.info(
+                            "Discarding token answer %r for the prose question %r",
+                            str(fix_val)[:40], f_label[:70],
+                        )
+                        fix_val = ""
+
+                    # Open-ended questions have no profile field to resolve from.
+                    #
+                    # "Why do you want to work at X?" is not a fact the profile
+                    # holds, so the resolver correctly returns nothing - and the
+                    # application then stalls on a required field it could
+                    # otherwise have answered. This was the single most common
+                    # recoverable stop: three of four non-submissions in one
+                    # batch were exactly this question at different employers.
+                    #
+                    # generate_theory_answer writes from the candidate's own
+                    # resume and profile under an explicit no-invention rule, so
+                    # the answer is the candidate's real evidence in prose. If
+                    # it cannot produce one, the field stays empty and the
+                    # application still goes to review rather than being sent
+                    # with something made up.
+                    if not fix_val and _is_open_ended_question(dom_fields_by_id.get(f_id or ""), f_label):
+                        try:
+                            from app.services.application_assistant.llm_answer_generator import (
+                                generate_theory_answer,
+                            )
+
+                            generated = await generate_theory_answer(
+                                f_label,
+                                company=company,
+                                role=title,
+                                profile=profile,
+                                settings=await _load_settings_for_generation(),
+                            )
+                            if generated.get("success") and generated.get("answer"):
+                                fix_val = str(generated["answer"]).strip()
+                                logger.info(
+                                    "Generated an answer for the open question %r (%d chars)",
+                                    f_label[:60], len(fix_val),
+                                )
+                                if log_callback:
+                                    log_callback(
+                                        f"Wrote an answer for \"{f_label[:58]}\" from your own experience.",
+                                    )
+                        except Exception:
+                            logger.exception("Could not generate an answer for %r", f_label[:60])
                     if f_id:
                         elem = target_frame.locator(f'[id="{f_id}"]').first
                         if await elem.count() > 0:
@@ -2924,6 +3530,39 @@ async def _execute_live_playwright_submission_impl(
             # instead of re-typing the whole form. The submit click is never
             # made here, whatever the policy gates say.
             if fill_only:
+                # Leave the window showing the button the candidate needs.
+                #
+                # A filled Greenhouse application is a very long document - the
+                # Robinhood posting measures 6178px against a 900px viewport -
+                # and "Submit application" sits at the very bottom. Handing the
+                # window over at whatever scroll position the last field write
+                # happened to leave shows the middle of a form with no visible
+                # way to send it, which reads as a broken page. The button is
+                # there; it is simply thousands of pixels below the fold.
+                # Ordered, not a set: the form frame is where the real submit
+                # control lives, and a set would search them in arbitrary order.
+                frames_to_search = [target_frame]
+                if page is not target_frame:
+                    frames_to_search.append(page)
+                for frame in frames_to_search:
+                    try:
+                        submit = frame.locator(
+                            'button[type="submit"], input[type="submit"], '
+                            'button:has-text("Submit application"), button:has-text("Submit")'
+                        ).last
+                        if await submit.count() > 0:
+                            await submit.scroll_into_view_if_needed(timeout=4000)
+                            if log_callback:
+                                log_callback("Scrolled the window to the Submit button — press it when you are ready.")
+                            break
+                    except Exception:
+                        continue
+                else:
+                    try:
+                        await page.evaluate("() => window.scrollTo(0, document.body.scrollHeight)")
+                    except Exception:
+                        pass
+
                 hand_off_shot = SCREENSHOTS_DIR / f"{job_id}_assisted.png"
                 try:
                     await page.screenshot(path=str(hand_off_shot), full_page=True, timeout=5000)
@@ -2942,6 +3581,7 @@ async def _execute_live_playwright_submission_impl(
                 # themselves, the ATS says so - and the job should mark itself
                 # submitted rather than making them come back and click
                 # "Mark submitted" for something they already did.
+                handed_off = True
                 confirmed_by_user = ""
                 # `None` means wait for as long as the window is open. A
                 # wall-clock deadline here closed the browser out from under
@@ -2960,17 +3600,46 @@ async def _execute_live_playwright_submission_impl(
                             break
                         try:
                             current = page.url or ""
-                            if "confirmation" in current.lower() or "thank" in current.lower():
-                                confirmed_by_user = current
-                                break
-                            body_text = (await page.locator("body").inner_text(timeout=2000)).lower()
-                            if re.search(
-                                r"application (was |has been )?(successfully )?(submitted|received)"
-                                r"|thank you for applying|thanks for applying",
-                                body_text,
-                            ):
-                                confirmed_by_user = current or "confirmation text on page"
-                                break
+                            if not confirmed_by_user:
+                                if "confirmation" in current.lower() or "thank" in current.lower():
+                                    confirmed_by_user = current
+                                else:
+                                    body_text = (
+                                        await page.locator("body").inner_text(timeout=2000)
+                                    ).lower()
+                                    if re.search(
+                                        r"application (was |has been )?(successfully )?(submitted|received)"
+                                        r"|thank you for applying|thanks for applying",
+                                        body_text,
+                                    ):
+                                        confirmed_by_user = current or "confirmation text on page"
+                                if confirmed_by_user:
+                                    if log_callback:
+                                        log_callback(
+                                            f"Saw a confirmation on the {company} form. Recording it "
+                                            "now; the window stays open until you close it.",
+                                        )
+                                    # Record it the moment it is seen.
+                                    #
+                                    # Keeping the window open, so the candidate
+                                    # is not thrown out of their own
+                                    # application, must not also delay the
+                                    # bookkeeping: waiting for the window to
+                                    # close meant a submission they had just
+                                    # made still showed as unsubmitted in the
+                                    # app. Detection and persistence are
+                                    # separate concerns and now happen
+                                    # separately.
+                                    if on_confirmed is not None:
+                                        try:
+                                            await on_confirmed({
+                                                "confirmationUrl": confirmed_by_user,
+                                                "fieldsFilled": filled_fields,
+                                            })
+                                        except Exception:
+                                            logger.exception(
+                                                "Could not record the assisted submission for %s", company,
+                                            )
                         except Exception:
                             pass
                         await asyncio.sleep(1.5)
@@ -3199,7 +3868,17 @@ async def _execute_live_playwright_submission_impl(
             
             logger.info("Waiting for external site submission confirmation...")
             start_wait = asyncio.get_event_loop().time()
-            max_wait_sec = 45.0
+            # Same lesson as the verification flow's own 150s timeout above, one
+            # stage later: Block's real "Thank you for applying" confirmation
+            # (from no-reply@block.xyz, separate from Greenhouse's code email)
+            # arrived 41-44s after the code-verification round trip completed -
+            # inside the old 45s ceiling on a good run, but not with any margin.
+            # Two consecutive Block jobs timed out here, got marked FAILED with
+            # "no confirmation page or confirmation message was detected", and
+            # both had a real ATS confirmation email waiting in Gmail minutes
+            # later - a false negative on an application that had already gone
+            # through.
+            max_wait_sec = 90.0
             submission_resolved = False
 
             while (asyncio.get_event_loop().time() - start_wait) < max_wait_sec:
@@ -3308,14 +3987,40 @@ async def _execute_live_playwright_submission_impl(
                     )
                 except Exception:
                     bot_wall = ""
-                if bot_wall and form_still_visible:
+                # A form still on screen because it is asking for the emailed
+                # security code is not a board refusing automation - it is the
+                # normal Greenhouse flow, one step from done. Blaming the
+                # reCAPTCHA that every Greenhouse page embeds sent a perfectly
+                # submittable application to manual review with a reason that
+                # was simply untrue. Check for the code prompt first and say
+                # what is actually outstanding.
+                awaiting_code = False
+                try:
+                    body_low = (body_text or "").lower()
+                    awaiting_code = (
+                        "verification code was sent to" in body_low
+                        or "enter the 8-character code" in body_low
+                        or "security code" in body_low
+                    )
+                except Exception:
+                    awaiting_code = False
+
+                if awaiting_code:
+                    err_msg = (
+                        "The application was filled and submitted, but Greenhouse's emailed "
+                        "security code was never entered, so it is still waiting on that step"
+                    )
+                elif bot_wall and form_still_visible:
                     err_msg = (
                         f"{bot_wall} bot protection on this board blocked the submission - "
                         "this posting has to be completed by hand"
                     )
+                is_staged = bool(active_errors) or "missing entry for required field" in err_msg.lower() or "active validation errors" in err_msg.lower()
                 logger.error("Submission unconfirmed by Qwen verification: %s", err_msg)
                 return {
                     "submitted": False,
+                    "stagedForReview": is_staged,
+                    "status": "NEEDS_REVIEW" if is_staged else "FAILED",
                     "error": err_msg,
                     "evidence": {
                         "confirmationUrl": confirmation_url,
@@ -3382,5 +4087,36 @@ async def _execute_live_playwright_submission_impl(
                 "fieldsFilled": {},
             }
         finally:
+            # An assisted run must hand its window over no matter what the
+            # automation concluded, and every bucket gets the same treatment.
+            #
+            # The hand-off loop lives deep inside the happy path, so every early
+            # return above it - a bot wall, a page with no form, a navigation
+            # error - fell straight through to this teardown and the window the
+            # user had just asked for vanished as soon as it appeared. Reported
+            # live on a ZoomInfo posting, and it is worst exactly where assisted
+            # fill matters most: a board behind a CAPTCHA is the case where only
+            # a human can finish, and closing the window is what stops them.
+            #
+            # Whatever happened, if the person is expecting a window, they get
+            # one, and it stays until they close it.
+            if fill_only and not handed_off and not page.is_closed():
+                logger.info(
+                    "Assisted run ended early (%s) but the window stays open for the "
+                    "candidate to finish by hand.", company,
+                )
+                if log_callback:
+                    log_callback(
+                        "Automation could not complete this form. The window is yours — "
+                        "finish it and submit there; it stays open until you close it.",
+                    )
+                try:
+                    while not page.is_closed():
+                        await asyncio.sleep(1.5)
+                except Exception:
+                    pass
             await context.close()
-            await browser.close()
+            # A persistent context owns its browser process, so there is no
+            # separate Browser handle to close in that case.
+            if browser is not None:
+                await browser.close()

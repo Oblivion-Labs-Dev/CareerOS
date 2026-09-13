@@ -11,7 +11,7 @@ export function ProgressHeader() {
   const count = data?.completedCount ?? 0;
   const target = data?.preferences.weeklyGoal ?? 3;
   return <>
-    <header className={styles.header}><div><span className={styles.eyebrow}>YOUR NEXT CHAPTER</span><h1>Dashboard</h1></div>
+    <header className={styles.header}><div><h1>Dashboard</h1></div>
       <button className={styles.goalButton} disabled={!data} onClick={() => {setGoal(target);setTimezone(data?.preferences.timezone || "UTC");setEditing(value => !value);}} aria-expanded={editing} aria-label="Edit weekly goal" aria-describedby="weekly-goal-description">
         <span className={styles.ring} data-complete={data?.goalReached}><svg viewBox="0 0 64 64" aria-hidden="true"><circle cx="32" cy="32" r="27"/><circle cx="32" cy="32" r="27" pathLength="100" strokeDasharray={`${Math.min(100,count/target*100)} 100`}/></svg><strong>{data ? `${count}/${target}` : "—"}</strong></span>
         <span><strong>{data?.goalReached ? "Weekly goal reached" : "Your weekly rhythm"}</strong><small id="weekly-goal-description">{data ? `${count} meaningful ${count === 1 ? "action" : "actions"} · edit goal ↗` : "Loading your progress…"}</small></span>

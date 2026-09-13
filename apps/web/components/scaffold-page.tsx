@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { PageTitleWithStatus } from "@/components/page-title-with-status";
 import styles from "./workspace-header.module.css";
-import { WorkspaceScene, type SceneKind } from "./ui/workspace-scene";
+
 
 interface WorkflowPageProps {
   title: string;
@@ -63,7 +63,6 @@ function WorkflowOverviewGrid({
 
 export function WorkflowPage({
   title,
-  eyebrow,
   subtitle,
   primaryAction,
   secondaryAction,
@@ -72,15 +71,15 @@ export function WorkflowPage({
   children,
 }: WorkflowPageProps) {
   const embedded = Boolean(children);
-  const scene: SceneKind = /profile|resume|cover letter/i.test(title) ? "profile" : /settings|integration/i.test(title) ? "settings" : /apply|autopilot|application|inbox|pipeline/i.test(title) ? "autopilot" : "discover";
+
 
   return (
     <div className={`page-content workflow-page${embedded ? " workflow-page--embedded" : ""}`}>
-      <header className={styles.header} data-scene={scene}>
+      <header className={styles.compactHeader}>
         <div className={styles.copy}>
-          <span className={styles.eyebrow}>{eyebrow}</span>
           <PageTitleWithStatus>{title}</PageTitleWithStatus>
-          <p>{subtitle}</p>
+          {!embedded && <p>{subtitle}</p>}
+        </div>
         {(primaryAction || secondaryAction) && (
           <div className={styles.actions}>
             {primaryAction && (
@@ -95,8 +94,7 @@ export function WorkflowPage({
             )}
           </div>
         )}
-        </div>
-        <div className={styles.art}><WorkspaceScene kind={scene} /></div>
+
       </header>
 
       {!embedded ? (

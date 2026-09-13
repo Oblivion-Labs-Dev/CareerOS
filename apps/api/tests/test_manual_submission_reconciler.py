@@ -137,3 +137,70 @@ def test_an_unreadable_inbox_changes_nothing(harness, monkeypatch):
     assert result["success"] is False
     assert result["marked"] == 0
     assert harness["jobs"][0]["status"] == "MANUAL_REVIEW"
+
+
+class TestOneEmailOneJobAcrossRuns:
+    """The guard has to survive the end of a call, not just the end of a loop.
+
+    The `consumed` set was a local, so every fresh run started empty and the
+    same email was free to mark the next open job at that employer. Observed
+    live over twelve hours: one "Thank you for applying to Coinbase" marked
+    fifteen Coinbase jobs, one ServiceNow email marked twelve — and eleven of
+    the ServiceNow jobs had been explicitly skipped as a hand-application
+    target, so they were never sent at all.
+    """
+
+    def test_the_same_email_is_not_respent_on_a_later_run(self, harness):
+        harness["jobs"] = [_job("a", "Coinbase"), _job("b", "Coinbase"), _job("c", "Coinbase")]
+        harness["threads"] = [_thread("1", "Thank you for applying to Coinbase")]
+
+        assert _run(harness)["marked"] == 1
+        assert _run(harness)["marked"] == 0
+        assert _run(harness)["marked"] == 0
+
+        assert sum(1 for j in harness["jobs"] if j["status"] == "SUBMITTED") == 1
+
+    def test_the_spent_email_is_recorded_on_the_job(self, harness):
+        harness["jobs"] = [_job("a", "Coinbase")]
+        harness["threads"] = [_thread("1", "Thank you for applying to Coinbase")]
+
+        _run(harness)
+
+        assert harness["jobs"][0]["submissionEvidence"]["confirmationUid"] == "1"
+
+    def test_a_second_genuine_email_still_marks_a_second_job(self, harness):
+        harness["jobs"] = [_job("a", "Coinbase"), _job("b", "Coinbase")]
+        harness["threads"] = [_thread("1", "Thank you for applying to Coinbase")]
+        assert _run(harness)["marked"] == 1
+
+        harness["threads"].append(_thread("2", "Thank you for applying to Coinbase"))
+        assert _run(harness)["marked"] == 1
+        assert sum(1 for j in harness["jobs"] if j["status"] == "SUBMITTED") == 2
+
+
+class TestTitleBearingSubjects:
+    """Some subjects name the role, and then the email belongs to one job only."""
+
+    def test_a_named_role_goes_to_that_job_not_a_sibling(self, harness):
+        backend = _job("a", "Affirm")
+        backend["title"] = "Senior CIAM Software Engineer"
+        other = _job("b", "Affirm")
+        other["title"] = "Staff Machine Learning Engineer"
+        # Listed so the wrong job would be reached first on a company-only match.
+        harness["jobs"] = [other, backend]
+        harness["threads"] = [
+            _thread("1", "We've received your application for Senior CIAM Software Engineer at Affirm")
+        ]
+
+        _run(harness)
+
+        assert backend["status"] == "SUBMITTED"
+        assert other["status"] == "MANUAL_REVIEW"
+
+    def test_a_company_only_subject_still_matches_something(self, harness):
+        job = _job("a", "Affirm")
+        job["title"] = "Senior CIAM Software Engineer"
+        harness["jobs"] = [job]
+        harness["threads"] = [_thread("1", "Thank you for applying to Affirm")]
+
+        assert _run(harness)["marked"] == 1

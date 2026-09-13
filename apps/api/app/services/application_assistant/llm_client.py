@@ -674,6 +674,42 @@ DEFAULT_LOCAL_MODEL = os.environ.get("CAREEROS_LOCAL_MODEL", "qwen3:4b-instruct"
 LOCAL_FALLBACK_MODEL = os.environ.get("CAREEROS_LOCAL_FALLBACK_MODEL", "mistral:7b-instruct")
 OLLAMA_BASE_URL = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434/v1")
 
+# One switch that actually keeps the local model unloaded.
+#
+# CAREEROS_LOCAL_LLM was only consulted by the queue preprocessor and the
+# answer engine, so turning it off still left the form reviewer and the field
+# mapper building Ollama clients - and a single call is enough to pull several
+# GB back into memory. Enforcing it here, where every local client is built,
+# makes the flag mean what it says.
+LOCAL_LLM_ENABLED = os.environ.get("CAREEROS_LOCAL_LLM", "on").strip().lower() not in (
+    "off", "0", "false", "no",
+)
+
+
+def _is_local(base_url: str) -> bool:
+    lowered = (base_url or "").lower()
+    return "11434" in lowered or "localhost" in lowered or "127.0.0.1" in lowered
+
+
+def _local_disabled_substitute(
+    *, timeout: int, max_retries: int, confidence_threshold: float
+) -> "LLMClient":
+    """What to hand back when a local model was asked for but is switched off.
+
+    Prefers Gemini when a key is configured - "skip the local model" means keep
+    it off this machine's RAM, not lose the ability to reason at all. With no
+    key, returns a client whose is_available() is False, which every caller
+    already handles by falling back to its deterministic path.
+    """
+    gemini = _build_gemini_fallback(
+        timeout=timeout, max_retries=max_retries, confidence_threshold=confidence_threshold
+    )
+    if gemini is not None:
+        logger.info("CAREEROS_LOCAL_LLM=off: using Gemini instead of the local model.")
+        return gemini
+    logger.info("CAREEROS_LOCAL_LLM=off and no GEMINI_API_KEY: running deterministic only.")
+    return LLMClient(base_url="", model="")
+
 
 def _build_local_fallback(
     *,
@@ -726,18 +762,24 @@ def _build_gemini_fallback(*, timeout: int, max_retries: int, confidence_thresho
     )
 
 
-def create_llm_client(settings: dict[str, Any]) -> LLMClient:
+def create_llm_client(settings: dict[str, Any] | None = None) -> LLMClient:
     """Create default LLM client from application assistant settings.
 
     Defaults to local Qwen3 via Ollama, falling back to local Mistral and then
     to Gemini Flash when the primary is unreachable or every retry fails.
     """
-    llm_config = settings.get("llm", {})
+    settings_dict = settings or {}
+    llm_config = settings_dict.get("llm", {})
     provider = str(llm_config.get("provider") or "").lower().strip()
     base_url, model, api_key = _resolve_llm_config(llm_config, default_model=DEFAULT_LOCAL_MODEL)
     timeout = llm_config.get("timeout", 60)
     max_retries = llm_config.get("maxRetries", 2)
     confidence_threshold = llm_config.get("confidenceThreshold", 0.7)
+    if not LOCAL_LLM_ENABLED and _is_local(base_url):
+        return _local_disabled_substitute(
+            timeout=timeout, max_retries=max_retries, confidence_threshold=confidence_threshold
+        )
+
     gemini_fallback = None if "gemini" in model.lower() else _build_gemini_fallback(
         timeout=timeout, max_retries=max_retries, confidence_threshold=confidence_threshold
     )
@@ -796,6 +838,11 @@ def create_mapping_client(settings: dict[str, Any]) -> LLMClient:
         context_window=context_window,
     )
     primary_max_retries = 0 if local_fallback is not None else max_retries
+
+    if not LOCAL_LLM_ENABLED and _is_local(base_url):
+        return _local_disabled_substitute(
+            timeout=timeout, max_retries=max_retries, confidence_threshold=confidence_threshold
+        )
 
     provider = str(cfg.get("provider") or "").lower().strip()
     mistral_provider_name = "ollama" if ("11434" in base_url or "ollama" in provider) else (provider or "ollama")

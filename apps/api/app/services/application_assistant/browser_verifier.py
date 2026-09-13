@@ -139,6 +139,24 @@ def _values_conflict(intended: str, actual: str) -> bool:
     if _PHONE_CALLING_CODE_RE.match(actual) and not _PHONE_CALLING_CODE_RE.match(intended):
         return False
 
+    # Email addresses: if base addresses match ignoring plus tags (e.g. user+career@gmail.com vs user@gmail.com),
+    # they are functionally identical routing to the same inbox — never a conflict.
+    if "@" in intended and "@" in actual:
+        base_i = re.sub(r"\+[^@]+", "", intended.lower().strip())
+        base_a = re.sub(r"\+[^@]+", "", actual.lower().strip())
+        if base_i == base_a:
+            return False
+
+    # Date fields (e.g. start date picker returning "09/20/2026" or "2026-09-20"):
+    # When intended is a relative phrase ("2 weeks from offer", "Immediately", "2 weeks")
+    # or vice versa, the browser date picker filled an actual date equivalent to the notice period.
+    _DATE_PATTERN = r"^\d{1,4}[/-]\d{1,2}[/-]\d{1,4}$"
+    actual_clean = actual.strip().split("\n")[0].strip()
+    intended_clean = intended.strip().split("\n")[0].strip()
+    if (re.match(_DATE_PATTERN, actual_clean) and any(w in intended.lower() for w in ("week", "offer", "immediate", "month", "start"))) or \
+       (re.match(_DATE_PATTERN, intended_clean) and any(w in actual.lower() for w in ("week", "offer", "immediate", "month", "start"))):
+        return False
+
     if _normalize_for_compare(intended) == _normalize_for_compare(actual):
         return False
     # One is a whole-word prefix of the other (e.g. intended "Yes" vs DOM
@@ -270,8 +288,35 @@ async def verify_browser_dom_state(
 
                 // Value lookup
                 let val = '';
-                if (type === 'checkbox' || type === 'radio') {
+                if (type === 'checkbox') {
                     val = el.checked ? (el.value || 'true') : '';
+                } else if (type === 'radio') {
+                    if (el.checked) {
+                        val = el.value || 'true';
+                        // Also try to get the readable label of the checked radio
+                        if (id) {
+                            try {
+                                const lblEl = document.querySelector(`label[for="${id}"]`);
+                                if (lblEl && lblEl.innerText && lblEl.innerText.trim()) {
+                                    val = lblEl.innerText.trim();
+                                }
+                            } catch(e) {}
+                        }
+                    } else if (name) {
+                        // If unchecked, see if another radio in the same group is checked
+                        const checkedSibling = document.querySelector(`input[type="radio"][name="${CSS.escape(name)}"]:checked`);
+                        if (checkedSibling) {
+                            val = checkedSibling.value || 'true';
+                            if (checkedSibling.id) {
+                                try {
+                                    const sibLbl = document.querySelector(`label[for="${checkedSibling.id}"]`);
+                                    if (sibLbl && sibLbl.innerText && sibLbl.innerText.trim()) {
+                                        val = sibLbl.innerText.trim();
+                                    }
+                                } catch(e) {}
+                            }
+                        }
+                    }
                 } else if (isCombobox) {
                     const searchRoot = wrapper || (el.closest ? el.closest('div.select__control, div[class*="select__control"], div[class*="control"]') : null) || el;
                     const valContainer = searchRoot ? searchRoot.querySelector('.select__single-value, .select__multi-value, [class*="singleValue"], [class*="single-value"], [class*="multiValue"], div[class*="ValueContainer"]') : null;
@@ -284,7 +329,7 @@ async def verify_browser_dom_state(
                     val = el.value || '';
                 }
 
-                // Checkboxes in a group should not be individually marked required unless the element itself is required
+                // Checkboxes/radios in a group should not be individually marked required unless the element itself is required
                 let required = false;
                 let group = '';
                 if (type === 'checkbox' || type === 'radio') {
@@ -296,7 +341,12 @@ async def verify_browser_dom_state(
                     // Element is only required if explicitly marked or if its question group has an asterisk
                     const isExplicitlyRequired = el.required || el.getAttribute('aria-required') === 'true';
                     const groupRequired = group.includes('*');
-                    required = isExplicitlyRequired || groupRequired;
+                    // For radios: only mark required if no radio in the group is checked
+                    if (type === 'radio' && val) {
+                        required = false;
+                    } else {
+                        required = isExplicitlyRequired || groupRequired;
+                    }
                 } else {
                     const isExplicitlyRequired = el.required || el.getAttribute('aria-required') === 'true' || (innerInput && (innerInput.required || innerInput.getAttribute('aria-required') === 'true'));
                     required = isExplicitlyRequired || label.includes('*');
@@ -375,8 +425,17 @@ async def verify_browser_dom_state(
             # For checkboxes and radios, if any item with the same group/name was selected, it's satisfied
             if f_type in ("checkbox", "radio") and (lbl_low in checkbox_groups_satisfied or grp_low in checkbox_groups_satisfied or name_low in checkbox_groups_satisfied):
                 continue
-            # Check if optional keyword in label or group
-            if not any(opt in lbl_low or opt in grp_low for opt in ["optional", "if applicable", "if willing"]):
+            # Check if optional keyword in label or group, or legally voluntary demographic disclosure
+            is_voluntary = any(
+                vd in lbl_low or vd in grp_low
+                for vd in (
+                    "gender", "race", "ethnic", "hispanic", "latino", "veteran",
+                    "disability", "disabled", "self-identif", "self identif",
+                    "eeo", "equal employment", "protected veteran",
+                    "sexual orientation", "transgender", "pronoun",
+                )
+            )
+            if not is_voluntary and not any(opt in lbl_low or opt in grp_low for opt in ["optional", "if applicable", "if willing"]):
                 display_name = f.get("label") or f.get("group") or f.get("name") or f.get("id") or "an unlabeled field"
                 result.unresolved_required_fields.append(display_name)
                 result.issues.append(

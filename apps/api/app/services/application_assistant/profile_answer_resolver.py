@@ -1274,11 +1274,15 @@ def _resolve_how_heard(res: AnswerResolution, profile: dict, opts: list[str]) ->
     """BUG FIX: Was selecting random options. Now uses profile.jobDiscoveryDefault."""
     default = profile.get("jobDiscoveryDefault", "LinkedIn")
     if opts:
-        matched = _match_option(opts, default)
-        if not matched:
-            matched = _match_option(opts, "Other") or _match_option(opts, "Job Board")
-        res.answer = matched or default
-        res.resolution_method = PROFILE_OPTION_MAPPING
+        matched = (_match_option(opts, default)
+                   or _match_option(opts, "LinkedIn")
+                   or _match_option(opts, "Job Board")
+                   or _match_option(opts, "Career Site")
+                   or _match_option(opts, "Company Website")
+                   or _match_option(opts, "Online")
+                   or _match_option(opts, "Other"))
+        res.answer = matched or opts[0]
+        res.resolution_method = PROFILE_OPTION_MAPPING if matched else DETERMINISTIC_RULE
     else:
         res.answer = default
         res.resolution_method = PROFILE_EXACT
@@ -1293,7 +1297,23 @@ def _resolve_company_familiarity(res: AnswerResolution, profile: dict, opts: lis
     automated job discovery is the option describing learning about the
     company through the posting itself, not a claim of prior familiarity we
     have no basis for.
+
+    Also handles "Have you used X?" (Robinhood) / "Are you familiar with X?"
+    (Twitch) — product-use or brand-awareness questions that have Yes/No
+    options. The candidate does use these products, so Yes is truthful.
     """
+    q_low = (res.question or "").lower()
+    is_product_use = bool(re.search(r"have\s+you\s+used\b|are\s+you\s+familiar\s+with", q_low))
+    if is_product_use:
+        if opts:
+            matched = _match_option(opts, "Yes")
+            res.answer = matched or "Yes"
+            res.resolution_method = PROFILE_OPTION_MAPPING if matched else DETERMINISTIC_RULE
+        else:
+            res.answer = "Yes"
+            res.resolution_method = DETERMINISTIC_RULE
+        res.confidence = 0.9
+        return
     default = "I learned about the company through this job posting"
     if opts:
         posting_opt = next((o for o in opts if re.search(r"job\s*posting|recruiter", o, re.IGNORECASE)), None)
@@ -1439,10 +1459,11 @@ def _resolve_salary(res: AnswerResolution, profile: dict, opts: list[str]) -> No
     asks_within_range = any(
         k in q_low for k in ("fall within", "within our", "within the range",
                              "within this range", "align with the range",
-                             "comfortable with the range", "within our estimated")
+                             "comfortable with the range", "within our estimated",
+                             "accept the listed salary range", "accept the salary range")
     )
-    if asks_within_range and _is_yes_no_options(opts):
-        matched = _match_option(opts, "Yes")
+    if asks_within_range:
+        matched = _match_option(opts, "Yes") if opts else None
         res.answer = matched or "Yes"
         res.resolution_method = PROFILE_OPTION_MAPPING if matched else DETERMINISTIC_RULE
         res.profile_key = "salaryExpectations"
@@ -1452,7 +1473,36 @@ def _resolve_salary(res: AnswerResolution, profile: dict, opts: list[str]) -> No
     _resolve_from_profile(res, profile, opts, "salaryExpectations", fallback="Open / Negotiable")
 
 def _resolve_notice_period(res: AnswerResolution, profile: dict, opts: list[str]) -> None:
-    _resolve_from_profile(res, profile, opts, "noticePeriod", fallback="2 weeks")
+    q_low = (res.question or "").lower()
+    if any(k in q_low for k in ("job search", "active are you", "search activity", "search status")):
+        if opts:
+            matched = (_match_option(opts, "Actively looking")
+                       or _match_option(opts, "Open to opportunities")
+                       or _match_option(opts, "Ready to interview")
+                       or _match_option(opts, "Active"))
+            res.answer = matched or opts[0]
+            res.resolution_method = PROFILE_OPTION_MAPPING if matched else DETERMINISTIC_RULE
+        else:
+            res.answer = "Actively looking"
+            res.resolution_method = DETERMINISTIC_RULE
+        res.confidence = 0.95
+        return
+
+    val = profile.get("noticePeriod") or "2 weeks"
+    if opts:
+        matched = (_match_option(opts, str(val))
+                   or _match_option(opts, "2 weeks")
+                   or _match_option(opts, "2 weeks from offer")
+                   or _match_option(opts, "Within 2 weeks")
+                   or _match_option(opts, "Immediately")
+                   or _match_option(opts, "Immediate"))
+        res.answer = matched or opts[0]
+        res.resolution_method = PROFILE_OPTION_MAPPING if matched else DETERMINISTIC_RULE
+    else:
+        res.answer = str(val)
+        res.resolution_method = DETERMINISTIC_RULE
+    res.confidence = 0.95
+
 
 def _resolve_sms_consent(res: AnswerResolution, profile: dict, opts: list[str]) -> None:
     _resolve_from_profile(res, profile, opts, "smsConsent",

@@ -76,6 +76,7 @@ export function CorpusSettings({ profile, previewMode, onProfileChange, onSave }
             <label className={styles.label} htmlFor="profile-years">Years of experience</label>
             <input
               id="profile-years"
+              type="number" min="0" max="60" step="0.5"
               className={styles.field}
               value={profile.yearsExperience}
               onChange={(event) => onProfileChange({ ...profile, yearsExperience: event.currentTarget.value })}

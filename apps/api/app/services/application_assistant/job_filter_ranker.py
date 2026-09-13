@@ -118,6 +118,7 @@ def role_location_priority_bonus(job: dict[str, Any]) -> float:
             "engineer", "developer",
         ))
         and not is_senior
+        and not any(re.search(rf"\b{k}\b", title_l) for k in ("intern", "internship", "co-op", "apprentice"))
     )
 
     # Tier 1: Senior Software Engineer in Washington State
@@ -233,6 +234,11 @@ def evaluate_hard_filters(
     is_swe_role = any(kw in title_lower for kw in swe_keywords)
     if not is_swe_role:
         return False, f"Role '{title}' is not a Software Engineering role"
+
+    # Exclude internship / co-op / apprentice / student postings for experienced candidate
+    intern_keywords = ("intern", "internship", "co-op", "apprentice", "working student", "fellowship")
+    if any(re.search(rf"\b{kw}\b", title_lower) for kw in intern_keywords):
+        return False, f"Role '{title}' is an internship or apprentice position"
 
     # 4. Location Filter (United States Positions Only)
     job_loc = (job.get("location") or "").lower()

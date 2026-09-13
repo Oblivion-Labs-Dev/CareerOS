@@ -20,8 +20,13 @@ setup("authenticate", async ({ page, request, baseURL }) => {
   const password = process.env.CAREER_OS_ADMIN_PASSWORD || "";
   const username = process.env.CAREER_OS_ADMIN_USERNAME || process.env.CAREER_OS_ADMIN_USER || "admin";
 
-  // Ask the app itself whether a login is even required.
-  const statusRes = await request.get(`${baseURL}/api/backend/auth/status`).catch(() => null);
+  // Ask the app itself whether a login is even required (with quick retries if web proxy is spinning up).
+  let statusRes = null;
+  for (let attempt = 0; attempt < 5; attempt++) {
+    statusRes = await request.get(`${baseURL}/api/backend/auth/status`).catch(() => null);
+    if (statusRes?.ok()) break;
+    await page.waitForTimeout(1000);
+  }
   expect(statusRes?.ok(), "Backend authentication status must be reachable").toBeTruthy();
   const authRequired = Boolean((await statusRes!.json()).authRequired);
 

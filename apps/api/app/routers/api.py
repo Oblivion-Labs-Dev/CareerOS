@@ -240,8 +240,16 @@ def get_profile(db: Session = Depends(db_session)) -> dict[str, Any]:
 
 @router.post("/profile")
 def upsert_profile(payload: ProfilePayload, db: Session = Depends(db_session)) -> dict[str, Any]:
-    set_kv(db, "profile", payload.profile)
-    return {"success": True, "profile": payload.profile}
+    # Work-authorization facts are stored under several keys that grew up at
+    # different times, and the answer resolver trusts the structured
+    # workAuth.* booleans. Without this, editing the flat field in the Profile
+    # form changed nothing the resolver could see: the stale nested boolean
+    # kept winning, and applications kept going out with the old answer.
+    from app.services.profile_normalizer import normalize_work_authorization
+
+    profile = normalize_work_authorization(payload.profile)
+    set_kv(db, "profile", profile)
+    return {"success": True, "profile": profile}
 
 
 @router.get("/api/db")
@@ -639,7 +647,14 @@ def list_discovered_jobs(
 @router.get("/jobs/discover/filter-options")
 def browse_filter_options(db: Session = Depends(db_session)):
     from app.services.job_discover.browse_filters import filter_options
-    return filter_options(job_discover.get_snapshot(db).get("jobs") or [])
+    from app.services.application_assistant.scraper_import import get_synced_scraper_job_ids
+    snapshot = job_discover.get_snapshot(db)
+    excluded = get_synced_scraper_job_ids(db) | set(snapshot.get("dismissedIds") or [])
+    jobs = [job for job in snapshot.get("jobs", []) if job.get("id") not in excluded]
+    result = filter_options(jobs)
+    result["freshness"] = [value for value in ["24", "168", "720"] if job_discover.filter_jobs(jobs, freshness=value, per_page=1)[1]]
+    result["sponsorship"] = [value for value in ["likely", "friendly", "unlikely"] if job_discover.filter_jobs(jobs, sponsorship=value, per_page=1)[1]]
+    return result
 
 
 @router.get("/jobs/discover/lookup")

@@ -16,6 +16,31 @@ def _extract_keywords(text: str) -> set[str]:
     return extract_keywords(text)
 
 
+# Section headers that close a "required"/"preferred" qualifications block.
+# Without this, a posting whose next real section is "About Us", "Benefits",
+# "Diversity & Inclusion", "Compensation", company news, or the EEO/pay-
+# transparency notice (common ordering: Requirements -> everything else, no
+# "Preferred" header at all) had every line of that boilerplate captured as a
+# "required qualification" all the way to the end of the description -
+# concretely, "How We're Different", "Diversity at Justworks", raw "&nbsp;"
+# fragments and Reuters news blurbs were showing up as missing skills.
+_QUALIFICATION_SECTION_CLOSERS = re.compile(
+    r"^(about( us| the role| you| the team| company)?|benefits?|compensation"
+    r"|perks|culture|diversity|equal opportunity|eeo\b|inclusion|our (mission|values|commitment)"
+    r"|life at|why (join|work)|what we offer|total rewards|the team|responsibilities"
+    r"|company overview|who we are|our story|apply now|how to apply|contact|newsroom"
+    r"|notable news|pay transparency)\b",
+)
+
+
+def _is_section_header(line: str) -> bool:
+    """A line naming a new section, not a qualification bullet that happens
+    to mention one of the trigger words mid-sentence (e.g. "3+ years required
+    experience with Python" must not flip section state)."""
+    stripped = line.strip().rstrip(":").strip()
+    return bool(stripped) and len(stripped) <= 60
+
+
 def _parse_qualifications(description: str) -> tuple[list[str], list[str]]:
     """Parse required and preferred qualifications from job description."""
     required: list[str] = []
@@ -25,12 +50,16 @@ def _parse_qualifications(description: str) -> tuple[list[str], list[str]]:
     current_section = "general"
     for line in lines:
         lower = line.lower().strip()
-        if re.search(r"required|must have|minimum|qualifications", lower):
-            current_section = "required"
-            continue
-        if re.search(r"preferred|nice to have|bonus|desired", lower):
-            current_section = "preferred"
-            continue
+        if _is_section_header(line):
+            if re.search(r"required|requirements|must.have|minimum|qualifications", lower):
+                current_section = "required"
+                continue
+            if re.search(r"preferred|nice to have|bonus|desired", lower):
+                current_section = "preferred"
+                continue
+            if _QUALIFICATION_SECTION_CLOSERS.match(lower):
+                current_section = "general"
+                continue
         cleaned = line.strip().lstrip("•-*·").strip()
         if len(cleaned) < 10:
             continue

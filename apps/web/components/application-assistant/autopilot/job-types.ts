@@ -34,5 +34,10 @@ export type AutopilotJobRow = {
   /** Set only on INELIGIBLE rows: why this posting can never be applied to. */
   ineligibilityReason?: string;
   ineligibilityDetail?: string;
+  /** True when this SUBMITTED row is a genuine re-submission of a posting
+   * already submitted under another row (same employer, same posting) -
+   * kept visible in history but excluded from submitted/success-rate counts. */
+  duplicateSubmission?: boolean;
+  duplicateOfJobId?: string;
 };
 

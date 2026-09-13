@@ -153,17 +153,21 @@ async def build_pending_questions(blocking_issues: list[dict[str, Any]]) -> list
     if not issues:
         return []
 
-    classifications = await asyncio.gather(
-        *[
-            classify_review_issue(
+    # Throttle concurrency so local Ollama does not queue multiple heavy completions simultaneously
+    sem = asyncio.Semaphore(1)
+
+    async def _throttled_classify(bi: dict[str, Any]) -> dict[str, Any]:
+        async with sem:
+            return await classify_review_issue(
                 bi.get("reason", ""),
                 label=bi.get("label", ""),
                 field_type=bi.get("fieldType", ""),
                 options=bi.get("options", []),
                 issue_type=bi.get("issueType", ""),
             )
-            for bi in issues
-        ],
+
+    classifications = await asyncio.gather(
+        *[_throttled_classify(bi) for bi in issues],
         return_exceptions=True,
     )
 
