@@ -650,7 +650,10 @@ def _resolve_llm_config(llm_config: dict[str, Any], default_model: str = "qwen3:
         api_key = api_key or os.environ.get("OPENAI_API_KEY", "")
     elif provider in ("gemini", "google") or (not provider and "gemini" in model.lower()):
         base_url = base_url or "https://generativelanguage.googleapis.com/v1beta/openai"
-        model = model or "gemini-flash-latest"
+        # flash-lite, not flash: the free tier's daily quota on gemini-flash-latest
+        # runs out under sustained use, while flash-lite has a separate, larger
+        # allowance. See app/services/gemini/config.py for the same reasoning.
+        model = model or "gemini-flash-lite-latest"
         api_key = api_key or os.environ.get("GEMINI_API_KEY", "")
     elif provider in ("openrouter",) or (not provider and "openrouter" in base_url.lower()):
         base_url = base_url or os.environ.get("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
@@ -753,7 +756,9 @@ def _build_gemini_fallback(*, timeout: int, max_retries: int, confidence_thresho
         return None
     return LLMClient(
         base_url="https://generativelanguage.googleapis.com/v1beta/openai",
-        model="gemini-flash-latest",
+        # See the note in _resolve_llm_config: flash-lite avoids the exhausted
+        # free-tier quota on flash-latest.
+        model="gemini-flash-lite-latest",
         api_key=gemini_key,
         timeout=timeout,
         max_retries=max_retries,

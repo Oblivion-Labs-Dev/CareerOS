@@ -451,6 +451,9 @@ class QueuePreprocessor:
         """
         with session_scope() as db:
             profile = get_kv(db, "profile") or {}
+            documents = get_kv(db, "documents") or {}
+            from app.db.store import list_entities
+            accomplishments = list_entities(db, "accomplishment")
             existing_autopilot = list_autopilot_jobs(db)
             discovered = list_discovered_jobs(db, active_only=True, exclude_demo=True)
 
@@ -513,7 +516,8 @@ class QueuePreprocessor:
             str(j["id"]): j["mistralMatch"] for j in candidates if isinstance(j.get("mistralMatch"), dict)
         }
         ranked = filter_and_rank_jobs(
-            existing_autopilot, candidates, profile, {}, precomputed_matches=precomputed
+            existing_autopilot, candidates, profile, {}, precomputed_matches=precomputed,
+            documents=documents, accomplishments=accomplishments,
         )
 
         enqueued = 0

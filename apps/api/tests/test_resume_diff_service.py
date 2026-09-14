@@ -37,9 +37,9 @@ async def test_generate_role_tailoring_diff():
     assert res["company"] == "Vercel"
     assert res["title"] == "Staff AI Engineer"
     assert res["mode"] == "honest"
-    assert len(res["bulletDiffs"]) > 0
-    assert "Vercel" in res["tailoredCoverLetter"]
-    assert len(res["screeningQAs"]) >= 2
+    assert not res["quality"]["ok"]  # Missing JD cannot be certified for export.
+    assert res["tailoredCoverLetter"] == ""
+    assert res["screeningQAs"] == []
 
     # Test off mode (no changes)
     res_off = await generate_role_tailoring_diff(job, profile, mode="off")

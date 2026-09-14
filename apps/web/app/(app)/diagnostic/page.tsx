@@ -103,7 +103,7 @@ export default function DiagnosticPage() {
       <SystemHealthCard
         services={healthData?.services ?? []}
         overallStatus={healthData?.overallStatus ?? "Healthy"}
-        updatedAt={healthData?.updatedAt ?? new Date().toISOString()}
+        updatedAt={healthData?.updatedAt ?? ""}
         onRefresh={loadAll}
         loading={loading}
       />

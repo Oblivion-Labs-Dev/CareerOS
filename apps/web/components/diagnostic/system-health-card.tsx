@@ -34,7 +34,12 @@ export function SystemHealthCard({
         </div>
         <div className={styles.headerRight}>
           <span className={styles.updatedAtTime}>
-            Updated {new Date(updatedAt).toLocaleTimeString()}
+            {/* `updatedAt` only ever has a real value once the client's own
+             * fetch has resolved - falling back to `new Date()` during render
+             * (the previous behavior) evaluates once on the server and again
+             * moments later at client hydration, producing two different
+             * timestamps and a React hydration-mismatch error on every load. */}
+            {updatedAt ? `Updated ${new Date(updatedAt).toLocaleTimeString()}` : "Not yet updated"}
           </span>
           {onRefresh && (
             <button

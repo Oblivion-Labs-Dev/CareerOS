@@ -7,6 +7,28 @@ from typing import Any
 
 from app.services.resume_parser import extract_text_from_attachment
 
+# extract_text_from_attachment base64-decodes and re-parses the whole PDF with
+# pypdf on every call. The stored defaultResume has no pre-parsed text field,
+# so extract_resume_text always fell through to this - fine as a one-off, but
+# job matching calls it once per candidate job. Scoring a few hundred queued
+# jobs in a refill cycle repeated that full PDF parse a few hundred times in
+# the single-threaded uvicorn event loop, pegging one core and blocking every
+# other request for tens of seconds. Cache the extracted text per resume
+# (keyed by id/updatedAt, which change whenever the stored resume changes) so
+# it is parsed once instead of once per job.
+_resume_text_cache: dict[tuple[Any, Any, int], str] = {}
+
+
+def _cached_resume_text(resume: dict[str, Any]) -> str:
+    key = (resume.get("id"), resume.get("updatedAt"), len(str(resume.get("base64") or "")))
+    cached = _resume_text_cache.get(key)
+    if cached is not None:
+        return cached
+    text = extract_text_from_attachment(resume)
+    _resume_text_cache.clear()
+    _resume_text_cache[key] = text
+    return text
+
 
 def extract_keywords(text: str) -> set[str]:
     words = re.findall(r"[a-zA-Z+#\.]{2,}", text.lower())
@@ -34,11 +56,11 @@ def extract_resume_text(documents: dict[str, Any] | None) -> str:
 
     attachment = resume.get("attachment")
     if isinstance(attachment, dict):
-        text = extract_text_from_attachment(attachment)
+        text = _cached_resume_text(attachment)
         if text.strip():
             return text.strip()
 
-    return extract_text_from_attachment(resume)
+    return _cached_resume_text(resume)
 
 
 # An accomplishment the candidate intends to build is not evidence of anything

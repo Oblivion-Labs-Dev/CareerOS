@@ -38,43 +38,23 @@ interface CorpusResumeBuilderProps {
     content?: string;
     warnings?: string[];
     provenance?: "selected-records" | "generated-draft";
+    requirementCoverage?: number;
+    evidence?: Array<{ id: string; project: string; selectionReason?: string; source?: { text: string; revision: string } }>;
   } | null;
   generationError: string | null;
   generating: boolean;
   onInputsChange: (inputs: GeneratorInputs) => void;
   onGenerate: () => void;
+  onExportPdf?: () => Promise<void>;
   onSelectRecord: (recordId: string, sectionId?: string) => void;
   onCreate: () => void;
 }
 
-function rankRecords(records: CorpusRecord[], jobDescription: string): Array<CorpusRecord & { rankReason: string }> {
-  const keywords = jobDescription.toLowerCase().split(/\W+/).filter((word) => word.length > 3);
-  return records
-    .map((record) => {
-      const haystack = [
-        record.title,
-        record.currentBullet,
-        record.summary,
-        ...record.technologies,
-        ...record.domains,
-      ].join(" ").toLowerCase();
-      const keywordHits = keywords.filter((word) => haystack.includes(word)).length;
-      const score =
-        (record.readiness === "ready" ? 30 : 0) +
-        record.roastResistance * 0.25 +
-        record.impactScore * 0.2 +
-        keywordHits * 8 +
-        record.metrics.length * 5;
-      const rankReason =
-        keywordHits > 0
-          ? `${keywordHits} job-description keyword${keywordHits === 1 ? "" : "s"} matched`
-          : record.readiness === "ready"
-            ? "Resume-ready with strong evidence"
-            : "Strong impact score and technical depth";
-      return { ...record, score, rankReason };
-    })
-    .sort((left, right) => right.score - left.score)
-    .slice(0, 12);
+function rankRecords(records: CorpusRecord[], selected: Array<{ id: string }> = []): Array<CorpusRecord & { rankReason: string }> {
+  const order = new Map(selected.map((record, index) => [record.id, index]));
+  return records.map((record) => ({ ...record, rankReason: order.has(record.id)
+    ? "Selected by local evidence matching" : "Available source; relevance is evaluated when you compose" }))
+    .sort((left, right) => (order.get(left.id) ?? records.length) - (order.get(right.id) ?? records.length));
 }
 
 export function CorpusResumeBuilder({
@@ -85,14 +65,15 @@ export function CorpusResumeBuilder({
   generating,
   onInputsChange,
   onGenerate,
+  onExportPdf,
   onSelectRecord,
   onCreate,
 }: CorpusResumeBuilderProps) {
   const [step, setStep] = useState(0);
   const [canvasView, setCanvasView] = useState<"resume" | "jd" | "keywords">("resume");
   const ranked = useMemo(
-    () => rankRecords(records, generatorInputs.jobDescription),
-    [generatorInputs.jobDescription, records],
+    () => rankRecords(records, generatedResume?.evidence),
+    [generatedResume?.evidence, records],
   );
 
   const selectedRecords = records.filter((record) => generatorInputs.selectedIds.includes(record.id));
@@ -126,7 +107,7 @@ export function CorpusResumeBuilder({
         <div>
           <div className={styles.eyebrow}>Resume Builder</div>
           <h1>Guided resume generation</h1>
-          <p>Rank accomplishments by role relevance, evidence confidence, and keyword coverage — then preview an ATS-oriented plain-text canvas.</p>
+          <p>Choose source material, then compose a resume locally from relevant evidence. Review the selected claims before export.</p>
         </div>
       </header>
 
@@ -262,7 +243,7 @@ export function CorpusResumeBuilder({
                 </button>
               ) : (
                 <button type="button" className={styles.primaryButton} disabled={generating} onClick={onGenerate}>
-                  {generating ? "Generating…" : "Generate resume"}
+                  {generating ? "Composing…" : "Compose locally"}
                 </button>
               )}
             </div>
@@ -287,7 +268,7 @@ export function CorpusResumeBuilder({
                 { value: "keywords", label: "Keywords" },
               ]}
             />
-            <ScoreGauge value={keywordCoverage} label="JD keyword coverage" size="sm" />
+            <ScoreGauge value={generatedResume?.requirementCoverage ?? keywordCoverage} label={generatedResume ? "Evidence word coverage (estimate)" : "JD keyword overlap (estimate)"} size="sm" />
           </div>
 
           {warnings.length > 0 ? (
@@ -297,6 +278,15 @@ export function CorpusResumeBuilder({
               ))}
             </div>
           ) : null}
+
+          {generatedResume?.evidence?.map((item) => (
+            <details key={item.id} className={styles.warningRow}>
+              <summary>{item.project || item.id}: source and selection</summary>
+              <p>{item.selectionReason}</p>
+              <p>{item.source?.text}</p>
+              <button type="button" className={styles.textButton} onClick={() => onSelectRecord(item.id, "overview")}>Review accomplishment</button>
+            </details>
+          ))}
 
           {generationError ? (
             <StatePanel
@@ -384,7 +374,8 @@ export function CorpusResumeBuilder({
         <div className={styles.panelHeader}>
           <div>
             <h2 id="export-heading">Export</h2>
-            <p>Copy plain text or download a text draft. PDF/DOCX export comes after layout validation.</p>
+            <p>Composition runs locally without a model or API fee. Download a draft PDF to review source claims.</p>
+            {onExportPdf ? <button type="button" className={styles.primaryButton} onClick={() => void onExportPdf()}>Download draft PDF</button> : null}
           </div>
           <div className={styles.workspaceActions}>
             <button

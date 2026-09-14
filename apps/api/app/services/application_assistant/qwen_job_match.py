@@ -330,12 +330,25 @@ def evaluate_job_match(
     job: dict[str, Any] | None = None,
     profile: dict[str, Any] | None = None,
     job_description: str | None = None,
+    documents: dict[str, Any] | None = None,
+    accomplishments: list[dict[str, Any]] | None = None,
     **kwargs: Any,
 ) -> dict[str, Any]:
     """Evaluate job match score deterministically using heuristic scoring fallback."""
+    # Silently hardcoded documents={} / accomplishments=[] regardless of what
+    # a caller passed - every deterministic-fallback match (the only scoring
+    # path that runs while the local LLM is off) matched purely against the
+    # structured profile fields, never the resume's own prose or recorded
+    # accomplishments. A skill mentioned only in resume text, not itemized as
+    # a separate profile field, could never register as a match or close a
+    # "missing skill" gap through this path.
     job_dict = job or {"title": "Position", "description": job_description or ""}
     prof_dict = profile or {}
-    return _heuristic_match(job_dict, prof_dict, documents={}, accomplishments=[])
+    return _heuristic_match(
+        job_dict, prof_dict,
+        documents=documents or {},
+        accomplishments=accomplishments or [],
+    )
 
 
 

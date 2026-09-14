@@ -44,63 +44,27 @@ def test_provider_failure_returns_no_fabricated_fallback(monkeypatch: pytest.Mon
     assert result is None
 
 
-def test_generation_keeps_source_identity_and_filters_unlinked_output(monkeypatch: pytest.MonkeyPatch) -> None:
-    async def generated(*_args: Any, **_kwargs: Any) -> dict[str, Any]:
-        return {
-            "targetRoleMatched": "Invented title",
-            "atsMatchScore": 140,
-            "overallCritique": "Generated analysis",
-            "skillsList": ["Kafka", "Invented Skill"],
-            "resumeBullets": [
-                {
-                    "id": "acc-1",
-                    "company": "Invented Co",
-                    "role": "Invented role",
-                    "project": "Invented project",
-                    "optimizedBullet": "Draft tied to acc-1",
-                },
-                {"id": "unknown", "optimizedBullet": "Unlinked draft"},
-            ],
-        }
-
-    monkeypatch.setattr(llm, "call_openrouter_json", generated)
-    result = asyncio.run(
-        llm.generate_resume_bullets_for_job(
-            accomplishments=[
-                {
-                    "id": "acc-1",
-                    "company": "Northstar",
-                    "project": "Routing",
-                    "roleDetails": {"ownership": "Staff engineer"},
-                    "techStack": ["Kafka"],
-                }
-            ],
-            **generation_kwargs(),
-        )
-    )
-
+def test_generation_keeps_source_identity_without_calling_provider(monkeypatch):
+    async def forbidden(*args, **kwargs):
+        pytest.fail("Resume generation must stay local")
+    monkeypatch.setattr(llm, "call_openrouter_json", forbidden)
+    source = {"id": "acc-1", "company": "Northstar", "project": "Routing", "role": "Staff engineer",
+              "evidenceTier": "professional", "currentBullet": "Built reliable distributed systems using Kafka for durable message delivery."}
+    result = asyncio.run(llm.generate_resume_bullets_for_job(accomplishments=[source], **generation_kwargs()))
     assert result is not None
-    assert result["targetRoleMatched"] == "Staff Platform Engineer"
-    assert result["atsMatchScore"] == 100
-    assert result["skillsList"] == ["Kafka"]
-    assert result["provenance"] == "generated-draft"
-    assert result["resumeBullets"] == [
-        {
-            "id": "acc-1",
-            "company": "Northstar",
-            "role": "Staff engineer",
-            "project": "Routing",
-            "optimizedBullet": "Draft tied to acc-1",
-        }
-    ]
+    assert result["atsMatchScore"] is None
+    assert result["provenance"] == "selected-records"
+    assert result["resumeBullets"][0]["optimizedBullet"] == source["currentBullet"]
+    assert result["resumeBullets"][0]["company"] == "Northstar"
 
 
 def test_resume_route_rejects_empty_or_missing_selections(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(api, "get_kv", lambda *args: {})
     monkeypatch.setattr(api, "list_entities", lambda _db, _kind: [{"id": "acc-1"}])
 
     with pytest.raises(HTTPException) as empty_error:
         asyncio.run(api.generate_resume_route(payload([]), db=object()))
-    assert empty_error.value.status_code == 422
+    assert empty_error.value.status_code == 503  # Empty selection searches all records; none has a usable bullet.
 
     with pytest.raises(HTTPException) as missing_error:
         asyncio.run(api.generate_resume_route(payload(["missing"]), db=object()))
@@ -108,6 +72,7 @@ def test_resume_route_rejects_empty_or_missing_selections(monkeypatch: pytest.Mo
 
 
 def test_resume_route_surfaces_provider_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(api, "get_kv", lambda *args: {})
     monkeypatch.setattr(api, "list_entities", lambda _db, _kind: [{"id": "acc-1"}])
 
     async def unavailable(**_kwargs: Any) -> None:

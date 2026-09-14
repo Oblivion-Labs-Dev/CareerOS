@@ -248,6 +248,15 @@ export interface AutopilotJobsPageParams {
   offset?: number;
 }
 
+export async function getAutopilotStats() {
+  return aaFetch<{
+    success: boolean;
+    statusCounts: Record<string, number>;
+    uiCounts: Record<string, number>;
+    companyCountsByStatus: Record<string, Record<string, number>>;
+  }>("/autopilot/stats");
+}
+
 export async function getAutopilotJobsPage(params: AutopilotJobsPageParams) {
   const qs = new URLSearchParams();
   if (params.search) qs.set("search", params.search);
@@ -259,9 +268,15 @@ export async function getAutopilotJobsPage(params: AutopilotJobsPageParams) {
   if (params.sortDir) qs.set("sortDir", params.sortDir);
   qs.set("limit", String(params.limit ?? 24));
   qs.set("offset", String(params.offset ?? 0));
-  return aaFetch<{ success: boolean; jobs: any[]; count: number; total: number; hasMore: boolean; statusCounts: Record<string, number> }>(
-    `/autopilot/jobs?${qs.toString()}`
-  );
+  return aaFetch<{
+    success: boolean;
+    jobs: any[];
+    count: number;
+    total: number;
+    hasMore: boolean;
+    statusCounts: Record<string, number>;
+    companyCounts: Record<string, number>;
+  }>(`/autopilot/jobs?${qs.toString()}`);
 }
 
 export async function deleteAutopilotJob(jobId: string) {

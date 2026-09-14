@@ -243,6 +243,24 @@ def _lean_job(job: dict[str, Any]) -> dict[str, Any]:
     return {k: v for k, v in job.items() if k not in _LIST_OMITTED_FIELDS}
 
 
+@router.get("/autopilot/stats")
+def get_autopilot_stats() -> dict[str, Any]:
+    """Precomputed aggregated counts by status and company, served instantly from cache."""
+    from app.services.application_assistant.persistence import (
+        AUTOPILOT_STATS_CACHE_KEY,
+        get_autopilot_status_company_stats,
+    )
+    from app.db.store import session_scope
+    from app.services.read_cache import read_cache
+
+    def _load_stats() -> dict[str, Any]:
+        with session_scope() as db:
+            return get_autopilot_status_company_stats(db)
+
+    stats = read_cache.get(AUTOPILOT_STATS_CACHE_KEY, 30.0, _load_stats)
+    return {"success": True, **stats}
+
+
 @router.get("/autopilot/jobs")
 def get_autopilot_jobs_list(
     status: str | None = Query(default=None, description="Single status, or comma-separated list (e.g. QUEUED,NEEDS_REVIEW,STAGED)"),
@@ -255,23 +273,11 @@ def get_autopilot_jobs_list(
     limit: int = Query(default=24, ge=1, le=1000),
     offset: int = Query(default=0, ge=0),
 ) -> dict[str, Any]:
-    """List autopilot jobs, filtered and paginated server-side.
-
-    The entity store isn't indexed for this (see list_entities in db/store.py —
-    it loads every row of the type and filters in Python), so this doesn't scale
-    to a huge table yet. But moving filtering here, out of the frontend, means
-    the client only ever receives one page of results instead of the whole
-    queue — the actual thing worth fixing today. Real scale later means giving
-    autopilot jobs real indexed columns (status/company/title/location) instead
-    of an opaque JSON payload blob.
-
-    No Depends(db_session): this is polled every few seconds by the dashboard
-    (five times over, once per status filter) — holding a pooled connection for
-    each request's full lifetime is how the pool gets exhausted under load. See
-    get_autopilot_status above.
-    """
+    """List autopilot jobs, filtered and paginated server-side."""
     from app.services.application_assistant.persistence import (
         AUTOPILOT_JOBS_CACHE_KEY,
+        AUTOPILOT_STATS_CACHE_KEY,
+        get_autopilot_status_company_stats,
         list_autopilot_jobs,
     )
     from app.db.store import session_scope
@@ -279,21 +285,40 @@ def get_autopilot_jobs_list(
 
     statuses = {s.strip() for s in status.split(",")} if status else None
 
-    # The whole job list is cached, rather than one cache entry per query-string
-    # combination: the filters below are cheap once the rows are in memory, and
-    # a shared list means a search box that fires on every keystroke does not
-    # each time re-parse every row of the table. Writes invalidate it, so the
-    # user's own Apply / Mark submitted still shows up immediately.
+    # Load precomputed status and company counts (very fast group-by or memory cache)
+    def _load_stats() -> dict[str, Any]:
+        with session_scope() as db:
+            return get_autopilot_status_company_stats(db)
+
+    stats = read_cache.get(AUTOPILOT_STATS_CACHE_KEY, 30.0, _load_stats)
+    status_counts = stats.get("statusCounts", {})
+    company_counts_by_status = stats.get("companyCountsByStatus", {})
+
+    if status and status in company_counts_by_status:
+        company_counts = dict(company_counts_by_status[status])
+    elif status and "," in status:
+        company_counts = {}
+        for s in (statuses or ()):
+            for c, cnt in company_counts_by_status.get(s, {}).items():
+                company_counts[c] = company_counts.get(c, 0) + cnt
+    elif not status or status.lower() == "all":
+        company_counts = dict(company_counts_by_status.get("all", {}))
+    else:
+        company_counts = {}
+
     def _load_all_jobs() -> list[dict[str, Any]]:
         with session_scope() as db:
             return list_autopilot_jobs(db)
 
     all_jobs = read_cache.get(AUTOPILOT_JOBS_CACHE_KEY, AUTOPILOT_JOBS_TTL_SECONDS, _load_all_jobs)
     jobs = [job for job in all_jobs if not statuses or job.get("status") in statuses]
-    status_counts: dict[str, int] = {}
-    for job in all_jobs:
-        key = str(job.get("status") or "QUEUED")
-        status_counts[key] = status_counts.get(key, 0) + 1
+
+    if not company_counts:
+        for job in jobs:
+            c_name = (job.get("company") or "").strip()
+            if c_name:
+                company_counts[c_name] = company_counts.get(c_name, 0) + 1
+
     if search and search.strip():
         needle = search.strip().lower()
         jobs = [j for j in jobs if any(needle in str(j.get(k) or "").lower()
@@ -306,7 +331,11 @@ def get_autopilot_jobs_list(
     if location_q:
         jobs = [j for j in jobs if location_q in str(j.get("location") or "").lower()]
     if company_q:
-        jobs = [j for j in jobs if company_q in str(j.get("company") or "").lower()]
+        exact_matches = [j for j in jobs if str(j.get("company") or "").strip().lower() == company_q]
+        if exact_matches:
+            jobs = exact_matches
+        else:
+            jobs = [j for j in jobs if company_q in str(j.get("company") or "").lower()]
 
     reverse = sortDir.lower() != "asc"
     jobs.sort(key=lambda j: str(j.get("id") or ""))
@@ -335,6 +364,7 @@ def get_autopilot_jobs_list(
         "count": len(page),
         "total": total,
         "statusCounts": status_counts,
+        "companyCounts": company_counts,
         "hasMore": offset + limit < total,
     }
 

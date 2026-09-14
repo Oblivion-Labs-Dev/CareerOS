@@ -84,6 +84,49 @@ def _legacy_key(company: Any, sent_at: Any) -> str:
     return f"legacy:{_normalise(company)}|{stamp}"
 
 
+def _has_recent_genuine_submission(
+    company: str, sent_at: datetime, all_jobs: list[dict[str, Any]]
+) -> bool:
+    """True when some *other* job at this company was already submitted by
+    Playwright itself (a real receipt, not this reconciler) close to when this
+    confirmation email arrived.
+
+    A confirmation email is generic-subject ("Thank you for applying to X")
+    for most ATSes, so it names no specific posting. When the automation
+    genuinely submits and gets its own on-page confirmation, that submission
+    is *not* in `candidates` (only MANUAL_REVIEW/NEEDS_REVIEW/FAILED jobs
+    are) - but it is exactly the submission this email is actually
+    confirming. Without this check, the single-candidate company-pass below
+    would credit the email to whatever other job at that company happened to
+    still be open, even though the email had nothing to do with it. Caught
+    live: a genuine Verkada confirmation for a real, receipted submission
+    (Backend Engineer - Intercom, 18:30 UTC) got credited 19 minutes later to
+    a completely different, never-actually-submitted Verkada posting
+    (Connectivity) because it was the only other job still open at that
+    company - proof one candidate is not automatically the right one.
+    """
+    # Keyed on the presence of Playwright's own receipt/confirmation-page data
+    # rather than `submissionSource` - that field is not a reliable "this
+    # reconciler didn't touch it" marker (the Verkada job that exposed this
+    # bug carries a full genuine receipt - fieldsFilled, a real Greenhouse
+    # confirmationUrl, Qwen confidence 1.0 - yet also reads
+    # submissionSource=="email-detected", so excluding on that field would
+    # have hidden the very anchor this check needs to find).
+    company_key = _normalise(company)
+    for job in all_jobs:
+        if job.get("status") != "SUBMITTED":
+            continue
+        evidence = job.get("submissionEvidence") or {}
+        if not (evidence.get("receipt") or evidence.get("confirmationUrl")):
+            continue
+        if _normalise(job.get("company")) != company_key:
+            continue
+        submitted_at = _parse_date(job.get("submittedAt"))
+        if submitted_at and abs((sent_at - submitted_at).total_seconds()) <= 3600:
+            return True
+    return False
+
+
 def _spent_confirmations(jobs: list[dict[str, Any]]) -> set[str]:
     """Confirmation emails already credited to some job.
 
@@ -312,15 +355,28 @@ def reconcile_manual_submissions(
                         # fits several open jobs. Leave it for the company pass.
                         continue
                 elif pass_name == "company":
-                    # Company-only match: at most ONE job gets credit. Pick the
-                    # most recently attempted (the likeliest to be the one the
-                    # candidate just submitted manually). Without this cap the
-                    # same email marked every open job at the same employer.
-                    matches.sort(
-                        key=lambda j: str(j.get("updatedAt") or j.get("queuedAt") or ""),
-                        reverse=True,
-                    )
-                    matches = matches[:1]
+                    # Company-only match: only safe when exactly one candidate is
+                    # open for that employer. "Pick the most recently attempted"
+                    # used to stand in for that when several were open at once -
+                    # but with several genuinely-simultaneous attempts at the same
+                    # company (routine on a night that applies to 20+ postings at
+                    # one employer), a real confirmation email for attempt A
+                    # regularly got credited to attempt B just because B was
+                    # claimed more recently, silently marking a NEEDS_REVIEW/
+                    # FAILED application SUBMITTED with nothing to show for it.
+                    # Confirmed live: a genuine Robinhood confirmation for one
+                    # real Playwright submission (with a full ATS receipt) got
+                    # attributed instead to a second Robinhood posting whose own
+                    # retained DOM snapshot showed a required field still blank
+                    # and policyEvaluation.canAutoSubmit=false - proof it was
+                    # never actually sent. A systematic check afterwards found
+                    # 55 other jobs in the same proven-false state. Ambiguous is
+                    # now left unreconciled (stays in its true status, catchable
+                    # by the normal review/retry flow) rather than guessed.
+                    if len(matches) != 1:
+                        continue
+                    if _has_recent_genuine_submission(matches[0].get("company"), sent_at, all_jobs):
+                        continue
                 _mark(matches[0], subject, sent_at, uid, pass_name)
 
         return {"success": True, "checked": len(candidates), "marked": len(marked), "jobs": marked}

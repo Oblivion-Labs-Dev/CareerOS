@@ -1213,7 +1213,7 @@ def _resolve_sexual_orientation(res: AnswerResolution, profile: dict, opts: list
 def _resolve_pronouns(res: AnswerResolution, profile: dict, opts: list[str]) -> None:
     _resolve_from_profile(res, profile, opts, "pronouns", fallback="Prefer not to say")
 
-def _find_negative_option(opts: list[str], keyword: str) -> str | None:
+def _find_negative_option(opts: list[str], keyword: str | tuple[str, ...]) -> str | None:
     """Find a real option that answers 'no' about `keyword` (e.g. veteran,
     disability), for forms that phrase the standard EEOC negative response
     differently than our own default fallback text.
@@ -1225,11 +1225,21 @@ def _find_negative_option(opts: list[str], keyword: str) -> str | None:
     literal, non-matching fallback text was being recorded as the "resolved"
     answer even though it corresponds to no real option on the page — leaving
     the field permanently unfillable and unmatched at click time.
+
+    `keyword` accepts more than one synonym because the real negative option
+    does not always restate the question's own noun: Robinhood's veteran
+    question offers "I have never served in the military" as its negative
+    answer, which contains neither "veteran" nor "not" - confirmed against
+    the board's live DOM (its 7 options are: active duty / national guard or
+    reserve / never served in the military / protected veteran /
+    non-protected veteran / multiple categories / decline to answer).
+    "never" is included in the negation set for exactly that phrasing.
     """
-    keyword = keyword.lower()
+    keywords = (keyword,) if isinstance(keyword, str) else keyword
+    keywords = tuple(k.lower() for k in keywords)
     for opt in opts:
         low = opt.lower()
-        if keyword in low and re.search(r"\bno\b|\bnot\b", low):
+        if any(k in low for k in keywords) and re.search(r"\bno\b|\bnot\b|\bnever\b|\bnone\b", low):
             return opt
     return None
 
@@ -1238,7 +1248,7 @@ def _resolve_veteran(res: AnswerResolution, profile: dict, opts: list[str]) -> N
     fallback = APPLICATION_FIELD_DEFAULTS.get("veteran", "I am not a protected veteran")
     _resolve_from_profile(res, profile, opts, "veteran", fallback=fallback)
     if opts and res.answer and res.answer.strip().lower() not in [o.strip().lower() for o in opts]:
-        negative = _find_negative_option(opts, "veteran")
+        negative = _find_negative_option(opts, ("veteran", "military", "served"))
         if negative:
             res.answer = negative
 

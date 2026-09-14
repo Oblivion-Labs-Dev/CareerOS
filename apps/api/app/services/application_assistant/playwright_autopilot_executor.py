@@ -31,6 +31,7 @@ from app.services.application_assistant.profile_answer_resolver import (
     resolve_answer,
     AnswerResolution,
     PROFILE_EXACT,
+    _find_negative_option,
 )
 from app.services.application_assistant.cross_field_validator import (
     validate_answers,
@@ -46,6 +47,14 @@ from app.services.application_assistant.submission_policy import SubmissionPolic
 from app.services.tracking_email import derive_contact_email
 
 logger = logging.getLogger("career_os.playwright_autopilot")
+
+# Question types whose fixed fallback answer is a declined/negative EEOC-style
+# response, keyed to the keyword _find_negative_option needs to locate a real
+# "no" option among a board's own phrasing.
+NEGATIVE_OPTION_KEYWORDS = {
+    QuestionType.VETERAN_STATUS: ("veteran", "military", "served"),
+    QuestionType.DISABILITY: ("disab",),
+}
 
 SCREENSHOTS_DIR = Path(__file__).resolve().parents[3] / "data" / "application_assistant" / "screenshots"
 # Where the assisted hand-off keeps its browser profile.
@@ -1207,6 +1216,25 @@ async def _fill_all_greenhouse_comboboxes(
                     if target_lower in opt_lower or opt_lower in target_lower:
                         candidate_str = opt_str
                         break
+
+            # A fixed fallback answer like "I am not a protected veteran" scores
+            # no exact or substring match against a board's own phrasing (e.g.
+            # Robinhood's "Not a Veteran") - upstream resolution already computes
+            # this same fallback (see _find_negative_option in
+            # profile_answer_resolver.py), but that only helps the field types
+            # whose resolver calls it directly. Re-running it here, against this
+            # specific board's `available_options`, covers every EEOC-style
+            # negative-response field regardless of which resolver produced the
+            # unmatched target - and crucially happens before the dynamic-typing
+            # pass below, which types the literal target text into the box and
+            # searches for it: typing a whole sentence into a small fixed-choice
+            # dropdown just filters every real option out, so that pass can never
+            # recover here either.
+            if candidate_str is None and getattr(resolution, "question_type", None) in NEGATIVE_OPTION_KEYWORDS:
+                candidate_str = _find_negative_option(
+                    available_options, NEGATIVE_OPTION_KEYWORDS[resolution.question_type],
+                )
+
             if candidate_str is not None:
                 exact_pattern = re.compile(rf"^\s*{re.escape(candidate_str.strip())}\s*$", re.IGNORECASE)
                 opt_to_click = page.locator('.select__menu .select__option, div[class*="-menu"] div[class*="-option"], .select__option, [role="option"]:not(.iti__country)').filter(has_text=exact_pattern).first

@@ -125,7 +125,20 @@ def _apply(record: dict[str, Any], story: dict[str, Any]) -> dict[str, Any]:
 
     stories = merged.get("interviewStories")
     stories = list(stories) if isinstance(stories, list) else []
-    if not any(isinstance(s, dict) and s.get("id") == story["id"] for s in stories):
+    existing_story = next((s for s in stories if isinstance(s, dict) and s.get("id") == story["id"]), None)
+    if existing_story is not None:
+        # Only update an imported body when it still equals the last import.
+        # Preserve local edits and retain prior versions for review.
+        previous_import = existing_story.get("importedBody")
+        incoming = story.get("body") or ""
+        if previous_import is not None and existing_story.get("body") == previous_import and incoming != previous_import:
+            existing_story = dict(existing_story)
+            existing_story["history"] = [*(existing_story.get("history") or []), {"body": previous_import}]
+            existing_story.update(body=incoming, importedBody=incoming, resumeApproved=False)
+            stories = [existing_story if isinstance(s, dict) and s.get("id") == story["id"] else s for s in stories]
+        elif previous_import is None and existing_story.get("body") == incoming:
+            stories = [{**s, "importedBody": incoming} if isinstance(s, dict) and s.get("id") == story["id"] else s for s in stories]
+    else:
         stories.append(
             {
                 "id": story["id"],
@@ -133,6 +146,7 @@ def _apply(record: dict[str, Any], story: dict[str, Any]) -> dict[str, Any]:
                 "kind": story.get("kind") or "story",
                 "evidence": story.get("evidence") or "professional",
                 "body": story.get("body") or "",
+                "importedBody": story.get("body") or "",
             }
         )
     merged["interviewStories"] = stories

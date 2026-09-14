@@ -125,6 +125,8 @@ async def get_job_tailor_resume_pdf(id: str, mode: str | None = None) -> Respons
         documents=documents,
         accomplishments=accomplishments,
     )
+    if diff_data.get("mode") != "off" and (diff_data.get("tailoringFailed") or not (diff_data.get("quality") or {}).get("ok")):
+        raise HTTPException(status_code=422, detail=(diff_data.get("quality") or {}).get("problems") or "Resume evidence requires review")
     pdf_bytes = render_tailored_resume_pdf(diff_data, profile)
 
     company_slug = "".join(c for c in job.get("company", "Role") if c.isalnum() or c in ("-", "_"))

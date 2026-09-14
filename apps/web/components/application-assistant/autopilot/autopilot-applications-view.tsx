@@ -28,15 +28,18 @@ import { ApplicationDetails } from "./application-details";
 import detailStyles from "./application-details.module.css";
 import { ApplicationCard } from "./application-card";
 import { QuickAddJobPanel } from "./quick-add-job-panel";
+import { CompanyFilterDropdown } from "./company-filter-dropdown";
 import styles from "./control-center.module.css";
 
 type Section = "applications" | "review" | "diagnostics";
 export function AutopilotApplicationsView({
   section,
   onJobsChanged,
+  allJobs = [],
 }: {
   section: Section;
   onJobsChanged: () => void;
+  allJobs?: AutopilotJobRow[];
 }) {
   const params = useSearchParams();
   const linkedFilter = params.get("tab");
@@ -44,6 +47,7 @@ export function AutopilotApplicationsView({
   const [filter, setFilter] = useSessionState<StatusFilter>("applications-filter", FILTERS.some(item => item.id === linkedFilter) ? linkedFilter as StatusFilter : "all");
   const [sortMode, setSortMode] = useSessionState<SortMode>("applications-sort", "priority");
   const [query, setQuery] = useSessionState("applications-query", "");
+  const [companyFilter, setCompanyFilter] = useSessionState<string>("applications-company-filter", "");
   // Which bulk requeue is awaiting confirmation, if any. Held as state rather
   // than using window.confirm so the warning can say exactly what is about to
   // happen and how many rows it touches.
@@ -80,10 +84,67 @@ export function AutopilotApplicationsView({
     return () => document.removeEventListener("mousedown", onDown);
   }, [menuOpen]);
 
-  const pages = useApplicationPages(section === "review" ? "review" : filter, sortMode, query);
-  const { jobs, counts } = pages;
-  useApplicationScroll(`${section}:${filter}:${sortMode}:${query}`, pages.loading, pages.hasMore, jobs.length, pages.loadMore);
-  const visible = jobs;
+  const pages = useApplicationPages(section === "review" ? "review" : filter, sortMode, query, companyFilter);
+  const { jobs, counts, companyCounts: serverCompanyCounts } = pages;
+
+  // Use precomputed server company counts for the current status (covers all companies, e.g. all 152 on manual)
+  const companyCounts = React.useMemo(() => {
+    if (serverCompanyCounts && Object.keys(serverCompanyCounts).length > 0) {
+      return serverCompanyCounts;
+    }
+    const map: Record<string, number> = {};
+    const source = allJobs.length > 0 ? allJobs : jobs;
+    const activeKey = section === "review" ? "review" : filter;
+
+    const matching = source.filter((j) => {
+      if (activeKey === "review") return j.status === "NEEDS_REVIEW" || j.status === "STAGED";
+      if (activeKey === "submitted") return j.status === "SUBMITTED";
+      if (activeKey === "manual") return j.status === "MANUAL_REVIEW";
+      if (activeKey === "queued") return j.status === "QUEUED" || j.status === "APPLYING";
+      if (activeKey === "failed") return j.status === "FAILED";
+      if (activeKey === "skipped") return j.status === "SKIPPED";
+      if (activeKey === "ineligible") return j.status === "INELIGIBLE";
+      return true;
+    });
+
+    for (const j of matching) {
+      const c = (j.company || "").trim();
+      if (c) {
+        map[c] = (map[c] || 0) + 1;
+      }
+    }
+    return map;
+  }, [serverCompanyCounts, allJobs, jobs, section, filter]);
+
+  const sortedCompanies = React.useMemo(() => {
+    return Object.entries(companyCounts).sort((a, b) => {
+      if (b[1] !== a[1]) return b[1] - a[1];
+      return a[0].localeCompare(b[0]);
+    });
+  }, [companyCounts]);
+
+  const totalStatusJobs = React.useMemo(() => {
+    const activeKey = section === "review" ? "review" : filter;
+    if (typeof counts[activeKey] === "number" && counts[activeKey] > 0) {
+      return counts[activeKey];
+    }
+    return Object.values(companyCounts).reduce((sum, n) => sum + n, 0);
+  }, [counts, section, filter, companyCounts]);
+
+  // Reset company filter only if the chosen company definitely does not exist in the non-empty status list
+  useEffect(() => {
+    if (companyFilter && Object.keys(companyCounts).length > 0 && !companyCounts[companyFilter]) {
+      setCompanyFilter("");
+    }
+  }, [companyCounts, companyFilter, setCompanyFilter]);
+
+  useApplicationScroll(`${section}:${filter}:${sortMode}:${query}:${companyFilter}`, pages.loading, pages.hasMore, jobs.length, pages.loadMore);
+
+  const visible = React.useMemo(() => {
+    if (!companyFilter) return jobs;
+    return jobs.filter((j) => (j.company || "").trim().toLowerCase() === companyFilter.trim().toLowerCase());
+  }, [jobs, companyFilter]);
+
   const loading = pages.loading && jobs.length === 0;
   const pagination = <div ref={pages.sentinel} style={{ padding: "20px", textAlign: "center" }}>
     <p role="status">{pages.error || (pages.loading ? "Loading applications…" : `${jobs.length} of ${pages.total} applications`)}</p>
@@ -319,16 +380,43 @@ export function AutopilotApplicationsView({
 
   // ── Review workflow ──
   if (section === "review") {
-    const reviewJobs = jobs.filter((j) => j.status === "NEEDS_REVIEW" || j.status === "STAGED");
+    let reviewJobs = jobs.filter((j) => j.status === "NEEDS_REVIEW" || j.status === "STAGED");
+    if (companyFilter) {
+      reviewJobs = reviewJobs.filter(
+        (j) => (j.company || "").trim().toLowerCase() === companyFilter.trim().toLowerCase()
+      );
+    }
     return (
       <div className={styles.mainCol}>
+        {/* Company filter toolbar for Review queue */}
+        <div className={styles.filterBar} style={{ marginBottom: "1rem" }}>
+          <CompanyFilterDropdown
+            value={companyFilter}
+            onChange={setCompanyFilter}
+            companies={sortedCompanies}
+            totalCount={totalStatusJobs}
+          />
+
+          {(counts["review"] ?? 0) > 0 && (
+            <button
+              type="button"
+              className={styles.filterChip}
+              disabled={busy === "requeue"}
+              onClick={() => setConfirmRequeue("review")}
+            >
+              {busy === "requeue" ? "Moving…" : `Move all ${counts["review"] ?? 0} to queue`}
+            </button>
+          )}
+        </div>
+
         {note && <div className={styles.empty}>{note}</div>}
         {loading ? (
           <p className={styles.loadingText}>Loading review queue…</p>
         ) : reviewJobs.length === 0 ? (
           <div className={styles.empty}>
-            Nothing is waiting on you. Autopilot stages an application here only when it can&apos;t answer
-            something safely on its own.
+            {companyFilter
+              ? `No review applications found for ${companyFilter}.`
+              : "Nothing is waiting on you. Autopilot stages an application here only when it can't answer something safely on its own."}
           </div>
         ) : (
           reviewJobs.map((job) => {
@@ -439,17 +527,16 @@ export function AutopilotApplicationsView({
           </button>
         ))}
 
-        <input
-          type="text"
-          className={styles.searchInput}
-          placeholder="Search company, role, location…"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
+        <CompanyFilterDropdown
+          value={companyFilter}
+          onChange={setCompanyFilter}
+          companies={sortedCompanies}
+          totalCount={totalStatusJobs}
         />
 
         <select
           className={styles.searchInput}
-          style={{ maxWidth: "13rem" }}
+          style={{ maxWidth: "13rem", colorScheme: "dark", cursor: "pointer" }}
           value={sortMode}
           onChange={(e) => setSortMode(e.target.value as SortMode)}
           aria-label="Sort applications"

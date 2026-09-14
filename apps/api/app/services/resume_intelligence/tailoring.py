@@ -24,7 +24,7 @@ def passthrough_diff(accomplishments: list[dict[str, Any]]) -> dict[str, Any]:
     """Off mode: no rewriting, every bullet passes through unchanged."""
     bullets = []
     for acc in accomplishments:
-        original = str(acc.get("description") or "").strip()
+        original = str(acc.get("currentBullet") or acc.get("description") or "").strip()
         if not original:
             continue
         bullets.append(
@@ -58,7 +58,7 @@ def build_tailoring_diff(
     for item in generation_result.get("resumeBullets", []):
         source_id = str(item.get("id", ""))
         source = sources.get(source_id)
-        original = str(source.get("description", "")).strip() if source else ""
+        original = str(item.get("original") or (source.get("currentBullet") or source.get("description") or "" if source else "")).strip()
         tailored = str(item.get("optimizedBullet", "")).strip()
         bullets.append(
             {
@@ -69,6 +69,8 @@ def build_tailoring_diff(
                 "original": original,
                 "tailored": tailored,
                 "changed": original != tailored,
+                "source": item.get("source"),
+                "selectionReason": item.get("selectionReason"),
             }
         )
     return {
@@ -77,4 +79,7 @@ def build_tailoring_diff(
         "skillsList": generation_result.get("skillsList", []),
         "atsMatchScore": generation_result.get("atsMatchScore"),
         "overallCritique": generation_result.get("overallCritique", ""),
+        "warnings": generation_result.get("warnings", []),
+        "requirementCoverage": generation_result.get("requirementCoverage"),
+        "method": generation_result.get("method"),
     }

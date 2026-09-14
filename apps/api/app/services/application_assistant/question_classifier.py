@@ -304,6 +304,7 @@ _CLASSIFICATION_RULES: list[tuple[QuestionType, list[str]]] = [
     (QuestionType.VETERAN_STATUS, [
         r"veteran",
         r"military\s+service",
+        r"military\s+status",
         r"armed\s+forces",
         r"protected\s+veteran",
     ]),

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { getClientApiBaseUrl } from "@/lib/api";
 import type { CorpusProfile, CorpusRecord } from "../corpus-model";
 import { CorpusEvidenceVault } from "./corpus-evidence-vault";
 import { CorpusInterviewPrep } from "./corpus-interview-prep";
@@ -26,7 +27,9 @@ export interface ResumeGenerateRequest {
 
 export interface ResumeGenerateResult {
   targetRoleMatched: string;
-  atsMatchScore: number;
+  atsMatchScore: number | null;
+  content?: string;
+  requirementCoverage?: number;
   overallCritique: string;
   skillsList: string[];
   provenance: "selected-records" | "generated-draft";
@@ -37,6 +40,8 @@ export interface ResumeGenerateResult {
     role: string;
     project: string;
     optimizedBullet: string;
+    selectionReason?: string;
+    source?: { accomplishmentId: string; storyId?: string; text: string; revision: string };
   }>;
 }
 
@@ -96,14 +101,17 @@ export function ResumeBuilderView({ records, profile, onGenerate, onSelect, onCr
     experienceLevel: "Staff",
     tone: "professional",
     maxPages: 1,
-    selectedIds: records.filter((record) => record.readiness === "ready").slice(0, 4).map((record) => record.id),
+    selectedIds: records.map((record) => record.id),
   });
   const [generated, setGenerated] = useState<{
     content?: string;
     warnings?: string[];
     provenance?: ResumeGenerateResult["provenance"];
+    evidence?: ResumeGenerateResult["resumeBullets"];
+    requirementCoverage?: number;
   } | null>(null);
   const [generating, setGenerating] = useState(false);
+  const [resultDocument, setResultDocument] = useState<ResumeGenerateResult | null>(null);
   const [generationError, setGenerationError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -119,24 +127,27 @@ export function ResumeBuilderView({ records, profile, onGenerate, onSelect, onCr
   }, []);
 
   const generate = async () => {
-    if (!inputs.targetRole || inputs.selectedIds.length === 0) return;
+    if (!inputs.targetRole) return;
     setGenerating(true);
     setGenerationError(null);
     try {
       const result = await onGenerate({ ...inputs, targetAtsScore: 85 });
-      const selected = records.filter((record) => inputs.selectedIds.includes(record.id));
+      const selected = records.filter((record) => result.resumeBullets.some((bullet) => bullet.id === record.id));
       const warnings = [
         ...(result.warnings ?? []),
         ...selected.flatMap((record) => record.metrics.filter((metric) => metric.verification !== "verified").map((metric) => `${record.title}: “${metric.value}” is ${metric.verification.replace("-", " ")}.`)),
-        ...selected.filter((record) => record.currentBullet.length > 220).map((record) => `${record.title}: the bullet may be too long for a one-page resume.`),
       ];
+      setResultDocument(result);
       setGenerated({
-        content: result.resumeBullets.map((item) => item.optimizedBullet).join("\n"),
+        content: result.content || result.resumeBullets.map((item) => `${item.company} | ${item.project}\n${item.optimizedBullet}`).join("\n\n"),
         warnings,
         provenance: result.provenance,
+        evidence: result.resumeBullets,
+        requirementCoverage: result.requirementCoverage,
       });
     } catch {
       setGenerated(null);
+      setResultDocument(null);
       setGenerationError("Generation is unavailable. No synthetic resume was returned; your selected source bullets remain unchanged.");
     } finally {
       setGenerating(false);
@@ -150,8 +161,20 @@ export function ResumeBuilderView({ records, profile, onGenerate, onSelect, onCr
       generatedResume={generated}
       generationError={generationError}
       generating={generating}
-      onInputsChange={setInputs}
+      onInputsChange={(next) => { setInputs(next); setGenerated(null); setResultDocument(null); }}
       onGenerate={() => void generate()}
+      onExportPdf={resultDocument ? async () => {
+        try {
+          const response = await fetch(`${getClientApiBaseUrl()}/resume/export-pdf`, {
+            method: "POST", credentials: "include", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ result: resultDocument }),
+          });
+          if (!response.ok) throw new Error("Evidence changed or export failed. Generate the resume again.");
+          const url = URL.createObjectURL(await response.blob());
+          const link = document.createElement("a"); link.href = url; link.download = "resume-draft.pdf"; link.click();
+          setTimeout(() => URL.revokeObjectURL(url), 1000);
+        } catch (error) { setGenerationError(error instanceof Error ? error.message : "Export failed"); }
+      } : undefined}
       onSelectRecord={recordSelector(records, onSelect)}
       onCreate={onCreate}
     />

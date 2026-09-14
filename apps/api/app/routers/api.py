@@ -5,7 +5,7 @@ from collections.abc import Generator
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
+from fastapi import APIRouter, Body, Depends, File, HTTPException, Query, Request, UploadFile
 from fastapi.responses import HTMLResponse, Response
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
@@ -1313,7 +1313,17 @@ def list_accomplishments_route(db: Session = Depends(db_session)) -> dict[str, A
 
 @router.post("/accomplishments")
 def save_accomplishment_route(payload: AccomplishmentPayload, db: Session = Depends(db_session)) -> dict[str, Any]:
-    saved = upsert_entity(db, "accomplishment", payload.accomplishment)
+    previous = get_entity(db, "accomplishment", payload.accomplishment.get("id")) if payload.accomplishment.get("id") else None
+    updated = {**(previous or {}), **payload.accomplishment}
+    incoming = payload.accomplishment
+    if "current" in (incoming.get("resumeEvolution") or {}):
+        updated["currentBullet"] = incoming["resumeEvolution"]["current"]
+    elif "currentBullet" in incoming:
+        updated["resumeEvolution"] = {**(updated.get("resumeEvolution") or {}), "current": incoming["currentBullet"]}
+    if previous:
+        snapshot = {k: v for k, v in previous.items() if k != "revisionHistory"}
+        updated["revisionHistory"] = [*(previous.get("revisionHistory") or []), snapshot]
+    saved = upsert_entity(db, "accomplishment", updated)
     return {"success": True, "accomplishment": saved}
 
 
@@ -1334,11 +1344,10 @@ async def ai_generate_accomplishment_route(payload: AiGeneratePayload) -> dict[s
 @router.post("/resume/generate")
 async def generate_resume_route(payload: ResumeGeneratePayload, db: Session = Depends(db_session)) -> dict[str, Any]:
     requested_ids = list(dict.fromkeys(payload.accomplishmentIds))
-    if not requested_ids:
-        raise HTTPException(status_code=422, detail="Select at least one accomplishment before generating a resume")
 
-    all_accs = list_entities(db, "accomplishment")
-    selected_accs = [a for a in all_accs if a.get("id") in requested_ids]
+    from app.services.resume_intelligence.local_composer import with_profile
+    all_accs = with_profile(list_entities(db, "accomplishment"), get_kv(db, "profile") or {})
+    selected_accs = [a for a in all_accs if not requested_ids or a.get("id") in requested_ids]
     selected_ids = {str(accomplishment.get("id")) for accomplishment in selected_accs}
     missing_ids = [accomplishment_id for accomplishment_id in requested_ids if accomplishment_id not in selected_ids]
     if missing_ids:
@@ -1365,7 +1374,43 @@ async def generate_resume_route(payload: ResumeGeneratePayload, db: Session = De
             status_code=503,
             detail="Resume generation is temporarily unavailable. No synthetic fallback content was returned.",
         )
+    from app.services.resume_intelligence.local_document import document_text
+    result["content"] = document_text(result, get_kv(db, "profile") or {})
     return {"success": True, "result": result}
+
+
+@router.post("/resume/export-pdf")
+def export_local_resume(payload: dict[str, Any] = Body(...), db: Session = Depends(db_session)):
+    from fastapi.responses import Response
+    from app.services.resume_intelligence.local_composer import validate_sources, with_profile
+    from app.services.resume_intelligence.local_document import render
+    result = payload.get("result") or {}
+    records = with_profile(list_entities(db, "accomplishment"), get_kv(db, "profile") or {})
+    problems = validate_sources(result, records)
+    if problems:
+        raise HTTPException(status_code=409, detail=problems)
+    # Draft download does not certify claims or enable application submission.
+    try:
+        data = render(result, get_kv(db, "profile") or {}, draft=True)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return Response(data, media_type="application/pdf", headers={"Content-Disposition": 'attachment; filename="resume-draft.pdf"'})
+
+
+class ResumeStudioPayload(BaseModel):
+    jobDescription: str = Field(min_length=40, max_length=40000)
+    targetRole: str = Field(default="", max_length=200)
+    targetCompany: str = Field(default="", max_length=200)
+
+
+@router.post("/resume/studio")
+def generate_resume_studio(payload: ResumeStudioPayload, db: Session = Depends(db_session)):
+    from app.services.resume_intelligence.resume_studio import generate_studio
+    try:
+        return {"success": True, **generate_studio(list_entities(db, "accomplishment"), get_kv(db, "profile") or {},
+                    payload.jobDescription, payload.targetRole, payload.targetCompany)}
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @router.post("/resume/tailor")
@@ -1379,10 +1424,11 @@ async def tailor_resume_route(payload: ResumeTailorPayload, db: Session = Depend
     if mode not in TAILORING_TONE_BY_MODE:
         mode = "honest"
 
-    all_accs = list_entities(db, "accomplishment")
+    from app.services.resume_intelligence.local_composer import with_profile
+    all_accs = with_profile(list_entities(db, "accomplishment"), get_kv(db, "profile") or {})
     if payload.accomplishmentIds:
         requested_ids = set(payload.accomplishmentIds)
-        selected_accs = [a for a in all_accs if a.get("id") in requested_ids]
+        selected_accs = [a for a in all_accs if not requested_ids or a.get("id") in requested_ids]
     else:
         selected_accs = all_accs
 

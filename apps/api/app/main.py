@@ -43,6 +43,7 @@ if sys.platform == "win32":
                                 conn, protocol,
                                 extra={'peername': addr}, server=server)
                     if self.is_closed():
+                        # Reload trigger for companyCounts feature
                         return
                     f = self._proactor.accept(sock)
                 except OSError as exc:

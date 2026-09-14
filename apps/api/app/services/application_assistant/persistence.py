@@ -568,10 +568,11 @@ def get_active_autopilot_run(db: Session) -> dict[str, Any] | None:
 
 
 AUTOPILOT_JOBS_CACHE_KEY = "autopilot_jobs_all"
+AUTOPILOT_STATS_CACHE_KEY = "autopilot_status_company_stats"
 
 
 def _invalidate_autopilot_jobs_cache() -> None:
-    """Drop the cached job list so the next read rebuilds it.
+    """Drop the cached job list and precomputed stats so the next read rebuilds them.
 
     The list endpoint serves from a background-refreshed cache, which is fine
     for polling but not for the moment right after the user clicks Apply or
@@ -583,6 +584,7 @@ def _invalidate_autopilot_jobs_cache() -> None:
     from app.services.read_cache import read_cache
 
     read_cache.invalidate(AUTOPILOT_JOBS_CACHE_KEY)
+    read_cache.invalidate(AUTOPILOT_STATS_CACHE_KEY)
 
 
 # Statuses a job can sit in where there is still something to do. A duplicate
@@ -723,6 +725,90 @@ def list_autopilot_jobs(db: Session, status: str | None = None) -> list[dict[str
         jobs = list_entities(db, ENTITY_AUTOPILOT_JOB)
     jobs.sort(key=lambda j: str(j.get("queuedAt") or j.get("discoveredAt") or ""), reverse=True)
     return jobs
+
+
+def get_autopilot_status_company_stats(db: Session) -> dict[str, Any]:
+    """Precomputed aggregated counts by status and company.
+
+    Executes a single fast SQLite GROUP BY query instead of pulling and deserializing
+    thousands of job payloads in Python.
+    """
+    from sqlalchemy import text
+
+    query = text("""
+        SELECT 
+            json_extract(payload, '$.status') as status,
+            TRIM(json_extract(payload, '$.company')) as company,
+            COUNT(*) as count
+        FROM entities 
+        WHERE entity_type = 'aa_autopilot_job'
+        GROUP BY status, company
+    """)
+    rows = db.execute(query).fetchall()
+
+    status_counts: dict[str, int] = {}
+    company_counts_by_status: dict[str, dict[str, int]] = {
+        "all": {},
+        "queued": {},
+        "submitted": {},
+        "review": {},
+        "manual": {},
+        "failed": {},
+        "skipped": {},
+        "ineligible": {},
+    }
+
+    STATUS_MAP = {
+        "QUEUED": "queued",
+        "APPLYING": "queued",
+        "SUBMITTED": "submitted",
+        "NEEDS_REVIEW": "review",
+        "STAGED": "review",
+        "MANUAL_REVIEW": "manual",
+        "FAILED": "failed",
+        "SKIPPED": "skipped",
+        "INELIGIBLE": "ineligible",
+    }
+
+    for st, comp, cnt in rows:
+        st = st or "QUEUED"
+        comp = comp or "Unknown"
+        status_counts[st] = status_counts.get(st, 0) + cnt
+
+        # All
+        company_counts_by_status["all"][comp] = company_counts_by_status["all"].get(comp, 0) + cnt
+
+        # By UI bucket
+        bucket = STATUS_MAP.get(st)
+        if bucket:
+            company_counts_by_status[bucket][comp] = company_counts_by_status[bucket].get(comp, 0) + cnt
+
+        # By raw status code
+        if st not in company_counts_by_status:
+            company_counts_by_status[st] = {}
+        company_counts_by_status[st][comp] = company_counts_by_status[st].get(comp, 0) + cnt
+
+    ui_counts = {
+        "all": sum(status_counts.values()),
+        "submitted": status_counts.get("SUBMITTED", 0),
+        "queued": status_counts.get("QUEUED", 0) + status_counts.get("APPLYING", 0),
+        "review": status_counts.get("NEEDS_REVIEW", 0) + status_counts.get("STAGED", 0),
+        "manual": status_counts.get("MANUAL_REVIEW", 0),
+        "failed": status_counts.get("FAILED", 0),
+        "skipped": status_counts.get("SKIPPED", 0),
+        "ineligible": status_counts.get("INELIGIBLE", 0),
+    }
+
+    stats = {
+        "statusCounts": status_counts,
+        "uiCounts": ui_counts,
+        "companyCountsByStatus": company_counts_by_status,
+    }
+    try:
+        set_kv(db, "autopilot_status_company_stats", stats)
+    except Exception:
+        pass
+    return stats
 
 
 def claim_job_lock(db: Session, job_app_id: str, worker_id: str, lease_seconds: int = 300) -> bool:

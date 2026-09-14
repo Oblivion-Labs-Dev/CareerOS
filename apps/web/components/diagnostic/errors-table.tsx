@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import styles from "./diagnostic.module.css";
 import type { DiagnosticErrorItem } from "@/lib/diagnostic-api";
 
@@ -31,6 +31,26 @@ export function ErrorsTable({
     setExpandedErrorId((curr) => (curr === id ? null : id));
   };
 
+  // `search` is a controlled prop driven by the parent's fetch effect, so
+  // without debouncing here every keystroke changed parent state and fired
+  // its own API call - typing a 19-character term fired 20 concurrent
+  // requests, most of them wasted, with a visible lag before the (correct)
+  // final filtered result showed up. Local state keeps the input itself
+  // responsive on every keystroke; the parent only hears about it, and
+  // re-fetches, after typing pauses.
+  const [localSearch, setLocalSearch] = useState(search);
+
+  useEffect(() => {
+    setLocalSearch(search);
+  }, [search]);
+
+  useEffect(() => {
+    if (localSearch === search) return;
+    const timeout = setTimeout(() => onSearchChange(localSearch), 350);
+    return () => clearTimeout(timeout);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [localSearch]);
+
   return (
     <section className={styles.sectionCard} aria-label="System Errors">
       <div className={styles.cardHeader}>
@@ -45,8 +65,8 @@ export function ErrorsTable({
       <div className={styles.filterRow}>
         <input
           type="text"
-          value={search}
-          onChange={(e) => onSearchChange(e.target.value)}
+          value={localSearch}
+          onChange={(e) => setLocalSearch(e.target.value)}
           placeholder="Search by error text, trace ID, run ID, or stage…"
           className={styles.filterSearchInput}
         />

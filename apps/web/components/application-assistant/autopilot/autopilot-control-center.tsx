@@ -26,9 +26,18 @@ type SectionId = "overview" | "applications" | "review" | "diagnostics";
 import type { AutopilotJobRow } from "./job-types";
 export type { AutopilotJobRow } from "./job-types";
 
-// INELIGIBLE must be listed here or the page never fetches those rows at all,
-// and the Ineligible filter below silently shows nothing.
-const ALL_STATUSES = ["QUEUED", "APPLYING", "SUBMITTED", "NEEDS_REVIEW", "STAGED", "FAILED", "SKIPPED", "INELIGIBLE"];
+// INELIGIBLE and MANUAL_REVIEW must be listed here
+const ALL_STATUSES = [
+  "QUEUED",
+  "APPLYING",
+  "SUBMITTED",
+  "NEEDS_REVIEW",
+  "STAGED",
+  "MANUAL_REVIEW",
+  "FAILED",
+  "SKIPPED",
+  "INELIGIBLE",
+];
 
 function isSameDay(iso: string | undefined, ref: Date): boolean {
   if (!iso) return false;
@@ -62,6 +71,7 @@ export function AutopilotControlCenter({
   const { state, loading, connectionError, refresh } = useAutopilotState();
   const [section, setSection] = useState<SectionId>(initialSection);
   const [jobs, setJobs] = useState<AutopilotJobRow[]>([]);
+  const [submittedJobs, setSubmittedJobs] = useState<AutopilotJobRow[]>([]);
   const [jobsLoading, setJobsLoading] = useState(true);
   const [batchPanelOpen, setBatchPanelOpen] = useState(false);
   const [controlBusy, setControlBusy] = useState(false);
@@ -69,35 +79,25 @@ export function AutopilotControlCenter({
 
   const loadJobs = useCallback(async () => {
     if (section !== "overview") return;
-    // One paginated request across every status rather than a fan-out per
-    // status — fewer round trips, and the whole view stops depending on the
-    // slowest of seven parallel calls before it can show a single number.
     try {
-      const merged: AutopilotJobRow[] = [];
-      const seen = new Set<string>();
-      let offset = 0;
-      for (let page = 0; page < 10; page += 1) {
-        const res = await getAutopilotJobsPage({
+      const [res, subRes] = await Promise.all([
+        getAutopilotJobsPage({
           status: ALL_STATUSES.join(","),
-          limit: 200,
-          offset,
+          limit: 100,
           sortBy: "updatedAt",
           sortDir: "desc",
-        });
-        const batch = (res.jobs || []) as AutopilotJobRow[];
-        for (const job of batch) {
-          if (job?.id && !seen.has(job.id)) {
-            seen.add(job.id);
-            merged.push(job);
-          }
-        }
-        if (!res.hasMore || batch.length === 0) break;
-        offset += batch.length;
-      }
-      setJobs(merged);
+        }),
+        getAutopilotJobsPage({
+          status: "SUBMITTED",
+          limit: 500,
+          sortBy: "submittedAt",
+          sortDir: "desc",
+        }),
+      ]);
+      setJobs((res.jobs || []) as AutopilotJobRow[]);
+      setSubmittedJobs((subRes.jobs || []) as AutopilotJobRow[]);
     } catch {
-      // Leave the previous snapshot in place rather than blanking the view on
-      // a transient failure; the interval below retries.
+      // Leave previous snapshot in place on transient error
     } finally {
       setJobsLoading(false);
     }
@@ -153,24 +153,38 @@ export function AutopilotControlCenter({
 
   const today = useMemo(() => {
     const now = new Date();
-    // A re-discovered posting that was already submitted can end up applied
-    // to twice - a real duplicate submission, flagged duplicateSubmission so
-    // it isn't double-counted here even though the row itself stays SUBMITTED.
-    const submitted = jobs.filter((j) => j.status === "SUBMITTED" && !j.duplicateSubmission && isSameDay(j.submittedAt || j.updatedAt, now)).length;
+    const oneDayAgo = now.getTime() - 24 * 60 * 60 * 1000;
+    // Count real submissions today directly from submittedJobs so it is never
+    // crowded out by paginated queued rows in the overview snapshot.
+    const pool = submittedJobs.length > 0 ? submittedJobs : jobs;
+    const submitted = pool.filter(
+      (j) =>
+        j.status === "SUBMITTED" &&
+        !j.duplicateSubmission &&
+        isSameDay(j.submittedAt || j.updatedAt, now),
+    ).length;
+    const submitted24h = pool.filter((j) => {
+      if (j.status !== "SUBMITTED" || j.duplicateSubmission) return false;
+      const ts = new Date(j.submittedAt || j.updatedAt || 0).getTime();
+      return ts >= oneDayAgo;
+    }).length;
     const skipped = jobs.filter((j) => j.status === "SKIPPED" && isSameDay(j.updatedAt, now)).length;
     const failed = jobs.filter((j) => j.status === "FAILED" && isSameDay(j.updatedAt, now)).length;
     const review = jobs.filter((j) => (j.status === "NEEDS_REVIEW" || j.status === "STAGED")).length;
     const pending = jobs.filter((j) => j.status === "QUEUED").length;
-    return { submitted, skipped, failed, review, pending, evaluated: submitted + skipped + failed };
-  }, [jobs]);
+    return { submitted, submitted24h, skipped, failed, review, pending, evaluated: submitted + skipped + failed };
+  }, [jobs, submittedJobs]);
 
-  // Success rate is defined explicitly: of the applications Autopilot actually
-  // carried to a terminal automated outcome, how many were submitted. Skipped
-  // jobs are excluded — they were filtered by choice, not failures.
+  // Share of every real attempt (submitted + manual review + in review +
+  // failed) that ended in a submission. cumulative.staged covers both STAGED
+  // and NEEDS_REVIEW. Skipped (filtered by choice) and ineligible (board
+  // can't be automated at all) were never real attempts, so they stay out of
+  // this entirely.
   const successRate = useMemo(() => {
     const submitted = cumulative?.submitted ?? 0;
+    const staged = cumulative?.staged ?? 0;
     const failed = cumulative?.failed ?? 0;
-    const denom = submitted + failed;
+    const denom = submitted + staged + failed;
     if (denom === 0) return null;
     return Math.round((submitted / denom) * 100);
   }, [cumulative]);
@@ -386,6 +400,9 @@ export function AutopilotControlCenter({
               <div className={styles.metric} data-tone="success">
                 <div className={styles.metricValue}>{jobsLoading ? "—" : today.submitted}</div>
                 <div className={styles.metricLabel}>Submitted today</div>
+                {today.submitted24h > today.submitted && (
+                  <div className={styles.metricHint}>{today.submitted24h} in last 24h</div>
+                )}
               </div>
               <div className={styles.metric} data-tone="info">
                 <div className={styles.metricValue}>{cumulative ? cumulative.submitted : "—"}</div>
@@ -555,6 +572,7 @@ export function AutopilotControlCenter({
         <AutopilotApplicationsView
           section={section}
           onJobsChanged={loadJobs}
+          allJobs={jobs}
         />
       )}
     </div>

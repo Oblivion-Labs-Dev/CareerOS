@@ -29,7 +29,14 @@ def normalize_company(company: str) -> str:
     return re.sub(r"\s+", " ", cleaned).strip()
 
 
-def generate_composite_job_key(company: str, title: str, app_url: str = "", external_id: str = "") -> str:
+def normalize_location(location: str) -> str:
+    cleaned = re.sub(r"[^\w\s]", "", (location or "").lower())
+    return re.sub(r"\s+", " ", cleaned).strip()
+
+
+def generate_composite_job_key(
+    company: str, title: str, app_url: str = "", external_id: str = "", location: str = "",
+) -> str:
     norm_c = normalize_company(company)
     norm_t = normalize_title(title)
     if external_id:
@@ -39,7 +46,37 @@ def generate_composite_job_key(company: str, title: str, app_url: str = "", exte
         parsed = urlparse(app_url)
         clean_url = f"{parsed.netloc}{parsed.path}".rstrip("/")
         return f"{norm_c}::{norm_t}::{clean_url}"
-    return f"{norm_c}::{norm_t}"
+    # Neither a job id nor a URL to key on — the weakest signal available, so
+    # location is folded in here (and only here) as an extra dimension. It is
+    # deliberately left out of the id/url branches above: those already
+    # identify one specific posting, and a posting stored with location
+    # missing on one copy but not the other must not be treated as a
+    # different job just because that field is inconsistently populated.
+    return f"{norm_c}::{norm_t}::{normalize_location(location)}"
+
+
+def build_existing_key_index(existing_jobs: list[dict[str, Any]]) -> dict[str, set[str]]:
+    """Composite key -> set of statuses, computed once instead of per candidate.
+
+    ``evaluate_hard_filters`` used to recompute every existing job's composite
+    key from scratch (two regex substitutions plus a urlparse) on every single
+    call, inside a loop over every candidate job — O(candidates x existing).
+    With a few hundred candidates against ~2,000 existing jobs that is enough
+    string processing to peg a CPU core for tens of seconds per refill cycle
+    and stall the whole (single-worker) API process for every other request.
+    Building this index once per batch turns the check into an O(1) lookup.
+    """
+    index: dict[str, set[str]] = {}
+    for existing in existing_jobs:
+        key = generate_composite_job_key(
+            existing.get("company") or "",
+            existing.get("title") or "",
+            existing.get("applicationUrl") or "",
+            existing.get("externalJobId") or "",
+            existing.get("location") or "",
+        )
+        index.setdefault(key, set()).add(existing.get("status") or "")
+    return index
 
 
 def role_location_priority_bonus(job: dict[str, Any]) -> float:
@@ -145,10 +182,15 @@ def role_location_priority_bonus(job: dict[str, Any]) -> float:
 def evaluate_hard_filters(
     job: dict[str, Any],
     profile: dict[str, Any],
-    existing_jobs: list[dict[str, Any]],
+    existing_jobs: list[dict[str, Any]] | dict[str, set[str]],
     settings: dict[str, Any] | None = None,
 ) -> tuple[bool, str]:
     """Perform deterministic pre-checks before executing AI match scoring.
+
+    ``existing_jobs`` accepts either the raw job list (rebuilds the key index
+    every call — fine for a one-off check) or a pre-built index from
+    ``build_existing_key_index`` (O(1) lookup — required for any caller that
+    invokes this per candidate in a loop; see that function's docstring).
 
     Returns (passed, skip_reason).
     """
@@ -179,19 +221,16 @@ def evaluate_hard_filters(
 
     # 1. Duplicate Application Protection
     if not opts.get("allowDuplicates", False):
-        job_key = generate_composite_job_key(company, title, app_url, external_id)
-        for existing in existing_jobs:
-            ex_key = generate_composite_job_key(
-                existing.get("company") or "",
-                existing.get("title") or "",
-                existing.get("applicationUrl") or "",
-                existing.get("externalJobId") or "",
-            )
-            ex_status = existing.get("status")
-            if job_key == ex_key and ex_status in (
+        existing_key_index = existing_jobs if isinstance(existing_jobs, dict) else build_existing_key_index(existing_jobs)
+        location = job.get("location") or ""
+        job_key = generate_composite_job_key(company, title, app_url, external_id, location)
+        blocking_statuses = existing_key_index.get(job_key) or set()
+        for ex_status in blocking_statuses:
+            if ex_status in (
                 AutopilotJobStatus.SUBMITTED.value,
                 AutopilotJobStatus.APPLYING.value,
                 AutopilotJobStatus.STAGED.value,
+                "NEEDS_REVIEW",
                 AutopilotJobStatus.QUEUED.value,
             ):
                 return False, f"Duplicate application already in state: {ex_status}"
@@ -438,6 +477,8 @@ def filter_and_rank_jobs(
     settings: dict[str, Any] | None = None,
     *,
     precomputed_matches: dict[str, dict[str, Any]] | None = None,
+    documents: dict[str, Any] | None = None,
+    accomplishments: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
     """Process a list of discovered jobs:
 
@@ -459,8 +500,33 @@ def filter_and_rank_jobs(
     matches = precomputed_matches or {}
     all_passing: list[dict[str, Any]] = []
 
+    # Built once instead of re-derived from existing_jobs on every candidate
+    # (see build_existing_key_index's docstring - that reduced an O(candidates
+    # x existing) hot loop to O(candidates + existing)). Updated below as each
+    # candidate passes, so two copies of the same posting discovered in this
+    # same raw_jobs batch (e.g. scraped twice across different search result
+    # pages) are caught against each other too, not only against jobs that
+    # already existed before this batch ran - a real gap that let the same
+    # posting get queued and submitted twice.
+    existing_key_index = build_existing_key_index(existing_jobs)
+
+    # Load resume text / accomplishments for the heuristic-fallback path
+    # below (only reached when a posting has no Mistral score) when the
+    # caller didn't already supply them and a real DB session is on hand to
+    # load them from. Without this, the deterministic fallback - the only
+    # scoring path that runs while the local LLM is off - matched purely
+    # against structured profile fields, blind to anything only mentioned in
+    # the resume's own prose or in recorded accomplishments.
+    if documents is None and accomplishments is None and not isinstance(db, list):
+        try:
+            from app.db.store import get_kv, list_entities
+            documents = get_kv(db, "documents") or {}
+            accomplishments = list_entities(db, "accomplishment")
+        except Exception:
+            documents, accomplishments = {}, []
+
     for job in raw_jobs:
-        passed, skip_reason = evaluate_hard_filters(job, profile, existing_jobs, opts)
+        passed, skip_reason = evaluate_hard_filters(job, profile, existing_key_index, opts)
         manual_reason: tuple[Any, str] | None = None
         if not passed:
             # A hard-filter rejection is not always a dead end. A board behind a
@@ -504,7 +570,9 @@ def filter_and_rank_jobs(
             # No Mistral score available (Ollama down, or not preprocessed yet).
             # Fall back to the deterministic heuristic and label it honestly so
             # nothing downstream reports a heuristic number as a model match.
-            match_result = evaluate_job_match(job=job, profile=profile)
+            match_result = evaluate_job_match(
+                job=job, profile=profile, documents=documents, accomplishments=accomplishments,
+            )
             score = float(match_result.get("overallScore", 0.0))
             ranked_job = {
                 **job,
@@ -526,6 +594,20 @@ def filter_and_rank_jobs(
 
         ranked_job["queuePriority"] = queue_priority_score(ranked_job)
         all_passing.append(ranked_job)
+
+        # Mark this candidate as taken immediately, not just on the next call
+        # into this function - otherwise the same posting appearing twice in
+        # this same raw_jobs batch (a duplicate scrape, not a duplicate DB
+        # row) passes the hard filter both times and gets queued twice.
+        if not opts.get("allowDuplicates", False):
+            dup_key = generate_composite_job_key(
+                job.get("company") or "",
+                job.get("title") or "",
+                job.get("applicationUrl") or job.get("listingUrl") or "",
+                job.get("externalJobId") or "",
+                job.get("location") or "",
+            )
+            existing_key_index.setdefault(dup_key, set()).add(AutopilotJobStatus.QUEUED.value)
 
     # Sort descending by queue priority (tier bonus + match score), then datePosted
     all_passing.sort(key=lambda j: (j.get("queuePriority", 0.0), j.get("datePosted") or ""), reverse=True)

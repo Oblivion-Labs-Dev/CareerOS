@@ -11,5 +11,9 @@ httpx>=0.28.0
 pyyaml>=6.0.2
 python-dateutil>=2.9.0
 playwright>=1.49.0
+# CPU-only local sentence embeddings for resume-studio ranking (optional at
+# runtime: local_composer/semantic.py degrades to BM25 + skill-taxonomy
+# matching if this or its cached model weights aren't available).
+sentence-transformers>=3.0.0
 
 tzdata>=2025.1

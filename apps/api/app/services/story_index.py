@@ -343,6 +343,21 @@ def flat_tags(text: str) -> set[str]:
     return {tag for group in extract_tags(text).values() for tag in group}
 
 
+@lru_cache(maxsize=1)
+def _tag_category_map() -> dict[str, str]:
+    """Canonical tag -> its vocabulary group (technologies/concepts/behavioural).
+
+    A named technology is stronger evidence of role fit than a behavioural
+    theme; callers scoring "technical specificity" want that distinction
+    without re-deriving it from the vocabulary tables themselves.
+    """
+    return {canonical: kind for kind, vocabulary in _ALL_VOCABULARIES.items() for canonical in vocabulary}
+
+
+def tag_category(tag: str) -> str | None:
+    return _tag_category_map().get(tag)
+
+
 def normalize_tag(value: str) -> str | None:
     """Map any surface form onto its canonical tag, or None if unknown.
 
@@ -672,13 +687,30 @@ def load_corpus(path: Path | None = None) -> list[dict[str, Any]]:
     return [r for r in payload if isinstance(r, dict) and str(r.get("id", "")).strip()]
 
 
-@lru_cache(maxsize=1)
 def get_index() -> StoryIndex:
-    return StoryIndex(_story_from_record(record) for record in load_corpus())
+    # The app and composer read the same current evidence. File data is an
+    # import source, not a second live database or a permanently cached index.
+    from app.db.store import session_scope, list_entities
+    with session_scope() as db:
+        records = list_entities(db, "accomplishment")
+    stories = []
+    for record in records:
+        current = (record.get("resumeEvolution") or {}).get("current", record.get("currentBullet") or "")
+        nested = record.get("interviewStories") or [{"id": record.get("id"), "body": record.get("description") or current}]
+        for story in nested:
+            if isinstance(story, dict):
+                if not str(story.get("body") or "").strip():
+                    continue
+                stories.append(_story_from_record({**record, **story,
+                    "title": story.get("title") or record.get("project") or record.get("title") or record.get("id"),
+                    "headline": current,
+                    "technologies": record.get("technologies") or record.get("techStack") or [],
+                    "evidence": story.get("evidence") or record.get("evidenceTier") or "personal-project"}))
+    return StoryIndex(stories)
 
 
 def reset_index_cache() -> None:
-    get_index.cache_clear()
+    pass  # Indexes are rebuilt from the current database snapshot.
 
 
 # ---------------------------------------------------------------------------

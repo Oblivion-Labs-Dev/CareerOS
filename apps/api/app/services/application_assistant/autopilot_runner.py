@@ -483,6 +483,14 @@ class AutopilotRunner:
                     existing["targetProcessCount"] = max(existing.get("targetProcessCount", 25), current_proc + target_count)
                     existing["status"] = AutopilotRunStatus.RUNNING.value
                     existing["concurrency"] = self.concurrency
+                    # The resolved opts (tierGuardrails, minMatchScore, selfHealing,
+                    # ...) reflect this start() call and are already governing the
+                    # runner in-memory below - without writing them back here, the
+                    # persisted run row keeps whatever settings it was *first*
+                    # created with, silently lying about what's actually running
+                    # and becoming the fallback (_last_run_settings) for the next
+                    # start() call that omits a field.
+                    existing["settings"] = opts
                     self.active_run_id = existing["id"]
                     if hb_str:
                         try:
@@ -805,6 +813,9 @@ class AutopilotRunner:
             with session_scope() as db:
                 existing_autopilot_jobs = list_autopilot_jobs(db)
                 profile = get_kv(db, "profile") or {}
+                documents = get_kv(db, "documents") or {}
+                from app.db.store import list_entities
+                accomplishments = list_entities(db, "accomplishment")
                 raw_jobs = list_discovered_jobs(db, active_only=True, exclude_demo=True)
 
             if not raw_jobs:
@@ -825,6 +836,8 @@ class AutopilotRunner:
                 profile,
                 refill_settings,
                 precomputed_matches=precomputed,
+                documents=documents,
+                accomplishments=accomplishments,
             )
             if not ranked:
                 return (0, 0, 0)
