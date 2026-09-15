@@ -131,3 +131,17 @@
 .stats li[data-tone="warning"] strong { color: #fbbf24; }
 .stats li[data-tone="danger"] strong { color: #f87171; }
 .stats li[data-tone="muted"] strong { color: #94a3b8; }
+
+/* ── Live event feed, folded into this same Recent Activity panel ── */
+
+.feedBlock {
+  padding-top: 0.75rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+/* ── Recent submissions list, folded into this same Recent Activity panel ── */
+
+.submissionsBlock {
+  padding-top: 0.75rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
+}

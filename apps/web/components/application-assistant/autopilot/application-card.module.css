@@ -41,7 +41,7 @@
 .footer .secondaryBtn:hover { background:var(--accent); color:white; transform:none; border-color:var(--accent); }
 .title:focus-visible,.footer button:focus-visible { outline:2px solid var(--accent); outline-offset:3px; }
 .card[data-status=applying] .status i { animation:pulse 1.8s ease-in-out infinite; }
-@keyframes pulse { 50% { box-shadow:0 0 0 5px #6873cb22; } }
+@keyframes pulse { 50% { opacity:.55; transform:scale(1.18); } }
 @media(prefers-reduced-motion:reduce) { .card,.card * { animation:none!important; transition:none!important; } .card:hover { transform:none; } }
 :global([data-motion=paused]) .card,:global([data-motion=paused]) .card * { animation:none!important; transition:none!important; }
 

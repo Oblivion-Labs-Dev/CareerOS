@@ -398,7 +398,13 @@ async def _append_scraped_batch(
 
         documents = get_kv(db, "documents") or {}
         accomplishments = list_entities(db, "accomplishment")
-        scored = _score_jobs(
+        # Pure computation (skill/evidence matching, H1B-sponsorship field checks) over
+        # every job in the batch, no DB access — same class of bug as the dedup/merge
+        # step below, confirmed live via py-spy on 2026-09-15 with the MainThread parked
+        # in check_h1b_sponsorship/apply_h1b_fields during an active scrape. Safe to move
+        # wholesale: unlike _persist_snapshot, nothing here touches the session.
+        scored = await asyncio.to_thread(
+            _score_jobs,
             normalized,
             profile,
             documents=documents,
@@ -440,7 +446,20 @@ async def _append_scraped_batch(
             "lastHours": clamp_scrape_hours(hours),
             "lastRoles": roles,
         }
-        _persist_snapshot(db, updated)
+        # _persist_snapshot itself grew into the next instance of the exact bug the
+        # comment above already fixed once: it JSON-serializes/deserializes a snapshot
+        # that has since grown large enough (2500+ jobs) to block the event loop for
+        # several seconds to tens of seconds on its own — confirmed live via py-spy on
+        # 2026-09-15, MainThread parked in set_kv's JSON decode during this exact call,
+        # freezing the whole server (even /health) repeatedly during an active scrape.
+        # Can't just asyncio.to_thread(_persist_snapshot, db, updated) — same
+        # session-across-threads hazard the comment above already ruled out — so this
+        # gets its own fresh session, scoped entirely to the background thread.
+        def _persist_snapshot_in_thread() -> None:
+            with session_scope() as fresh_db:
+                _persist_snapshot(fresh_db, updated)
+
+        await asyncio.to_thread(_persist_snapshot_in_thread)
         merged_jobs = updated.get("jobs") or []
         _apply_snapshot_stats(merged_jobs)
         _scrape_status["lastResult"] = f"Indexed {len(merged_jobs)} roles so far"

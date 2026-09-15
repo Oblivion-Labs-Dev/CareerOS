@@ -2,7 +2,10 @@
 
 import React from "react";
 import styles from "./last-update-panel.module.css";
+import feedStyles from "./control-center.module.css";
 import { statusView } from "./job-presentation";
+import { RecentSubmissions } from "./recent-submissions";
+import type { AutopilotLog } from "@/hooks/use-autopilot-state";
 
 /**
  * What happened most recently, standing beside the Night Batch card.
@@ -15,7 +18,29 @@ import { statusView } from "./job-presentation";
  * It reports the last application to move whatever moved it: a batch
  * submission, a single Apply, something staged for review, or a failure. A run
  * summary alone went stale the moment anything happened outside a batch.
+ *
+ * The live event feed and the recent-submissions list used to live in their
+ * own separate panels elsewhere on the page. Folded in here too so "what's
+ * happening" and "what already happened" are one column instead of three.
  */
+
+/** "12:04" in 24h local time. */
+function timeOfDay(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "--:--";
+  return d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", hour12: false });
+}
+
+/** Classify a log line into a feed event kind using the message the backend already emits. */
+function feedKind(log: AutopilotLog): { kind: string; glyph: string } {
+  const m = (log.message || "").toLowerCase();
+  if (log.level === "error" || m.includes("failed")) return { kind: "failed", glyph: "✕" };
+  if (m.includes("submitted")) return { kind: "submitted", glyph: "✓" };
+  if (m.includes("skip")) return { kind: "skipped", glyph: "⊘" };
+  if (m.includes("review") || m.includes("staged")) return { kind: "review", glyph: "⚠" };
+  if (m.includes("repair") || m.includes("heal")) return { kind: "healed", glyph: "↻" };
+  return { kind: "applying", glyph: "◉" };
+}
 
 export type LastActivity = {
   company?: string;
@@ -63,18 +88,33 @@ export function LastUpdatePanel({
   lastActivity,
   lastRun,
   isLive,
+  logs,
 }: {
   lastActivity: LastActivity;
   lastRun: LastRun;
   isLive: boolean;
+  logs?: AutopilotLog[];
 }) {
   const hasRun = !!lastRun && (lastRun.processedCount || 0) > 0;
   const view = lastActivity ? statusView(lastActivity.status) : null;
+  // The run's own counters only tally SUBMITTED/STAGED/FAILED/SKIPPED/
+  // INELIGIBLE - a job that landed in NEEDS_REVIEW (by far the most common
+  // outcome some nights) increments none of them, so processedCount could
+  // read "35 processed" next to sub-counts that only summed to 7 with no
+  // indication where the other 28 went. Show the gap explicitly rather than
+  // let it read as submitted+ineligible being the whole story.
+  const accountedFor =
+    (lastRun?.submittedCount || 0) +
+    (lastRun?.stagedCount || 0) +
+    (lastRun?.failedCount || 0) +
+    (lastRun?.skippedCount || 0) +
+    (lastRun?.ineligibleCount || 0);
+  const needsReviewCount = Math.max(0, (lastRun?.processedCount || 0) - accountedFor);
 
   return (
-    <aside className={styles.panel} aria-label="Last update">
+    <aside className={styles.panel} aria-label="Recent Activity">
       <div className={styles.head}>
-        <span className={styles.kicker}>Last update</span>
+        <span className={styles.kicker}>Recent Activity</span>
         {lastActivity?.updatedAt && (
           <span className={styles.when}>{timeAgo(lastActivity.updatedAt)}</span>
         )}
@@ -110,14 +150,24 @@ export function LastUpdatePanel({
             <li data-tone="success">
               <strong>{lastRun.submittedCount || 0}</strong> submitted
             </li>
+            {needsReviewCount > 0 && (
+              <li data-tone="warning">
+                <strong>{needsReviewCount}</strong> needs review
+              </li>
+            )}
             {(lastRun.stagedCount || 0) > 0 && (
               <li data-tone="warning">
-                <strong>{lastRun.stagedCount}</strong> review
+                <strong>{lastRun.stagedCount}</strong> staged
               </li>
             )}
             {(lastRun.failedCount || 0) > 0 && (
               <li data-tone="danger">
                 <strong>{lastRun.failedCount}</strong> failed
+              </li>
+            )}
+            {(lastRun.skippedCount || 0) > 0 && (
+              <li data-tone="muted">
+                <strong>{lastRun.skippedCount}</strong> skipped
               </li>
             )}
             {(lastRun.ineligibleCount || 0) > 0 && (
@@ -128,6 +178,37 @@ export function LastUpdatePanel({
           </ul>
         </div>
       )}
+
+      {logs && logs.length > 0 && (
+        <div className={styles.feedBlock}>
+          <div className={styles.runHead}>
+            <span>Event log</span>
+          </div>
+          <div className={feedStyles.feedScroll}>
+            {[...logs]
+              .reverse()
+              .slice(0, 60)
+              .map((log) => {
+                const { kind, glyph } = feedKind(log);
+                const company = log.metadata?.company as string | undefined;
+                return (
+                  <div key={log.id} className={feedStyles.feedItem}>
+                    <span className={feedStyles.feedTime}>{timeOfDay(log.timestamp)}</span>
+                    <span className={feedStyles.feedIcon} data-kind={kind}>{glyph}</span>
+                    <span>
+                      <span className={feedStyles.feedTitle}>{company || "Autopilot"}</span>
+                      <span className={feedStyles.feedDetail}>{log.message}</span>
+                    </span>
+                  </div>
+                );
+              })}
+          </div>
+        </div>
+      )}
+
+      <div className={styles.submissionsBlock}>
+        <RecentSubmissions />
+      </div>
     </aside>
   );
 }

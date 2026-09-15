@@ -134,6 +134,11 @@ _ERROR_TEXT_RULES: tuple[tuple[IneligibilityReason, tuple[str, ...]], ...] = (
             # signal. No iframe and no "captcha" wording, so the DOM sweep in
             # the executor never sees it.
             r"flagged as (?:possible|potential) spam",
+            # job_filter_ranker's Roblox hard-filter reason, reworded to describe
+            # the symptom rather than claim a Turnstile wall. Without a match
+            # here the claim-time check falls through and every queued Roblox
+            # job burns a ~9-minute browser attempt ending in "no application form".
+            r"reliably times out in careeros's automation",
         ),
     ),
     (

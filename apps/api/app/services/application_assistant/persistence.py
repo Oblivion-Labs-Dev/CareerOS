@@ -930,14 +930,18 @@ def is_duplicate_application(
     title: str,
     application_url: str = "",
     *,
-    exclude_statuses: tuple[str, ...] = ("SKIPPED",),
+    exclude_statuses: tuple[str, ...] = (),
 ) -> tuple[bool, dict[str, Any] | None]:
     """Check whether a job has already been submitted / queued / staged.
 
     Returns ``(is_dup, existing_job_or_None)``.
 
-    By default jobs that were explicitly SKIPPED are *not* treated as
-    duplicates so the user can re-queue them.
+    No status is excluded by default: a job already SUBMITTED, in review,
+    MANUAL_REVIEW, INELIGIBLE, or SKIPPED must not be silently re-created as a
+    "new" job by discovery or a manual enqueue. To retry a job the operator
+    already has a verdict on, requeue the *existing* row (`/autopilot/
+    requeue-bucket`, `/autopilot/reprocess-skipped`, etc.) rather than
+    creating a duplicate — those endpoints are unaffected by this default.
     """
     all_jobs = list_entities(db, ENTITY_AUTOPILOT_JOB)
 

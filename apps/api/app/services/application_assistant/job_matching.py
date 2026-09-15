@@ -122,9 +122,12 @@ def match_job(
 
     required_matches = []
     required_missing = []
+    from app.services.resume_intelligence.evidence_match import support
+    from app.services.application_assistant.candidate_match_context import extract_resume_text, work_experience_text, accomplishment_text, normalize_profile_skills
+    evidence = "\n".join([extract_resume_text(documents),work_experience_text(profile),accomplishment_text(accomplishments)," ".join(normalize_profile_skills(profile))])
+    quotes = re.split(r"\n+|(?<=[.!?])\s+|;", evidence)
     for qual in required:
-        qual_keywords = _extract_keywords(qual)
-        if qual_keywords & profile_skills:
+        if any(support(qual, quote)["status"] == "supported" for quote in quotes):
             required_matches.append(qual)
         else:
             required_missing.append(qual)
@@ -132,8 +135,7 @@ def match_job(
 
     preferred_matches = []
     for qual in preferred:
-        qual_keywords = _extract_keywords(qual)
-        if qual_keywords & profile_skills:
+        if any(support(qual, quote)["status"] == "supported" for quote in quotes):
             preferred_matches.append(qual)
     preferred_coverage = len(preferred_matches) / max(len(preferred), 1) * 100
 
@@ -211,6 +213,7 @@ def match_job(
         "jobId": job.get("id", ""),
         "overallScore": round(min(100, overall), 1),
         "requiredCoverage": round(required_coverage, 1),
+        "requirementsAssessment": "assessed" if required else "unknown",
         "preferredCoverage": round(preferred_coverage, 1),
         "skillOverlap": round(skill_overlap, 1),
         "experienceAlignment": round(experience_alignment, 1),

@@ -1264,6 +1264,7 @@ class AiGeneratePayload(BaseModel):
 
 
 class ResumeGeneratePayload(BaseModel):
+    mode: str = Field(default="honest", pattern="^(off|honest|aggressive)$")
     accomplishmentIds: list[str]
     targetCompany: str
     targetRole: str
@@ -1359,16 +1360,21 @@ async def generate_resume_route(payload: ResumeGeneratePayload, db: Session = De
             },
         )
 
-    result = await generate_resume_bullets_for_job(
-        accomplishments=selected_accs,
-        target_company=payload.targetCompany,
-        target_role=payload.targetRole,
-        job_description=payload.jobDescription,
-        experience_level=payload.experienceLevel,
-        tone=payload.tone,
-        max_pages=payload.maxPages,
-        target_ats=payload.targetAtsScore
-    )
+    try:
+        result = await generate_resume_bullets_for_job(
+            accomplishments=selected_accs,
+            target_company=payload.targetCompany,
+            target_role=payload.targetRole,
+            job_description=payload.jobDescription,
+            experience_level=payload.experienceLevel,
+            tone=payload.tone,
+            max_pages=payload.maxPages,
+            target_ats=payload.targetAtsScore,
+            mode=payload.mode,
+            tailoring_config=(get_kv(db, "profile") or {}).get("resumeTailoringConfig"),
+        )
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     if result is None:
         raise HTTPException(
             status_code=503,
@@ -1398,6 +1404,8 @@ def export_local_resume(payload: dict[str, Any] = Body(...), db: Session = Depen
 
 
 class ResumeStudioPayload(BaseModel):
+    useSemantic: bool | None = None
+    mode: str = Field(default="honest", pattern="^(off|honest|aggressive)$")
     jobDescription: str = Field(min_length=40, max_length=40000)
     targetRole: str = Field(default="", max_length=200)
     targetCompany: str = Field(default="", max_length=200)
@@ -1408,7 +1416,7 @@ def generate_resume_studio(payload: ResumeStudioPayload, db: Session = Depends(d
     from app.services.resume_intelligence.resume_studio import generate_studio
     try:
         return {"success": True, **generate_studio(list_entities(db, "accomplishment"), get_kv(db, "profile") or {},
-                    payload.jobDescription, payload.targetRole, payload.targetCompany)}
+                    payload.jobDescription, payload.targetRole, payload.targetCompany, payload.mode, payload.useSemantic)}
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
@@ -1433,7 +1441,12 @@ async def tailor_resume_route(payload: ResumeTailorPayload, db: Session = Depend
         selected_accs = all_accs
 
     if mode == "off":
-        return {"success": True, "result": passthrough_diff(selected_accs)}
+        from app.services.resume_intelligence.minimal_tailoring import tailor, TailoringConfig
+        try:
+            baseline_result = tailor([], "", mode="off", config=TailoringConfig(use_semantic=False, weak_relevance=0, max_replacement_fraction=0, reorder_threshold=1))
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        return {"success": True, "result": build_tailoring_diff([], baseline_result, mode)}
 
     target_company = payload.targetCompany
     target_role = payload.targetRole
@@ -1445,22 +1458,25 @@ async def tailor_resume_route(payload: ResumeTailorPayload, db: Session = Depend
             target_role = target_role or str(job.get("title") or job.get("roleTitle") or "")
             job_description = job_description or str(job.get("description") or "")
 
-    if not selected_accs:
-        raise HTTPException(status_code=422, detail="No accomplishments available to tailor")
 
     from app.services.settings.memory import active_memory_text
 
-    result = await generate_resume_bullets_for_job(
-        accomplishments=selected_accs,
-        target_company=target_company,
-        target_role=target_role,
-        job_description=job_description,
-        experience_level=payload.experienceLevel,
-        tone=TAILORING_TONE_BY_MODE[mode],
-        max_pages=payload.maxPages,
-        target_ats=payload.targetAtsScore,
-        extra_instructions=active_memory_text(db),
-    )
+    try:
+        result = await generate_resume_bullets_for_job(
+            accomplishments=selected_accs,
+            target_company=target_company,
+            target_role=target_role,
+            job_description=job_description,
+            experience_level=payload.experienceLevel,
+            tone=TAILORING_TONE_BY_MODE[mode],
+            max_pages=payload.maxPages,
+            target_ats=payload.targetAtsScore,
+            mode=mode,
+            extra_instructions=active_memory_text(db),
+            tailoring_config=(get_kv(db, "profile") or {}).get("resumeTailoringConfig"),
+        )
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     if result is None:
         raise HTTPException(
             status_code=503,

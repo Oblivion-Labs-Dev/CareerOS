@@ -164,3 +164,71 @@ export async function acknowledgeSystemAlarm(alarmId: string): Promise<{ success
 export type MetricBucket = {timestamp:string;submitted:number;failed:number;review:number;skipped:number;other:number;durationSec:number|null;samples:number};
 export type DiagnosticSeries = {period:string;bucketSeconds:number;buckets:MetricBucket[];updatedAt:string;basis:string};
 export const fetchDiagnosticSeries = (period:string) => diagnosticFetch<DiagnosticSeries>(`/series?period=${period}`);
+
+export type OutcomeKind = "SUBMITTED" | "STAGED" | "FAILED" | "SKIPPED";
+
+export interface OutcomeReasonCount {
+  reason: string;
+  count: number;
+  exampleUrl: string;
+}
+
+export interface OutcomeFieldCount {
+  field: string;
+  count: number;
+}
+
+export interface OutcomeEvent {
+  timestamp: string;
+  jobId: string;
+  company: string;
+  title: string;
+  outcome: OutcomeKind;
+  currentStatus: string;
+  reason: string;
+  detail: string;
+  matchScore: number | null;
+  applicationUrl: string;
+  /** Seconds from this attempt's JOB_CLAIMED to its outcome; null when it cannot be timed. */
+  durationSec: number | null;
+  synthetic: boolean;
+}
+
+export interface DurationStats {
+  count: number;
+  avgSec: number | null;
+  medianSec: number | null;
+  p90Sec: number | null;
+  maxSec: number | null;
+  totalSec: number;
+}
+
+export type OutcomeSeriesBucket = { bucket: string } & Record<OutcomeKind, number>;
+
+export interface OutcomesReport {
+  period: string;
+  hours: number;
+  maxDays: number;
+  windowStart: string;
+  windowEnd: string;
+  bucketUnit: "hour" | "day";
+  updatedAt: string;
+  allTimeStatusCounts: Record<string, number>;
+  windowOutcomeCounts: Record<OutcomeKind, number>;
+  windowJobsTouched: number;
+  windowCurrentStatusCounts: Record<string, number>;
+  windowReasons: Record<"STAGED" | "FAILED" | "SKIPPED", OutcomeReasonCount[]>;
+  currentStatusReasons: Record<"MANUAL_REVIEW" | "NEEDS_REVIEW" | "FAILED" | "INELIGIBLE", OutcomeReasonCount[]>;
+  topBlankFields: OutcomeFieldCount[];
+  series: OutcomeSeriesBucket[];
+  durationStats: Record<"ALL" | OutcomeKind, DurationStats>;
+  slowestEvents: OutcomeEvent[];
+  events: OutcomeEvent[];
+  eventsTotal: number;
+  eventsTruncated: boolean;
+}
+
+/** `period` is a number plus "h" or "d", up to 30 days (e.g. "12h", "7d", "30d"). */
+export async function fetchOutcomesReport(period = "12h"): Promise<OutcomesReport> {
+  return diagnosticFetch<OutcomesReport>(`/outcomes?period=${encodeURIComponent(period)}`);
+}

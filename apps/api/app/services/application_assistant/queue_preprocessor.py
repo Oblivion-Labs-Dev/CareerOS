@@ -325,7 +325,20 @@ class QueuePreprocessor:
                 if not aa_job.get("applicationUrl"):
                     continue
                 aa_job["dateDiscovered"] = now_iso()
-                aa_job["datePosted"] = scraper_job.get("postedAt") or scraper_job.get("datePosted") or ""
+                # The scraper's own snapshot (see sources/base.py's ScrapedJob.
+                # to_dict) never had "postedAt"/"datePosted" keys - only
+                # "first_published" and "updated_at"/"updatedAt" - so this was
+                # always writing "" regardless of what the source actually
+                # reported, silently disabling freshness-based queue ordering
+                # for every posting from every source. first_published is the
+                # real "when the employer posted this" signal where a source
+                # supplies it; updated_at is the next-best real signal (some
+                # ATS APIs only expose a last-modified timestamp). Left blank
+                # rather than defaulting to discovery time - a job we only
+                # just found is not the same claim as a job that was actually
+                # posted today, and posting_recency_bonus already treats a
+                # blank datePosted as "no bonus" rather than guessing.
+                aa_job["datePosted"] = scraper_job.get("first_published") or scraper_job.get("updated_at") or scraper_job.get("updatedAt") or ""
                 upsert_discovered_job(db, aa_job)
                 known_ids.add(aa_job["id"])
                 added += 1
@@ -596,7 +609,13 @@ class QueuePreprocessor:
         # instead, and updated as rows are added so a duplicate within this
         # same batch is still caught exactly as the DB-backed check would
         # have caught it.
-        EXCLUDED_DUP_STATUSES = {"SKIPPED"}
+        #
+        # No status is excluded: a job the operator already reached a verdict
+        # on - SUBMITTED, in review, MANUAL_REVIEW, INELIGIBLE, or SKIPPED -
+        # must not resurface as a "new" discovery next cycle just because the
+        # scraper saw the same posting again. Refill idempotency is defined
+        # against every already-processed job, skipped ones included.
+        EXCLUDED_DUP_STATUSES: set[str] = set()
         seen_url_keys: set[str] = set()
         seen_composite_keys: set[str] = set()
         for existing in existing_autopilot:

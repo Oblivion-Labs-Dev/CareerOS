@@ -1046,16 +1046,15 @@ async def generate_resume_bullets_for_job(
     max_pages: int,
     target_ats: int,
     extra_instructions: str = "",
+    tailoring_config: dict | None = None,
+    mode: str = "honest",
 ) -> dict[str, Any] | None:
-    """
-    Leverages LLM semantic tailoring to compile and optimize accomplishments into
-    customized, professional resume bullet lists.
+    """Extractive minimal-change tailoring of the approved baseline.
 
-    `extra_instructions` carries the user's own saved preferences (see
-    "What the assistant remembers" in Settings) — e.g. "always keep my resume
-    to one page". These are style/format guidance only: they are appended
-    below the truth-safety rules and can never relax them.
+    Tone, target ATS and page count cannot authorize rewriting, changing the
+    approved typography or chasing coverage. Existing ranking settings remain
+    configurable through the profile's resumeTailoringConfig.
     """
-    from app.services.resume_intelligence.minimal_tailoring import tailor
-    result = tailor(accomplishments, job_description, target_role)
+    from app.services.resume_intelligence.minimal_tailoring import tailor, mode_config
+    result = tailor(accomplishments, job_description, target_role, config=mode_config(mode, tailoring_config), mode=mode)
     return result if result["resumeBullets"] else None

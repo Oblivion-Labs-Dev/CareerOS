@@ -7,29 +7,7 @@ from app.services.resume_intelligence import baseline_document as bd, minimal_ta
 
 JD = "Required: Kubernetes infrastructure and production recovery. Build reliable Kubernetes deployments and production automation."
 
-@pytest.fixture
-def baseline(tmp_path, monkeypatch):
-    path = tmp_path / "approved.pdf"
-    doc = pymupdf.open(); page = doc.new_page(width=612, height=792)
-    page.insert_text((240, 30), "Approved Candidate", fontname="hebo", fontsize=14)
-    page.insert_text((36, 60), "EXPERIENCE", fontname="hebo", fontsize=9)
-    page.insert_text((36, 76), "Engineer | Example | Seattle", fontname="hebo", fontsize=8)
-    texts = [("Helped with reports", ", supporting routine weekly team administration."),
-             ("Built Kubernetes production automation", ", reducing recovery time 45% across reliable deployments."),
-             ("Designed Kubernetes infrastructure", ", improving production recovery and deployment reliability 35%."),
-             ("Owned reliable Kubernetes deployments", ", delivering production automation across 40 services.")]
-    for i, (bold, normal) in enumerate(texts):
-        y=94+i*24
-        page.insert_text((54,y), "·", fontsize=8)
-        page.insert_text((72,y), bold, fontname="hebo", fontsize=8)
-        x=72+pymupdf.get_text_length(bold, fontname="hebo", fontsize=8)
-        page.insert_text((x,y), normal, fontname="helv", fontsize=8)
-    page.insert_text((36, 205), "EDUCATION", fontname="hebo", fontsize=9)
-    page.insert_text((72, 220), "Original university and degree", fontsize=8)
-    doc.save(path); doc.close()
-    monkeypatch.setenv("CAREEROS_APPROVED_RESUME_PATH", str(path))
-    monkeypatch.setattr(semantic,"embed_many",lambda _:None)
-    return bd.load_baseline()
+from tests.resume_baseline_fixture import baseline
 
 
 def config(**kwargs):
@@ -75,6 +53,28 @@ def test_rich_runs_preserved_for_keep_and_reorder(baseline):
         assert text.count("Built Kubernetes production automation")==1
 
 
+def test_nonadjacent_slots_can_reorder_without_touching_other_pixels(baseline, monkeypatch):
+    # The old adjacent-only pass missed a strong bullet behind an unrelated slot.
+    monkeypatch.setattr(mt, '_rank', lambda candidates, reqs, config: ([.1,.1,.9,.1], [[] for _ in candidates], None))
+    result = mt.tailor([], JD, baseline=baseline, config=mt.TailoringConfig(use_semantic=False))
+    assert result['resumeBullets'][0]['baselineBulletId'] == baseline['bullets'][2]['id']
+    assert result['resumeBullets'][1]['decision'] == 'KEEP'
+    import numpy as np
+    with pymupdf.open(bd.approved_path()) as before, pymupdf.open(stream=bd.render_baseline(result),filetype='pdf') as after:
+        assert len(after)==1
+        a=before[0].get_pixmap(matrix=pymupdf.Matrix(2,2),alpha=False)
+        b=after[0].get_pixmap(matrix=pymupdf.Matrix(2,2),alpha=False)
+        original=np.frombuffer(a.samples,dtype=np.uint8).reshape(a.height,a.width,3)
+        final=np.frombuffer(b.samples,dtype=np.uint8).reshape(b.height,b.width,3)
+        mask=np.ones((a.height,a.width),dtype=bool)
+        for slot,item in zip(baseline['bullets'],result['resumeBullets']):
+            if item['decision']!='KEEP':
+                x0,y0,x1,y1=slot['rect']
+                x1=slot['right']  # Full allocated slot, including unused trailing space.
+                mask[max(0,int(y0*2)-2):int(y1*2)+3,max(0,int(x0*2)-2):int(x1*2)+3]=False
+        assert np.array_equal(original[mask],final[mask])
+
+
 def test_replacement_bold_opening_and_normal_remainder_pdf(baseline):
     result=mt.tailor(evidence(),JD,baseline=baseline,config=config())
     runs=result["resumeBullets"][0]["richText"]
@@ -114,3 +114,48 @@ def test_threshold_and_existing_rank_config_are_configurable(baseline):
     assert r["tailoringConfig"]["replacement_threshold"]==1
     assert r["rankingDebug"]["bm25K1"]==1.8
     assert r["rankingDebug"]["semanticAvailable"] is False
+
+
+def test_unreviewed_records_cannot_displace_approved_baseline(baseline):
+    records=evidence();records[0].pop("resumeApproved")
+    r=mt.tailor(records,JD,baseline=baseline,config=config())
+    assert r["retentionFraction"]==1
+    assert "no approved variant or reviewed" in r["resumeBullets"][0]["selectionReason"]
+
+
+def test_approved_variant_has_priority_over_reviewed_accomplishment(baseline):
+    records=evidence()
+    variant="Built Kubernetes infrastructure and production recovery automation, reducing deployment failures 65%."
+    records[0]["resumeVariants"]=[{"approved":True,"content":variant}]
+    r=mt.tailor(records,JD,baseline=baseline,config=config())
+    assert r["resumeBullets"][0]["source"]["field"]=="resumeVariants.0.content"
+    assert r["resumeBullets"][0]["optimizedBullet"]==variant
+
+
+def test_embedding_failure_falls_back_without_changing_claims(baseline,monkeypatch):
+    def broken(_):
+        raise MemoryError("encoder unavailable")
+    monkeypatch.setattr(semantic,"embed_many",broken)
+    r=mt.tailor(evidence(),JD,baseline=baseline,config=mt.TailoringConfig(reorder_threshold=1))
+    assert not r["rankingDebug"]["semanticAvailable"]
+    assert r["resumeBullets"][0]["optimizedBullet"]==evidence()[0]["currentBullet"]
+
+
+def test_employer_only_record_allowed_only_for_unambiguous_role(baseline):
+    records=evidence();records[0].pop("role")
+    r=mt.tailor(records,JD,baseline=baseline,config=config())
+    assert r["resumeBullets"][0]["decision"]=="REPLACE"
+    ambiguous=deepcopy(baseline);ambiguous["bullets"][3]["group"]="other-role"
+    r=mt.tailor(records,JD,baseline=ambiguous,config=config())
+    assert r["retentionFraction"]==1
+
+
+def test_source_and_baseline_hash_changes_invalidate_export(baseline):
+    r=mt.tailor([],JD,baseline=baseline,config=config())
+    with pymupdf.open(bd.approved_path()) as doc:
+        doc[0].insert_text((36,250),"New approved revision")
+        changed=doc.tobytes()
+    bd.approved_path().write_bytes(changed)
+    assert mt.validate(r,[])
+    with pytest.raises(ValueError,match="changed"):
+        bd.render_baseline(r)

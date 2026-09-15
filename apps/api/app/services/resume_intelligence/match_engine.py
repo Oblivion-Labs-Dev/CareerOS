@@ -8,6 +8,7 @@ from typing import Any, Literal
 from app.services.application_assistant.job_matching import _parse_qualifications, match_job
 from app.services.resume_intelligence.corpus_adapter import accomplishment_to_record
 from app.services.resume_intelligence.text_utils import extract_keywords, text_blob
+from app.services.resume_intelligence.evidence_match import match_text, contains
 
 CoverageKind = Literal["explicit", "inferred", "unsupported", "missing"]
 
@@ -48,10 +49,10 @@ def _has_explicit_proof(term: str, record: dict[str, Any]) -> bool:
 
 
 def _classify_keyword(term: str, records: list[dict[str, Any]]) -> tuple[CoverageKind, list[str]]:
-    direct_matches = [r for r in records if term in _record_direct_text(r)]
-    contextual_matches = [r for r in records if term in _record_context_text(r)]
+    direct_matches = [r for r in records if contains(_record_direct_text(r), term)]
+    contextual_matches = [r for r in records if contains(_record_context_text(r), term)]
 
-    if any(_has_explicit_proof(term, r) for r in direct_matches):
+    if any(r["id"] == "__resume_text__" or _has_explicit_proof(term, r) for r in direct_matches):
         coverage: CoverageKind = "explicit"
     elif direct_matches:
         coverage = "unsupported"
@@ -92,8 +93,8 @@ def match_corpus_to_job(
             "title": "Uploaded resume",
             "company": "",
             "project": "",
-            "currentBullet": resume_text[:4000],
-            "summary": resume_text[:2000],
+            "currentBullet": resume_text,
+            "summary": "",
             "technicalChallenge": "",
             "architectureDecision": "",
             "technologies": extract_keywords(resume_text, limit=30),
@@ -120,9 +121,9 @@ def match_corpus_to_job(
     unsupported = [m for m in keyword_matches if m["coverage"] == "unsupported"]
     missing = [m for m in keyword_matches if m["coverage"] == "missing"]
 
-    score = 0
-    if keywords:
-        score = round(((len(explicit) + len(inferred) * 0.2) / len(keywords)) * 100)
+    scored_text = resume_text or "\n".join(str(a.get("currentBullet") or "") for a in accomplishments)
+    document_match = match_text(scored_text,job_description,use_semantic=False)
+    score = document_match["score"]
 
     relevant = sorted(
         (
@@ -152,13 +153,17 @@ def match_corpus_to_job(
         )
 
     call_likelihood = "low"
-    if score >= 75 and len(explicit) >= max(3, len(keywords) // 4):
+    if score is not None and score >= 75 and len(explicit) >= max(3, len(keywords) // 4):
         call_likelihood = "high"
-    elif score >= 50 or len(explicit) >= 2:
+    elif (score is not None and score >= 50) or len(explicit) >= 2:
         call_likelihood = "medium"
 
     return {
         "overallScore": score,
+        "documentMatch": document_match,
+        "scoreKind": document_match["scoreKind"],
+        "sourceScope": "resume" if resume_text else "corpus",
+        "callLikelihoodCalibrated": False,
         "callLikelihood": call_likelihood,
         "keywordMatches": keyword_matches,
         "explicit": explicit,
@@ -172,7 +177,7 @@ def match_corpus_to_job(
             "gapSkills": gap_skills,
         },
         "profileMatch": profile_match,
-        "summary": _build_summary(score, explicit, missing, gap_skills),
+        "summary": (f"Document support diagnostic: {score}. " if score is not None else "No assessable requirements found. ") + document_match["notice"],
     }
 
 

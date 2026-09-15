@@ -77,6 +77,7 @@ export interface CorpusResumeVariantView {
 }
 
 export interface CorpusRecord {
+  resumeApproved?: boolean;
   id: string;
   title: string;
   company: string;
@@ -315,6 +316,7 @@ export function normalizeAccomplishment(accomplishment: Accomplishment): CorpusR
 
   return {
     id: accomplishment.id,
+    resumeApproved: accomplishment.resumeApproved,
     title: titleFromLegacy(accomplishment),
     company: accomplishment.company || "",
     role,
@@ -503,6 +505,7 @@ export function applyRecordToLegacy(record: CorpusRecord): Accomplishment | unde
   if (!raw) return undefined;
   return {
     ...raw,
+    resumeApproved: record.resumeApproved,
     company: record.company,
     project: record.project,
     timePeriod: record.timePeriod,

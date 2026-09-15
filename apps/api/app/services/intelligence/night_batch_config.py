@@ -9,7 +9,7 @@ import os
 # Queue watermarks - replaces the fixed CAREEROS_MAX_QUEUE_SIZE cap.
 # When queue depth drops to/below LOW, replenishment kicks in until it
 # reaches HIGH again. Both are env-overridable for tuning without a redeploy.
-LOW_QUEUE_WATERMARK = int(os.environ.get("CAREEROS_QUEUE_LOW_WATERMARK", "100"))
+LOW_QUEUE_WATERMARK = int(os.environ.get("CAREEROS_QUEUE_LOW_WATERMARK", "200"))
 HIGH_QUEUE_WATERMARK = int(os.environ.get("CAREEROS_QUEUE_HIGH_WATERMARK", "500"))
 
 # Batch operations

@@ -20,7 +20,7 @@ if __name__ == "__main__":
             with contextlib.redirect_stdout(sys.stderr):
                 from app.services.resume_intelligence.resume_studio import generate_studio
                 result = generate_studio(payload["records"], payload["profile"], payload["jobDescription"],
-                                         payload.get("targetRole", ""), payload.get("targetCompany", ""))
+                                         payload.get("targetRole", ""), payload.get("targetCompany", ""), payload.get("mode", "honest"), payload.get("useSemantic"))
             print(json.dumps({"success": True, **result}), flush=True)
         except ValueError as exc:
             print(json.dumps({"success": False, "detail": str(exc)}), flush=True)

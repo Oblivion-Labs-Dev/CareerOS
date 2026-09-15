@@ -6,6 +6,12 @@ from fastapi import HTTPException
 
 from app.routers import api
 from app.services import llm
+from tests.resume_baseline_fixture import baseline
+
+@pytest.fixture(autouse=True)
+def approved_baseline(baseline):
+    return baseline
+
 
 
 def generation_kwargs() -> dict[str, Any]:
@@ -41,7 +47,9 @@ def test_provider_failure_returns_no_fabricated_fallback(monkeypatch: pytest.Mon
         )
     )
 
-    assert result is None
+    assert result is not None
+    assert result["retentionFraction"] == 1
+    assert all(b["source"]["field"] == "approvedResume" for b in result["resumeBullets"])
 
 
 def test_generation_keeps_source_identity_without_calling_provider(monkeypatch):
@@ -53,18 +61,17 @@ def test_generation_keeps_source_identity_without_calling_provider(monkeypatch):
     result = asyncio.run(llm.generate_resume_bullets_for_job(accomplishments=[source], **generation_kwargs()))
     assert result is not None
     assert result["atsMatchScore"] is None
-    assert result["provenance"] == "selected-records"
-    assert result["resumeBullets"][0]["optimizedBullet"] == source["currentBullet"]
-    assert result["resumeBullets"][0]["company"] == "Northstar"
+    assert result["provenance"] == "approved-baseline-and-source-records"
+    assert all(b["company"] == "Example" for b in result["resumeBullets"])
+    assert all(b["optimizedBullet"] != source["currentBullet"] for b in result["resumeBullets"])
 
 
 def test_resume_route_rejects_empty_or_missing_selections(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(api, "get_kv", lambda *args: {})
     monkeypatch.setattr(api, "list_entities", lambda _db, _kind: [{"id": "acc-1"}])
 
-    with pytest.raises(HTTPException) as empty_error:
-        asyncio.run(api.generate_resume_route(payload([]), db=object()))
-    assert empty_error.value.status_code == 503  # Empty selection searches all records; none has a usable bullet.
+    result = asyncio.run(api.generate_resume_route(payload([]), db=object()))
+    assert result["result"]["retentionFraction"] == 1  # An empty corpus preserves the approved baseline.
 
     with pytest.raises(HTTPException) as missing_error:
         asyncio.run(api.generate_resume_route(payload(["missing"]), db=object()))
@@ -84,3 +91,27 @@ def test_resume_route_surfaces_provider_failure(monkeypatch: pytest.MonkeyPatch)
         asyncio.run(api.generate_resume_route(payload(["acc-1"]), db=object()))
     assert unavailable_error.value.status_code == 503
     assert "No synthetic fallback content" in str(unavailable_error.value.detail)
+
+
+def test_missing_approved_baseline_returns_actionable_error(monkeypatch,baseline):
+    from app.services.resume_intelligence.baseline_document import approved_path
+    approved_path().unlink()
+    monkeypatch.setattr(api,"get_kv",lambda *args:{})
+    monkeypatch.setattr(api,"list_entities",lambda *args:[])
+    with pytest.raises(HTTPException) as error:
+        asyncio.run(api.generate_resume_route(payload([]),db=object()))
+    assert error.value.status_code==422
+    assert "approved baseline" in str(error.value.detail)
+
+
+def test_generate_then_export_preserves_baseline_and_rejects_tampering(monkeypatch,baseline):
+    from app.services.resume_intelligence.baseline_document import approved_path
+    monkeypatch.setattr(api,"get_kv",lambda *args:{})
+    monkeypatch.setattr(api,"list_entities",lambda *args:[])
+    result=asyncio.run(api.generate_resume_route(payload([]),db=object()))["result"]
+    response=api.export_local_resume({"result":result},db=object())
+    assert response.body==approved_path().read_bytes()
+    result["resumeBullets"][0]["optimizedBullet"]="An invented claim."
+    with pytest.raises(HTTPException) as error:
+        api.export_local_resume({"result":result},db=object())
+    assert error.value.status_code==409

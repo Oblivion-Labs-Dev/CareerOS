@@ -9,7 +9,10 @@ let activeWorker = false;
 
 export async function POST(request: NextRequest) {
   const input = await request.json().catch(() => null);
+  if (input && input.mode === undefined) input.mode = "honest";
   if (!input || typeof input.jobDescription !== "string" || input.jobDescription.trim().length < 40 || input.jobDescription.length > 40000
+    || (input.useSemantic !== undefined && typeof input.useSemantic !== "boolean")
+    || !["off", "honest", "aggressive"].includes(input.mode)
     || (input.targetRole !== undefined && (typeof input.targetRole !== "string" || input.targetRole.length > 200))
     || (input.targetCompany !== undefined && (typeof input.targetCompany !== "string" || input.targetCompany.length > 200))) {
     return NextResponse.json({ detail: "Paste a job description between 40 and 40,000 characters." }, { status: 422 });
@@ -21,7 +24,15 @@ export async function POST(request: NextRequest) {
   const headers = { "Content-Type": "application/json", cookie: request.headers.get("cookie") || "" };
   try {
     const response = await fetch(`${api}/resume/studio`, { method: "POST", headers, body: JSON.stringify(input), cache: "no-store", signal: request.signal });
-    if (response.status !== 404) return new NextResponse(await response.text(), { status: response.status, headers: { "Content-Type": "application/json", "Cache-Control": "no-store" } });
+    if (response.status !== 404) {
+      const body = await response.text();
+      const result = response.ok ? JSON.parse(body) : null;
+      // A running older API may accept but silently ignore the new mode. Use
+      // the local worker until that API is upgraded; do not interrupt its jobs.
+      if (!response.ok || (result?.result?.mode === input.mode && result?.matchComparison && result?.result?.tailoringSummary && (input.useSemantic === undefined || result?.result?.tailoringConfig?.use_semantic === (input.mode === "off" ? false : input.useSemantic)))) {
+        return new NextResponse(body, { status: response.status, headers: { "Content-Type": "application/json", "Cache-Control": "no-store" } });
+      }
+    }
 
     // Do not restart an older API while its application runner is busy. Read
     // authenticated snapshots and invoke the very same new composer locally.

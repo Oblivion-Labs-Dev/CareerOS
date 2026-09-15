@@ -1,4 +1,10 @@
 import pytest
+from tests.resume_baseline_fixture import baseline
+
+@pytest.fixture(autouse=True)
+def approved_baseline(baseline):
+    return baseline
+
 from app.services.application_assistant.resume_diff_service import (
     compute_text_diff_chunks,
     compute_bullet_diffs,
@@ -86,3 +92,13 @@ async def test_generate_role_tailoring_diff():
         assert really_tailored or admits_it_did_not, (
             f"{result['mode']} mode changed nothing yet reported success"
         )
+
+
+@pytest.mark.anyio
+async def test_off_mode_keeps_approved_pdf_even_with_full_jd(baseline):
+    from app.services.application_assistant.resume_diff_service import render_tailored_resume_pdf
+    from app.services.resume_intelligence.baseline_document import approved_path
+    result=await generate_role_tailoring_diff({"title":"Engineer","description":"Required: Kubernetes infrastructure and production recovery automation."}, {}, mode="off", accomplishments=[])
+    assert result["totalChanges"]==0
+    assert all(b["decision"]=="KEEP" for b in result["resumeDocument"]["resumeBullets"])
+    assert render_tailored_resume_pdf(result,{})==approved_path().read_bytes()

@@ -91,22 +91,26 @@ AUTOPILOT_JOBS_TTL_SECONDS = 5.0
 # the feature.
 ASSISTED_HANDOFF_SECONDS: float | None = None
 
-@router.get("/autopilot/status")
-def get_autopilot_status() -> dict[str, Any]:
-    # No Depends(db_session): this is one of the most frequently polled endpoints
-    # (the dashboard hits it every few seconds alongside /jobs and /staged), and
-    # Depends(db_session) holds a pooled connection for the whole request/response
-    # cycle. Under any slowdown elsewhere (e.g. a long-running autopilot submission
-    # contending for the same SQLite file), enough of these pile up concurrently to
-    # exhaust the pool — and once that happens even the auth middleware can't get a
-    # connection, freezing the entire API. A short-lived session_scope() avoids that.
+def _cached_autopilot_status() -> dict[str, Any]:
+    """Shared by the REST poller and the SSE stream's initial snapshot, so both pay for
+    at most one real `get_status()` computation per TTL window instead of each running
+    their own uncached scan.
+
+    No `Depends(db_session)`: this is one of the most frequently polled endpoints (the
+    dashboard hits it every few seconds alongside /jobs and /staged), and
+    Depends(db_session) holds a pooled connection for the whole request/response cycle.
+    Under any slowdown elsewhere (e.g. a long-running autopilot submission contending for
+    the same SQLite file), enough of these pile up concurrently to exhaust the pool — and
+    once that happens even the auth middleware can't get a connection, freezing the
+    entire API. A short-lived session_scope() avoids that.
+
+    Also served from the background-refreshed read cache: the dashboard polls this every
+    few seconds from several components at once, and the status is an aggregate that is
+    allowed to be a beat behind. A short TTL keeps a live run's progress visibly moving
+    while taking the recompute off every poll.
+    """
     from app.services.application_assistant.autopilot_runner import AutopilotRunner
     from app.db.store import session_scope
-
-    # Also served from the background-refreshed read cache: the dashboard polls
-    # this every few seconds from several components at once, and the status is
-    # an aggregate that is allowed to be a beat behind. A short TTL keeps a live
-    # run's progress visibly moving while taking the recompute off every poll.
     from app.services.read_cache import read_cache
 
     def _load() -> dict[str, Any]:
@@ -115,6 +119,11 @@ def get_autopilot_status() -> dict[str, Any]:
             return runner.get_status(db)
 
     return read_cache.get("autopilot_status", AUTOPILOT_STATUS_TTL_SECONDS, _load)
+
+
+@router.get("/autopilot/status")
+def get_autopilot_status() -> dict[str, Any]:
+    return _cached_autopilot_status()
 
 
 @router.get("/autopilot/events")
@@ -130,10 +139,23 @@ async def autopilot_events_sse(
     queue = runner.subscribe_events()
 
     async def event_generator():
-        # Send initial status snapshot immediately on connect
+        # Send initial status snapshot immediately on connect.
+        #
+        # This used to call runner.get_status(db) directly, synchronously, right here
+        # on the event loop — an uncached full scan of every aa_autopilot_job row
+        # (2500+ and growing) that blocks the ENTIRE server, every other request and
+        # every other SSE connection, for the full duration of that scan. The REST
+        # /autopilot/status endpoint already learned this lesson (see
+        # _cached_autopilot_status's docstring) and goes through the read cache + a
+        # short-lived session; this path never got the same treatment. Confirmed live
+        # via py-spy on 2026-09-15: the MainThread itself sat blocked here for 30+
+        # seconds from a single new dashboard connection. Route through the same cache
+        # (a connection made while the REST poller keeps it warm is then instant) AND
+        # always hop to a worker thread regardless (so even a genuinely cold cache —
+        # e.g. right after a restart, exactly what was reproduced — cannot block the
+        # loop).
         try:
-            with session_scope() as db:
-                initial_status = runner.get_status(db)
+            initial_status = await asyncio.to_thread(_cached_autopilot_status)
             yield f"event: status\ndata: {json.dumps(initial_status)}\n\n"
         except Exception:
             pass
@@ -975,16 +997,29 @@ def dedupe_applications(
     }
 
 
-# Buckets the user may sweep back into the queue wholesale, and what each one
-# actually covers. Deliberately narrow: a bulk requeue must never pull in
-# SKIPPED, INELIGIBLE, MANUAL_REVIEW or SUBMITTED work. Those were set aside for
-# reasons an automated retry cannot resolve - a dead posting, a CAPTCHA, an
-# application already sent - and sweeping them back would refill the queue with
-# the exact jobs the user has already worked through and dismissed.
+# Buckets the user may sweep back into the queue, and what each one actually
+# covers. "review" and "failed" may be swept wholesale, with or without a
+# company filter, as before.
+#
+# "manual", "skipped" and "ineligible" were originally excluded entirely: a
+# wholesale sweep of any of them would refill the queue with jobs the user
+# already worked through and dismissed for reasons an automated retry cannot
+# resolve - a dead posting, a CAPTCHA, a hard ineligibility. They stay excluded
+# from a *wholesale* sweep, but a company-scoped requeue is a different,
+# deliberate action ("I just fixed the thing that misclassified every Roblox
+# posting - send Roblox's specifically back"), so those three are requeuable
+# only when the caller also names a `company` - enforced below, not by leaving
+# them out of this map.
 REQUEUABLE_BUCKETS: dict[str, tuple[str, ...]] = {
     "review": ("NEEDS_REVIEW", "STAGED"),
     "failed": ("FAILED",),
+    "manual": ("MANUAL_REVIEW",),
+    "skipped": ("SKIPPED",),
+    "ineligible": ("INELIGIBLE",),
 }
+
+# Buckets whose wholesale (no company filter) sweep stays blocked - see comment above.
+COMPANY_ONLY_BUCKETS = frozenset({"manual", "skipped", "ineligible"})
 
 
 @router.post("/autopilot/requeue-bucket")
@@ -992,9 +1027,10 @@ def requeue_bucket(
     payload: dict[str, Any] = Body(default_factory=dict),
     db: Session = Depends(db_session),
 ) -> dict[str, Any]:
-    """Send every application in one bucket back to the queue.
+    """Send applications in one bucket back to the queue.
 
-    Used after a fix lands: the whole Review or Failed list is worth another
+    Used after a fix lands: the whole Review or Failed list (or, for Manual/
+    Skipped/Ineligible, just one company's slice of it) is worth another
     attempt, and relabelling them one at a time through the side panel is not
     practical once there are dozens.
 
@@ -1015,10 +1051,21 @@ def requeue_bucket(
             detail=f"Unsupported bucket '{bucket}'. Allowed: {', '.join(REQUEUABLE_BUCKETS)}",
         )
 
+    company = str(payload.get("company") or "").strip()
+    if bucket in COMPANY_ONLY_BUCKETS and not company:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Requeuing the '{bucket}' bucket requires a company filter - "
+            "filter to one company first.",
+        )
+
     wanted = set(REQUEUABLE_BUCKETS[bucket])
+    company_lower = company.lower()
     moved = 0
     for job in list_autopilot_jobs(db):
         if str(job.get("status") or "").upper() not in wanted:
+            continue
+        if company and str(job.get("company") or "").strip().lower() != company_lower:
             continue
         job["previousStatus"] = job.get("status")
         job["status"] = "QUEUED"
@@ -1039,13 +1086,15 @@ def requeue_bucket(
         save_autopilot_job(db, job)
         moved += 1
 
+    scope = f" from {company}" if company else ""
     return {
         "success": True,
         "bucket": bucket,
+        "company": company or None,
         "moved": moved,
         "message": (
-            f"Moved {moved} application{'' if moved == 1 else 's'} back to the queue."
-            if moved else "Nothing in that bucket to requeue."
+            f"Moved {moved} application{'' if moved == 1 else 's'}{scope} back to the queue."
+            if moved else f"Nothing in that bucket{scope} to requeue."
         ),
     }
 

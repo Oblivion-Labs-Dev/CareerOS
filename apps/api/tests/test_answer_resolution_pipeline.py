@@ -257,6 +257,50 @@ class TestProfileAnswerResolver:
 class TestCrossFieldValidator:
     """Tests that contradictory answers are caught and blocked."""
 
+    def test_phone_consent_yes_is_not_an_incomplete_phone(self):
+        """A consent question mentioning a phone number, answered Yes, must not trip PHONE_INCOMPLETE.
+
+        Seen live on Grove Collaborative's Greenhouse form: "If you provided a phone
+        number, do you consent to..." was typed as PHONE, and its "Yes" answer hid
+        the real, correctly filled phone field and blocked the application.
+        """
+        resolutions = [
+            AnswerResolution(
+                field_id="phone",
+                question="Phone",
+                question_type=QuestionType.PHONE.value,
+                answer="(425) 336-9852",
+                resolution_method="PROFILE_EXACT",
+                confidence=1.0,
+            ),
+            AnswerResolution(
+                field_id="question_18193589008",
+                question="If you provided a phone number, do you consent to receive calls from Grove?",
+                question_type=QuestionType.PHONE.value,
+                answer="Yes",
+                resolution_method="PROFILE_OPTION_MAPPING",
+                confidence=1.0,
+            ),
+        ]
+        report = validate_answers(resolutions, PROFILE)
+        assert not any(e.rule == "PHONE_INCOMPLETE" for e in report.blocking_errors)
+
+    def test_phone_with_only_country_code_still_blocked(self):
+        """A phone field holding only a country code is still an incomplete phone."""
+        resolutions = [
+            AnswerResolution(
+                field_id="phone",
+                question="Phone",
+                question_type=QuestionType.PHONE.value,
+                answer="+1",
+                resolution_method="PROFILE_EXACT",
+                confidence=1.0,
+            ),
+        ]
+        report = validate_answers(resolutions, PROFILE)
+        assert report.status == "FAIL"
+        assert any(e.rule == "PHONE_INCOMPLETE" for e in report.blocking_errors)
+
     def test_h1b_sponsorship_no_blocked(self):
         """H1B candidate saying no to sponsorship must be BLOCKED."""
         resolutions = [

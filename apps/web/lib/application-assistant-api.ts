@@ -373,12 +373,17 @@ export async function dedupeApplications(dryRun = false) {
   }, 120_000);
 }
 
-/** Send every application in one bucket (review or failed) back to the queue.
- *  Clears the reason each was parked, which cannot be undone. */
-export async function requeueBucket(bucket: "review" | "failed") {
-  return aaFetch<{ success: boolean; bucket: string; moved: number; message: string }>(
+/** Send applications in one bucket back to the queue - every one in the
+ *  bucket, or (required for "manual" | "skipped" | "ineligible") just the
+ *  given company's slice of it. Clears the reason each was parked, which
+ *  cannot be undone. */
+export async function requeueBucket(
+  bucket: "review" | "failed" | "manual" | "skipped" | "ineligible",
+  company?: string,
+) {
+  return aaFetch<{ success: boolean; bucket: string; company: string | null; moved: number; message: string }>(
     "/autopilot/requeue-bucket",
-    { method: "POST", body: JSON.stringify({ bucket }) },
+    { method: "POST", body: JSON.stringify({ bucket, company: company || undefined }) },
     120_000,
   );
 }

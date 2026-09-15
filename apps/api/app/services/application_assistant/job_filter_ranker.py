@@ -269,8 +269,20 @@ def evaluate_hard_filters(
         "applications engineer",
         "application engineer",
         "swe",
+        # Missing until 2026-09-15, and rejecting real postings in bulk: Esri,
+        # Zscaler and others title the role "Software Development Engineer"
+        # at every level, and "Full-Stack" is usually hyphenated.
+        "software development engineer",
+        "software engineer in test",
+        "full-stack",
     ]
-    is_swe_role = any(kw in title_lower for kw in swe_keywords)
+    # Short role codes and "product engineer" need word boundaries: "sde" must
+    # not match inside another word, and "product engineer" must not pull in
+    # "product security engineer" or any sales/presales title.
+    swe_patterns = (r"\bsde\b", r"\bsdet\b", r"\bproduct engineer\b")
+    is_swe_role = any(kw in title_lower for kw in swe_keywords) or any(
+        re.search(pattern, title_lower) for pattern in swe_patterns
+    )
     if not is_swe_role:
         return False, f"Role '{title}' is not a Software Engineering role"
 
@@ -309,37 +321,74 @@ def evaluate_hard_filters(
         "bangladesh", "sri lanka", "morocco", "tunisia", "ghana", "taiwan",
         "hong kong", "saudi", "qatar", "jordan", "armenia", "georgia (country)",
     ]
-    if any(country in job_loc or country in title_lower for country in non_us_indicators):
-        return False, f"Location '{job.get('location')}' is outside the United States"
-
-    # Require explicit US indicators or US state/remote patterns if location is present
-    # Phrases safe to match as substrings.
+    # Strong US evidence: phrases, full state names and major US cities, safe to
+    # match as substrings. A location naming one of these is a US-eligible
+    # posting even when it also lists other countries ("Remote, Canada; Remote,
+    # United States", "Vienna, Virginia, United States", "SF, NY, Portland, or
+    # Remote within US/Canada") - those were all rejected as non-US before.
     us_indicators = [
         "united states", "usa", "u.s.", "remote - us", "remote (us", "us remote",
-        ", us", ", usa", "washington", "california", "new york",
-        "texas", "massachusetts", "colorado", "seattle", "austin", "san francisco",
-        "boston", "los angeles", "chicago", "new york city"
+        "remote in us", ", us", ", usa", "nyc", "new york city",
+        "alabama", "alaska", "arizona", "arkansas", "california", "colorado",
+        "connecticut", "delaware", "florida", "hawaii", "idaho", "illinois",
+        "indiana", "iowa", "kansas", "kentucky", "louisiana", "maine", "maryland",
+        "massachusetts", "michigan", "minnesota", "mississippi", "missouri",
+        "montana", "nebraska", "nevada", "new hampshire", "new jersey",
+        "new mexico", "new york", "north carolina", "north dakota", "ohio",
+        "oklahoma", "oregon", "pennsylvania", "rhode island", "south carolina",
+        "south dakota", "tennessee", "texas", "utah", "vermont", "virginia",
+        "washington", "wisconsin", "wyoming",
+        "seattle", "bellevue", "redmond", "austin", "san francisco", "boston",
+        "los angeles", "chicago", "atlanta", "denver", "miami", "dallas",
+        "houston", "phoenix", "philadelphia", "san diego", "san jose",
+        "palo alto", "mountain view", "menlo park", "portland", "pittsburgh",
+        "raleigh", "salt lake city", "minneapolis", "detroit", "nashville",
+        "indianapolis",
     ]
-    # State abbreviations must be matched as whole tokens, never as substrings —
-    # "Budapest, Hungary" contains "ga" (Georgia) and "Poland" contains "la"
-    # (Louisiana), which previously let non-US postings pass this check.
+    # Weak US evidence: state abbreviations and short city codes, matched as
+    # whole tokens only ("Budapest, Hungary" contains "ga", "Poland" contains
+    # "la"). Weak evidence alone never outweighs a named non-US place:
+    # "Hyderabad, in" is India, not Indiana, and "CA-Ontario-Toronto" is Canada.
     us_state_abbr = {
         "al", "ak", "az", "ar", "ca", "co", "ct", "de", "fl", "ga", "hi", "id",
         "il", "in", "ia", "ks", "ky", "la", "me", "md", "ma", "mi", "mn", "ms",
         "mo", "mt", "ne", "nv", "nh", "nj", "nm", "ny", "nc", "nd", "oh", "ok",
         "or", "pa", "ri", "sc", "sd", "tn", "tx", "ut", "vt", "va", "wa", "wv",
-        "wi", "wy", "dc",
+        "wi", "wy", "dc", "us", "usa", "sf", "nyc",
     }
-    if job_loc:
-        has_us_marker = any(ind in job_loc for ind in us_indicators)
-        if not has_us_marker:
-            tokens = {t.strip(" .;|()") for t in re.split(r"[,\s/]+", job_loc)}
-            has_us_marker = bool(tokens & us_state_abbr)
-        # If it's a generic "remote" with no non-US markers, allow US remote
-        if not has_us_marker and "remote" in job_loc:
-            has_us_marker = True
-        if not has_us_marker:
-            return False, f"Location '{job.get('location')}' does not match United States criteria"
+    # Locations that name no country at all. Treated like a bare "remote": the
+    # posting is not known to be outside the US, so it is not rejected for it.
+    ambiguous_location = re.compile(
+        r"^\s*$|hybrid|in[- ]office|on[- ]?site|multiple locations|\b\d+\s+locations?\b|flexible",
+        flags=re.I,
+    )
+
+    # Opt-in (profile.allowInternationalLocations): postings outside the United
+    # States are no longer rejected at all. They still rank below every US
+    # posting, because role_location_priority_bonus gives them no location tier.
+    allow_international = str(profile.get("allowInternationalLocations", "")).strip().lower() in (
+        "yes", "true", "1",
+    )
+
+    if job_loc or title_lower:
+        strong_us = any(ind in job_loc for ind in us_indicators)
+        tokens = {t.strip(" .;|()") for t in re.split(r"[,\s/\-]+", job_loc)} if job_loc else set()
+        weak_us = bool(tokens & us_state_abbr)
+        # "uk" is the one indicator short enough to hide inside ordinary words
+        # ("Milwaukee", "Duke Energy"), so it only counts as a whole token.
+        title_tokens = {t.strip(" .;|()") for t in re.split(r"[,\s/\-]+", title_lower)}
+        names_non_us = any(
+            country in job_loc or country in title_lower
+            for country in non_us_indicators if country != "uk"
+        ) or "uk" in tokens or "uk" in title_tokens
+
+        if names_non_us and not strong_us and not allow_international:
+            return False, f"Location '{job.get('location')}' is outside the United States"
+
+        if job_loc and not names_non_us and not allow_international:
+            has_us_marker = strong_us or weak_us or "remote" in job_loc or bool(ambiguous_location.search(job_loc))
+            if not has_us_marker:
+                return False, f"Location '{job.get('location')}' does not match United States criteria"
 
     # 5. Employment Type Constraints
     job_emp = (job.get("employmentType") or "").lower()
@@ -383,8 +432,44 @@ def evaluate_hard_filters(
         return False, f"Company '{company}' is a Defense/ITAR contractor (excluded per user preference)"
 
     # Exclude boards with hard bot protection that block automated headless runs
-    if "roblox" in norm_c:
-        return False, "Roblox uses Cloudflare Turnstile bot challenges"
+    #
+    # Live-tested 2026-09-14 rather than trusted as a static guess (see git
+    # history for the brief window this was disabled). Two lines of evidence
+    # that DISAGREE, both real:
+    #  1. CareerOS's own stealth Playwright browser hit an identical,
+    #     reproducible `Timeout 60000ms exceeded` on page.goto across 3 real
+    #     attempts against 2 queued postings, hanging with no progress until
+    #     manually recovered each time - eventually settling on "no
+    #     application form on the posting page".
+    #  2. A plain manual Chrome session (not Playwright, no stealth args) hit
+    #     a genuinely current Roblox posting - found by browsing Roblox's own
+    #     live listings, not from the queue - and its real Greenhouse-hosted
+    #     apply form (Resume/CV, Cover Letter, Legal Name...) loaded
+    #     instantly with zero CAPTCHA/Turnstile/any bot-challenge visible.
+    # So "Roblox uses Cloudflare Turnstile" (the original reason this block
+    # existed) is likely just wrong - nothing challenged a normal browser.
+    # The two automation postings tested were both from days-old discovery
+    # batches and may simply have been expired/closed (one confirmed
+    # redirecting to the generic careers page on manual navigation), which
+    # would also explain a slow/odd load rather than an active bot-wall. This
+    # was not re-isolated against a known-fresh posting through CareerOS's
+    # own automation before time ran out, so the real cause (stale queue
+    # entries vs. a genuine stealth-browser-specific load issue on this
+    # board) is still open - see NIGHT_BATCH_DECISIONS.md. Re-enabling the
+    # block for now since every real automation attempt failed, but the
+    # reason is deliberately about the *symptom*, not a false "bot
+    # protection" claim - a future session re-testing against a fresh
+    # posting id could resolve this properly.
+    # One specific, deliberate exception: job 8127056 (Senior Software
+    # Engineer - Desktop) is a known-fresh, known-open posting confirmed by
+    # hand to have no bot-challenge - added 2026-09-14 to get one clean,
+    # confound-free automation result through CareerOS's own pipeline
+    # (the earlier 3 test attempts both used likely-expired postings, so the
+    # timeout cause was never actually isolated). Remove this once that
+    # result is in - it is not meant to stand as a permanent carve-out.
+    _ROBLOX_TEST_EXCEPTION_URLS = ("careers.roblox.com/jobs/8127056",)
+    if "roblox" in norm_c and not any(u in app_url for u in _ROBLOX_TEST_EXCEPTION_URLS):
+        return False, "Roblox's Greenhouse-hosted apply form reliably times out in CareerOS's automation (verified live 2026-09-14); a manual browser hit no challenge on a current posting, so this is unconfirmed as an actual bot-wall - see NIGHT_BATCH_DECISIONS.md"
     if "okta" in norm_c:
         return False, "Okta uses reCAPTCHA verification"
 
@@ -455,16 +540,73 @@ def posting_recency_bonus(job: dict[str, Any]) -> float:
     return RECENCY_BONUS_MAX * (0.5 ** (age_hours / RECENCY_HALF_LIFE_HOURS))
 
 
+# A posting genuinely put up by the employer within this window jumps ahead
+# of the entire rest of the queue - tier, match score, everything - on the
+# theory that a same-day posting has the least competition and the best odds
+# if applied to first. Deliberately gated on the real `datePosted` a source
+# reported, not on when *we* discovered it: those are different claims (a
+# job discovered today could have been posted weeks ago and only just
+# surfaced by a scraper's pagination), and only real-posting-date sources
+# should get this override. Most sources don't currently populate it, so
+# most postings are unaffected and fall through to the normal scoring below.
+FRESH_POSTING_WINDOW_HOURS = 24.0
+# Comfortably larger than role_location_priority_bonus's documented "hundreds
+# of points" ceiling, so this always wins regardless of tier or match score.
+FRESH_POSTING_OVERRIDE_BONUS = 100_000.0
+
+
+def _is_senior_software_engineer_title(job: dict[str, Any]) -> bool:
+    """The fresh-posting override is restricted to this one title band by
+    explicit request: a same-day posting jumping the entire queue is a
+    strong effect, and without a title gate it would apply just as hard to
+    a new-grad or unrelated-title posting that merely happened to be fresh.
+    Matches "senior software engineer" as a substring so natural variations
+    ("Senior Software Engineer II", "Senior Software Engineer, Platform")
+    still qualify, but a plain "Software Engineer" or "Staff Software
+    Engineer" does not.
+    """
+    return "senior software engineer" in (job.get("title") or "").lower()
+
+
+def _real_posting_age_hours(job: dict[str, Any]) -> float | None:
+    """Hours since the job's real, source-reported `datePosted` - or None
+    when that field is missing/unparseable, meaning this source never told
+    us when the posting actually went up and there is nothing honest to act
+    on (see the ingest-side fix in queue_preprocessor.py's
+    _ingest_scraper_snapshot for why this was reliably blank before)."""
+    stamp = job.get("datePosted")
+    if not stamp:
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(stamp).replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return (datetime.now(timezone.utc) - parsed).total_seconds() / 3600.0
+
+
 def queue_priority_score(job: dict[str, Any]) -> float:
     """The single number the persistent queue is ordered by.
 
-    Location/level tier dominates (see ``role_location_priority_bonus``), the
-    Mistral resume-match score orders postings inside a tier, and a decaying
-    recency bonus puts the freshest postings first so the queue does not spend
-    its attempts on links that have already closed.
+    A verified same-day posting overrides everything else first (see
+    FRESH_POSTING_OVERRIDE_BONUS). Below that: location/level tier dominates
+    (see ``role_location_priority_bonus``), the Mistral resume-match score
+    orders postings inside a tier, and a decaying recency bonus puts the
+    freshest postings first so the queue does not spend its attempts on
+    links that have already closed.
     """
+    age_hours = _real_posting_age_hours(job)
+    fresh_override = (
+        FRESH_POSTING_OVERRIDE_BONUS
+        if age_hours is not None
+        and 0.0 <= age_hours <= FRESH_POSTING_WINDOW_HOURS
+        and _is_senior_software_engineer_title(job)
+        else 0.0
+    )
     return (
-        role_location_priority_bonus(job)
+        fresh_override
+        + role_location_priority_bonus(job)
         + float(job.get("matchScore") or 0.0)
         + posting_recency_bonus(job)
     )

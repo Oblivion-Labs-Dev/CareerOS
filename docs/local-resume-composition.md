@@ -143,3 +143,88 @@ worker. This avoids interrupting active applications. The worker reuses its
 cached local model for repeat requests, allows one generation at a time, and
 exits after two idle minutes to release memory. It uses cached model files
 without downloading new weights. A cold first request can take longer.
+
+
+## Minimal-change tailoring (current default)
+
+Resume Studio, resume generation/tailoring, and application resume PDFs now use
+`minimal_tailoring.py` and `baseline_document.py`. The older `compose()` remains
+available as an explicit corpus-composition utility and for comparison tests;
+it is no longer the tailoring default. Existing BM25, semantic, RRF, quality,
+and MMR modules are retained.
+
+The authority is the server-configured `CAREEROS_APPROVED_RESUME_PATH`, or
+`apps/api/data/approved-resume.pdf` when unset. The supplied approved resume was
+copied to this ignored local data file. The original source file is unchanged.
+No private resume is committed. Missing or unsupported baselines fail closed
+instead of silently rebuilding a resume. Updating the approved file invalidates
+previous result hashes. Current profile fields do not overwrite approved PDF
+content during tailoring.
+
+Bullets retain positioned lines and rich-text spans: font, size, weight, color,
+origin and bounding box. KEEP returns original content; when every decision is
+KEEP, the entire PDF is returned byte-for-byte. REORDER is restricted to the same
+role/project with compatible line geometry and copies original PDF glyphs.
+REPLACE uses exact reviewed source text, inherits the slot's bold-opening and
+normal-body structure, uses embedded fonts, and must fit the existing line
+baselines without shrinking. Unsupported glyphs or overflow retain the
+incumbent. Section order, margins, education, skills, role counts, and bullet
+markers remain untouched. The page count must remain one.
+
+Corpus search runs only when baseline relevance identifies a weak slot. Source
+priority is approved baseline, approved variant, reviewed accomplishment, then
+explicitly resume-approved story sentence. A legacy record marked `current` is
+not automatically reviewed. To be eligible, an accomplishment needs
+`resumeApproved: true`, `reviewed: true`, or `reviewStatus: reviewed/approved`;
+existing metric verification and claim restrictions still apply. Missing role
+metadata is acceptable only when that employer has one unambiguous baseline
+role; otherwise it cannot replace a dated-role bullet.
+
+Replacement utility combines JD relevance, quality, source priority, MMR
+redundancy, incumbent retention and replacement cost. A candidate must improve
+JD relevance and exceed the configured relative utility threshold after costs.
+Coverage remains a diagnostic and does not drive greedy coverage maximization.
+Each result includes KEEP/REORDER/REPLACE decisions, reasons, source revisions,
+baseline and document hashes, retention fraction, and effective configuration.
+
+Set `profile.resumeTailoringConfig` to override defaults consistently across
+Studio, generation, tailoring and application drafting:
+
+```json
+{
+  "bm25_k1": 1.5,
+  "bm25_b": 0.75,
+  "rrf_k": 60,
+  "mmr_lambda": 0.75,
+  "use_semantic": true,
+  "replacement_threshold": 0.15,
+  "weak_relevance": 0.35,
+  "retention_bonus": 0.12,
+  "replacement_cost": 0.08,
+  "max_replacement_fraction": 0.25,
+  "reorder_threshold": 0.15
+}
+```
+
+Optional embeddings load cached CPU weights only. Missing weights or encoding
+failures fall back to lexical ranking. No paid model is called. Off mode returns
+the exact configured approved PDF and cannot search for or apply replacements.
+
+### Validation on saved job descriptions
+
+Compared against three full saved Block postings: Senior Site Reliability
+Engineer (8,079 characters), Staff Software Engineer, Cash App Banking (7,177),
+and Staff Software Engineer, Go-to-Market Systems & AI (8,345). The old composer
+selected 16 bullets for each. Minimal tailoring retained all 24 baseline bullets
+for each; every PDF was one page with semantic matching available. No eligible
+reviewed alternative justified replacing baseline content. This validates
+conservative retention, not an assertion of complete JD coverage.
+
+Synthetic regression fixtures separately exercise actual replacements,
+approved-variant priority, reorder formatting, stale source hashes, unavailable
+embeddings, role attribution, and overflow. Actual embedded-font swap and
+replacement render checks confirmed one-page selectable text and identical
+pixels outside changed slots. Live Studio generation/download returned the
+minimal-change method with 24 bullets; the downloaded bytes matched its preview
+source, changed-input downloads were disabled, and mobile had no horizontal
+overflow.

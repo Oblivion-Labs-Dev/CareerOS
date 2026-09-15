@@ -165,6 +165,9 @@ def _is_submittable_board(job: dict[str, Any]) -> bool:
     url = str(job.get("applicationUrl") or "").lower()
     if not url:
         return False
+    # Roblox career pages start their apply flow externally/SSO and have no embedded form
+    if "roblox.com" in url:
+        return False
     # Greenhouse's embed endpoint only renders a form while framed by the
     # employer's page, so it is not submittable as a top-level URL.
     if "/embed/job_app" in url:
@@ -483,6 +486,13 @@ class AutopilotRunner:
                     existing["targetProcessCount"] = max(existing.get("targetProcessCount", 25), current_proc + target_count)
                     existing["status"] = AutopilotRunStatus.RUNNING.value
                     existing["concurrency"] = self.concurrency
+                    # targetProcessCount ratchets upward across resumes and stops
+                    # meaning "batch size" after the first one - "24 / 38" reads as
+                    # a batch of 38 when it is really four resumes' worth of
+                    # 10-job requests layered on top of each other. resumeCount is
+                    # the honest number: how many times this run has been resumed,
+                    # for the UI to show as "Batch N" instead.
+                    existing["resumeCount"] = int(existing.get("resumeCount") or 1) + 1
                     # The resolved opts (tierGuardrails, minMatchScore, selfHealing,
                     # ...) reflect this start() call and are already governing the
                     # runner in-memory below - without writing them back here, the
@@ -510,6 +520,7 @@ class AutopilotRunner:
                 run_payload = {
                     "id": run_id,
                     "targetProcessCount": target_count,
+                    "resumeCount": 1,
                     "processedCount": 0,
                     "submittedCount": 0,
                     "stagedCount": 0,
@@ -972,8 +983,7 @@ class AutopilotRunner:
             # work on an LLM match-scoring pass over the discovered backlog.
             self._ensure_queue_preprocessor()
             with session_scope() as db:
-                existing_autopilot_jobs = list_autopilot_jobs(db)
-            queued = [j for j in existing_autopilot_jobs if j.get("status") == AutopilotJobStatus.QUEUED.value]
+                queued = list_autopilot_jobs(db, status=AutopilotJobStatus.QUEUED.value)
             deficit = QUEUE_REFILL_THRESHOLD - len(queued)
 
             if deficit > 0 and (self._refill_task is None or self._refill_task.done()):
@@ -983,8 +993,7 @@ class AutopilotRunner:
                 else:
                     await self._refill_queue(deficit, run_settings)
                     with session_scope() as db:
-                        existing_autopilot_jobs = list_autopilot_jobs(db)
-                    queued = [j for j in existing_autopilot_jobs if j.get("status") == AutopilotJobStatus.QUEUED.value]
+                        queued = list_autopilot_jobs(db, status=AutopilotJobStatus.QUEUED.value)
 
             if not queued:
                 self.log_event(
@@ -995,8 +1004,7 @@ class AutopilotRunner:
                 # Refill the queue from discovered postings before deciding the batch is done.
                 self._ensure_queue_preprocessor()
                 with session_scope() as db:
-                    existing_autopilot_jobs = list_autopilot_jobs(db)
-                queued = [j for j in existing_autopilot_jobs if j.get("status") == AutopilotJobStatus.QUEUED.value]
+                    queued = list_autopilot_jobs(db, status=AutopilotJobStatus.QUEUED.value)
                 deficit = QUEUE_REFILL_THRESHOLD - len(queued)
                 if deficit > 0:
                     if self._refill_task is None or self._refill_task.done():
@@ -1006,8 +1014,7 @@ class AutopilotRunner:
                         else:
                             await self._refill_queue(deficit, run_settings)
                             with session_scope() as db:
-                                existing_autopilot_jobs = list_autopilot_jobs(db)
-                            queued = [j for j in existing_autopilot_jobs if j.get("status") == AutopilotJobStatus.QUEUED.value]
+                                queued = list_autopilot_jobs(db, status=AutopilotJobStatus.QUEUED.value)
                 if not queued:
                     # Truly no jobs left — mark as paused rather than completed so the
                     # run stays alive and can be restarted later manually or via scheduler.
@@ -1634,29 +1641,41 @@ class AutopilotRunner:
         # Step: FORM_DISCOVERED & LIVE PLAYWRIGHT SUBMISSION
         from app.db.store import get_kv, list_entities
         from app.services.application_assistant.persistence import list_answer_library
-        profile: dict[str, Any] = {}
-        answer_lib: list[dict[str, Any]] = []
-        master_resume: dict[str, Any] = {}
-        documents: dict[str, Any] = {}
-        accomplishments: list[dict[str, Any]] = []
-        with session_scope() as db:
-            profile = get_kv(db, "profile") or {}
-            answer_lib = list_answer_library(db)
-            master_resume = get_kv(db, "resume_corpus_master") or {}
-            # Re-scoring the tailored resume needs the same evidence base the
-            # queue scorer used, or a tailored resume would be judged against a
-            # narrower set of facts than the original was and score lower for
-            # no reason.
-            documents = get_kv(db, "documents") or {}
-            try:
-                accomplishments = list_entities(db, "accomplishment")
-            except Exception:  # noqa: BLE001
-                # Optional enrichment for scoring only. Losing it costs some
-                # match accuracy; letting it raise would abort a submission that
-                # is otherwise ready, which is far worse.
-                logger.debug("Could not load accomplishments for match scoring", exc_info=True)
-                accomplishments = []
-            tailoring_mode = job_item.get("tailoringMode") or get_settings(db).get("tailoringMode", "honest")
+
+        # This whole load is pure data-fetching (no Playwright/browser interaction) but
+        # used to run synchronously, directly on the event loop, inside `session_scope()`
+        # — confirmed live via py-spy on 2026-09-15 as one of several call sites where the
+        # batch loop's own per-job pipeline blocks the *entire server* (every other
+        # request, `/health` included) for however long these DB reads take under
+        # concurrent contention. Same fix as the other instances tonight: its own fresh
+        # session, entirely inside a worker thread, so this step can never block the loop
+        # regardless of how contended the database is at the time.
+        def _load_submission_context() -> tuple[
+            dict[str, Any], list[dict[str, Any]], dict[str, Any], dict[str, Any], list[dict[str, Any]], str
+        ]:
+            with session_scope() as db:
+                profile = get_kv(db, "profile") or {}
+                answer_lib = list_answer_library(db)
+                master_resume = get_kv(db, "resume_corpus_master") or {}
+                # Re-scoring the tailored resume needs the same evidence base the
+                # queue scorer used, or a tailored resume would be judged against a
+                # narrower set of facts than the original was and score lower for
+                # no reason.
+                documents = get_kv(db, "documents") or {}
+                try:
+                    accomplishments = list_entities(db, "accomplishment")
+                except Exception:  # noqa: BLE001
+                    # Optional enrichment for scoring only. Losing it costs some
+                    # match accuracy; letting it raise would abort a submission that
+                    # is otherwise ready, which is far worse.
+                    logger.debug("Could not load accomplishments for match scoring", exc_info=True)
+                    accomplishments = []
+                tailoring_mode = job_item.get("tailoringMode") or get_settings(db).get("tailoringMode", "honest")
+            return profile, answer_lib, master_resume, documents, accomplishments, tailoring_mode
+
+        profile, answer_lib, master_resume, documents, accomplishments, tailoring_mode = await asyncio.to_thread(
+            _load_submission_context
+        )
 
         self.log_event(
             f"{w_prefix}Launching Playwright live Chromium session for {company}...",

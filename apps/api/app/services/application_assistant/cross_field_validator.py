@@ -207,9 +207,14 @@ def validate_answers(
                            f"Ethnicity option '{race_res.answer}' was used to answer a race question")
 
     # ── Rule 9: Phone field contains only country code → BLOCK ──
-    phone_res = by_type.get(QuestionType.PHONE.value)
-    if phone_res and phone_res.answer:
-        digits = re.sub(r"[^\d]", "", phone_res.answer)
+    # Yes/no answers are consent questions that mention a phone number, not phone fields.
+    for phone_res in resolutions:
+        if phone_res.question_type != QuestionType.PHONE.value or not phone_res.answer:
+            continue
+        answer_text = str(phone_res.answer).strip()
+        if re.fullmatch(r"(?i)yes|no|true|false|y|n|i agree|agree|decline|i consent", answer_text):
+            continue
+        digits = re.sub(r"[^\d]", "", answer_text)
         if len(digits) < 7:
             _add_error(report, phone_res, "PHONE_INCOMPLETE",
                        f"Phone field contains '{phone_res.answer}' — no actual phone number")

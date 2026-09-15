@@ -98,6 +98,7 @@ function EditableField({ id, label, value, onChange, helper, multiline = false, 
 
 function signature(record: CorpusRecord): string {
   return JSON.stringify({
+    resumeApproved: record.resumeApproved,
     title: record.title, company: record.company, role: record.role, project: record.project, timePeriod: record.timePeriod,
     summary: record.summary, currentBullet: record.currentBullet, ownership: record.ownership,
     technicalChallenge: record.technicalChallenge, architectureDecision: record.architectureDecision, alternatives: record.alternatives, tradeoffs: record.tradeoffs,
@@ -243,7 +244,7 @@ export function AccomplishmentWorkspace({ record, previewMode, compact = false, 
     recordCorpusPerformance("editor-update", window.performance.now() - startedAt, { historySize: nextHistory.length });
   };
 
-  const patch = <K extends keyof CorpusRecord>(key: K, value: CorpusRecord[K]) => updateDraft((current) => ({ ...current, [key]: value }));
+  const patch = <K extends keyof CorpusRecord>(key: K, value: CorpusRecord[K]) => updateDraft((current) => ({ ...current, [key]: value, ...(key === "currentBullet" ? { resumeApproved: false } : {}) }));
 
   const setSectionOpen = (id: SectionId, open: boolean) => {
     setOpenSections((current) => {
@@ -459,7 +460,7 @@ export function AccomplishmentWorkspace({ record, previewMode, compact = false, 
             </div>;
           })}</div> : <StatePanel kind="empty" size="compact" title="No reviewer concerns" description="Re-run review after material edits or a new target role." />)}
           {section("interview", draft.interviewQuestions.length ? <div className={styles.questionList}>{draft.interviewQuestions.map((question) => <QuestionQualityCard key={question.id} question={question} record={draft} onAnswerChange={(value) => updateQuestion(question.id, value)} onQuestionChange={(updates) => updateQuestionData(question.id, updates)} />)}</div> : <StatePanel kind="empty" size="compact" title="No interview questions" description="Add reviewer prompts that test decisions, failures, ownership, and evidence." />)}
-          {section("variants", <div className={styles.formStack}><EditableField id="variant-current" label="Current resume bullet" value={draft.currentBullet} onChange={(value) => patch("currentBullet", value)} multiline rows={5} />{draft.resumeVariants.filter((variant) => variant.content !== draft.currentBullet).map((variant) => <div className={styles.panel} key={variant.id}><div className={styles.panelHeader}><h3>{variant.name}</h3><span className={styles.statusTag}>{variant.status}</span></div><p>{variant.content}</p></div>)}</div>)}
+          {section("variants", <div className={styles.formStack}><label><input type="checkbox" checked={draft.resumeApproved === true} onChange={(event) => patch("resumeApproved", event.target.checked)}/> I reviewed this accomplishment and approve its current bullet for resume tailoring.</label><p className={styles.helper}>Verify the wording and metrics below. Editing the bullet clears approval. Unverified metrics and claim restrictions still prevent replacement.</p><EditableField id="variant-current" label="Current resume bullet" value={draft.currentBullet} onChange={(value) => patch("currentBullet", value)} multiline rows={5} />{draft.resumeVariants.filter((variant) => variant.content !== draft.currentBullet).map((variant) => <div className={styles.panel} key={variant.id}><div className={styles.panelHeader}><h3>{variant.name}</h3><span className={styles.statusTag}>{variant.status}</span></div><p>{variant.content}</p></div>)}</div>)}
           {section("publishing", <div className={styles.formStack}><EditableField id="variant-linkedin" label="LinkedIn version" value={draft.linkedInVersion} onChange={(value) => patch("linkedInVersion", value)} multiline rows={5} /><EditableField id="variant-portfolio" label="Portfolio version" value={draft.portfolioVersion} onChange={(value) => patch("portfolioVersion", value)} multiline rows={7} /></div>)}
           {section("history", <div className={styles.recordList}><div className={styles.recordRow}><span className={styles.actionNumber}>01</span><span className={styles.rowCopy}><strong>Current working version</strong><span>{statusLabel} · {Math.max(history.length - 1, 0)} local edit state{history.length - 1 === 1 ? "" : "s"}</span></span></div>{draft.updatedAt ? <div className={styles.recordRow}><span className={styles.actionNumber}>02</span><span className={styles.rowCopy}><strong>Last persisted update</strong><span>{new Date(draft.updatedAt).toLocaleString()}</span></span></div> : null}<button type="button" className={styles.dangerButton} onClick={() => { if (window.confirm(`Delete “${draft.title}”? This cannot be undone.`)) void onDelete(draft.id); }}>Delete accomplishment</button></div>)}
         </div>

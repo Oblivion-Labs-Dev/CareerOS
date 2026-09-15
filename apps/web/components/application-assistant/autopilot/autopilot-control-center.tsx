@@ -13,11 +13,9 @@ import {
   resolveOperationalState,
   stageIndexForStep,
   useAutopilotState,
-  type AutopilotLog,
 } from "@/hooks/use-autopilot-state";
 import { AutopilotApplicationsView } from "./autopilot-applications-view";
 import styles from "./control-center.module.css";
-import { RecentSubmissions } from "./recent-submissions";
 import { NightBatchCard, type NightBatchConfig } from "./night-batch-card";
 import { LastUpdatePanel } from "./last-update-panel";
 
@@ -44,23 +42,6 @@ function isSameDay(iso: string | undefined, ref: Date): boolean {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return false;
   return d.toDateString() === ref.toDateString();
-}
-
-function timeOfDay(iso: string): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "--:--";
-  return d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", hour12: false });
-}
-
-/** Classify a log line into a feed event kind using the message the backend already emits. */
-function feedKind(log: AutopilotLog): { kind: string; glyph: string } {
-  const m = (log.message || "").toLowerCase();
-  if (log.level === "error" || m.includes("failed")) return { kind: "failed", glyph: "✕" };
-  if (m.includes("submitted")) return { kind: "submitted", glyph: "✓" };
-  if (m.includes("skip")) return { kind: "skipped", glyph: "⊘" };
-  if (m.includes("review") || m.includes("staged")) return { kind: "review", glyph: "⚠" };
-  if (m.includes("repair") || m.includes("heal")) return { kind: "healed", glyph: "↻" };
-  return { kind: "applying", glyph: "◉" };
 }
 
 export function AutopilotControlCenter({
@@ -350,6 +331,7 @@ export function AutopilotControlCenter({
                 liveJob={liveJob}
                 targetCount={state?.run?.targetProcessCount ?? 10}
                 processedCount={state?.run?.processedCount ?? 0}
+                resumeCount={state?.run?.resumeCount ?? 1}
                 submittedCount={state?.run?.submittedCount ?? 0}
                 stagedCount={state?.run?.stagedCount ?? 0}
                 queueScores={queueScores}
@@ -363,13 +345,10 @@ export function AutopilotControlCenter({
                 lastActivity={lastActivity}
                 lastRun={state?.run ?? null}
                 isLive={isLive}
+                logs={state?.recentLogs ?? []}
               />}
             </div>
           )}
-
-          <div className={styles.liveWorkspace} data-idle={!loading && !isLive && !(state?.recentLogs?.length)}>
-            <RecentSubmissions />
-          </div>
         </>
       )}
       <nav className={styles.tabs}>
@@ -535,35 +514,11 @@ export function AutopilotControlCenter({
               </div>
             </section>
 
-            {/* ── Activity feed ── */}
-            <section className={styles.panel}>
-              <div className={styles.panelHead}>
-                <span className={styles.panelTitle}>Recent activity</span>
-              </div>
-              {!state || (state.recentLogs || []).length === 0 ? (
-                <p className={styles.loadingText}>No Autopilot activity recorded yet.</p>
-              ) : (
-                <div className={styles.feedScroll}>
-                  {[...(state.recentLogs || [])]
-                    .reverse()
-                    .slice(0, 60)
-                    .map((log) => {
-                      const { kind, glyph } = feedKind(log);
-                      const company = log.metadata?.company as string | undefined;
-                      return (
-                        <div key={log.id} className={styles.feedItem}>
-                          <span className={styles.feedTime}>{timeOfDay(log.timestamp)}</span>
-                          <span className={styles.feedIcon} data-kind={kind}>{glyph}</span>
-                          <span>
-                            <span className={styles.feedTitle}>{company || "Autopilot"}</span>
-                            <span className={styles.feedDetail}>{log.message}</span>
-                          </span>
-                        </div>
-                      );
-                    })}
-                </div>
-              )}
-            </section>
+            {/* Recent Activity (last activity + last run stats + live event
+                feed + recent submissions) lives in the Night Batch row above
+                when a batch is live or the panel is open. When neither is
+                true there is nothing to show here, so it is intentionally
+                left out of this idle side column rather than duplicated. */}
           </div>
         </div>
       )}

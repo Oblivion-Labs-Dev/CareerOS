@@ -1,14 +1,20 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import path from "node:path";
+import { readdirSync, statSync } from "node:fs";
 
 let worker: ChildProcessWithoutNullStreams | null = null;
 let idle: ReturnType<typeof setTimeout> | null = null;
+let loadedVersion = "";
 
 /** One bounded CPU worker. Reuse cached rankings between previews, then release
  * the process and its model memory after two minutes without a request. */
 export function composeInLocalWorker(python: string, apiRoot: string, payload: unknown, signal: AbortSignal): Promise<string> {
   if (idle) clearTimeout(idle);
+  const serviceRoot = path.join(apiRoot, "app/services/resume_intelligence");
+  const version = readdirSync(serviceRoot).filter(name => name.endsWith(".py")).map(name => `${name}:${statSync(path.join(serviceRoot, name)).mtimeMs}`).join("|");
+  if (worker && loadedVersion !== version) { worker.kill(); worker = null; }
   if (!worker || worker.killed || worker.exitCode !== null) {
+    loadedVersion = version;
     worker = spawn(python, [path.join(apiRoot, "scripts/resume_studio_worker.py")], {
       cwd: apiRoot, windowsHide: true,
       env: { ...process.env, PYTHONIOENCODING: "utf-8", HF_HUB_OFFLINE: "1" },

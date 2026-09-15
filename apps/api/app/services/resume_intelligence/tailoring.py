@@ -71,6 +71,9 @@ def build_tailoring_diff(
                 "changed": original != tailored,
                 "source": item.get("source"),
                 "selectionReason": item.get("selectionReason"),
+                "decision": item.get("decision"),
+                "richText": item.get("richText"),
+                "baselineBulletId": item.get("baselineBulletId"),
             }
         )
     return {
@@ -82,4 +85,7 @@ def build_tailoring_diff(
         "warnings": generation_result.get("warnings", []),
         "requirementCoverage": generation_result.get("requirementCoverage"),
         "method": generation_result.get("method"),
+        "decisions": generation_result.get("decisions", []),
+        "baselineRevision": generation_result.get("baselineRevision"),
+        "retentionFraction": generation_result.get("retentionFraction"),
     }

@@ -463,6 +463,7 @@ export interface ReviewerIntelligence {
 }
 
 export interface Accomplishment extends ReviewerIntelligence {
+  resumeApproved?: boolean;
   id: string;
   phaseOne?: PhaseOneAccomplishmentData;
   crossTeamInfluence?: string;

@@ -172,13 +172,14 @@ def _is_evidenced(skill: str, evidence_text: str, evidence_terms: set[str]) -> b
     normalized = skill.lower().strip()
     if not normalized:
         return False
-    if normalized in evidence_text:
-        return True
-
-    tokens = [t for t in re.findall(r"[a-z0-9+#\.]{2,}", normalized) if t not in _FILLER_TOKENS]
-    if not tokens:
-        return False
-    return all(token in evidence_terms or token in evidence_text for token in tokens)
+    from app.services.resume_intelligence.evidence_match import contains, NEGATIVE, terms
+    tokens = terms(normalized)
+    for quote in re.split(r"\n+|(?<=[.!?])\s+|;", evidence_text):
+        if NEGATIVE.search(quote):
+            continue
+        if contains(quote, normalized) or (tokens and tokens <= terms(quote)):
+            return True
+    return False
 
 
 def _score_from_evidence(
@@ -296,13 +297,17 @@ async def score_job_against_resume(
     if not client.enabled or not candidate_summary.strip():
         return None
 
-    description = _truncate(str(job.get("description") or ""), 4500)
+    from app.services.resume_intelligence.evidence_match import extract_requirements
+    description = str(job.get("description") or "")
+    extracted = extract_requirements(description)
+    if extracted:
+        description = "\n".join(f"{r['category']}: {r['text']}" for r in extracted)
     prompt = (
         f"Job title: {job.get('title') or 'Unknown role'}\n"
         f"Company: {job.get('company') or ''}\n"
         f"Location: {job.get('location') or ''}\n\n"
         f"Job description:\n{description or '(no description provided)'}\n\n"
-        f"Candidate resume and profile:\n{_truncate(candidate_summary, 7000)}"
+        f"Candidate resume and profile:\n{candidate_summary}"
     )
 
     try:

@@ -589,14 +589,19 @@ async def generate_role_tailoring_diff(
             company, title,
         )
 
-    from app.services.resume_intelligence.minimal_tailoring import tailor, TailoringConfig
+    from app.services.resume_intelligence.minimal_tailoring import tailor, mode_config
     from app.services.resume_intelligence.local_document import document_text
 
     if accomplishments is None:
         from app.db.store import session_scope, list_entities
         with session_scope() as db:
             accomplishments = list_entities(db, "accomplishment")
-    result = tailor(accomplishments, description, title, config=TailoringConfig(**(profile.get("resumeTailoringConfig") or {})))
+    config = mode_config(valid_mode, profile.get("resumeTailoringConfig"))
+    result = tailor(accomplishments, description, title, config=config, mode=valid_mode)
+    from app.services.resume_intelligence.evidence_match import compare_pdfs
+    from app.services.resume_intelligence.baseline_document import approved_path, render_baseline
+    document_comparison = compare_pdfs(approved_path().read_bytes(), render_baseline(result), description,
+        use_semantic=config.use_semantic, bm25_k1=config.bm25_k1, bm25_b=config.bm25_b, rrf_k=config.rrf_k)
     originals = [b["original"] for b in result["resumeBullets"]]
     bullets = [b["optimizedBullet"] for b in result["resumeBullets"]]
     diffs = compute_bullet_diffs(originals, bullets)
@@ -611,12 +616,13 @@ async def generate_role_tailoring_diff(
     return {
         "jobId": job.get("id"), "company": company, "title": title, "mode": valid_mode,
         "matchScore": score, "baseMatchScore": score, "baselineMatchScore": score,
+        "documentMatch": document_comparison,
         "matchRescored": False, "matchReason": "Local source selection; eligibility score unchanged.",
         "requirementCoverage": result["requirementCoverage"], "scoreKind": result["scoreKind"],
         "missingSkills": [r["text"] for r in result["uncoveredRequirements"]],
         "keyMatchingSkills": result["skillsList"], "bulletDiffs": [] if off else diffs,
         "resumeDocument": result, "resumeText": document_text(result, profile),
-        "quality": {"ok": off or result["exportReady"], "changed": 0, "total": len(bullets), "problems": problems},
+        "quality": {"ok": off or result["exportReady"], "changed": sum(b["decision"] != "KEEP" for b in result["resumeBullets"]), "total": len(bullets), "problems": problems},
         "totalChanges": sum(b["decision"] != "KEEP" for b in result["resumeBullets"]), "selectedAchievements": len(bullets),
         "tailoringFailed": not off and not bool(bullets), "tailoringModel": "none (local evidence selection)",
         "tailoringError": "", "jobDescriptionChars": len(description),
@@ -636,25 +642,18 @@ def render_tailored_resume_pdf(diff_data: dict[str, Any], candidate_info: dict[s
         document = diff_data.get("resumeDocument")
         if not document or diff_data.get("tailoringFailed") or not (diff_data.get("quality") or {}).get("ok"):
             raise ValueError("Resume is not ready to export; review the source evidence first.")
+        if document.get("method") == "minimal-change-v1":
+            from app.db.store import session_scope, list_entities
+            from app.services.resume_intelligence.minimal_tailoring import validate
+            with session_scope() as db:
+                problems = validate(document, list_entities(db, "accomplishment"))
+            if problems:
+                raise ValueError(" ".join(problems))
         return render(document, candidate_info)
 
 
-    # Locate the authentic original resume PDF
-    possible_paths = [
-        Path(__file__).resolve().parents[3] / "data" / "Akshay_Borse_Resume_Original.pdf",
-        Path("apps/api/data/Akshay_Borse_Resume_Original.pdf"),
-        Path("d:/3 - Resources/Docs/Interview/Resume/Akshay_Borse_Resume.pdf"),
-        Path("D:/3 - Resources/Docs/Interview/Resume/Akshay_Borse_Resume.pdf"),
-    ]
-    orig_path = None
-    for p in possible_paths:
-        if p.exists():
-            orig_path = p
-            break
-
-    if not orig_path:
-        raise FileNotFoundError("Original resume PDF not found at expected paths.")
-
-    # In 'off' mode: return exact original PDF bytes directly
-    if mode == "off":
-        return orig_path.read_bytes()
+    from app.services.resume_intelligence.baseline_document import approved_path
+    path = approved_path()
+    if not path.is_file():
+        raise FileNotFoundError("Approved baseline PDF is not configured.")
+    return path.read_bytes()

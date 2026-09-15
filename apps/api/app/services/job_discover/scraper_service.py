@@ -95,17 +95,32 @@ async def fetch_with_retry(
 
     Returns the response, or None when every attempt failed - callers already
     treat a falsy response as "no jobs from this board".
+
+    Wraps each attempt in `asyncio.wait_for` on top of httpx's own timeout:
+    httpx's read timeout only bounds the idle gap *between* chunks, not the
+    total time to read a response body, so a server that trickles bytes
+    slowly enough to never leave one chunk idle past the read timeout (a
+    tarpit, deliberate or not) can keep a `client.get()` call hanging far
+    past the configured timeout - and since this all runs on the API's
+    single asyncio event loop, one such hang froze request handling
+    (including `/health`) for the whole process, not just this scrape.
+    `wait_for` gives every attempt a hard wall-clock ceiling regardless of
+    where inside httpx it is stuck.
     """
+    per_attempt_timeout = kwargs.get("timeout")
+    if not isinstance(per_attempt_timeout, (int, float)):
+        per_attempt_timeout = 20.0
+    hard_deadline = per_attempt_timeout + 10.0
     delay = 0.6
     for attempt in range(max_attempts):
         try:
-            response = await client.get(url, **kwargs)
+            response = await asyncio.wait_for(client.get(url, **kwargs), timeout=hard_deadline)
             if response.status_code < 400:
                 return response
             retryable = response.status_code == 429 or response.status_code >= 500
             if not retryable or attempt == max_attempts - 1:
                 return response
-        except (httpx.TimeoutException, httpx.TransportError):
+        except (httpx.TimeoutException, httpx.TransportError, TimeoutError):
             if attempt == max_attempts - 1:
                 return None
         # Jitter so a hundred board tasks do not retry in lockstep.

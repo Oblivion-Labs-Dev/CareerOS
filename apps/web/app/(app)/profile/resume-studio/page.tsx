@@ -3,9 +3,14 @@
 import { useEffect, useRef, useState } from "react";
 import styles from "./studio.module.css";
 
+type Mode = "off" | "honest" | "aggressive";
+type Match = { score: number | null; counts: Record<string, number>; requirements: Array<{id: string; text: string; status: string; reason: string; evidence: Array<{quote: string}>}> };
+
 type StudioResult = {
   pdfBase64: string; previewBase64: string; filename: string; elapsedMs: number; pageCount: number; omittedForFit: number;
+  matchComparison: { before: Match; after: Match; delta: number | null; notice: string };
   result: {
+    mode: Mode; tailoringSummary?: string; eligibleReplacementCount?: number;
     warnings: string[]; requirementCoverage: number;
     resumeBullets: Array<{ id: string; decision: "KEEP" | "REORDER" | "REPLACE"; richText: Array<{text: string; bold: boolean}>; company: string; project: string; optimizedBullet: string; selectionReason: string; requirementIds: string[]; source: { text: string; field: string } }>;
     requirements: Array<{ id: string; text: string; category: string; coverageStatus: string }>;
@@ -22,18 +27,20 @@ export default function ResumeStudioPage() {
   const [description, setDescription] = useState("");
   const [role, setRole] = useState("");
   const [company, setCompany] = useState("");
+  const [mode, setMode] = useState<Mode>("honest");
+  const [retrieval, setRetrieval] = useState("saved");
   const [result, setResult] = useState<StudioResult | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [generatedInput, setGeneratedInput] = useState("");
   const controller = useRef<AbortController | null>(null);
-  const stale = Boolean(result && generatedInput !== JSON.stringify([description, role, company]));
+  const stale = Boolean(result && generatedInput !== JSON.stringify([description, role, company, mode, retrieval]));
   useEffect(() => () => controller.current?.abort(), []);
 
   async function generate(event: React.FormEvent) {
     event.preventDefault();
     if (description.trim().length < 40 || busy) return;
-    const input = JSON.stringify([description, role, company]);
+    const input = JSON.stringify([description, role, company, mode, retrieval]);
     controller.current?.abort();
     const request = new AbortController(); controller.current = request;
     setBusy(true); setError("");
@@ -41,7 +48,7 @@ export default function ResumeStudioPage() {
     try {
       const response = await fetch("/api/resume-studio", {
         method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, signal: request.signal,
-        body: JSON.stringify({ jobDescription: description, targetRole: role, targetCompany: company }),
+        body: JSON.stringify({ jobDescription: description, targetRole: role, targetCompany: company, mode, ...(retrieval === "saved" ? {} : {useSemantic: retrieval === "semantic"}) }),
       });
       const data = await response.json();
       if (!response.ok) throw new Error(typeof data.detail === "string" ? data.detail : "Could not generate your resume. Check the description and try again.");
@@ -72,12 +79,22 @@ export default function ResumeStudioPage() {
     <div className={styles.workspace}>
       <form className={styles.editor} onSubmit={generate}>
         <div className={styles.panelTitle}><span className={styles.step}>01</span><div><h2>The opportunity</h2><p>Paste the posting. We’ll find the right evidence.</p></div></div>
+        <fieldset className={styles.modes} disabled={busy}><legend>Tailoring mode</legend>
+          {([
+            ["off", "OFF", "Your approved resume, unchanged."],
+            ["honest", "HONEST", "Conservative rearrangement and approved wording variants."],
+            ["aggressive", "AGGRESSIVE", "Broader evidence search and stronger emphasis on verified results."],
+          ] as const).map(([value, label, detail]) => <label key={value} className={mode === value ? styles.modeSelected : ""}><input type="radio" name="tailoring-mode" value={value} checked={mode === value} onChange={() => setMode(value)}/><strong>{label}</strong><span>{detail}</span></label>)}
+        </fieldset>
+        <label className={styles.descriptionLabel}>Search method <select value={retrieval} disabled={busy} onChange={event => setRetrieval(event.target.value)}><option value="saved">Use my saved settings</option><option value="fast">Fast local — no model loaded</option><option value="semantic">Local semantic ranking</option></select></label>
+        <p className={styles.modeNote}>Fast local uses evidence and keyword ranking. Your saved configuration is unchanged.</p>
+        <p className={styles.modeNote}>Every mode preserves source facts. Skills and numbers are never invented.</p>
         <div className={styles.fields}><label>Role <span>optional</span><input value={role} onChange={e => setRole(e.target.value)} placeholder="Senior Software Engineer" maxLength={200} disabled={busy}/></label>
           <label>Company <span>optional</span><input value={company} onChange={e => setCompany(e.target.value)} placeholder="Company name" maxLength={200} disabled={busy}/></label></div>
         <label className={styles.descriptionLabel} htmlFor="studio-jd">Job description <span>Required</span></label>
         <textarea id="studio-jd" value={description} onChange={e => setDescription(e.target.value)} placeholder={"Paste the full job description here…\n\nInclude responsibilities, qualifications, and the skills the team is looking for."} maxLength={40000} disabled={busy} required minLength={40}/>
         <div className={styles.textMeta}><span>{description.length.toLocaleString()} / 40,000 characters</span>{description && !busy ? <button type="button" onClick={() => setDescription("")}>Clear</button> : <span>Full posting works best</span>}</div>
-        <div className={styles.format}><Icon kind="page"/><div><strong>Classic · US Letter</strong><span>Original styling, fitted to one page</span></div><b>1 PAGE</b></div>
+        <div className={styles.format}><Icon kind="page"/><div><strong>Approved baseline · US Letter</strong><span>Original typography and layout preserved</span></div><b>1 PAGE</b></div>
         <button className={styles.generate} disabled={busy || description.trim().length < 40} type="submit"><Icon kind="spark"/>{busy ? "Building your resume…" : result ? "Regenerate resume" : "Generate resume"}<Icon kind="arrow"/></button>
         <p className={styles.localNote}><span/> Uses your saved profile & stories · No API cost</p>
         {error ? <div className={styles.error} role="alert">{error}</div> : null}
@@ -100,10 +117,17 @@ export default function ResumeStudioPage() {
     </div>
 
     {result ? <section className={styles.evidence}>
+      {result.result.tailoringSummary ? <p className={styles.reviewNote}>{result.result.tailoringSummary} {result.result.eligibleReplacementCount === 0 && result.result.mode !== "off" ? <a href="/resume-corpus">Review accomplishment evidence</a> : null}</p> : null}
+      {result.matchComparison ? <div className={styles.matchPanel}>
+        <div><span className={styles.eyebrow}>DOCUMENT SUPPORT · {result.result.mode.toUpperCase()}</span><h2>Evidence before and after</h2><p>{stale ? "Previous result — regenerate for your current inputs." : "Measured from the approved and generated PDFs against the same requirements."}</p></div>
+        <div className={styles.matchScores}><div><span>Approved baseline</span><strong>{result.matchComparison.before.score ?? "—"}</strong></div><span aria-hidden="true">→</span><div><span>Tailored resume</span><strong>{result.matchComparison.after.score ?? "—"}</strong></div><b>{result.matchComparison.delta === null ? "Not assessed" : `${result.matchComparison.delta > 0 ? "+" : ""}${result.matchComparison.delta} points`}</b></div>
+        <p>{result.matchComparison.notice}</p>
+        <details><summary>Review {result.matchComparison.after.requirements.length} requirements and their evidence</summary><div className={styles.requirements}>{result.matchComparison.after.requirements.map(req => <article key={req.id}><strong>{req.status.toUpperCase()}</strong><p>{req.text}</p><small>{req.reason}</small>{req.evidence.map((e, i) => <blockquote key={i}>{e.quote}</blockquote>)}</article>)}</div></details>
+      </div> : null}
       <div className={styles.evidenceHeader}><div className={styles.panelTitle}><span className={styles.step}>03</span><div><h2>Behind the resume</h2><p>See what stayed, moved, or was replaced, and why.</p></div></div><span>{result.result.resumeBullets.length} SOURCE-BACKED BULLETS</span></div>
       {result.omittedForFit > 0 ? <p className={styles.reviewNote}>{result.omittedForFit} lower-ranked achievements were omitted to keep the resume on one page.</p> : null}
       {result.result.warnings.length > 0 ? <details className={styles.reviewNote}><summary>{result.result.warnings.length} source checks to review before applying</summary><ul>{result.result.warnings.map((warning, i) => <li key={i}>{warning}</li>)}</ul></details> : <p className={styles.reviewNote}>Review the final wording before using this resume for an application.</p>}
-      <div className={styles.evidenceGrid}>{result.result.resumeBullets.map((bullet, i) => <details key={`${bullet.id}-${i}`} className={styles.sourceCard}><summary><span>{String(i + 1).padStart(2, "0")}</span><div><b>{bullet.project || bullet.company}</b><small>{bullet.company || "Personal project"}</small></div><span>+</span></summary><h4>{bullet.decision}</h4><p>{bullet.selectionReason}</p><p>{bullet.richText?.map((run, index) => run.bold ? <strong key={index}>{run.text}</strong> : <span key={index}>{run.text}</span>) || bullet.optimizedBullet}</p><h4>Matched to this posting</h4><ul>{result.result.requirements.filter(req => bullet.requirementIds.includes(req.id)).map(req => <li key={req.id}>{req.text}</li>)}</ul><small>Selected from your saved {bullet.source.field.includes("interview") ? "behavioral story" : "resume evidence"}.</small></details>)}</div>
+      <div className={styles.evidenceGrid}>{result.result.resumeBullets.map((bullet, i) => <details key={`${bullet.id}-${i}`} className={styles.sourceCard}><summary><span>{String(i + 1).padStart(2, "0")}</span><div><b>{bullet.project || bullet.company}</b><small>{bullet.company || "Personal project"}  ·  {bullet.decision}</small></div><span>+</span></summary><h4>{bullet.decision}</h4><p>{bullet.selectionReason}</p><p>{bullet.richText?.map((run, index) => run.bold ? <strong key={index}>{run.text}</strong> : <span key={index}>{run.text}</span>) || bullet.optimizedBullet}</p><h4>Matched to this posting</h4><ul>{result.result.requirements.filter(req => bullet.requirementIds.includes(req.id)).map(req => <li key={req.id}>{req.text}</li>)}</ul><small>Source: {bullet.source.field === "approvedResume" ? "your approved baseline resume" : bullet.source.field.includes("interview") ? "your reviewed behavioral story" : "your reviewed resume evidence"}.</small></details>)}</div>
     </section> : null}
   </div>;
 }

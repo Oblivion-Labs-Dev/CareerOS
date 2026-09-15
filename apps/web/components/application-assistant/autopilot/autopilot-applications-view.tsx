@@ -32,6 +32,19 @@ import { CompanyFilterDropdown } from "./company-filter-dropdown";
 import styles from "./control-center.module.css";
 
 type Section = "applications" | "review" | "diagnostics";
+
+type RequeueBucket = "review" | "failed" | "manual" | "skipped" | "ineligible";
+// Sweeping the whole bucket is only safe for review/failed - see the matching
+// COMPANY_ONLY_BUCKETS guard in the backend's /autopilot/requeue-bucket.
+const COMPANY_ONLY_BUCKETS = new Set<RequeueBucket>(["manual", "skipped", "ineligible"]);
+const BUCKET_LABELS: Record<RequeueBucket, string> = {
+  review: "review",
+  failed: "failed",
+  manual: "manual review",
+  skipped: "skipped",
+  ineligible: "ineligible",
+};
+
 export function AutopilotApplicationsView({
   section,
   onJobsChanged,
@@ -51,7 +64,7 @@ export function AutopilotApplicationsView({
   // Which bulk requeue is awaiting confirmation, if any. Held as state rather
   // than using window.confirm so the warning can say exactly what is about to
   // happen and how many rows it touches.
-  const [confirmRequeue, setConfirmRequeue] = useState<"review" | "failed" | null>(null);
+  const [confirmRequeue, setConfirmRequeue] = useState<RequeueBucket | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [detail, setDetail] = useState<AutopilotJobRow | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -346,13 +359,15 @@ export function AutopilotApplicationsView({
     }
   };
 
-  /** Send the whole Review or Failed list back to the queue. */
-  const doRequeueBucket = async (bucket: "review" | "failed") => {
+  /** Send a bucket back to the queue - the whole thing for review/failed, or
+   *  (required) just the current company filter's slice for manual/skipped/
+   *  ineligible, so "requeue" from a filtered tab only touches what's shown. */
+  const doRequeueBucket = async (bucket: RequeueBucket) => {
     setConfirmRequeue(null);
     setBusy("requeue");
     setNote(null);
     try {
-      const res = await requeueBucket(bucket);
+      const res = await requeueBucket(bucket, companyFilter || undefined);
       setNote(res.message);
       pages.refresh();
       onJobsChanged();
@@ -397,16 +412,24 @@ export function AutopilotApplicationsView({
             totalCount={totalStatusJobs}
           />
 
-          {(counts["review"] ?? 0) > 0 && (
-            <button
-              type="button"
-              className={styles.filterChip}
-              disabled={busy === "requeue"}
-              onClick={() => setConfirmRequeue("review")}
-            >
-              {busy === "requeue" ? "Moving…" : `Move all ${counts["review"] ?? 0} to queue`}
-            </button>
-          )}
+          {(() => {
+            const scopedCount = companyFilter ? (companyCounts[companyFilter] ?? 0) : (counts["review"] ?? 0);
+            if (scopedCount <= 0) return null;
+            return (
+              <button
+                type="button"
+                className={styles.filterChip}
+                disabled={busy === "requeue"}
+                onClick={() => setConfirmRequeue("review")}
+              >
+                {busy === "requeue"
+                  ? "Moving…"
+                  : companyFilter
+                    ? `Move ${scopedCount} ${companyFilter} to queue`
+                    : `Move all ${scopedCount} to queue`}
+              </button>
+            );
+          })()}
         </div>
 
         {note && <div className={styles.empty}>{note}</div>}
@@ -546,18 +569,35 @@ export function AutopilotApplicationsView({
           ))}
         </select>
 
-        {(filter === "review" || filter === "failed") && (counts[filter] ?? 0) > 0 && (
-          <button
-            type="button"
-            className={styles.filterChip}
-            disabled={busy === "requeue"}
-            onClick={() => setConfirmRequeue(filter as "review" | "failed")}
-          >
-            {busy === "requeue"
-              ? "Moving…"
-              : `Move all ${counts[filter] ?? 0} to queue`}
-          </button>
-        )}
+        {(() => {
+          if (!(filter === "review" || filter === "failed" || filter === "manual" || filter === "skipped" || filter === "ineligible")) {
+            return null;
+          }
+          const bucket = filter as RequeueBucket;
+          // Manual/skipped/ineligible were deliberately never bulk-requeueable
+          // wholesale - those buckets are what the user has already worked
+          // through and dismissed. A company filter turns this into a
+          // different, deliberate action ("the Roblox fix landed, send just
+          // Roblox's back"), so the button only appears for them once a
+          // company is chosen - mirrors the backend's COMPANY_ONLY_BUCKETS guard.
+          if (COMPANY_ONLY_BUCKETS.has(bucket) && !companyFilter) return null;
+          const scopedCount = companyFilter ? (companyCounts[companyFilter] ?? 0) : (counts[filter] ?? 0);
+          if (scopedCount <= 0) return null;
+          return (
+            <button
+              type="button"
+              className={styles.filterChip}
+              disabled={busy === "requeue"}
+              onClick={() => setConfirmRequeue(bucket)}
+            >
+              {busy === "requeue"
+                ? "Moving…"
+                : companyFilter
+                  ? `Move ${scopedCount} ${companyFilter} to queue`
+                  : `Move all ${scopedCount} to queue`}
+            </button>
+          );
+        })()}
 
         <div className={styles.overflowWrap} ref={menuRef}>
           <button type="button" className={styles.overflowBtn} onClick={() => setMenuOpen((v) => !v)} aria-label="More actions">
@@ -590,13 +630,14 @@ export function AutopilotApplicationsView({
             onClick={(event) => event.stopPropagation()}
           >
             <h3 id="requeue-confirm-title" className={styles.confirmTitle}>
-              Move all {counts[confirmRequeue] ?? 0}{" "}
-              {confirmRequeue === "review" ? "review" : "failed"} applications back to the queue?
+              Move {companyFilter ? (companyCounts[companyFilter] ?? 0) : (counts[confirmRequeue] ?? 0)}{" "}
+              {companyFilter ? `${companyFilter} ` : "all "}
+              {BUCKET_LABELS[confirmRequeue]} application{(companyFilter ? (companyCounts[companyFilter] ?? 0) : (counts[confirmRequeue] ?? 0)) === 1 ? "" : "s"} back to the queue?
             </h3>
             <p className={styles.confirmBody}>
               Autopilot will try each of them again. The reason each one was set aside — the
-              question that still needed answering, or the error that broke the attempt — is
-              cleared so it can be retried.
+              question that still needed answering, the error that broke the attempt, or the
+              ineligibility verdict — is cleared so it can be retried.
             </p>
             <p className={styles.confirmWarning}>This cannot be undone.</p>
             <div className={styles.confirmActions}>

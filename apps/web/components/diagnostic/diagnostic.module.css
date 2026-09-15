@@ -879,3 +879,251 @@
 }
 
 .pageShell{gap:16px;padding-top:12px}.title{font-size:clamp(1.45rem,2.5vw,1.9rem)}.metricTilesGrid{gap:10px;padding:14px}.metricTile{padding:12px}.metricNumber{font-size:1.6rem}.serviceCard{padding:12px}
+
+/* ─── Outcome reason breakdowns (bar-list) ─── */
+
+.reasonGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 1rem;
+  padding: 1.25rem 1.35rem;
+}
+
+.reasonPanel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.reasonPanelTitle {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  font-size: 0.85rem;
+  font-weight: 750;
+  color: var(--text);
+}
+
+.reasonPanelTotal {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.reasonList {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.reasonRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.6rem;
+  font-size: 0.78rem;
+}
+
+.reasonRowLabel {
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.reasonRowCount {
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  color: var(--text);
+  min-width: 2ch;
+  text-align: right;
+}
+
+.reasonBarTrack {
+  grid-column: 1 / -1;
+  height: 6px;
+  border-radius: var(--radius-full);
+  background: var(--bg-elevated);
+  overflow: hidden;
+}
+
+.reasonBarFill {
+  height: 100%;
+  border-radius: var(--radius-full);
+  background: var(--tile-color, var(--accent));
+}
+
+.reasonEmpty {
+  font-size: 0.78rem;
+  color: var(--muted-dim);
+  padding: 0.4rem 0;
+}
+
+.reasonPanel[data-tone="warning"] { --tile-color: var(--warning); }
+.reasonPanel[data-tone="danger"] { --tile-color: var(--danger); }
+.reasonPanel[data-tone="success"] { --tile-color: var(--success); }
+
+/* ─── Outcome history: period picker, status strip, series, badges ─── */
+
+.periodControls {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.customPeriod {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+
+.customPeriodInput {
+  width: 4.5rem;
+  padding: 0.4rem 0.55rem;
+  font-size: 0.8rem;
+  color: var(--text);
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+
+.customPeriodError {
+  font-size: 0.75rem;
+  color: var(--danger);
+}
+
+.statusStrip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem 0.5rem;
+  padding: 0 1.35rem 1.1rem;
+}
+
+.statusStripLabel {
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+  margin-left: 0.25rem;
+}
+
+.statusChip {
+  font-size: 0.76rem;
+  color: var(--text-secondary);
+  padding: 0.15rem 0.55rem;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+}
+
+.statusChip strong {
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.seriesWrap {
+  padding: 1rem 1.35rem 1.2rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.seriesLegend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.9rem;
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.seriesLegendItem {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.seriesSwatch {
+  width: 0.7rem;
+  height: 0.7rem;
+  border-radius: 3px;
+  background: var(--seg-color);
+}
+
+.seriesScroll {
+  overflow-x: auto;
+}
+
+.seriesChart {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 160px;
+  min-width: 100%;
+}
+
+.seriesCol {
+  flex: 1 0 8px;
+  height: 100%;
+  display: flex;
+  flex-direction: column-reverse;
+  border-radius: 3px 3px 0 0;
+  overflow: hidden;
+}
+
+.seriesSeg {
+  width: 100%;
+  background: var(--seg-color);
+}
+
+.seriesEmpty {
+  width: 100%;
+  height: 2px;
+  background: var(--border);
+}
+
+/* CSS Modules only allow selectors that include a local class, so each
+   outcome colour is scoped to the three elements that use it. */
+.seriesSwatch[data-outcome="SUBMITTED"], .seriesSeg[data-outcome="SUBMITTED"], .outcomeBadge[data-outcome="SUBMITTED"] { --seg-color: var(--success); }
+.seriesSwatch[data-outcome="STAGED"], .seriesSeg[data-outcome="STAGED"], .outcomeBadge[data-outcome="STAGED"] { --seg-color: var(--warning); }
+.seriesSwatch[data-outcome="FAILED"], .seriesSeg[data-outcome="FAILED"], .outcomeBadge[data-outcome="FAILED"] { --seg-color: var(--danger); }
+.seriesSwatch[data-outcome="SKIPPED"], .seriesSeg[data-outcome="SKIPPED"], .outcomeBadge[data-outcome="SKIPPED"] { --seg-color: var(--muted-dim); }
+
+.durationTableWrap {
+  padding: 0 0 0.25rem;
+}
+
+.slowestTitle {
+  font-size: 0.85rem;
+  font-weight: 750;
+  color: var(--text);
+  padding: 1rem 1.35rem 0.5rem;
+  margin: 0;
+}
+
+.seriesAxis {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.7rem;
+  color: var(--muted-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.outcomeBadge {
+  display: inline-block;
+  padding: 0.12rem 0.5rem;
+  border-radius: var(--radius-full);
+  font-size: 0.7rem;
+  font-weight: 700;
+  white-space: nowrap;
+  color: var(--seg-color);
+  background: color-mix(in srgb, var(--seg-color) 14%, transparent);
+}
+
+.syntheticNote {
+  color: var(--muted-dim);
+  font-style: italic;
+}

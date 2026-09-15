@@ -28,6 +28,9 @@ def load_baseline(path: Path | None = None) -> dict:
         if len(doc) != 1 or doc[0].rotation:
             raise ValueError("The approved baseline must be one unrotated page.")
         page = doc[0]
+        rule_rights = [d["rect"].x1 for d in page.get_drawings() if
+                       d["rect"].width > page.rect.width * .65 and d["rect"].height < 3
+                       and d["rect"].x1 < page.rect.width - 5]
         lines = [l for b in page.get_text("dict")["blocks"] if b["type"] == 0
                  for l in b["lines"] if any(s["text"].strip() for s in l["spans"])]
         lines.sort(key=lambda l: (round(l["spans"][0]["origin"][1], 1), l["bbox"][0]))
@@ -76,7 +79,8 @@ def load_baseline(path: Path | None = None) -> dict:
             for line in b["lines"][1:]:
                 rect |= pdf.Rect(line["bbox"])
             b["rect"] = list(rect)
-            b["right"] = page.rect.width - 36
+            b["right"] = min(page.rect.width, max(rule_rights or [line["bbox"][2] for other in bullets
+                             if other["group"] == b["group"] for line in other["lines"]]))
             b["source"] = {"field": "approvedResume", "text": b["text"], "revision": digest, "baselineBulletId": b["id"]}
         return {"revision": digest, "pageRect": list(page.rect), "bullets": bullets,
                 "text": page.get_text(sort=True), "filename": path.name}
@@ -90,6 +94,8 @@ def replacement_runs(text: str, slot: dict) -> list[dict]:
     inherit the incumbent's opening length (ending at a word boundary).
     """
     runs = slot["richText"]
+    if text == slot["text"]:
+        return deepcopy(runs)
     normal = next((r for r in runs if not r["bold"] and r["text"].strip()), None)
     opening = []
     for run in runs:
@@ -98,9 +104,13 @@ def replacement_runs(text: str, slot: dict) -> list[dict]:
         opening.append(run["text"])
     cut = 0
     if opening and normal:
-        desired = min(len("".join(opening)), max(1, len(text) // 2))
-        boundaries = [m.start() for m in re.finditer(r"\s+", text) if m.start() <= desired]
-        cut = boundaries[-1] if boundaries else 0
+        phrase = re.search(r"[,;:]", text)
+        if phrase and 15 <= phrase.start() <= 125 and phrase.start() < len(text) - 5:
+            cut = phrase.start()
+        else:
+            desired = min(len("".join(opening)), max(1, len(text) // 2))
+            boundaries = [m.start() for m in re.finditer(r"\s+", text)]
+            cut = min(boundaries, key=lambda n: abs(n-desired)) if boundaries else 0
     pieces = [(text[:cut], runs[0]), (text[cut:], normal or runs[0])] if cut else [(text, normal or runs[0])]
     return [dict(style, text=value) for value, style in pieces if value]
 
@@ -147,6 +157,8 @@ def render_baseline(result: dict, path: Path | None = None) -> bytes:
     items = result.get("resumeBullets") or []
     if len(items) != len(slots):
         raise ValueError("Baseline bullet counts must be preserved.")
+    if sorted(item.get("baselineBulletId", "") for item in items) != sorted(s["id"] for s in slots):
+        raise ValueError("Each baseline bullet slot must occur exactly once.")
     for slot, item in zip(slots, items):
         source = next((s for s in slots if s["id"] == item.get("baselineBulletId")), None)
         if source is None or source["group"] != slot["group"]:
@@ -184,8 +196,9 @@ def render_baseline(result: dict, path: Path | None = None) -> bytes:
                 # invisible full-page text in ATS extraction.
                 with pdf.open(path) as isolated:
                     crop = pdf.Rect(source["rect"])
-                    for rect in (pdf.Rect(0, 0, 612, crop.y0), pdf.Rect(0, crop.y1, 612, 792),
-                                 pdf.Rect(0, crop.y0, crop.x0, crop.y1), pdf.Rect(crop.x1, crop.y0, 612, crop.y1)):
+                    width, height = isolated[0].rect.width, isolated[0].rect.height
+                    for rect in (pdf.Rect(0, 0, width, crop.y0), pdf.Rect(0, crop.y1, width, height),
+                                 pdf.Rect(0, crop.y0, crop.x0, crop.y1), pdf.Rect(crop.x1, crop.y0, width, crop.y1)):
                         isolated[0].add_redact_annot(rect, fill=False)
                     isolated[0].apply_redactions(images=0, graphics=0)
                     dest = pdf.Rect(crop)

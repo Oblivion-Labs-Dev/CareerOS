@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import hashlib
 from typing import Any
 
 from app.services.resume_parser import extract_text_from_attachment
@@ -14,13 +15,13 @@ from app.services.resume_parser import extract_text_from_attachment
 # jobs in a refill cycle repeated that full PDF parse a few hundred times in
 # the single-threaded uvicorn event loop, pegging one core and blocking every
 # other request for tens of seconds. Cache the extracted text per resume
-# (keyed by id/updatedAt, which change whenever the stored resume changes) so
+# (keyed by content hash, including equal-length replacements) so
 # it is parsed once instead of once per job.
-_resume_text_cache: dict[tuple[Any, Any, int], str] = {}
+_resume_text_cache: dict[tuple[Any, Any, str], str] = {}
 
 
 def _cached_resume_text(resume: dict[str, Any]) -> str:
-    key = (resume.get("id"), resume.get("updatedAt"), len(str(resume.get("base64") or "")))
+    key = (resume.get("id"), resume.get("mimeType") or resume.get("type"), hashlib.sha256(str(resume.get("base64") or "").encode()).hexdigest())
     cached = _resume_text_cache.get(key)
     if cached is not None:
         return cached
@@ -39,7 +40,7 @@ def extract_keywords(text: str) -> set[str]:
         "during", "before", "after", "above", "below", "between", "each",
         "other", "some", "such", "than", "too", "very", "just", "also",
     }
-    return {w for w in words if w not in stop_words and len(w) > 2}
+    return {w.rstrip(".") for w in words if w not in stop_words and (len(w.rstrip(".")) > 2 or w.rstrip(".") in ("go", "c#"))}
 
 
 def extract_resume_text(documents: dict[str, Any] | None) -> str:

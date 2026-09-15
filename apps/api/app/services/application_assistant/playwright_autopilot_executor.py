@@ -904,6 +904,31 @@ async def _fill_all_greenhouse_comboboxes(
     field_id set - without it, DOM verification has to pair an answer back to
     its element by fuzzy label matching, which can pair the wrong two fields.
     """
+    # Per-field ceiling, not the page's own default. `page.set_default_timeout()`
+    # is set to the job's whole ~9-minute inner budget so a genuinely slow ATS
+    # page transition elsewhere isn't killed prematurely - but that also means a
+    # single Playwright RPC call here (checking aria-expanded, counting a
+    # locator) inherits that same multi-minute ceiling if the browser's IPC
+    # connection goes unresponsive, instead of failing fast. Confirmed live via
+    # py-spy three times on 2026-09-15 (see NIGHT_BATCH_DECISIONS.md): the
+    # "aa-playwright" thread sat idle inside exactly this function's `.count()`/
+    # `.evaluate()` calls for minutes, starving the whole job until the ~600s
+    # outer watchdog (autopilot_runner.PLAYWRIGHT_WATCHDOG_TIMEOUT) finally fired.
+    #
+    # 15s is not derived from a measured p99 - this codebase doesn't log
+    # per-field timing - but from the two real anchors available: Playwright's
+    # own well-established action-timeout default is 30s for a full action
+    # (click/fill, with retrying); a plain attribute-check or count on an
+    # element already expected to exist is far lighter than that, and the
+    # existing open/close retry loop just above already tolerates several
+    # seconds of legitimate React-Select mount delay on its own (12 * 0.1s,
+    # times up to 3 attempts). 15s gives real slow-mount cases roughly 5x their
+    # already-observed worst case while still cutting failure-detection for a
+    # genuine hang from ~600s down to 15s per field - a single unresponsive
+    # field then costs one skipped field (same as the existing "unresolved,
+    # skipping" path below), not the rest of the job's time budget.
+    COMBOBOX_FIELD_TIMEOUT_SEC = 15.0
+
     filled: dict[str, str] = {}
     filled_ids: dict[str, str] = {}
     all_resolutions: list[AnswerResolution] = []
@@ -923,400 +948,401 @@ async def _fill_all_greenhouse_comboboxes(
 
     for cid in cb_ids:
         try:
-            if not cid or cid == "iti-0__search-input":
-                continue
+            async with asyncio.timeout(COMBOBOX_FIELD_TIMEOUT_SEC):
+                if not cid or cid == "iti-0__search-input":
+                    continue
 
-            el = page.locator(f'[id="{cid}"]').first
-            if await el.count() == 0:
-                continue
+                el = page.locator(f'[id="{cid}"]').first
+                if await el.count() == 0:
+                    continue
 
-            if not await el.is_visible():
-                continue
+                if not await el.is_visible():
+                    continue
 
-            # Determine field label
-            lbl_text = await el.evaluate("""el => {
-                var id = el.id;
-                if (id) {
-                    try {
-                        var l = document.querySelector('label[for="' + id + '"]');
-                        if (l && l.innerText && l.innerText.trim()) return l.innerText.trim();
-                    } catch(e) {}
-                }
-                var cur = el.parentElement;
-                while (cur && cur.tagName !== 'FORM' && cur.tagName !== 'BODY') {
-                    var l = cur.querySelector('label, legend, .label, [class*="label"], p');
-                    if (l && l.innerText && l.innerText.trim() && l.innerText.trim().length > 3) {
-                        return l.innerText.trim();
+                # Determine field label
+                lbl_text = await el.evaluate("""el => {
+                    var id = el.id;
+                    if (id) {
+                        try {
+                            var l = document.querySelector('label[for="' + id + '"]');
+                            if (l && l.innerText && l.innerText.trim()) return l.innerText.trim();
+                        } catch(e) {}
                     }
-                    cur = cur.parentElement;
-                }
-                return el.getAttribute('aria-label') || el.name || el.id || '';
-            }""")
-            if not (lbl_text or "").strip():
-                continue
+                    var cur = el.parentElement;
+                    while (cur && cur.tagName !== 'FORM' && cur.tagName !== 'BODY') {
+                        var l = cur.querySelector('label, legend, .label, [class*="label"], p');
+                        if (l && l.innerText && l.innerText.trim() && l.innerText.trim().length > 3) {
+                            return l.innerText.trim();
+                        }
+                        cur = cur.parentElement;
+                    }
+                    return el.getAttribute('aria-label') || el.name || el.id || '';
+                }""")
+                if not (lbl_text or "").strip():
+                    continue
 
-            # Skip optional demographic/pay/academic dropdowns entirely.
-            # Greenhouse marks required fields with a "*" in the label and/or
-            # aria-required on the input; anything without either is genuinely
-            # optional, so a voluntary disclosure there stays blank.
-            is_required = "*" in lbl_text or bool(await el.evaluate(
-                "el => el.required || el.getAttribute('aria-required') === 'true'"
-            ))
-            if not is_required and classify_question(lbl_text, cid, None) in VOLUNTEER_ONLY_TYPES:
-                logger.info("Skipping optional voluntary field '%s' (not required)", lbl_text[:60])
-                continue
+                # Skip optional demographic/pay/academic dropdowns entirely.
+                # Greenhouse marks required fields with a "*" in the label and/or
+                # aria-required on the input; anything without either is genuinely
+                # optional, so a voluntary disclosure there stays blank.
+                is_required = "*" in lbl_text or bool(await el.evaluate(
+                    "el => el.required || el.getAttribute('aria-required') === 'true'"
+                ))
+                if not is_required and classify_question(lbl_text, cid, None) in VOLUNTEER_ONLY_TYPES:
+                    logger.info("Skipping optional voluntary field '%s' (not required)", lbl_text[:60])
+                    continue
 
-            # Locate surrounding React-Select container or the input itself
-            wrapper = page.locator(f'div.select__control:has([id="{cid}"]), div[class*="control"]:has([id="{cid}"])').first
-            target_to_open = wrapper if await wrapper.count() > 0 else el
+                # Locate surrounding React-Select container or the input itself
+                wrapper = page.locator(f'div.select__control:has([id="{cid}"]), div[class*="control"]:has([id="{cid}"])').first
+                target_to_open = wrapper if await wrapper.count() > 0 else el
 
-            # Some Greenhouse comboboxes (observed live on the EEOC Gender
-            # field) arrive with a real value already pre-selected before any
-            # autofill runs, rather than starting blank. Capture that closed-
-            # state value now, before we open the menu - if the resolved
-            # answer later turns out to already match it, we skip touching
-            # the control entirely rather than opening/clicking it and
-            # risking an unnecessary re-selection landing on the wrong option.
-            preexisting_value = (await el.evaluate("""el => {
-                var wrapper = el.closest('div.select__control, div[class*="select__control"]');
-                if (!wrapper) return '';
-                var sv = wrapper.querySelector('[class*="singleValue"], [class*="single-value"]');
-                return sv ? sv.textContent.trim() : '';
-            }""") or "").strip()
+                # Some Greenhouse comboboxes (observed live on the EEOC Gender
+                # field) arrive with a real value already pre-selected before any
+                # autofill runs, rather than starting blank. Capture that closed-
+                # state value now, before we open the menu - if the resolved
+                # answer later turns out to already match it, we skip touching
+                # the control entirely rather than opening/clicking it and
+                # risking an unnecessary re-selection landing on the wrong option.
+                preexisting_value = (await el.evaluate("""el => {
+                    var wrapper = el.closest('div.select__control, div[class*="select__control"]');
+                    if (!wrapper) return '';
+                    var sv = wrapper.querySelector('[class*="singleValue"], [class*="single-value"]');
+                    return sv ? sv.textContent.trim() : '';
+                }""") or "").strip()
 
-            # Collect available options by opening the dropdown.
-            #
-            # Confirm THIS control actually opened (aria-expanded on its own
-            # input) rather than waiting on a document-wide menu selector,
-            # which matches any other field's open menu and made a failed open
-            # look like a success. React-Select also opens on ArrowDown, so a
-            # click that lands on a non-interactive part of the control gets a
-            # keyboard retry before we give up on the field.
-            await target_to_open.scroll_into_view_if_needed()
+                # Collect available options by opening the dropdown.
+                #
+                # Confirm THIS control actually opened (aria-expanded on its own
+                # input) rather than waiting on a document-wide menu selector,
+                # which matches any other field's open menu and made a failed open
+                # look like a success. React-Select also opens on ArrowDown, so a
+                # click that lands on a non-interactive part of the control gets a
+                # keyboard retry before we give up on the field.
+                await target_to_open.scroll_into_view_if_needed()
 
-            async def _is_open() -> bool:
-                try:
-                    return await el.evaluate("e => e.getAttribute('aria-expanded') === 'true'")
-                except Exception:
-                    return False
+                async def _is_open() -> bool:
+                    try:
+                        return await el.evaluate("e => e.getAttribute('aria-expanded') === 'true'")
+                    except Exception:
+                        return False
 
-            # Three attempts, not two: React-Select controls further down a long
-            # Greenhouse form are routinely still mounting when their turn comes,
-            # and both the click and the ArrowDown retry then land on a control
-            # that is not listening yet. Observed live on Robinhood's "preferred
-            # office location" and "disability status" - two *required* fields
-            # that read zero options and were dropped without a trace. The third
-            # pass re-clicks after a longer settle.
-            for attempt in range(3):
-                try:
-                    if attempt == 1:
-                        await el.focus()
-                        await _keyboard(page).press("ArrowDown")
-                    else:
-                        if attempt == 2:
-                            await asyncio.sleep(0.6)
-                            await target_to_open.scroll_into_view_if_needed()
-                        await target_to_open.click(force=True)
-                except Exception:
-                    pass
-                for _ in range(12):
+                # Three attempts, not two: React-Select controls further down a long
+                # Greenhouse form are routinely still mounting when their turn comes,
+                # and both the click and the ArrowDown retry then land on a control
+                # that is not listening yet. Observed live on Robinhood's "preferred
+                # office location" and "disability status" - two *required* fields
+                # that read zero options and were dropped without a trace. The third
+                # pass re-clicks after a longer settle.
+                for attempt in range(3):
+                    try:
+                        if attempt == 1:
+                            await el.focus()
+                            await _keyboard(page).press("ArrowDown")
+                        else:
+                            if attempt == 2:
+                                await asyncio.sleep(0.6)
+                                await target_to_open.scroll_into_view_if_needed()
+                            await target_to_open.click(force=True)
+                    except Exception:
+                        pass
+                    for _ in range(12):
+                        if await _is_open():
+                            break
+                        await asyncio.sleep(0.1)
                     if await _is_open():
                         break
-                    await asyncio.sleep(0.1)
-                if await _is_open():
-                    break
 
-            # Fast evaluate to get all option texts in 1 ms without slow per-element Playwright RPCs.
-            #
-            # SCOPED TO THIS COMBOBOX ONLY. This used to run a document-wide
-            # querySelectorAll for '.select__option, [role="option"]', which
-            # silently read *another* field's open menu whenever this control
-            # failed to open - and Greenhouse renders its phone country-code
-            # picker as a React-Select (.select__option), so the old
-            # '.iti, .iti__country-list' exclusion never caught it. Observed
-            # live: "In which country/region do you have citizenship?" was
-            # answered "Lebanon" and "Do you permanently reside within the
-            # United States?" was handed a 240-country list for a Yes/No
-            # question. Reading the wrong field's options doesn't just leave a
-            # field blank, it puts a fabricated fact on a real application, so
-            # options now come only from this input's own menu (via
-            # aria-controls/aria-owns, else its own React-Select container).
-            opt_data: list[str] = await page.evaluate("""(cid) => {
-                var el = document.getElementById(cid);
-                if (!el) return [];
-                var scope = null;
-                var owned = el.getAttribute('aria-controls') || el.getAttribute('aria-owns');
-                if (owned) scope = document.getElementById(owned);
-                if (!scope) {
-                    // React-Select renders .select__menu as a sibling of
-                    // .select__control inside the same container.
-                    var container = el.closest('.select__container, [class*="select__container"]')
-                        || (el.closest('.select__control, [class*="select__control"]') || {}).parentElement
-                        || el.parentElement;
-                    for (var up = 0; up < 4 && container; up++) {
-                        var m = container.querySelector('.select__menu, div[class*="-menu"], [role="listbox"]');
-                        if (m) { scope = m; break; }
-                        container = container.parentElement;
+                # Fast evaluate to get all option texts in 1 ms without slow per-element Playwright RPCs.
+                #
+                # SCOPED TO THIS COMBOBOX ONLY. This used to run a document-wide
+                # querySelectorAll for '.select__option, [role="option"]', which
+                # silently read *another* field's open menu whenever this control
+                # failed to open - and Greenhouse renders its phone country-code
+                # picker as a React-Select (.select__option), so the old
+                # '.iti, .iti__country-list' exclusion never caught it. Observed
+                # live: "In which country/region do you have citizenship?" was
+                # answered "Lebanon" and "Do you permanently reside within the
+                # United States?" was handed a 240-country list for a Yes/No
+                # question. Reading the wrong field's options doesn't just leave a
+                # field blank, it puts a fabricated fact on a real application, so
+                # options now come only from this input's own menu (via
+                # aria-controls/aria-owns, else its own React-Select container).
+                opt_data: list[str] = await page.evaluate("""(cid) => {
+                    var el = document.getElementById(cid);
+                    if (!el) return [];
+                    var scope = null;
+                    var owned = el.getAttribute('aria-controls') || el.getAttribute('aria-owns');
+                    if (owned) scope = document.getElementById(owned);
+                    if (!scope) {
+                        // React-Select renders .select__menu as a sibling of
+                        // .select__control inside the same container.
+                        var container = el.closest('.select__container, [class*="select__container"]')
+                            || (el.closest('.select__control, [class*="select__control"]') || {}).parentElement
+                            || el.parentElement;
+                        for (var up = 0; up < 4 && container; up++) {
+                            var m = container.querySelector('.select__menu, div[class*="-menu"], [role="listbox"]');
+                            if (m) { scope = m; break; }
+                            container = container.parentElement;
+                        }
                     }
-                }
-                if (!scope) return [];
-                var opts = scope.querySelectorAll('.select__option, div[class*="-option"], [role="option"]');
-                var res = [];
-                for (var i = 0; i < opts.length; i++) {
-                    if (opts[i].closest('.iti, .iti__country-list')) continue;
-                    var t = (opts[i].innerText || '').trim();
-                    var isVis = !!(opts[i].offsetWidth || opts[i].offsetHeight || opts[i].getClientRects().length || opts[i].offsetParent !== null);
-                    if (t && isVis && t.toLowerCase().indexOf('select...') === -1 && t.toLowerCase().indexOf('choose') === -1) {
-                        res.push(t);
+                    if (!scope) return [];
+                    var opts = scope.querySelectorAll('.select__option, div[class*="-option"], [role="option"]');
+                    var res = [];
+                    for (var i = 0; i < opts.length; i++) {
+                        if (opts[i].closest('.iti, .iti__country-list')) continue;
+                        var t = (opts[i].innerText || '').trim();
+                        var isVis = !!(opts[i].offsetWidth || opts[i].offsetHeight || opts[i].getClientRects().length || opts[i].offsetParent !== null);
+                        if (t && isVis && t.toLowerCase().indexOf('select...') === -1 && t.toLowerCase().indexOf('choose') === -1) {
+                            res.push(t);
+                        }
                     }
-                }
-                return res;
-            }""", cid)
+                    return res;
+                }""", cid)
 
-            available_options: list[str] = opt_data or []
+                available_options: list[str] = opt_data or []
 
-            if not available_options:
-                # A searchable/async React-Select renders its menu only once
-                # something has been typed - Greenhouse's School and Discipline
-                # fields are exactly this. An empty menu here therefore does not
-                # mean the control is broken or optional; it means the option
-                # list does not exist until a search runs. Resolve without an
-                # option list and let the dynamic typing pass below perform that
-                # search. Bailing out here was why a required "School*" stayed
-                # permanently empty and staged every education-collecting
-                # application for review.
-                probe = resolve_answer(
-                    question_text=lbl_text,
-                    profile=profile,
-                    options=None,
-                    answer_lib=answer_lib,
-                    field_id=cid,
-                )
-                if not probe.answer:
-                    # Never drop a control silently. A required dropdown that yields
-                    # no options is indistinguishable, in the logs, from one that was
-                    # deliberately skipped - which is exactly why two required
-                    # Robinhood fields sat empty with nothing recorded anywhere to
-                    # say why the run had not touched them.
-                    logger.warning(
-                        "Combobox '%s' (id=%s) opened no options%s - leaving it empty",
-                        lbl_text[:60], cid, " [REQUIRED]" if is_required else "",
+                if not available_options:
+                    # A searchable/async React-Select renders its menu only once
+                    # something has been typed - Greenhouse's School and Discipline
+                    # fields are exactly this. An empty menu here therefore does not
+                    # mean the control is broken or optional; it means the option
+                    # list does not exist until a search runs. Resolve without an
+                    # option list and let the dynamic typing pass below perform that
+                    # search. Bailing out here was why a required "School*" stayed
+                    # permanently empty and staged every education-collecting
+                    # application for review.
+                    probe = resolve_answer(
+                        question_text=lbl_text,
+                        profile=profile,
+                        options=None,
+                        answer_lib=answer_lib,
+                        field_id=cid,
                     )
+                    if not probe.answer:
+                        # Never drop a control silently. A required dropdown that yields
+                        # no options is indistinguishable, in the logs, from one that was
+                        # deliberately skipped - which is exactly why two required
+                        # Robinhood fields sat empty with nothing recorded anywhere to
+                        # say why the run had not touched them.
+                        logger.warning(
+                            "Combobox '%s' (id=%s) opened no options%s - leaving it empty",
+                            lbl_text[:60], cid, " [REQUIRED]" if is_required else "",
+                        )
+                        await _keyboard(page).press("Escape")
+                        await asyncio.sleep(0.05)
+                        continue
+                    all_resolutions.append(probe)
+                    resolution = probe
+                elif len(available_options) == 1:
+                    # A field with exactly one real option (e.g. a GDPR/data-
+                    # processing "Acknowledge/Confirm" disclosure) isn't a
+                    # judgment call - there's nothing to classify or guess,
+                    # since selecting it is the only possible action. Requiring
+                    # resolve_answer to recognize the question type first was
+                    # leaving these permanently blank and staged for review even
+                    # though no real ambiguity exists.
+                    resolution = AnswerResolution(
+                        field_id=cid,
+                        question=lbl_text,
+                        question_type="SINGLE_OPTION",
+                        answer=available_options[0],
+                        resolution_method="SINGLE_OPTION_FORCED",
+                        confidence=1.0,
+                    )
+                    all_resolutions.append(resolution)
+                else:
+                    # ── Check if this is a phone country-CODE dropdown, not a plain country-NAME field ──
+                    # A plain "Country" (of residence) dropdown also has 100+
+                    # options and trivially contains "united states" as one of
+                    # them - that old check misclassified genuine country
+                    # fields as the phone dial-code field, resolving them to
+                    # "United States +1" instead of "United States", which then
+                    # can't be selected in a country-name-only dropdown and
+                    # leaves it permanently invalid. A real dial-code list is
+                    # distinguished by most options ending in "+<digits>".
+                    dial_code_count = sum(1 for o in available_options if re.search(r"\+\d{1,4}$", o.strip()))
+                    is_country_code = len(available_options) > 100 and dial_code_count > len(available_options) * 0.5
+                    effective_q_text = "Country Code" if is_country_code else lbl_text
+
+                    # ── Centralized resolution (replaces all if/elif heuristics) ──
+                    # field_id=cid lets DOM verification match this resolution back to
+                    # its exact DOM element by id instead of by label-text comparison
+                    # against a separately-computed label from DOM-state extraction -
+                    # two independent label lookups that don't always agree on wording,
+                    # which otherwise falls back to substring matching and can pair a
+                    # resolution with a different field's selected value entirely.
+                    resolution = resolve_answer(
+                        question_text=effective_q_text,
+                        profile=profile,
+                        options=available_options,
+                        answer_lib=answer_lib,
+                        field_id=cid,
+                    )
+                    all_resolutions.append(resolution)
+
+                target_text = resolution.answer
+                if not target_text:
+                    logger.info("Combobox '%s' unresolved (type=%s), skipping", lbl_text[:50], resolution.question_type)
                     await _keyboard(page).press("Escape")
                     await asyncio.sleep(0.05)
                     continue
-                all_resolutions.append(probe)
-                resolution = probe
-            elif len(available_options) == 1:
-                # A field with exactly one real option (e.g. a GDPR/data-
-                # processing "Acknowledge/Confirm" disclosure) isn't a
-                # judgment call - there's nothing to classify or guess,
-                # since selecting it is the only possible action. Requiring
-                # resolve_answer to recognize the question type first was
-                # leaving these permanently blank and staged for review even
-                # though no real ambiguity exists.
-                resolution = AnswerResolution(
-                    field_id=cid,
-                    question=lbl_text,
-                    question_type="SINGLE_OPTION",
-                    answer=available_options[0],
-                    resolution_method="SINGLE_OPTION_FORCED",
-                    confidence=1.0,
-                )
-                all_resolutions.append(resolution)
-            else:
-                # ── Check if this is a phone country-CODE dropdown, not a plain country-NAME field ──
-                # A plain "Country" (of residence) dropdown also has 100+
-                # options and trivially contains "united states" as one of
-                # them - that old check misclassified genuine country
-                # fields as the phone dial-code field, resolving them to
-                # "United States +1" instead of "United States", which then
-                # can't be selected in a country-name-only dropdown and
-                # leaves it permanently invalid. A real dial-code list is
-                # distinguished by most options ending in "+<digits>".
-                dial_code_count = sum(1 for o in available_options if re.search(r"\+\d{1,4}$", o.strip()))
-                is_country_code = len(available_options) > 100 and dial_code_count > len(available_options) * 0.5
-                effective_q_text = "Country Code" if is_country_code else lbl_text
 
-                # ── Centralized resolution (replaces all if/elif heuristics) ──
-                # field_id=cid lets DOM verification match this resolution back to
-                # its exact DOM element by id instead of by label-text comparison
-                # against a separately-computed label from DOM-state extraction -
-                # two independent label lookups that don't always agree on wording,
-                # which otherwise falls back to substring matching and can pair a
-                # resolution with a different field's selected value entirely.
-                resolution = resolve_answer(
-                    question_text=effective_q_text,
-                    profile=profile,
-                    options=available_options,
-                    answer_lib=answer_lib,
-                    field_id=cid,
-                )
-                all_resolutions.append(resolution)
+                if preexisting_value and preexisting_value.lower() == target_text.strip().lower():
+                    filled[lbl_text[:50]] = preexisting_value
+                    filled_ids[lbl_text[:50]] = cid
+                    await _keyboard(page).press("Escape")
+                    await asyncio.sleep(0.05)
+                    continue
 
-            target_text = resolution.answer
-            if not target_text:
-                logger.info("Combobox '%s' unresolved (type=%s), skipping", lbl_text[:50], resolution.question_type)
-                await _keyboard(page).press("Escape")
-                await asyncio.sleep(0.05)
-                continue
+                if resolution.blocking_errors:
+                    logger.warning("Combobox '%s' blocked: %s", lbl_text[:50], resolution.blocking_errors)
+                    await _keyboard(page).press("Escape")
+                    await asyncio.sleep(0.05)
+                    continue
 
-            if preexisting_value and preexisting_value.lower() == target_text.strip().lower():
-                filled[lbl_text[:50]] = preexisting_value
-                filled_ids[lbl_text[:50]] = cid
-                await _keyboard(page).press("Escape")
-                await asyncio.sleep(0.05)
-                continue
+                # Find and click the matching option by text
+                matched = False
+                target_lower = target_text.strip().lower()
 
-            if resolution.blocking_errors:
-                logger.warning("Combobox '%s' blocked: %s", lbl_text[:50], resolution.blocking_errors)
-                await _keyboard(page).press("Escape")
-                await asyncio.sleep(0.05)
-                continue
-
-            # Find and click the matching option by text
-            matched = False
-            target_lower = target_text.strip().lower()
-
-            # 1. Exact or partial match click via fast locator. Exact matches
-            # are checked across every option before any substring fallback -
-            # Playwright's `has_text` filter does case-insensitive substring
-            # matching, so a naive `.filter(has_text="Male")` also matches the
-            # "Female" option (since "female" literally contains "male"), and
-            # `.first` silently clicks whichever comes first in DOM order.
-            # Anchoring the regex to the full option text prevents that.
-            candidate_str = None
-            for opt_str in available_options:
-                if target_lower == opt_str.strip().lower():
-                    candidate_str = opt_str
-                    break
-            if candidate_str is None:
-                target_head = target_lower.split(",")[0].strip()
+                # 1. Exact or partial match click via fast locator. Exact matches
+                # are checked across every option before any substring fallback -
+                # Playwright's `has_text` filter does case-insensitive substring
+                # matching, so a naive `.filter(has_text="Male")` also matches the
+                # "Female" option (since "female" literally contains "male"), and
+                # `.first` silently clicks whichever comes first in DOM order.
+                # Anchoring the regex to the full option text prevents that.
+                candidate_str = None
                 for opt_str in available_options:
-                    opt_lower = opt_str.strip().lower()
-                    is_gender_collision = (
-                        (target_lower == "male" and "female" in opt_lower)
-                        or (target_lower == "female" and opt_lower == "male")
-                    )
-                    if is_gender_collision:
-                        continue
-                    # Containment across comma-separated place names picks the
-                    # wrong place: "seattle, wa" is a substring of "South
-                    # Seattle, Washington, United States", and whichever such
-                    # option happens to come first in the menu was accepted -
-                    # which is how a correctly-selected "Seattle, Washington,
-                    # United States" got replaced with a city the candidate
-                    # does not live in. Require the leading segment to agree
-                    # before a containment hit counts.
-                    if "," in opt_lower and "," in target_lower:
-                        if opt_lower.split(",")[0].strip() != target_head:
-                            continue
-                    elif "," in opt_lower and target_head and opt_lower.split(",")[0].strip() != target_head:
-                        continue
-                    if target_lower in opt_lower or opt_lower in target_lower:
+                    if target_lower == opt_str.strip().lower():
                         candidate_str = opt_str
                         break
-
-            # A fixed fallback answer like "I am not a protected veteran" scores
-            # no exact or substring match against a board's own phrasing (e.g.
-            # Robinhood's "Not a Veteran") - upstream resolution already computes
-            # this same fallback (see _find_negative_option in
-            # profile_answer_resolver.py), but that only helps the field types
-            # whose resolver calls it directly. Re-running it here, against this
-            # specific board's `available_options`, covers every EEOC-style
-            # negative-response field regardless of which resolver produced the
-            # unmatched target - and crucially happens before the dynamic-typing
-            # pass below, which types the literal target text into the box and
-            # searches for it: typing a whole sentence into a small fixed-choice
-            # dropdown just filters every real option out, so that pass can never
-            # recover here either.
-            if candidate_str is None and getattr(resolution, "question_type", None) in NEGATIVE_OPTION_KEYWORDS:
-                candidate_str = _find_negative_option(
-                    available_options, NEGATIVE_OPTION_KEYWORDS[resolution.question_type],
-                )
-
-            if candidate_str is not None:
-                exact_pattern = re.compile(rf"^\s*{re.escape(candidate_str.strip())}\s*$", re.IGNORECASE)
-                opt_to_click = page.locator('.select__menu .select__option, div[class*="-menu"] div[class*="-option"], .select__option, [role="option"]:not(.iti__country)').filter(has_text=exact_pattern).first
-                if await opt_to_click.count() > 0:
-                    await opt_to_click.click(force=True)
-                    filled[lbl_text[:50]] = candidate_str
-                    filled_ids[lbl_text[:50]] = cid
-                    matched = True
-                    await asyncio.sleep(0.1)
-
-            # 2. Dynamic typing pass for searchable/async comboboxes (e.g. School, Major)
-            if not matched and target_text:
-                try:
-                    await el.click(force=True)
-                    await _keyboard(page).type(target_text, delay=20)
-
-                    visible_opts = page.locator('.select__menu .select__option, div[class*="-menu"] div[class*="-option"], .select__option')
-                    # A searchable React-Select queries the server for its
-                    # options; Greenhouse's School field takes ~1.5s to answer,
-                    # and until it does the menu still shows the *pre-typing*
-                    # default list. Waiting for a non-empty menu is therefore
-                    # not enough - that list was never empty. Re-scan until a
-                    # real match for what we typed shows up, and only settle
-                    # for a positional fallback once the search has had time.
-                    chosen = None
-                    fallback = None
-                    # A location typeahead answers "Seattle, WA" with a list
-                    # whose first entry can be a *different* city ("South
-                    # Seattle, Washington, United States"). Taking the first
-                    # option put a city the candidate does not live in onto real
-                    # applications, so an option whose own leading segment
-                    # equals ours outranks mere document order.
-                    segment_match = None
-                    prefix_match = None
+                if candidate_str is None:
                     target_head = target_lower.split(",")[0].strip()
-                    opt_count = 0
-                    for _attempt in range(30):
-                        await asyncio.sleep(0.1)
-                        chosen = segment_match = prefix_match = fallback = None
-                        opt_count = await visible_opts.count()
-                        for oi in range(min(opt_count, 20)):
-                            cand = visible_opts.nth(oi)
-                            if not await cand.is_visible():
+                    for opt_str in available_options:
+                        opt_lower = opt_str.strip().lower()
+                        is_gender_collision = (
+                            (target_lower == "male" and "female" in opt_lower)
+                            or (target_lower == "female" and opt_lower == "male")
+                        )
+                        if is_gender_collision:
+                            continue
+                        # Containment across comma-separated place names picks the
+                        # wrong place: "seattle, wa" is a substring of "South
+                        # Seattle, Washington, United States", and whichever such
+                        # option happens to come first in the menu was accepted -
+                        # which is how a correctly-selected "Seattle, Washington,
+                        # United States" got replaced with a city the candidate
+                        # does not live in. Require the leading segment to agree
+                        # before a containment hit counts.
+                        if "," in opt_lower and "," in target_lower:
+                            if opt_lower.split(",")[0].strip() != target_head:
                                 continue
-                            c_txt = (await cand.inner_text()).strip()
-                            c_txt_lower = c_txt.lower()
-                            if not c_txt or c_txt_lower in ("no options", "select..."):
-                                continue
-                            is_gender_collision = (
-                                (target_lower == "male" and "female" in c_txt_lower)
-                                or (target_lower == "female" and c_txt_lower == "male")
-                            )
-                            if is_gender_collision:
-                                continue
-                            if fallback is None:
-                                fallback = (cand, c_txt)
-                            if c_txt_lower == target_lower:
-                                chosen = (cand, c_txt)
-                                break
-                            if segment_match is None and target_head and c_txt_lower.split(",")[0].strip() == target_head:
-                                segment_match = (cand, c_txt)
-                            if prefix_match is None and target_lower and c_txt_lower.startswith(target_lower):
-                                prefix_match = (cand, c_txt)
-                        if chosen or segment_match or prefix_match:
+                        elif "," in opt_lower and target_head and opt_lower.split(",")[0].strip() != target_head:
+                            continue
+                        if target_lower in opt_lower or opt_lower in target_lower:
+                            candidate_str = opt_str
                             break
-                    pick = chosen or segment_match or prefix_match or fallback
-                    if pick:
-                        await pick[0].click(force=True)
-                        filled[lbl_text[:50]] = pick[1]
+
+                # A fixed fallback answer like "I am not a protected veteran" scores
+                # no exact or substring match against a board's own phrasing (e.g.
+                # Robinhood's "Not a Veteran") - upstream resolution already computes
+                # this same fallback (see _find_negative_option in
+                # profile_answer_resolver.py), but that only helps the field types
+                # whose resolver calls it directly. Re-running it here, against this
+                # specific board's `available_options`, covers every EEOC-style
+                # negative-response field regardless of which resolver produced the
+                # unmatched target - and crucially happens before the dynamic-typing
+                # pass below, which types the literal target text into the box and
+                # searches for it: typing a whole sentence into a small fixed-choice
+                # dropdown just filters every real option out, so that pass can never
+                # recover here either.
+                if candidate_str is None and getattr(resolution, "question_type", None) in NEGATIVE_OPTION_KEYWORDS:
+                    candidate_str = _find_negative_option(
+                        available_options, NEGATIVE_OPTION_KEYWORDS[resolution.question_type],
+                    )
+
+                if candidate_str is not None:
+                    exact_pattern = re.compile(rf"^\s*{re.escape(candidate_str.strip())}\s*$", re.IGNORECASE)
+                    opt_to_click = page.locator('.select__menu .select__option, div[class*="-menu"] div[class*="-option"], .select__option, [role="option"]:not(.iti__country)').filter(has_text=exact_pattern).first
+                    if await opt_to_click.count() > 0:
+                        await opt_to_click.click(force=True)
+                        filled[lbl_text[:50]] = candidate_str
                         filled_ids[lbl_text[:50]] = cid
                         matched = True
                         await asyncio.sleep(0.1)
-                except Exception as dyn_err:
-                    logger.warning("Combobox dynamic search error on %s: %s", cid, dyn_err)
 
-            if not matched:
-                logger.warning(
-                    "Combobox '%s': target '%s' not found in %d options, skipping (NO random fallback)",
-                    lbl_text[:50], target_text, len(available_options),
-                )
-                await _keyboard(page).press("Escape")
-                await asyncio.sleep(0.05)
+                # 2. Dynamic typing pass for searchable/async comboboxes (e.g. School, Major)
+                if not matched and target_text:
+                    try:
+                        await el.click(force=True)
+                        await _keyboard(page).type(target_text, delay=20)
+
+                        visible_opts = page.locator('.select__menu .select__option, div[class*="-menu"] div[class*="-option"], .select__option')
+                        # A searchable React-Select queries the server for its
+                        # options; Greenhouse's School field takes ~1.5s to answer,
+                        # and until it does the menu still shows the *pre-typing*
+                        # default list. Waiting for a non-empty menu is therefore
+                        # not enough - that list was never empty. Re-scan until a
+                        # real match for what we typed shows up, and only settle
+                        # for a positional fallback once the search has had time.
+                        chosen = None
+                        fallback = None
+                        # A location typeahead answers "Seattle, WA" with a list
+                        # whose first entry can be a *different* city ("South
+                        # Seattle, Washington, United States"). Taking the first
+                        # option put a city the candidate does not live in onto real
+                        # applications, so an option whose own leading segment
+                        # equals ours outranks mere document order.
+                        segment_match = None
+                        prefix_match = None
+                        target_head = target_lower.split(",")[0].strip()
+                        opt_count = 0
+                        for _attempt in range(30):
+                            await asyncio.sleep(0.1)
+                            chosen = segment_match = prefix_match = fallback = None
+                            opt_count = await visible_opts.count()
+                            for oi in range(min(opt_count, 20)):
+                                cand = visible_opts.nth(oi)
+                                if not await cand.is_visible():
+                                    continue
+                                c_txt = (await cand.inner_text()).strip()
+                                c_txt_lower = c_txt.lower()
+                                if not c_txt or c_txt_lower in ("no options", "select..."):
+                                    continue
+                                is_gender_collision = (
+                                    (target_lower == "male" and "female" in c_txt_lower)
+                                    or (target_lower == "female" and c_txt_lower == "male")
+                                )
+                                if is_gender_collision:
+                                    continue
+                                if fallback is None:
+                                    fallback = (cand, c_txt)
+                                if c_txt_lower == target_lower:
+                                    chosen = (cand, c_txt)
+                                    break
+                                if segment_match is None and target_head and c_txt_lower.split(",")[0].strip() == target_head:
+                                    segment_match = (cand, c_txt)
+                                if prefix_match is None and target_lower and c_txt_lower.startswith(target_lower):
+                                    prefix_match = (cand, c_txt)
+                            if chosen or segment_match or prefix_match:
+                                break
+                        pick = chosen or segment_match or prefix_match or fallback
+                        if pick:
+                            await pick[0].click(force=True)
+                            filled[lbl_text[:50]] = pick[1]
+                            filled_ids[lbl_text[:50]] = cid
+                            matched = True
+                            await asyncio.sleep(0.1)
+                    except Exception as dyn_err:
+                        logger.warning("Combobox dynamic search error on %s: %s", cid, dyn_err)
+
+                if not matched:
+                    logger.warning(
+                        "Combobox '%s': target '%s' not found in %d options, skipping (NO random fallback)",
+                        lbl_text[:50], target_text, len(available_options),
+                    )
+                    await _keyboard(page).press("Escape")
+                    await asyncio.sleep(0.05)
 
         except Exception as ex:
             logger.debug("Combobox error: %s", ex)
@@ -2825,30 +2851,41 @@ async def _execute_live_playwright_submission_impl(
             # inputs and a file input with no bot wall.
             on_form_already = await _page_has_form_inputs(page)
             already_on_ats = on_form_already or "oneclick-ui" in page.url
-            # Greenhouse's /embed/job_app endpoint only works while it is framed
-            # by the employer's page. Opened as a top-level document it returns a
-            # stub: a few inputs and NO submit control at all. Measured on two
-            # postings, in-frame vs. the identical URL standalone:
+            # Greenhouse's /embed/job_app endpoint usually only works while it is
+            # framed by the employer's page. Opened as a top-level document it
+            # returns a stub: a few inputs and NO submit control at all. Measured
+            # on two postings, in-frame vs. the identical URL standalone:
             #
             #   Databricks  47 inputs + "Submit application"  ->  3 inputs, none
             #   Datadog     26 inputs + "Submit application"  ->  1 input,  none
             #
-            # So navigating to it throws away the real form. An autonomous run
-            # then reports "Application form and submit button not found" (that
-            # is the Datadog failure), and an assisted hand-off leaves the
-            # candidate staring at a form with no Apply button - reported live on
-            # the Databricks posting.
+            # So navigating to it usually throws away the real form. An
+            # autonomous run then reports "Application form and submit button
+            # not found" (that is the Datadog failure), and an assisted hand-off
+            # leaves the candidate staring at a form with no Apply button -
+            # reported live on the Databricks posting.
             #
-            # The iframe switch immediately below reaches the very same form from
-            # the employer's page, so there is nothing to gain by leaving it.
+            # BUT: some boards (Roblox confirmed live 2026-09-14) sign the framed
+            # embed URL with a `validityToken` query param, and *that* variant
+            # renders the complete standalone form - 33 inputs including resume
+            # upload and a working "Submit application" button, verified by
+            # direct top-level navigation with no employer page involved at all.
+            # That token is presumably what the stub-vs-full-form check on
+            # Greenhouse's side actually keys on; boards without it (Databricks/
+            # Datadog above) fall back to the stub. So only stay framed when the
+            # embed URL lacks that signed token - when it's present, following it
+            # directly sidesteps whatever makes driving the cross-origin iframe
+            # itself hang (the actual cause of Roblox's automation timeouts is
+            # still unconfirmed - see NIGHT_BATCH_DECISIONS.md).
+            #
             # Standalone ATS URLs (jobs.lever.co/.../apply, a real Greenhouse
             # job page, Ashby application URLs) are unaffected: they are proper
             # top-level pages and are still followed.
-            if embed_src and "/embed/job_app" in embed_src:
+            if embed_src and "/embed/job_app" in embed_src and "validityToken=" not in embed_src:
                 logger.info(
                     "Not following %s: Greenhouse's embed endpoint only renders a "
-                    "submittable form while framed. Staying on %s and driving the "
-                    "form through its iframe instead.",
+                    "submittable form while framed (no validityToken present). "
+                    "Staying on %s and driving the form through its iframe instead.",
                     embed_src, page.url,
                 )
                 if log_callback:
@@ -2856,6 +2893,15 @@ async def _execute_live_playwright_submission_impl(
                         "Staying on the employer's page — its embedded form only works there.",
                     )
                 embed_src = ""
+            elif embed_src and "/embed/job_app" in embed_src and "validityToken=" in embed_src:
+                logger.info(
+                    "Following signed embed URL directly (validityToken present, "
+                    "renders full form standalone): %s", embed_src,
+                )
+                if log_callback:
+                    log_callback(
+                        "Following the signed application form link directly (bypassing the iframe)...",
+                    )
 
             if embed_src and not already_on_ats:
                 logger.info("Employer page points at an ATS form; navigating directly to %s", embed_src)

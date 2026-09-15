@@ -48,6 +48,21 @@ class ReadCache:
         self._max_entries = max_entries
         self._guard = threading.Lock()
         self._pool = ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="read-cache")
+        # One creation lock per key, so a burst of concurrent cold-start callers for the
+        # same key (the common case right after a restart, when every entry is empty and
+        # several requests land before any of them finishes populating it) serializes on
+        # the first one actually running the loader instead of each paying the full cost
+        # independently. Small, fixed key set (a handful of dashboard aggregates) so this
+        # dict is never cleaned up - same tradeoff the module docstring already accepts.
+        self._creation_locks: dict[str, threading.Lock] = {}
+
+    def _get_creation_lock(self, key: str) -> threading.Lock:
+        with self._guard:
+            lock = self._creation_locks.get(key)
+            if lock is None:
+                lock = threading.Lock()
+                self._creation_locks[key] = lock
+            return lock
 
     def get(self, key: str, ttl_seconds: float, loader: Callable[[], Any]) -> Any:
         """Return the cached value, refreshing in the background when stale."""
@@ -57,13 +72,20 @@ class ReadCache:
                 self._entries.move_to_end(key)
 
         if entry is None:
-            # Cold start: nothing to serve, so this one call pays the cost.
-            value = loader()
-            with self._guard:
-                self._entries[key] = _Entry(value=value, refreshed_at=time.monotonic())
-                self._entries.move_to_end(key)
-                self._evict_locked()
-            return value
+            # Cold start: serialize on a per-key lock so only the first concurrent
+            # caller actually runs the (expensive) loader; everyone else blocks
+            # briefly and then finds the entry already populated.
+            with self._get_creation_lock(key):
+                with self._guard:
+                    entry = self._entries.get(key)
+                if entry is not None:
+                    return entry.value
+                value = loader()
+                with self._guard:
+                    self._entries[key] = _Entry(value=value, refreshed_at=time.monotonic())
+                    self._entries.move_to_end(key)
+                    self._evict_locked()
+                return value
 
         if time.monotonic() - entry.refreshed_at > ttl_seconds:
             self._schedule_refresh(key, entry, loader)

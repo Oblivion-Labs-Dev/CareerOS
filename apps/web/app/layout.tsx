@@ -5,7 +5,6 @@ import "./globals.css";
 import "./career-system.css";
 import "./cos-design-system.css";
 import "./cos-refine.css";
-import "./gemini-diagnostics.css";
 import "./product-polish.css";
 import "./reference-match.css";
 import "./cos-light-mode.css";

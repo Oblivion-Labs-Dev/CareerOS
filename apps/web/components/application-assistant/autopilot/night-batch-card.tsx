@@ -20,6 +20,11 @@ interface NightBatchCardProps {
   liveJob?: { company: string; title: string; step?: string } | null;
   targetCount?: number;
   processedCount?: number;
+  /** How many times this run has been resumed (starting at 1). The run's
+   *  own targetProcessCount ratchets upward on every resume and stops
+   *  meaning "batch size" after the first one, so it is not shown directly
+   *  - this is the honest counter for what the user is actually seeing. */
+  resumeCount?: number;
   submittedCount?: number;
   stagedCount?: number;
   /** Match scores of everything currently QUEUED, so the floor can be set
@@ -63,6 +68,7 @@ export function NightBatchCard({
   liveJob,
   targetCount = 10,
   processedCount = 0,
+  resumeCount = 1,
   submittedCount = 0,
   stagedCount = 0,
   queueScores = [],
@@ -183,8 +189,8 @@ export function NightBatchCard({
               )}
             </div>
             <div className={styles.liveBannerStats}>
-              <div className={styles.statPill}>
-                <span>Processed:</span> <strong>{processedCount} / {targetCount}</strong>
+              <div className={styles.statPill} title={`Resumed ${resumeCount} time${resumeCount === 1 ? "" : "s"}; ${processedCount} job(s) processed across this run`}>
+                <span>Batch {resumeCount}:</span> <strong>{processedCount} processed</strong>
               </div>
               <div className={styles.statPill} data-tone="success">
                 <span>Submitted:</span> <strong>{submittedCount}</strong>
@@ -196,7 +202,7 @@ export function NightBatchCard({
               )}
             </div>
             <div className={styles.progressBarWrap}>
-              <div className={styles.progressBarFill} style={{ width: `${progressPercent}%` }} />
+              <div className={styles.progressBarFill} style={{ transform: `scaleX(${progressPercent / 100})` }} />
             </div>
 
             {/* Live pipeline — the same checkpoint sequence the runner emits,

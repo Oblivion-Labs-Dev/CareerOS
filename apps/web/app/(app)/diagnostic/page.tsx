@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useState, useCallback, useRef } from "react";
+import Link from "next/link";
 import styles from "@/components/diagnostic/diagnostic.module.css";
 import {
   fetchSystemHealth, fetchDiagnosticSeries, type DiagnosticSeries,
@@ -91,7 +92,8 @@ export default function DiagnosticPage() {
         <div>
           <h1 className={styles.title}>System Diagnostics &amp; Telemetry</h1>
           <p className={styles.subtitle}>
-            Recorded activity, timing and service health. Refreshes every 10 seconds.
+            Recorded activity, timing and service health. Refreshes every 10 seconds.{" "}
+            <Link href="/diagnostic/history">View outcome history &amp; failure reasons →</Link>
           </p>
         </div>
       </header>

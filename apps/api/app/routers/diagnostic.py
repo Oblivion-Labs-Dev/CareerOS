@@ -349,6 +349,32 @@ def get_metric_series(period: str = Query(default="24h", pattern="^(1h|24h|7d)$"
     return build_series(list_entities(db, "aa_autopilot_job"), period)
 
 
+@router.get("/outcomes")
+def get_outcomes_report(
+    period: str = Query(default="12h", pattern=r"^\d{1,3}[hdHD]$"),
+    db: Session = Depends(db_session),
+) -> dict[str, Any]:
+    """What happened in a window (1h to 30d) and why, from per-attempt checkpoints.
+
+    `period` is a number plus `h` or `d` ("12h", "7d", "30d"). Windows longer
+    than 30 days are rejected. `allTimeStatusCounts` is always the full job
+    table, matching the Applications page; everything else is scoped to the
+    window.
+    """
+    from app.services.diagnostic_outcomes import build_outcomes_report, parse_period_hours
+
+    try:
+        hours = parse_period_hours(period)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    now = datetime.now(timezone.utc)
+    all_jobs = list_entities(db, "aa_autopilot_job")
+    report = build_outcomes_report(all_jobs, hours=hours, now=now)
+    report["period"] = period.lower()
+    return report
+
+
 # ── Live Runs & Run Timeline ──────────────────────────────────────────────────
 
 @router.get("/runs")

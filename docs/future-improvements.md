@@ -208,6 +208,133 @@ rapid-fire consecutive requests.
 - What pacing strategy other ethical scraping guides recommend as a concrete default (fixed
   delay vs. randomized-with-jitter vs. adaptive backoff after a first block on a given board).
 
+### Frontend render performance — target 60fps (and audit whether 120Hz is realistic)
+
+**What**: the web app (`apps/web`) has never had a rendering-performance pass. A 60fps UI
+needs every frame's work — JS/state updates, style recalc, layout, paint, composite
+combined — to fit inside ~16.7ms; 120Hz halves that budget to ~8.3ms. Given the app leans
+on polling-driven dashboards (Autopilot control center, tracker/pipeline views), CSS
+animations (hover transforms, `data-updated` highlight keyframes in
+`tracker-workspace.module.css`), and frequent list re-renders, it's plausible several
+surfaces already miss the 60fps budget today, not just the 120Hz one — worth measuring
+before assuming either is achievable.
+
+**Why it's a gap**: no profiling has been done. This session already found and fixed one
+concrete backend performance bug from real load (`read_cache.py`'s cold-start thundering
+herd, 2026-09-15) purely by noticing the symptom live — the frontend has had no equivalent
+look. A dashboard-heavy app with several-second polling intervals (`/autopilot/status`,
+`/autopilot/jobs`) and no evident memoization strategy is a reasonable place to expect
+avoidable re-render cost.
+
+**Where it'd plug in**: start with Chrome DevTools Performance/React Profiler traces on the
+heaviest real screens (`autopilot-applications-view.tsx`, the tracker/pipeline Kanban,
+`resume-corpus` — the largest client bundle at build time per `npm run build` output) under
+realistic data volume (the live DB already has 2500+ `aa_autopilot_job` rows), not synthetic
+empty-state data. Then work backward from actual flame-chart evidence to specific fixes
+(memoization, list virtualization, reduced poll frequency, moving derived-value computation
+out of render) — this is exactly the kind of thing that should be evidence-first, per this
+document's own standing principle, not "add memo everywhere and hope."
+
+**Research questions**:
+- What polling cadence these dashboards actually use today, and whether stale-while-
+  revalidate or a push-based update (SSE/WebSocket) would cut re-render frequency more than
+  memoization would — no point micro-optimizing a component that re-renders correctly but
+  too often.
+- Whether any list view (job queue, application tracker, review buckets) renders its full
+  result set today rather than virtualizing — a likely first target given the job counts
+  already observed live.
+- Common techniques worth evaluating against real profiler evidence, not applied blindly:
+  `React.memo`/`useMemo`/`useCallback` on components in a frequently-updating parent tree;
+  windowing/virtualization for long lists (`react-window` or similar) instead of rendering
+  every row; moving expensive derived computation (filtering/sorting/formatting) out of the
+  render path into memoized selectors; `content-visibility: auto` and CSS `contain` for
+  off-screen sections; avoiding layout-triggering CSS properties (`width`/`top`/`box-shadow`
+  spread) in favor of `transform`/`opacity` for the animations already in
+  `tracker-workspace.module.css`; code-splitting the largest routes (`resume-corpus` at
+  64.9kB / 237kB first-load per the build output) so unrelated pages don't pay for it.
+- Whether 120Hz is even a meaningful target here — it matters for scroll/animation
+  smoothness on a high-refresh display, but most of this app's actual UX (forms, dashboards,
+  data tables) isn't motion-heavy; profiling may show 60fps is the right bar and 120Hz isn't
+  worth chasing before confirming there's real per-frame animation work that benefits from it.
+
+### Audit for synchronous event-loop-blocking DB/JSON work (backend)
+
+**What**: a dedicated audit for one specific anti-pattern — synchronous, DB- or JSON-heavy
+work called directly inside an `async def` function without `asyncio.to_thread`, which
+blocks the *entire* FastAPI process (every request, every SSE connection, the Autopilot
+batch loop itself) for the duration, not just the one caller.
+
+**Why it's a gap**: found **three separate live instances** in one overnight session
+(2026-09-15, see `NIGHT_BATCH_DECISIONS.md`'s 04:41, 05:39, and 06:27 UTC entries), each
+confirmed via `py-spy dump` catching the MainThread itself blocked mid-request: the SSE
+`/autopilot/events` endpoint's initial status snapshot, the Autopilot batch loop's own
+per-iteration queue check (`list_autopilot_jobs(db)`, called after every single job —
+arguably the worst of the three), and the background job-discovery scraper's snapshot
+persistence. All three fixed individually as found. The third one is the real warning
+sign: it was a *regression* of an already-fixed instance from an earlier session — that
+fix (documented in its own code comment) correctly moved the pure-computation half of the
+same function to a thread but explicitly left the DB-write half on the main thread "since a
+Session is not safe to share across threads," and that DB-write half has since grown
+expensive enough on its own to reproduce the exact freeze one call deeper. That's a strong
+signal there are more instances not yet found, not that these three were the only ones.
+
+**Where it'd plug in**: a repo-wide review of `async def` functions in `apps/api/app/routers/`
+and `apps/api/app/services/` for direct (non-threaded) calls to `list_entities`/
+`list_autopilot_jobs`/`get_kv`/`set_kv`/anything doing `json.loads`/`json.dumps` over a
+payload whose size scales with the job table (2500+ rows and growing) — plus, more
+durably, a load test that simulates realistic concurrent dashboard usage (several SSE
+connections open, the batch loop actively iterating, a scrape cycle running) and watches
+for `/health` latency spikes, so future instances of this pattern get caught by a repeatable
+check instead of a live incident.
+
+**Research questions**:
+- Whether there's a cheap, mechanical way to encode "no synchronous DB call inside `async
+  def` without `asyncio.to_thread`" as a lint rule or code-review check, given how easy it
+  is to reintroduce (exactly what happened with the scraper snapshot instance).
+- Whether the fresh-`session_scope()`-inside-a-thread pattern used for the two write-adjacent
+  fixes (SSE status, scraper snapshot) should become a named, reusable helper rather than
+  being hand-written at each call site — reduces the chance of a future fix getting the
+  session-sharing hazard wrong.
+- Whether a periodic background job (the scraper, the batch loop's own heartbeat) is
+  actually the right architecture for a single-process FastAPI app at this data volume, or
+  whether these should move to a genuinely separate worker process so a slow background task
+  can never block user-facing requests at all, regardless of threading discipline.
+
+### Always-on runtime for the overnight Autopilot loop (OpenHands)
+
+**What**: [OpenHands](https://github.com/OpenHands/openhands) is a self-hosted "agent control
+center" — infrastructure for running coding/ops agents continuously, including with the
+operator's laptop closed, via scheduled tasks and webhook triggers. It's agent-agnostic (Claude
+Code, Codex, Gemini, or custom agents) through the Agent-Client Protocol, deployable locally, in
+Docker, on a VM, or in the cloud.
+
+**Why it's a gap**: the `autopilot-night-batch-loop` skill (added 2026-09-15, see
+`.claude/skills/autopilot-night-batch-loop/` and `NIGHT_BATCH_DECISIONS.md`) currently runs as a
+session-local `CronCreate` job — it dies the moment the terminal session closes, auto-expires
+after 7 days regardless, and has no persistence if the host machine restarts. That's a real
+ceiling on "run overnight batches unattended": today it only survives as long as one Claude Code
+session stays open. An always-on runtime is the durable version of the exact thing this project
+is already doing manually.
+
+**Where it'd plug in**: would host the existing `autopilot-night-batch-loop` skill's cycle logic
+(run-state check, queue-watermark monitoring, Gmail spot-checks, the hard rules around
+self-healing/restart discipline) as a scheduled task against CareerOS's own API — the skill's
+*judgment* doesn't change, only what keeps re-invoking it. The lighter-weight, already-available
+alternative worth comparing first is Claude Code's own `/schedule` (cloud-based recurring
+sessions) — OpenHands is the heavier, self-hosted option, relevant mainly if CareerOS ever needs
+multiple concurrent unattended workflows (not just the one nightly Autopilot batch) sharing one
+always-on host.
+
+**Research questions**:
+- Whether `/schedule`'s cloud scheduling already covers this need adequately before standing up
+  separate self-hosted infrastructure just for one recurring job.
+- How OpenHands' webhook triggers could replace some of the fixed 20-minute polling cadence with
+  event-driven wake-ups (e.g. a queue-depth threshold crossing, a job landing in `NEEDS_REVIEW` at
+  volume) — the skill's hard rules (never restart mid-`APPLYING`, verify self-healing from the DB)
+  would need to survive being invoked by a different trigger mechanism than a plain interval.
+- Operational cost/complexity of running a second always-on service (OpenHands itself) purely to
+  keep one existing skill alive, versus the current session-local approach's simplicity.
+
 ### Considered and explicitly not recommended: real-time "interview copilot"
 
 Several commercial tools (marketed as "Interview Copilot" features) feed the candidate live

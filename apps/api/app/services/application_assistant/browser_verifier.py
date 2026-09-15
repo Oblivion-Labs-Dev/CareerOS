@@ -431,7 +431,7 @@ async def verify_browser_dom_state(
                 for vd in (
                     "gender", "race", "ethnic", "hispanic", "latino", "veteran",
                     "disability", "disabled", "self-identif", "self identif",
-                    "eeo", "equal employment", "protected veteran",
+                    "eeo", "equal employment", "protected veteran", "military",
                     "sexual orientation", "transgender", "pronoun",
                 )
             )
