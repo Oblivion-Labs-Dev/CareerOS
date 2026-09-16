@@ -346,3 +346,44 @@ this codebase is built around (see `docs/application-assistant.md`'s "human-supe
 and the Gemini layer's disclosure-first design in `docs/gemini-enrichment-layer.md`). The
 mock-interview *practice* feature in item 2 above is the legitimate version of this idea —
 rehearsal before the call, not assistance during it.
+
+## Autopilot heuristic matching performance
+
+Found 2026-09-15 while diagnosing why the API/UI went unresponsive for 20-45 min per
+preprocessor cycle overnight (`NIGHT_BATCH_DECISIONS.md`, 17:48 UTC entry and after). Not
+urgent — `minMatchScore` is already bypassed while `tailoringMode` is `off`
+(`autopilot_runner.py:1871`), so the score itself doesn't gate submission today, and jobs
+already `QUEUED` keep applying normally even while a scoring pass runs. The real cost is
+availability: the pass runs synchronous, CPU-bound Python in a thread pool, which pins the
+GIL and freezes the whole single-process API (health checks, the UI, everything) for its
+duration — and has crashed the dev web server outright when it ran long enough to trip
+Node's proxy timeout.
+
+### Resume/profile evidence is rebuilt from scratch on every job, every cycle
+
+**What**: `match_job()` (`apps/api/app/services/application_assistant/job_matching.py:112-128`)
+calls `extract_resume_text()`, `work_experience_text()`, `accomplishment_text()`,
+`build_candidate_skill_terms()`, and re-splits the result into sentences (`quotes`) — all
+derived purely from the candidate's profile/resume/documents, none of it from the job being
+scored. None of this is cached (`candidate_match_context.py` has no `@lru_cache` anywhere).
+Since the same resume is used for every application, this identical work is redone for every
+one of the (currently) 1,562 candidate jobs in a single scoring pass, for zero benefit.
+
+**Where it'd plug in**: compute `evidence`/`quotes`/`profile_skills` once per batch (in
+`queue_preprocessor.py`'s `_enqueue_scored_jobs` or `autopilot_runner.py`'s `_sync_refill`,
+wherever the loop over candidate jobs starts) and pass them into `match_job()` instead of
+letting it rebuild them per call. Should meaningfully cut per-job cost without touching
+scoring logic or accuracy.
+
+**Also worth considering, since the score doesn't currently gate anything**: skip the
+expensive per-sentence `support()` evidence matching in `match_job()` entirely when
+`tailoringMode == "off"`, and return a cheap placeholder score — the UI shows a number, but
+nothing downstream currently depends on its accuracy in that mode.
+
+**Separately, the real structural fix** (bigger lift, not just this item): move the heuristic
+scoring loop off the API's own process — a `ProcessPoolExecutor` (separate OS process, own
+GIL) instead of the current `ThreadPoolExecutor`, so pure-Python CPU work can't freeze
+request-serving no matter how large the candidate batch gets. Threads don't help here since
+Python's GIL means only one thread executes Python bytecode at a time regardless of thread
+count — this is CPU-bound work, not I/O-bound, so threading/async provide no real
+concurrency for it.

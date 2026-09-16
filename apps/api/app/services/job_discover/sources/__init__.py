@@ -19,8 +19,12 @@ from app.services.job_discover.sources.icims import ICIMSSource
 from app.services.job_discover.sources.jobicy import JobicySource
 from app.services.job_discover.sources.lever import LeverSource
 from app.services.job_discover.sources.oracle import OracleSource
+from app.services.job_discover.sources.personio import PersonioSource
 from app.services.job_discover.sources.playwright_fallback import PlaywrightCareerPageSource
+from app.services.job_discover.sources.recruitee import RecruiteeSource
+from app.services.job_discover.sources.remoteok import RemoteOKSource
 from app.services.job_discover.sources.remotive import RemotiveSource
+from app.services.job_discover.sources.themuse import TheMuseSource
 from app.services.job_discover.sources.serpapi_google_jobs import SerpApiGoogleJobsSource
 from app.services.job_discover.sources.smartrecruiters import SmartRecruitersSource
 from app.services.job_discover.sources.structured_career_page import (
@@ -49,10 +53,14 @@ __all__ = [
     "WorkableSource",
     "OracleSource",
     "ICIMSSource",
+    "RecruiteeSource",
+    "PersonioSource",
     "BigTechSourceAdapter",
     "JobicySource",
     "ArbeitnowSource",
     "RemotiveSource",
+    "RemoteOKSource",
+    "TheMuseSource",
     "HimalayasSource",
     "WeWorkRemotelySource",
     "HackerNewsSource",

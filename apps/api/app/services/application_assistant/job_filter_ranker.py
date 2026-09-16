@@ -10,7 +10,6 @@ from sqlalchemy.orm import Session
 
 from app.services.application_assistant.domain import AutopilotJobStatus
 from app.services.application_assistant.persistence import list_autopilot_jobs
-from app.services.application_assistant.qwen_job_match import evaluate_job_match
 
 
 DEFAULT_MIN_MATCH_SCORE = 75.0
@@ -431,6 +430,14 @@ def evaluate_hard_filters(
     if any(c in norm_c for c in known_itar_defense_companies):
         return False, f"Company '{company}' is a Defense/ITAR contractor (excluded per user preference)"
 
+    # Companies excluded per user preference (e.g. an existing offer elsewhere) -
+    # not a fit/eligibility signal, just a do-not-apply list.
+    excluded_companies = {
+        "alaska airlines",
+    }
+    if any(c in norm_c for c in excluded_companies):
+        return False, f"Company '{company}' is excluded per user preference"
+
     # Exclude boards with hard bot protection that block automated headless runs
     #
     # Live-tested 2026-09-14 rather than trusted as a static guess (see git
@@ -710,20 +717,26 @@ def filter_and_rank_jobs(
             }
         else:
             # No Mistral score available (Ollama down, or not preprocessed yet).
-            # Fall back to the deterministic heuristic and label it honestly so
-            # nothing downstream reports a heuristic number as a model match.
-            match_result = evaluate_job_match(
-                job=job, profile=profile, documents=documents, accomplishments=accomplishments,
-            )
-            score = float(match_result.get("overallScore", 0.0))
+            # The full heuristic fallback (per-sentence resume/requirement
+            # matching in job_matching.match_job) is expensive enough, run
+            # across every unscored candidate in one inline pass, to pin the
+            # GIL and freeze the whole API for the length of a large batch
+            # (see NIGHT_BATCH_DECISIONS.md, 2026-09-15 17:48 UTC). minMatchScore
+            # only orders the queue and never removes anything from it (see
+            # below), so an unscored job queues exactly the same as a scored
+            # one - skip the expensive evaluation and use a neutral
+            # placeholder. Ordering among unscored jobs falls back to
+            # tier/recency only (queue_priority_score).
+            score = 0.0
             ranked_job = {
                 **job,
                 "matchScore": score,
-                "matchReason": match_result.get("explanation", "") or "Heuristic keyword match (Mistral unavailable).",
-                "keyMatchingSkills": match_result.get("strongMatches", [])[:8],
-                "missingSkills": match_result.get("missingQualifications", [])[:8],
-                "matchMethod": "heuristic",
-                "matchReasons": match_result.get("strongMatches", []) + match_result.get("potentialConcerns", []),
+                "matchReason": "Not yet scored (local model unavailable).",
+                "keyMatchingSkills": [],
+                "missingSkills": [],
+                "matchMethod": "unscored",
+                "matchModel": "",
+                "matchReasons": [],
                 "status": AutopilotJobStatus.SCORED.value,
             }
 

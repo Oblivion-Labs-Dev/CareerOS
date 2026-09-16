@@ -1,13 +1,16 @@
-.rail { isolation:isolate; background:var(--card); border-right:1px solid var(--border); padding:24px 16px 12px; display:flex; flex-direction:column; overflow:hidden; }
+.rail { isolation:isolate; background:var(--card); border-right:1px solid var(--border); padding:18px 16px 10px; display:flex; flex-direction:column; overflow:hidden; }
 .rail::before { content:""; position:absolute; z-index:-1; pointer-events:none; inset:-20% -60% 30%; background:radial-gradient(ellipse at 20% 30%,color-mix(in srgb,var(--accent) 10%,transparent),transparent 60%),radial-gradient(ellipse at 80% 65%,#7f78c91a,transparent 60%); animation:ambient 18s ease-in-out infinite alternate; }
-.rail :global(.sidebar-header) { padding:4px 10px 28px; margin-bottom:12px; border-bottom:1px solid var(--border); }
+.rail :global(.sidebar-header) { padding:4px 10px 16px; margin-bottom:8px; border-bottom:1px solid var(--border); }
 .rail :global(.brand) { gap:12px; font-size:25px; letter-spacing:-1px; }
-.rail :global(.sidebar-nav) { flex:1; min-height:0; overflow-y:auto; scrollbar-width:thin; padding:0 2px; }
-.rail :global(.nav-group) { margin-bottom:25px; }
-.rail :global(.nav-group-label) { display:flex; align-items:center; gap:10px; font-size:9px; font-weight:650; letter-spacing:.17em; padding:0 12px; margin:8px 0 12px; color:var(--muted); }
+/* The nav fits the rail's own height rather than scrolling internally: the
+   rail is a flex column sized to the viewport, so this list is only ever as
+   tall as what the enabled items actually need. */
+.rail :global(.sidebar-nav) { flex:1; min-height:0; overflow:visible; padding:0 2px; }
+.rail :global(.nav-group) { margin-bottom:12px; }
+.rail :global(.nav-group-label) { display:flex; align-items:center; gap:10px; font-size:9px; font-weight:650; letter-spacing:.17em; padding:0 12px; margin:4px 0 6px; color:var(--muted); }
 .rail :global(.nav-group-label)::after { content:""; flex:1; height:1px; background:linear-gradient(to right,var(--border),transparent); }
-.rail :global(.nav-link) { position:relative; display:flex; align-items:center; gap:11px; min-height:48px; margin:5px 0; padding:8px 12px; border:1px solid transparent; border-radius:12px; color:var(--muted); font-size:12px; font-weight:550; transition:background .25s,color .25s,transform .25s,border-color .25s; }
-.rail :global(.nav-icon) { display:grid; place-items:center; flex:0 0 29px; width:29px; height:29px; border-radius:9px; background:color-mix(in srgb,var(--muted) 7%,transparent); transition:transform .25s,background .25s; }
+.rail :global(.nav-link) { position:relative; display:flex; align-items:center; gap:11px; min-height:38px; margin:2px 0; padding:6px 12px; border:1px solid transparent; border-radius:10px; color:var(--muted); font-size:12px; font-weight:550; transition:background .25s,color .25s,transform .25s,border-color .25s; }
+.rail :global(.nav-icon) { display:grid; place-items:center; flex:0 0 26px; width:26px; height:26px; border-radius:8px; background:color-mix(in srgb,var(--muted) 7%,transparent); transition:transform .25s,background .25s; }
 .rail :global(.nav-link):hover { background:color-mix(in srgb,var(--accent) 6%,var(--card)); color:var(--text); transform:translateX(3px); }
 .rail :global(.nav-link):hover :global(.nav-icon) { transform:rotate(-8deg) scale(1.08); background:color-mix(in srgb,var(--accent) 13%,transparent); }
 .rail :global(.nav-link.active) { background:linear-gradient(105deg,color-mix(in srgb,var(--accent) 17%,var(--card)),color-mix(in srgb,var(--accent) 4%,var(--card))); border-color:color-mix(in srgb,var(--accent) 25%,var(--border)); color:var(--text); box-shadow:0 5px 18px color-mix(in srgb,var(--accent) 8%,transparent); }

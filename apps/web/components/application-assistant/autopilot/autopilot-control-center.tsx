@@ -8,7 +8,6 @@ import {
   stopAutopilot,
 } from "@/lib/application-assistant-api";
 import {
-  OPERATIONAL_LABELS,
   PIPELINE_STAGES,
   resolveOperationalState,
   stageIndexForStep,
@@ -54,7 +53,6 @@ export function AutopilotControlCenter({
   const [jobs, setJobs] = useState<AutopilotJobRow[]>([]);
   const [submittedJobs, setSubmittedJobs] = useState<AutopilotJobRow[]>([]);
   const [jobsLoading, setJobsLoading] = useState(true);
-  const [batchPanelOpen, setBatchPanelOpen] = useState(false);
   const [controlBusy, setControlBusy] = useState(false);
   const [controlError, setControlError] = useState<string | null>(null);
 
@@ -92,7 +90,6 @@ export function AutopilotControlCenter({
   }, [loadJobs, section]);
 
   const opState = resolveOperationalState(state, connectionError);
-  const opCopy = OPERATIONAL_LABELS[opState];
   const isLive = opState === "running" || opState === "recovering";
 
   const cumulative = state?.cumulative ?? null;
@@ -267,89 +264,37 @@ export function AutopilotControlCenter({
 
       {controlError && <div className={styles.empty}>{controlError}</div>}
 
-      {/* Slim status bar: what's happening now, and how to start something new.
-          Night Batch itself is a subset reached from here rather than an
-          always-on hero — it only renders below while live or explicitly
-          opened via "Night Batch Run". */}
+      {/* Night Batch is the single control surface: its own header shows
+          running/ready state, and it carries its own Start (idle) and
+          Pause/Stop (live) buttons, so it renders unconditionally here rather
+          than behind a separate status bar and toggle. */}
       {section === "overview" && (
-        <>
-          <section className={styles.activityDock} aria-label="Autopilot status">
-            <span className={`${styles.statusDot} ${isLive ? styles.statusDotLive : ""}`} />
-            <div>
-              <strong>{opState === "recovering" ? "Self-healing in progress" : isLive ? "Currently running" : "Ready"}</strong>
-              <small>
-                {opState === "recovering"
-                  ? `${state?.selfHealing?.status} · Round ${state?.selfHealing?.currentRound} of ${state?.selfHealing?.maxRounds}`
-                  : isLive && liveJob
-                    ? `${liveJob.company} · ${liveJob.title}`
-                    : opCopy.detail}
-              </small>
-            </div>
-            {isLive ? (
-              <>
-                <button className={styles.filterChip} disabled={controlBusy} onClick={() => void runControl("pause")}>Pause</button>
-                <button className={styles.filterChip} disabled={controlBusy} onClick={() => void runControl("stop")}>Stop</button>
-              </>
-            ) : (
-              <>
-                <button
-                  type="button"
-                  className={`${styles.filterChip} ${batchPanelOpen ? styles.filterChipActive : ""}`}
-                  aria-pressed={batchPanelOpen}
-                  aria-controls="night-batch"
-                  onClick={() => setBatchPanelOpen((value) => !value)}
-                >
-                  Night Batch Run
-                </button>
-                <button
-                  type="button"
-                  className={styles.filterChip}
-                  disabled={controlBusy}
-                  onClick={() =>
-                    void handleStartNightBatch({
-                      batchSize: 1,
-                      minMatchScore: 60,
-                      tierGuardrails: true,
-                      selfHealing: true,
-                    })
-                  }
-                >
-                  Single Apply
-                </button>
-              </>
-            )}
-          </section>
-
-          {(isLive || batchPanelOpen) && (
-            <div id="night-batch" className={styles.batchRow} data-has-history={Boolean(lastActivity || (state?.run?.processedCount ?? 0) > 0)}>
-              <NightBatchCard
-                isLive={isLive}
-                onStartBatch={handleStartNightBatch}
-                onPause={() => runControl("pause")}
-                onStop={() => runControl("stop")}
-                busy={controlBusy}
-                liveJob={liveJob}
-                targetCount={state?.run?.targetProcessCount ?? 10}
-                processedCount={state?.run?.processedCount ?? 0}
-                resumeCount={state?.run?.resumeCount ?? 1}
-                submittedCount={state?.run?.submittedCount ?? 0}
-                stagedCount={state?.run?.stagedCount ?? 0}
-                queueScores={queueScores}
-                queueLoading={jobsLoading}
-                liveConfig={state?.batchConfig ?? null}
-                stageIndex={activeStageIndex}
-                logs={state?.recentLogs ?? []}
-                healing={state?.selfHealing ?? null}
-              />
-              {(lastActivity || (state?.run?.processedCount ?? 0) > 0) && <LastUpdatePanel
-                lastActivity={lastActivity}
-                lastRun={state?.run ?? null}
-                isLive={isLive}
-                logs={state?.recentLogs ?? []}
-              />}
-            </div>
-          )}
-        </>
+        <div className={styles.batchRow} data-has-history={Boolean(lastActivity || (state?.run?.processedCount ?? 0) > 0)}>
+          <NightBatchCard
+            isLive={isLive}
+            onStartBatch={handleStartNightBatch}
+            onPause={() => runControl("pause")}
+            onStop={() => runControl("stop")}
+            busy={controlBusy}
+            liveJob={liveJob}
+            targetCount={state?.run?.targetProcessCount ?? 10}
+            processedCount={state?.run?.processedCount ?? 0}
+            resumeCount={state?.run?.resumeCount ?? 1}
+            submittedCount={state?.run?.submittedCount ?? 0}
+            stagedCount={state?.run?.stagedCount ?? 0}
+            queueScores={queueScores}
+            queueLoading={jobsLoading}
+            liveConfig={state?.batchConfig ?? null}
+            stageIndex={activeStageIndex}
+            logs={state?.recentLogs ?? []}
+            healing={state?.selfHealing ?? null}
+          />
+          {(lastActivity || (state?.run?.processedCount ?? 0) > 0) && <LastUpdatePanel
+            lastActivity={lastActivity}
+            lastRun={state?.run ?? null}
+            isLive={isLive}
+          />}
+        </div>
       )}
       <nav className={styles.tabs}>
         {([

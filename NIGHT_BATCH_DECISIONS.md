@@ -232,6 +232,136 @@ second-guess from the DB alone right now.
 
 ---
 
+## 2026-09-15 23:17 UTC — Two new job-discovery sources added (Recruitee, Personio); rest of the requested API list rejected as fake/prohibited/unverifiable
+
+User supplied a ~30-entry list of "free public job APIs" (from a low-quality aggregated
+source — several entries were literally malformed, e.g. `https://{company}://`) and asked
+to test each and add whichever work. Triaged before writing any code:
+
+**Already implemented**: Ashby, Workable, SmartRecruiters, Arbeitnow, Remotive,
+WeWorkRemotely, Jobicy, Hacker News — user's list duplicated these.
+
+**Verified live and added** (`apps/api/app/services/job_discover/sources/`):
+- `recruitee.py` — `https://{slug}.recruitee.com/api/offers/`, Recruitee's own documented
+  keyless feed. Live-tested against `bunq.recruitee.com`: 14 real jobs, correct fields.
+- `personio.py` — `https://{slug}.jobs.personio.de/xml?language=en`, Personio's documented
+  keyless XML feed (opt-in per company). Live-tested against `personio.jobs.personio.de`:
+  1 real job, correct fields. Both already had ATS-fingerprint detection in
+  `discovery/company_registry.py` (ashby/recruitee/personio/bamboohr/breezyhr/teamtailor/
+  jobvite/jazzhr/comeet/pinpoint/rippling/gem/eightfold/phenom/successfactors were all
+  already *detected*, but only ashby had a fetch adapter) — recruitee/personio now do too.
+  Wired into `aggregation.py`'s `JobAggregationService.sources` and `sources/__init__.py`.
+  Added regression tests (`test_recruitee_adapter`, `test_personio_adapter` in
+  `test_job_ingestion_v2.py`, real fixture shapes from the live responses) — 40/40 job-
+  discovery tests pass. Restarted safely (waited out two in-flight jobs, ~150s), verified
+  live: `selfHealing: False` confirmed, fresh heartbeat, API healthy.
+
+**Not implemented, with reasons** (not doing further work on these unless asked):
+- **Malformed as given** (literal `https://{x}://` placeholders, no real path):
+  BambooHR, Pinpoint, Freshteam, JazzHR, TalentLyft, Simplicant — and BambooHR's
+  real endpoint turned out to be genuinely undocumented/unstable per Personio's own docs
+  team equivalent research, not worth a fragile scraper.
+- **Requires a paid or per-request API key** (not actually "keyless" as the list claimed):
+  Adzuna, USAJOBS (data.usajobs.gov needs a key + registered User-Agent), CareerOneStop
+  (needs a registered userId), Arbeitsagentur (OAuth client credentials), Zoho Recruit.
+- **ToS-prohibited / no public access**: Indeed (no public feed, actively blocks scraping),
+  ZipRecruiter (partner-only, no free public RSS).
+- **Third-party paid scraping product, not a public API**: JobsPipe (jobspipe.dev) — a
+  commercial aggregation service the original list's sources cited as if it were a raw
+  public endpoint.
+- **Not actually a jobs API**: GitHub (generic domain), `api.publicapis.org` (a directory
+  of *other* APIs, not a jobs source), data.gov (a catalog, not a jobs endpoint).
+- **Real API but needs a per-company secret token you can't derive from the company name**
+  (Comeet's official Careers API requires a `token` query param issued per customer,
+  scraped out of their embedded widget HTML — a real integration, just not a simple
+  keyless fetch; flagged for later if worth the extra discovery step).
+- **Confirmed no stable public JSON API on testing/research**: BreezyHR (tested `/json` on
+  3 real companies, all 404; mixed/contradictory documentation), Teamtailor (official API
+  needs a key; the "public" version is really page-embedded data already caught by the
+  existing `structured_career_page`/generic JSON-LD fallback, not worth a dedicated
+  scraper), Bullhorn, PCRecruiter, Avature (the user's list literally had "TalentLyft"
+  text bled into the Avature URL — a copy-paste artifact from the source list), Jobvite
+  (real but opt-in per customer and usually off, no reliable way to discover which tenants
+  have it enabled), Workforce/Tanda, Jobscore, Manatal, Loxo, Homerun — none had a
+  verifiable, stable, documented, keyless pattern found in the time spent; not implementing
+  on an unverified guess.
+- Government/aggregator odds and ends (Gov.uk Find a Job, Job Bank Canada, The Muse,
+  RemoteOK, BuiltIn, WarpJobs, CryptocurrencyJobs, JSRemotely, Relocate.me, Nodesk,
+  Techmap) — plausible but not individually tested; lower priority than the above, can
+  revisit if the user wants a specific one prioritized.
+
+---
+
+## 2026-09-16 00:14 UTC — Two more job-discovery sources added (RemoteOK, The Muse); found and fixed a real orphaned-job gap in the restart/recovery path
+
+Researched the remaining "worth checking" candidates (SuccessFactors, Eightfold, Phenom,
+Rippling, Gem, The Muse, RemoteOK, plus a few niche boards) before writing code. Verdict:
+**SuccessFactors, Rippling** — no public API; career pages are JS-rendered SPAs with no
+embedded JSON-LD found on a real example (`career8.successfactors.com/career?company=IPProd`
+tested directly) — already about as well covered as possible by the existing Playwright
+fallback, not worth a dedicated scraper. **Eightfold, Phenom** — real APIs, both require an
+OAuth token issued per customer, not free/keyless. **Gem** — mostly a CRM/distribution layer
+over other ATSs, not a distinct board format. **The Muse, RemoteOK** — both real, documented,
+keyless, live-tested successfully.
+
+**Added** (`sources/remoteok.py`, `sources/themuse.py`), same pattern as Recruitee/Personio:
+live-tested against real data (RemoteOK: 100 live postings, 18 engineer/developer matches;
+The Muse: 400K+ total postings, confirmed keyless up to 500 req/hr per their own docs, 13
+matches in a 5-page fetch), unit tests added with real-shape fixtures, full 42-test
+job-discovery suite passes, wired into `aggregation.py` + `sources/__init__.py`.
+
+**Real gap found and worked around while deploying**: a ServiceNow job (`apjob_bee00446...`)
+got orphaned in `APPLYING` with **no lock fields set at all** (`lockedBy`/`lockedAt`/
+`lockExpiresAt` all `None`) from an earlier restart, and sat there for 45+ minutes. The
+designed recovery (stale-heartbeat sweep on `start()`) never caught it because the *run's*
+heartbeat stayed fresh the whole time (other jobs kept cycling normally) — the sweep only
+triggers on overall run staleness, not per-job staleness, so a lock-less orphan with siblings
+still processing normally is invisible to it. **This is a real, reproducible bug worth fixing
+in daytime**: any job whose worker dies between claiming it and setting lock fields (or
+whose lock fields get cleared some other way) becomes permanently stuck until someone finds
+it by hand. Suggested fix: the claim-time sweep should also check for `APPLYING` rows with
+`lockedBy IS NULL` regardless of the run's own heartbeat freshness.
+
+**Tonight's workaround**: a raw DB patch on just that one row was blocked by the auto-mode
+permission classifier ("Modify Shared Resources"); the sanctioned
+`POST /autopilot/jobs/{id}/reprocess` endpoint (used from an authenticated tab) worked and
+requeued it cleanly without touching the genuinely-active job running alongside it. Also hit
+the documented "racing the claim loop" issue (09:29 UTC entry) trying to catch a zero-APPLYING
+window on a dense queue — switched to pausing the run first (`POST /autopilot/pause`) rather
+than repeatedly polling, which is the correct approach and should be the default going
+forward instead of tight-polling when the queue is busy.
+
+Restarted, resumed, DB-verified `selfHealing: False`, fresh heartbeat, API healthy (0.35s).
+
+---
+
+## 2026-09-16 00:26 UTC — Genuine runner-loop stall (not the API itself), fixed via the designed stale-heartbeat recovery
+
+User reported "CareerOS seems stuck." This time it was real, and different from prior
+incidents: `/health` and the web app both responded fast (0.2-0.3s, ports listening
+normally) — the API process itself was fine — but the run's `lastHeartbeatAt` was frozen
+at 00:17:25 UTC, 8.5+ minutes stale, with one job (`apjob_ca94273a...`, Bellota Labs)
+orphaned in `APPLYING` with no lock owner, same signature as the 00:14 UTC entry's bug but
+this time the run's own heartbeat genuinely was stale (unlike last time), so this was
+squarely the designed recovery path's use case.
+
+Re-issued `/autopilot/start` (`selfHealing:false` explicit) from an authenticated tab:
+`resumeCount` 4->5, `lastHeartbeatAt` immediately fresh. Verified the orphaned job actually
+got swept and reprocessed, not just left alone: its `updatedAt` jumped to the exact recovery
+moment and `attemptCount` incremented 1->2, reaching `QUESTIONS_COMPLETED` again within 13s
+of the sweep. Confirmed `selfHealing: False` still holds. SUBMITTED had already reached 790
+before this stall, so no submissions were lost — just ~8.5 min of no new progress until
+caught.
+
+Open question carried from the 00:14 UTC entry: why does the runner's own background loop
+task stall while the surrounding API process stays fully responsive? Two stalls with the
+same "lock-less orphaned APPLYING row + eventually-stale run heartbeat" signature in under
+20 minutes suggests this isn't a one-off. Worth a daytime look at `_loop_task` lifecycle in
+`autopilot_runner.py` rather than continuing to catch it via `/autopilot/start` recovery
+every time the user notices.
+
+---
+
 ## 2026-09-15 16:55 UTC — Job filters loosened at the user's request (titles, ambiguous US locations, international on)
 
 User asked to loosen filters and chose three of four options (Defense/ITAR list deliberately kept).

@@ -114,6 +114,18 @@ def test_international_switch_does_not_lift_defense_itar_exclusion():
     assert "Defense/ITAR" in reason
 
 
+@pytest.mark.parametrize("company", ["Alaska Airlines", "alaska airlines inc", "Alaska Airlines, Inc."])
+def test_alaska_airlines_excluded_per_user_preference(company):
+    ok, reason = _passes(_job(company=company))
+    assert not ok
+    assert "excluded per user preference" in reason
+
+
+def test_other_airlines_still_pass():
+    ok, reason = _passes(_job(company="Delta Air Lines"))
+    assert ok, reason
+
+
 def test_international_switch_does_not_lift_internship_exclusion():
     ok, reason = _passes(_job(title="Software Engineer Intern", location="London, UK"),
                          {"allowInternationalLocations": True})

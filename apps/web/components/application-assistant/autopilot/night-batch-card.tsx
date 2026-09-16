@@ -152,86 +152,85 @@ export function NightBatchCard({
             <div>
               <div className={styles.eyebrow}>AUTONOMOUS FORM-FILL</div>
               <h2 className={styles.title}>Night Batch Mode</h2>
-              <p className={styles.subtitle}>
-                Queue & submit verified job applications overnight. Strict Tier-1 dream company protection holds Top-20 companies for manual review.
+              <p className={styles.configSummary}>
+                {finalSize} job{finalSize === 1 ? "" : "s"} · {minMatchScore}% floor
+                {tierGuardrails ? " · Tier-1 held" : ""}
               </p>
             </div>
           </div>
 
-          <div className={styles.headerRight}>
-            <div className={styles.modelBadge} title="Running local Qwen 4B Instruct model via Ollama">
-              <span className={styles.modelDot} />
-              <span>Qwen 4B Instruct</span>
-            </div>
-            <div className={styles.statusBadge} data-live={isLive ? "true" : "false"}>
-              <span className={styles.statusDot} />
-              <span>{isLive ? "Night Batch Running" : "Ready for Run"}</span>
-            </div>
+          <div className={styles.statusBadge} data-live={isLive ? "true" : "false"}>
+            <span className={styles.statusDot} />
+            <span>{isLive ? "Running" : "Ready"}</span>
           </div>
         </div>
 
         {/* Live Progress Banner when Batch is Active */}
         {isLive && (
           <div className={styles.liveBanner}>
-            <div className={styles.liveBannerLeft}>
-              <div className={styles.liveJobTitle}>
-                {liveJob ? `${liveJob.company} — ${liveJob.title}` : "Processing batch applications..."}
-              </div>
-              <div className={styles.liveJobStep}>
-                {liveJob?.step ? `Current step: ${liveJob.step}` : "Executing pipeline"}
-              </div>
-              {liveConfig && (
-                <div className={styles.liveConfigLine}>
-                  {liveConfig.aiModel || "local model"} · {Math.round(liveConfig.minMatchScore)}% floor ·
-                  {" "}Tier-1 {liveConfig.tierGuardrails ? "held" : "not held"} ·
-                  {" "}self-healing {liveConfig.selfHealing ? "on" : "off"}
-                </div>
-              )}
-            </div>
-            <div className={styles.liveBannerStats}>
-              <div className={styles.statPill} title={`Resumed ${resumeCount} time${resumeCount === 1 ? "" : "s"}; ${processedCount} job(s) processed across this run`}>
-                <span>Batch {resumeCount}:</span> <strong>{processedCount} processed</strong>
-              </div>
-              <div className={styles.statPill} data-tone="success">
-                <span>Submitted:</span> <strong>{submittedCount}</strong>
-              </div>
-              {stagedCount > 0 && (
-                <div className={styles.statPill} data-tone="warning">
-                  <span>Needs Review:</span> <strong>{stagedCount}</strong>
-                </div>
-              )}
-            </div>
-            <div className={styles.progressBarWrap}>
-              <div className={styles.progressBarFill} style={{ transform: `scaleX(${progressPercent / 100})` }} />
-            </div>
-
-            {/* Live pipeline — the same checkpoint sequence the runner emits,
-                so the card shows where inside one application the batch is,
-                not just that it is busy. */}
-            <div className={styles.livePipeline} role="list" aria-label="Application pipeline">
-              {PIPELINE_STAGES.map((stage, i) => (
-                <React.Fragment key={stage.id}>
-                  <div
-                    role="listitem"
-                    className={styles.liveStage}
-                    data-state={
-                      stageIndex < 0 ? "idle" : i < stageIndex ? "done" : i === stageIndex ? "active" : "idle"
-                    }
-                  >
-                    <span className={styles.liveStageDot} aria-hidden="true">
-                      {stageIndex >= 0 && i < stageIndex ? "✓" : i === stageIndex ? "◉" : "○"}
-                    </span>
-                    <span className={styles.liveStageLabel}>{stage.label}</span>
+            <div className={styles.liveBannerTop}>
+              <div className={styles.liveBannerMain}>
+                <div className={styles.liveJobRow}>
+                  <span className={styles.signalBars} aria-hidden="true">
+                    <span /><span /><span /><span /><span />
+                  </span>
+                  <div>
+                    <div className={styles.liveJobTitle}>
+                      {liveJob ? `${liveJob.company} — ${liveJob.title}` : "Processing batch applications..."}
+                    </div>
+                    <div className={styles.liveJobStep}>
+                      {liveJob?.step ? liveJob.step : "Executing pipeline"}
+                    </div>
                   </div>
-                  {i < PIPELINE_STAGES.length - 1 && (
-                    <span
-                      className={styles.liveStageLink}
-                      data-done={stageIndex >= 0 && i < stageIndex ? "true" : "false"}
-                      aria-hidden="true"
-                    />
+                </div>
+
+                <div className={styles.liveBannerStats}>
+                  <div className={styles.statPill} title={`Resumed ${resumeCount} time${resumeCount === 1 ? "" : "s"}; ${processedCount} job(s) processed across this run`}>
+                    <span>Batch {resumeCount}</span> <strong>{processedCount} processed</strong>
+                  </div>
+                  <div className={styles.statPill} data-tone="success">
+                    <span>Submitted</span> <strong>{submittedCount}</strong>
+                  </div>
+                  {stagedCount > 0 && (
+                    <div className={styles.statPill} data-tone="warning">
+                      <span>Needs review</span> <strong>{stagedCount}</strong>
+                    </div>
                   )}
-                </React.Fragment>
-              ))}
+                </div>
+
+                <div className={styles.progressBarWrap}>
+                  <div className={styles.progressBarFill} style={{ transform: `scaleX(${progressPercent / 100})` }} />
+                </div>
+
+                {/* Live pipeline — the same checkpoint sequence the runner emits,
+                    so the card shows where inside one application the batch is,
+                    not just that it is busy. */}
+                <div className={styles.livePipeline} role="list" aria-label="Application pipeline">
+                  {PIPELINE_STAGES.map((stage, i) => (
+                    <React.Fragment key={stage.id}>
+                      <div
+                        role="listitem"
+                        className={styles.liveStage}
+                        data-state={
+                          stageIndex < 0 ? "idle" : i < stageIndex ? "done" : i === stageIndex ? "active" : "idle"
+                        }
+                      >
+                        <span className={styles.liveStageDot} aria-hidden="true">
+                          {stageIndex >= 0 && i < stageIndex ? "✓" : i === stageIndex ? "◉" : "○"}
+                        </span>
+                        <span className={styles.liveStageLabel}>{stage.label}</span>
+                      </div>
+                      {i < PIPELINE_STAGES.length - 1 && (
+                        <span
+                          className={styles.liveStageLink}
+                          data-done={stageIndex >= 0 && i < stageIndex ? "true" : "false"}
+                          aria-hidden="true"
+                        />
+                      )}
+                    </React.Fragment>
+                  ))}
+                </div>
+              </div>
             </div>
 
             {healing && ["analyzing", "patching", "requeuing"].includes(healing.status) && (

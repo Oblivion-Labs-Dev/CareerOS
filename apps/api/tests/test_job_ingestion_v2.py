@@ -46,7 +46,11 @@ from app.services.job_discover.sources.icims import ICIMSSource
 from app.services.job_discover.sources.jobicy import JobicySource
 from app.services.job_discover.sources.lever import LeverSource
 from app.services.job_discover.sources.oracle import OracleSource
+from app.services.job_discover.sources.personio import PersonioSource
+from app.services.job_discover.sources.recruitee import RecruiteeSource
+from app.services.job_discover.sources.remoteok import RemoteOKSource
 from app.services.job_discover.sources.remotive import RemotiveSource
+from app.services.job_discover.sources.themuse import TheMuseSource
 from app.services.job_discover.sources.serpapi_google_jobs import SerpApiGoogleJobsSource
 from app.services.job_discover.sources.smartrecruiters import SmartRecruitersSource
 from app.services.job_discover.sources.workable import WorkableSource
@@ -172,6 +176,90 @@ JOBICY_FIXTURE = {
     ]
 }
 
+RECRUITEE_FIXTURE = {
+    "offers": [
+        {
+            "id": 445566,
+            "title": "Senior Backend Engineer",
+            "slug": "senior-backend-engineer",
+            "company_name": "Bunq",
+            "city": "Amsterdam",
+            "state_name": "North Holland",
+            "country": "Netherlands",
+            "remote": False,
+            "hybrid": True,
+            "department": "Engineering",
+            "category_code": "engineering",
+            "description": "<p>Own core payment services.</p>",
+            "requirements": "<p>5+ years backend experience.</p>",
+            "employment_type_code": "fulltime",
+            "created_at": "2026-08-01 10:00:00 UTC",
+            "published_at": "2026-08-01 12:00:00 UTC",
+            "updated_at": "2026-08-02 09:00:00 UTC",
+            "careers_url": "https://careers.bunq.com/o/senior-backend-engineer",
+            "careers_apply_url": "https://careers.bunq.com/o/senior-backend-engineer/c/new",
+        }
+    ]
+}
+
+PERSONIO_XML_FIXTURE = """<?xml version="1.0" encoding="UTF-8"?>
+<workzag-jobs>
+<position>
+    <id>998877</id>
+    <office>Munich</office>
+    <additionalOffices></additionalOffices>
+    <department>Product and Tech</department>
+    <recruitingCategory>Engineering</recruitingCategory>
+    <name>Senior Platform Engineer</name>
+    <jobDescriptions>
+        <jobDescription>
+            <name>About the role</name>
+            <value><![CDATA[<p>Build the internal data platform.</p>]]></value>
+        </jobDescription>
+    </jobDescriptions>
+    <employmentType>permanent</employmentType>
+    <seniority>experienced</seniority>
+    <schedule>full-time</schedule>
+    <createdAt>2026-09-10T09:00:00+00:00</createdAt>
+</position>
+</workzag-jobs>
+""".encode("utf-8")
+
+REMOTEOK_FIXTURE = [
+    {"legal": "API Terms of Service: attribution required."},
+    {
+        "id": "778899",
+        "slug": "remote-senior-backend-engineer-acme-778899",
+        "company": "Acme Corp",
+        "position": "Senior Backend Engineer",
+        "tags": ["python", "backend", "remote"],
+        "location": "",
+        "date": "2026-09-12T00:00:12+00:00",
+        "description": "<p>Own our core API platform.</p>",
+        "url": "https://remoteok.com/remote-jobs/remote-senior-backend-engineer-acme-778899",
+        "apply_url": "https://remoteok.com/remote-jobs/remote-senior-backend-engineer-acme-778899",
+        "salary_min": 150000,
+        "salary_max": 190000,
+    },
+]
+
+THEMUSE_FIXTURE = {
+    "page": 0,
+    "page_count": 1,
+    "results": [
+        {
+            "id": 5566778,
+            "name": "Senior Software Engineer, Platform",
+            "contents": "<div><p>Build our platform primitives.</p></div>",
+            "publication_date": "2026-09-11T10:00:00Z",
+            "locations": [{"name": "New York, NY"}, {"name": "Flexible / Remote"}],
+            "company": {"id": 9001, "short_name": "acme", "name": "Acme Corp"},
+            "levels": [{"name": "Senior Level", "short_name": "senior"}],
+            "refs": {"landing_page": "https://www.themuse.com/jobs/acme/senior-software-engineer-platform"},
+        }
+    ],
+}
+
 
 # ---------------------------------------------------------------------------
 # 1. DIRECT ATS ADAPTER TESTS
@@ -271,6 +359,128 @@ async def test_ashby_adapter():
     assert job.salary_min == 220000
     assert job.salary_max == 310000
     assert job.remote_status == "REMOTE"
+
+
+@pytest.mark.anyio
+async def test_recruitee_adapter():
+    source = RecruiteeSource()
+    assert source.priority == 95
+    assert source.source_type == "ats"
+
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = RECRUITEE_FIXTURE
+
+    mock_client = AsyncMock()
+    mock_client.request.return_value = mock_resp
+
+    cutoff = datetime.now(UTC) - timedelta(days=30)
+    jobs = await source.fetch_jobs(
+        mock_client,
+        company="bunq",
+        config={"slug": "bunq"},
+        compiled_patterns=[],
+        cutoff=cutoff,
+    )
+
+    assert len(jobs) == 1
+    job = jobs[0]
+    assert job.title == "Senior Backend Engineer"
+    assert job.external_id == "445566"
+    assert job.hybrid is True
+    assert job.remote_status == "HYBRID"
+    assert "Amsterdam" in job.location
+    assert "bunq.com" in job.apply_url
+    assert "Own core payment services" in job.description
+    assert "5+ years" in job.description
+
+
+@pytest.mark.anyio
+async def test_personio_adapter():
+    source = PersonioSource()
+    assert source.priority == 95
+    assert source.source_type == "ats"
+
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.content = PERSONIO_XML_FIXTURE
+
+    mock_client = AsyncMock()
+    mock_client.request.return_value = mock_resp
+
+    cutoff = datetime.now(UTC) - timedelta(days=30)
+    jobs = await source.fetch_jobs(
+        mock_client,
+        company="acme",
+        config={"slug": "acme"},
+        compiled_patterns=[],
+        cutoff=cutoff,
+    )
+
+    assert len(jobs) == 1
+    job = jobs[0]
+    assert job.title == "Senior Platform Engineer"
+    assert job.external_id == "998877"
+    assert job.location == "Munich"
+    assert job.department == "Product and Tech"
+    assert job.seniority == "EXPERIENCED"
+    assert "acme.jobs.personio.de/job/998877" in job.apply_url
+    assert "internal data platform" in job.description
+
+
+@pytest.mark.anyio
+async def test_remoteok_adapter():
+    source = RemoteOKSource()
+    assert source.priority == 80
+    assert source.source_type == "public_api"
+
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = REMOTEOK_FIXTURE
+
+    mock_client = AsyncMock()
+    mock_client.request.return_value = mock_resp
+
+    cutoff = datetime.now(UTC) - timedelta(days=30)
+    jobs = await source.fetch_jobs(mock_client, compiled_patterns=[], cutoff=cutoff)
+
+    # The leading "legal" attribution object must never be parsed as a job.
+    assert len(jobs) == 1
+    job = jobs[0]
+    assert job.title == "Senior Backend Engineer"
+    assert job.external_id == "778899"
+    assert job.remote is True
+    assert job.remote_status == "REMOTE"
+    assert job.salary_min == 150000
+    assert job.salary_max == 190000
+    assert "python" in job.skills
+
+
+@pytest.mark.anyio
+async def test_themuse_adapter():
+    source = TheMuseSource()
+    assert source.priority == 80
+    assert source.source_type == "public_api"
+
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = THEMUSE_FIXTURE
+
+    mock_client = AsyncMock()
+    mock_client.request.return_value = mock_resp
+
+    cutoff = datetime.now(UTC) - timedelta(days=30)
+    jobs = await source.fetch_jobs(mock_client, compiled_patterns=[], cutoff=cutoff)
+
+    assert len(jobs) == 1
+    job = jobs[0]
+    assert job.title == "Senior Software Engineer, Platform"
+    assert job.external_id == "5566778"
+    assert job.company_name == "Acme Corp"
+    assert job.location == "New York, NY"
+    assert job.remote is True  # "Flexible / Remote" is also a listed location
+    assert job.seniority == "SENIOR"
+    assert "themuse.com/jobs/acme" in job.apply_url
 
 
 @pytest.mark.anyio

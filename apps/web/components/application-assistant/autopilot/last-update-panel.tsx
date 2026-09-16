@@ -2,10 +2,8 @@
 
 import React from "react";
 import styles from "./last-update-panel.module.css";
-import feedStyles from "./control-center.module.css";
 import { statusView } from "./job-presentation";
 import { RecentSubmissions } from "./recent-submissions";
-import type { AutopilotLog } from "@/hooks/use-autopilot-state";
 
 /**
  * What happened most recently, standing beside the Night Batch card.
@@ -19,28 +17,10 @@ import type { AutopilotLog } from "@/hooks/use-autopilot-state";
  * submission, a single Apply, something staged for review, or a failure. A run
  * summary alone went stale the moment anything happened outside a batch.
  *
- * The live event feed and the recent-submissions list used to live in their
- * own separate panels elsewhere on the page. Folded in here too so "what's
- * happening" and "what already happened" are one column instead of three.
+ * The recent-submissions list used to live in its own separate panel
+ * elsewhere on the page. Folded in here too so "what's happening" and "what
+ * already happened" are one column instead of two.
  */
-
-/** "12:04" in 24h local time. */
-function timeOfDay(iso: string): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "--:--";
-  return d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", hour12: false });
-}
-
-/** Classify a log line into a feed event kind using the message the backend already emits. */
-function feedKind(log: AutopilotLog): { kind: string; glyph: string } {
-  const m = (log.message || "").toLowerCase();
-  if (log.level === "error" || m.includes("failed")) return { kind: "failed", glyph: "✕" };
-  if (m.includes("submitted")) return { kind: "submitted", glyph: "✓" };
-  if (m.includes("skip")) return { kind: "skipped", glyph: "⊘" };
-  if (m.includes("review") || m.includes("staged")) return { kind: "review", glyph: "⚠" };
-  if (m.includes("repair") || m.includes("heal")) return { kind: "healed", glyph: "↻" };
-  return { kind: "applying", glyph: "◉" };
-}
 
 export type LastActivity = {
   company?: string;
@@ -88,12 +68,10 @@ export function LastUpdatePanel({
   lastActivity,
   lastRun,
   isLive,
-  logs,
 }: {
   lastActivity: LastActivity;
   lastRun: LastRun;
   isLive: boolean;
-  logs?: AutopilotLog[];
 }) {
   const hasRun = !!lastRun && (lastRun.processedCount || 0) > 0;
   const view = lastActivity ? statusView(lastActivity.status) : null;
@@ -115,38 +93,22 @@ export function LastUpdatePanel({
     <aside className={styles.panel} aria-label="Recent Activity">
       <div className={styles.head}>
         <span className={styles.kicker}>Recent Activity</span>
-        {lastActivity?.updatedAt && (
-          <span className={styles.when}>{timeAgo(lastActivity.updatedAt)}</span>
-        )}
       </div>
 
-      {isLive ? (
-        <p className={styles.empty}>A batch is running — this fills in as applications finish.</p>
-      ) : !lastActivity ? (
-        <p className={styles.empty}>Nothing has run yet.</p>
-      ) : (
-        <div className={styles.activity}>
-          <span className={styles.badge} data-kind={view?.key}>
-            {view?.label}
-          </span>
-          <p className={styles.what}>
-            <strong>{lastActivity.company || "Unknown company"}</strong>
-            {lastActivity.title ? <span>{lastActivity.title}</span> : null}
-          </p>
-          {lastActivity.reason ? <p className={styles.reason}>{lastActivity.reason}</p> : null}
-        </div>
-      )}
-
-      {hasRun && lastRun && (
+      {/* Last run status carries the most information — how much of the batch
+          landed where — so it leads and reads at a larger scale. The single
+          latest-touched item below is a supporting detail, not the headline. */}
+      {hasRun && lastRun ? (
         <div className={styles.runBlock}>
           <div className={styles.runHead}>
             <span>Last run</span>
             <span className={styles.when}>{describeFinish(lastRun)}</span>
           </div>
+          <div className={styles.runHero}>
+            <strong>{lastRun.processedCount}</strong>
+            <span>processed</span>
+          </div>
           <ul className={styles.stats}>
-            <li data-tone="total">
-              <strong>{lastRun.processedCount}</strong> processed
-            </li>
             <li data-tone="success">
               <strong>{lastRun.submittedCount || 0}</strong> submitted
             </li>
@@ -177,32 +139,21 @@ export function LastUpdatePanel({
             )}
           </ul>
         </div>
+      ) : (
+        <p className={styles.empty}>Nothing has run yet.</p>
       )}
 
-      {logs && logs.length > 0 && (
-        <div className={styles.feedBlock}>
-          <div className={styles.runHead}>
-            <span>Event log</span>
-          </div>
-          <div className={feedStyles.feedScroll}>
-            {[...logs]
-              .reverse()
-              .slice(0, 60)
-              .map((log) => {
-                const { kind, glyph } = feedKind(log);
-                const company = log.metadata?.company as string | undefined;
-                return (
-                  <div key={log.id} className={feedStyles.feedItem}>
-                    <span className={feedStyles.feedTime}>{timeOfDay(log.timestamp)}</span>
-                    <span className={feedStyles.feedIcon} data-kind={kind}>{glyph}</span>
-                    <span>
-                      <span className={feedStyles.feedTitle}>{company || "Autopilot"}</span>
-                      <span className={feedStyles.feedDetail}>{log.message}</span>
-                    </span>
-                  </div>
-                );
-              })}
-          </div>
+      {!isLive && lastActivity && (
+        <div className={styles.activity}>
+          <span className={styles.badge} data-kind={view?.key}>
+            {view?.label}
+          </span>
+          <p className={styles.what}>
+            <strong>{lastActivity.company || "Unknown company"}</strong>
+            {lastActivity.title ? <span>{lastActivity.title}</span> : null}
+          </p>
+          {lastActivity.updatedAt && <span className={styles.when}>{timeAgo(lastActivity.updatedAt)}</span>}
+          {lastActivity.reason ? <p className={styles.reason}>{lastActivity.reason}</p> : null}
         </div>
       )}
 
