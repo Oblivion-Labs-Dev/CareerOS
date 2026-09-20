@@ -1,5 +1,91 @@
 # CareerOS Agent Guide
 
+## 🗃️ 0. GitHub Issues + Project — Source of Truth for Development Work
+
+**GitHub Issues and the "CareerOS Development" GitHub Project are the source
+of truth for development work in this repository.** This applies to every
+coding agent working here — Claude Code, Codex, Cursor, Antigravity, or any
+future agent. Do not rely on an agent's private conversation history for
+project knowledge that matters beyond a single session; if it matters, it
+belongs in an issue.
+
+The project board: <https://github.com/orgs/Oblivion-Labs-Dev/projects/3>
+
+Columns: **Backlog → Todo → In Progress → Review → Done**, meaning:
+
+* **Backlog** — identified future work, not yet ready to start.
+* **Todo** — ready and sufficiently defined to implement.
+* **In Progress** — actively being worked on.
+* **Review** — implementation complete but awaiting validation/review.
+* **Done** — acceptance criteria satisfied and validation completed.
+
+Each issue also carries **Work Type** (Feature / Bug / Improvement / Refactor
+/ Testing / Documentation / Infrastructure), **Priority** (P0-P3), and
+**Component**.
+
+### Before starting work
+
+1. Read this file and `agent/ARCHITECTURE.md`.
+2. Check the GitHub Project for the relevant issue.
+3. Read the entire issue and its existing comments — later comments may
+   supersede earlier ones.
+4. Confirm any dependencies/blockers named in the issue are actually
+   resolved.
+5. Move the issue to **In Progress**.
+6. If no issue covers the work, create one with enough context (see below)
+   before starting anything substantial. A trivial fix (a typo, a one-line
+   config value) doesn't need this ceremony — use judgment.
+
+### Writing a self-contained issue
+
+A fresh agent with no chat history must be able to pick up the issue and
+understand the task. Use this shape (trim what a trivial task doesn't need):
+
+* **Context** — why this task exists, relevant current behavior.
+* **Problem / Goal** — what needs to change.
+* **Relevant Areas** — files, modules, APIs, components involved.
+* **Requirements** — concrete implementation requirements.
+* **Acceptance Criteria** — observable conditions required before completion.
+* **Validation** — tests/checks that demonstrate correctness.
+* **Notes / Constraints** — architectural decisions, compatibility
+  requirements, or things that must not change.
+
+### During work
+
+* Stay within the issue's stated scope.
+* Add a comment when you discover something a future agent picking this up
+  would need to know — a wrong assumption in the original issue, an
+  architectural decision made along the way, a blocker hit.
+* If you find unrelated work while implementing, open a separate issue for
+  it rather than silently expanding this one's scope (this repo's existing
+  "smallest reasonable change" rule already says the same thing — this is
+  the same discipline applied to issue scope).
+* Reference the issue number in commits/PRs where practical.
+* Keep the issue's Project status synchronized with reality as you go — an
+  issue that's actually blocked or actually finished should say so.
+
+### When implementation is finished
+
+1. Run the relevant tests and validation (per section 🛡️ 5 below).
+2. Add a concise issue comment: what changed, important implementation
+   decisions, tests/validation actually performed, and any remaining
+   limitations or follow-up work.
+3. Move the issue to **Review** once implementation is complete but still
+   needs validation/human review.
+4. Move it to **Done** only once acceptance criteria are genuinely satisfied
+   — never mark failed, incomplete, blocked, or untested work Done, per this
+   repo's existing Definition of Done (section ✅ 2).
+5. Open follow-up issues for remaining work instead of leaving it implied in
+   a comment.
+
+### Preserving context across agents
+
+For any task left unfinished, the issue's comments — not this agent's chat
+history — must capture: progress made, files/components changed, decisions
+made, problems encountered, tests already run, what remains, and any
+blockers. The next agent (of any kind) should be able to continue using only
+the repository plus the GitHub Project/Issues.
+
 ## 🔄 1. Development Lifecycle
 
 Every task follows this lifecycle:
