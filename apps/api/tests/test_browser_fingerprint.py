@@ -56,12 +56,20 @@ def test_blocked_fingerprint_is_not_reissued_for_that_host():
 
 
 def test_a_block_on_one_host_does_not_burn_the_identity_everywhere():
-    """Being challenged by Ashby says nothing about Greenhouse."""
+    """Being challenged by Ashby says nothing about Greenhouse.
+
+    Seeded rather than sampled: an unseeded draw only has a *chance* of
+    reproducing the burned fingerprint, so a fixed number of draws was really
+    testing "is the fingerprint space small enough to hit by luck" — flaky
+    for any pool size where that chance isn't near 1. Reusing the same seed
+    forces the identical candidate and proves directly that it was never
+    filtered out for a host it wasn't blocked on.
+    """
     pool = FingerprintPool()
-    burned = pool.acquire("jobs.ashbyhq.com")
+    burned = pool.acquire("jobs.ashbyhq.com", rng=random.Random(42))
     pool.report_blocked("jobs.ashbyhq.com", burned)
-    elsewhere = {pool.acquire("boards.greenhouse.io").key for _ in range(80)}
-    assert burned.key in elsewhere
+    reacquired = pool.acquire("boards.greenhouse.io", rng=random.Random(42))
+    assert reacquired.key == burned.key
 
 
 def test_ban_list_clears_rather_than_running_out():
