@@ -41,7 +41,16 @@ from app.services.application_assistant.persistence import (
 
 logger = logging.getLogger("career_os.manual_submission_reconciler")
 
-RECONCILABLE_STATUSES = ("MANUAL_REVIEW", "NEEDS_REVIEW", "FAILED")
+# SUBMISSION_UNKNOWN is the most important entry here. Those jobs clicked submit
+# and could not read a confirmation, so a confirmation email is precisely the
+# evidence that settles them — and because nothing else may move one out of that
+# bucket automatically, this is the only automatic path that resolves one.
+#
+# Note what the email does and does not do. It is *later evidence* that an
+# application arrived; it is never the authority on whether one should be sent.
+# A missing or late email leaves a job exactly where it is and never causes a
+# reapplication.
+RECONCILABLE_STATUSES = ("MANUAL_REVIEW", "NEEDS_REVIEW", "FAILED", "SUBMISSION_UNKNOWN")
 
 # Wording that means the application itself was received. A Greenhouse security
 # code is sent *before* the submission completes, so it must never count.
@@ -294,7 +303,13 @@ def reconcile_manual_submissions(
         def _mark(job: dict[str, Any], subject: str, sent_at: datetime, uid: str, matched_on: str) -> None:
             job["previousStatus"] = job.get("status")
             job["status"] = "SUBMITTED"
-            job["submittedAt"] = sent_at.isoformat()
+            # A job that already clicked submit knows when it did. Keep that as
+            # the submission time and treat the email as the confirmation of it,
+            # rather than back-dating the submission to whenever the employer's
+            # mail server got round to sending — those can be hours apart.
+            job["submittedAt"] = job.get("submitAttemptedAt") or sent_at.isoformat()
+            job["confirmedAt"] = sent_at.isoformat()
+            job["confirmationSource"] = "email"
             job["submissionSource"] = "email-detected"
             job["hasPersistentBlock"] = False
             evidence = dict(job.get("submissionEvidence") or {})

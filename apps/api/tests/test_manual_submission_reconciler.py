@@ -45,23 +45,47 @@ def _run(state):
 
 
 class TestOneEmailOneJob:
-    def test_a_single_email_marks_only_one_job(self, harness):
+    """An email that names only the employer is worthless once more than one
+    application to that employer is genuinely open at the same time.
+
+    This class used to assert that a company-only email picked *one* of
+    several simultaneously-open jobs — the very behavior that caused the
+    incident `_eligible`'s company pass now guards against (see its comment):
+    a real Robinhood confirmation for one submission got attributed to a
+    sibling posting that had never actually been sent, and a systematic check
+    afterward found 55 other jobs in the same falsely-SUBMITTED state. Picking
+    *a* job is not "one email, one job" — it is a guess that is right only by
+    luck. The safe version of one-email-one-job is: mark the one job an email
+    unambiguously belongs to, and touch nothing when it does not.
+    """
+
+    def test_an_ambiguous_company_only_email_marks_nothing(self, harness):
         harness["jobs"] = [_job("a", "Robinhood"), _job("b", "Robinhood"), _job("c", "Robinhood")]
         harness["threads"] = [_thread("1", "Thank you for applying to Robinhood")]
 
         result = _run(harness)
 
-        assert result["marked"] == 1
-        assert sum(1 for j in harness["jobs"] if j["status"] == "SUBMITTED") == 1
+        assert result["marked"] == 0
+        assert all(j["status"] == "MANUAL_REVIEW" for j in harness["jobs"])
 
-    def test_two_emails_mark_two_jobs(self, harness):
-        harness["jobs"] = [_job("a", "Robinhood"), _job("b", "Robinhood"), _job("c", "Robinhood")]
+    def test_two_title_bearing_emails_each_mark_their_own_job(self, harness):
+        # Company-only wording is what makes several open jobs ambiguous; a
+        # subject that names the role resolves to exactly one of them, so two
+        # such emails against two different jobs is the case where "one email,
+        # one job" actually holds for more than one email in a single run.
+        backend = _job("a", "Robinhood")
+        backend["title"] = "Senior Backend Engineer"
+        frontend = _job("b", "Robinhood")
+        frontend["title"] = "Staff Frontend Engineer"
+        harness["jobs"] = [backend, frontend]
         harness["threads"] = [
-            _thread("1", "Thank you for applying to Robinhood"),
-            _thread("2", "Thank you for applying to Robinhood"),
+            _thread("1", "We've received your application for Senior Backend Engineer at Robinhood"),
+            _thread("2", "We've received your application for Staff Frontend Engineer at Robinhood"),
         ]
 
         assert _run(harness)["marked"] == 2
+        assert backend["status"] == "SUBMITTED"
+        assert frontend["status"] == "SUBMITTED"
 
 
 class TestWhatCounts:
@@ -151,7 +175,11 @@ class TestOneEmailOneJobAcrossRuns:
     """
 
     def test_the_same_email_is_not_respent_on_a_later_run(self, harness):
-        harness["jobs"] = [_job("a", "Coinbase"), _job("b", "Coinbase"), _job("c", "Coinbase")]
+        # A single open job at the company, so the confirmation is
+        # unambiguous and the first run may legitimately mark it — the
+        # property under test is that the *second* and *third* runs do not
+        # then go looking for another job to spend the same email on.
+        harness["jobs"] = [_job("a", "Coinbase")]
         harness["threads"] = [_thread("1", "Thank you for applying to Coinbase")]
 
         assert _run(harness)["marked"] == 1
@@ -169,8 +197,21 @@ class TestOneEmailOneJobAcrossRuns:
         assert harness["jobs"][0]["submissionEvidence"]["confirmationUid"] == "1"
 
     def test_a_second_genuine_email_still_marks_a_second_job(self, harness):
-        harness["jobs"] = [_job("a", "Coinbase"), _job("b", "Coinbase")]
-        harness["threads"] = [_thread("1", "Thank you for applying to Coinbase")]
+        # Two jobs open at once at the same company is the ambiguous case a
+        # plain company-only email cannot resolve on its own (see
+        # test_an_ambiguous_company_only_email_marks_nothing). A title-bearing
+        # email still resolves unambiguously to one of them regardless of how
+        # many siblings are open; once that one is SUBMITTED it drops out of
+        # the candidate pool, so the second, plain "Thank you for applying to
+        # Coinbase" is no longer ambiguous — exactly one open job is left, and
+        # a company-only match is safe again.
+        named = _job("a", "Coinbase")
+        named["title"] = "Senior Backend Engineer"
+        other = _job("b", "Coinbase")
+        harness["jobs"] = [named, other]
+        harness["threads"] = [
+            _thread("1", "We've received your application for Senior Backend Engineer at Coinbase")
+        ]
         assert _run(harness)["marked"] == 1
 
         harness["threads"].append(_thread("2", "Thank you for applying to Coinbase"))

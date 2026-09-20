@@ -815,6 +815,13 @@ async def test_gemini_tailoring_returns_bullets_in_the_local_models_shape(gatewa
 
     monkeypatch.setattr("app.services.gemini.gateway.get_gateway", lambda: gateway)
     monkeypatch.setattr(tailoring, "_GEMINI_TAILORING", True)
+    # Gemini is off for the application path by default, and per-application
+    # tailoring is part of that path; this test is about what the Gemini route
+    # returns when it does run, so both switches go on for it. The conftest
+    # turns CAREEROS_GEMINI_ENABLED off for the suite at large, and that master
+    # switch also gates the application path.
+    monkeypatch.setenv("CAREEROS_GEMINI_ENABLED", "1")
+    monkeypatch.setenv("CAREEROS_GEMINI_APPLICATIONS", "on")
     gateway.transport = Recorder(reply_ok(_json.dumps({
         "bullets": ["<b>Led migration</b> of the service.", "<b>Built</b> the pipeline."]
     })))
@@ -840,6 +847,13 @@ async def test_a_wrong_bullet_count_falls_back_instead_of_misaligning(gateway, m
 
     monkeypatch.setattr("app.services.gemini.gateway.get_gateway", lambda: gateway)
     monkeypatch.setattr(tailoring, "_GEMINI_TAILORING", True)
+    # Gemini is off for the application path by default, and per-application
+    # tailoring is part of that path; this test is about what the Gemini route
+    # returns when it does run, so both switches go on for it. The conftest
+    # turns CAREEROS_GEMINI_ENABLED off for the suite at large, and that master
+    # switch also gates the application path.
+    monkeypatch.setenv("CAREEROS_GEMINI_ENABLED", "1")
+    monkeypatch.setenv("CAREEROS_GEMINI_APPLICATIONS", "on")
     gateway.transport = Recorder(reply_ok(_json.dumps({"bullets": ["only one"]})))
 
     assert await tailoring._complete_batch_via_gemini("prompt", 3) is None

@@ -8,20 +8,53 @@ from app.services.auth import SESSION_COOKIE_NAME, is_auth_configured, verify_se
 # by the dev tooling, and static assets that carry no data.
 _ALLOWLIST_PREFIXES = ("/auth/", "/health", "/favicon.ico", "/static/")
 
-# KNOWN LIMITATION, deliberate for now: only /application-assistant/* is enforced
-# here. That's the one part of the API the web app calls through the same-origin
-# `/api/backend` proxy (see app/api/backend/[...path]/route.ts), which is what
-# carries the session cookie correctly. Most of the rest of the app (profile,
-# job discovery, settings, email, analytics, ~25 files) calls the API directly
-# from the browser at a different port via lib/api.ts's getClientApiBaseUrl(),
-# which is a different origin — the cookie set at login doesn't reach those
-# requests without `credentials: "include"` on every one of those call sites
-# (not yet done; real fix is migrating them to the proxy pattern, matching
-# application-assistant-api.ts). Enforcing broadly right now 401s all of that
-# and breaks most of the dashboard. Until that migration happens, the Next.js
-# middleware's page-level redirect (middleware.ts) is the actual gate a casual
-# visitor hits; this only additionally locks down the live-submission surface.
-_ENFORCED_PREFIXES = ("/application-assistant/", "/diagnostic/")
+# KNOWN LIMITATION: only /application-assistant/* and /diagnostic/* are
+# enforced. Everything else — profile, job discovery, settings, email,
+# analytics, resume intelligence — answers without a session, so the "login" is
+# really the Next.js page-level redirect in middleware.ts.
+#
+# The reason recorded here previously is now out of date, and the correction
+# matters because it changes how much work the fix is. It said most of the app
+# called the API cross-origin so the cookie could not reach it. That has since
+# been fixed centrally: lib/api.ts's getClientApiBaseUrl() returns
+# "/api/backend" in the browser, and postJson/fetchJson both send
+# `credentials: "include"`, so the ordinary dashboard paths already travel
+# same-origin through the proxy and do carry the session.
+#
+# What is actually left, verified by grep rather than assumed, is eight browser
+# components that still build a fetch URL from NEXT_PUBLIC_API_URL:
+#
+#     components/apply-pilot-installer.tsx
+#     components/benchmark/benchmark-dashboard.tsx      (defaults to port 8000)
+#     components/benchmark/dummy-job-testing-app.tsx    (defaults to port 8000)
+#     components/benchmark/matcher-benchmark.tsx
+#     components/dashboard/autopilot-activity-card.tsx
+#     components/landing-firefox-install.tsx
+#     components/ui/model-benchmark-selector.tsx
+#     app/dev/repair/page.tsx
+#
+# (app/api/*/route.ts also reference the origin, but those are the server-side
+# proxy handlers and are supposed to.)
+#
+# So widening _ENFORCED_PREFIXES is now a small job, not a large one: move those
+# eight onto getClientApiBaseUrl(), then flip this to deny-by-default with an
+# allowlist of /auth/, /health, /favicon.ico and /static/. Do it in that order —
+# reversing it 401s those panels — and add one test per router asserting 401
+# without a cookie, so the limitation cannot quietly come back.
+# Deny by default. Everything not on the allowlist above needs a session.
+#
+# This used to be an allowlist of two prefixes, leaving profile, job discovery,
+# settings, email, analytics and resume intelligence readable by anyone who
+# could reach the port — the "login" was really just the Next.js page redirect.
+# The blocker recorded for that was stale (see above); the eight components that
+# genuinely still bypassed the proxy have since been moved onto
+# getClientApiBaseUrl(), so the dashboard now travels same-origin and carries
+# the cookie.
+#
+# Kept as an explicit empty tuple rather than deleted, because the *shape* of
+# the decision matters: adding a prefix here would silently re-open a hole, and
+# a reader should see that the enforcement is deliberate and total.
+_ENFORCED_PREFIXES: tuple[str, ...] = ()
 
 
 class AuthGateMiddleware(BaseHTTPMiddleware):
@@ -37,7 +70,12 @@ class AuthGateMiddleware(BaseHTTPMiddleware):
         if request.url.path.startswith(_ALLOWLIST_PREFIXES):
             return await call_next(request)
 
-        if not request.url.path.startswith(_ENFORCED_PREFIXES):
+        # An empty _ENFORCED_PREFIXES now means "enforce everything", which is
+        # the opposite of what `startswith(())` returns — it is False for every
+        # path, so the original early-return would have waved the whole API
+        # through the moment the tuple was emptied. Only narrow enforcement when
+        # the tuple is non-empty.
+        if _ENFORCED_PREFIXES and not request.url.path.startswith(_ENFORCED_PREFIXES):
             return await call_next(request)
 
         session = verify_session_token(request.cookies.get(SESSION_COOKIE_NAME))

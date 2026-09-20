@@ -17,12 +17,15 @@ from app.services.job_discover.sources.ashby import AshbySource
 from app.services.job_discover.sources.base import JobSourceAdapter, NormalizedJob, SourceHealth, SourceRole
 from app.services.job_discover.sources.bigtech import BigTechSourceAdapter
 from app.services.job_discover.sources.github_feed import GitHubFeedSource
+from app.services.job_discover.sources.google_cse import GoogleCseJobSource
 from app.services.job_discover.sources.greenhouse import GreenhouseSource
 from app.services.job_discover.sources.hackernews import HackerNewsSource
 from app.services.job_discover.sources.himalayas import HimalayasSource
 from app.services.job_discover.sources.icims import ICIMSSource
+from app.services.job_discover.sources.indeed import IndeedSource
 from app.services.job_discover.sources.jobicy import JobicySource
 from app.services.job_discover.sources.lever import LeverSource
+from app.services.job_discover.sources.linkedin import LinkedInSource
 from app.services.job_discover.sources.oracle import OracleSource
 from app.services.job_discover.sources.personio import PersonioSource
 from app.services.job_discover.sources.playwright_fallback import PlaywrightCareerPageSource
@@ -71,6 +74,15 @@ class JobAggregationService:
             GitHubFeedSource(),
             # Aggregator (Priority 60)
             SerpApiGoogleJobsSource(),
+            # Indeed carries the employer's own apply URL on nearly every hit,
+            # so it feeds the ATS scrapers rather than being applied to directly.
+            IndeedSource(),
+            # Google Programmable Search: discovery of recent postings already on
+            # applyable ATS hosts. Inert without credentials.
+            GoogleCseJobSource(),
+            # LinkedIn's guest search has no apply URL at all — company/title
+            # discovery only (Priority 40).
+            LinkedInSource(),
             # Universal Structured Fallbacks (Priority 40-75)
             StructuredCareerPageAdapter(),
             PlaywrightCareerPageSource(),

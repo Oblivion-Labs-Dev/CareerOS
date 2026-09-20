@@ -25,6 +25,17 @@ LIKELY_PATTERNS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"\bemployment-based visa\b", re.I), "Employment visa"),
     (re.compile(r"\bperm\b", re.I), "PERM mentioned"),
     (re.compile(r"\be-?verify\b", re.I), "E-Verify"),
+    # Global-mobility signals. An employer offering relocation or an
+    # intra-company transfer has the legal entity and process to move someone
+    # across a border, which is the same thing a sponsorship search is really
+    # looking for — and none of the patterns above catch it. Kept distinct from
+    # a bare "relocation" mention, which is usually just a domestic stipend.
+    (re.compile(r"\binternational relocation\b", re.I), "International relocation"),
+    (re.compile(r"\brelocation (?:package|assistance|support|benefits)\b", re.I), "Relocation offered"),
+    (re.compile(r"\bintra-?company transfer\b", re.I), "Intra-company transfer"),
+    (re.compile(r"\bglobal mobility\b", re.I), "Global mobility programme"),
+    (re.compile(r"\bwork permit (?:support|sponsorship|assistance)\b", re.I), "Work permit support"),
+    (re.compile(r"\bl-?1[ab]?\s+visa\b", re.I), "L-1 transfer visa"),
 ]
 
 UNLIKELY_PATTERNS: list[tuple[re.Pattern[str], str]] = [

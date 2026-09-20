@@ -143,7 +143,7 @@ export function ResumeProfileSwitcher({ activeProfileId, onSelect, onChanged }: 
                 type="button"
                 onClick={() => void handleDelete(profile)}
                 aria-label={`Delete ${profile.name}`}
-                style={{ ...pillBase, padding: "0.3rem 0.5rem", fontSize: "var(--cos-text-xs)", color: "#f43f5e", borderColor: "rgba(244,63,94,0.35)" }}
+                style={{ ...pillBase, padding: "0.3rem 0.5rem", fontSize: "var(--cos-text-xs)", color: "var(--danger)", borderColor: "rgba(244,63,94,0.35)" }}
               >
                 Delete
               </button>
@@ -183,7 +183,7 @@ export function ResumeProfileSwitcher({ activeProfileId, onSelect, onChanged }: 
         </button>
       )}
 
-      {error ? <span style={{ color: "#f43f5e", fontSize: "var(--cos-text-xs)" }}>{error}</span> : null}
+      {error ? <span style={{ color: "var(--danger)", fontSize: "var(--cos-text-xs)" }}>{error}</span> : null}
     </div>
   );
 }

@@ -1,5 +1,6 @@
 "use client";
 
+import { getClientApiBaseUrl } from "@/lib/api";
 import { useState } from "react";
 
 export type InputComponentType = "radio" | "dropdown" | "checkbox" | "multicheckbox" | "text" | "textarea" | "toggle" | "autocomplete";
@@ -364,7 +365,11 @@ export function DummyJobTestingApp() {
   const [batchRunning, setBatchRunning] = useState<boolean>(false);
   const [userInputs, setUserInputs] = useState<Record<string, any>>({});
 
-  const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+    // Same-origin through the Next proxy, so the login session cookie travels
+  // with the request. Resolved at call time, not module scope: at module
+  // scope this evaluates during SSR, where it would freeze to the server-side
+  // origin and defeat the point.
+    const apiUrl = getClientApiBaseUrl();
 
   const handleTestField = async (caseKey: string, question: string, options: string[] = [], fieldId: string) => {
     try {

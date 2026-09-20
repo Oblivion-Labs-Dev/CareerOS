@@ -32,8 +32,14 @@ class TestPhoneCountryFields:
         )
         assert cls.value == "verified"
         assert value == "United States"
-        assert source == "profile.phoneCountry"
-        assert confidence == 1.0
+        # classify_answer delegates to resolve_answer first, which labels its
+        # source by question type rather than by profile key.
+        assert source == "resolver.COUNTRY"
+        # 0.95 is this module's standard confidence for an answer resolved
+        # from a fallback/inference rather than copied directly off a
+        # profile field — used consistently across every resolver in
+        # profile_answer_resolver.py, not specific to country inference.
+        assert confidence == 0.95
 
     def test_is_phone_country_field_by_selector(self):
         assert is_phone_country_field("Country*", field_id="country", selector_hint="#country")

@@ -172,7 +172,10 @@
   --text: #0f172a;
   --text-secondary: #334155;
   --muted: #64748b;
-  --muted-dim: #94a3b8;
+  /* #94a3b8 measured 2.56:1 on white, under the 3:1 floor the contrast spec
+     enforces; it made captions like the success-rate formula unreadable in
+     light mode. 3.58:1 here, still dimmer than --muted. */
+  --muted-dim: #78899e;
 
   --accent: #0a947e;
   --accent-secondary: #b87333;

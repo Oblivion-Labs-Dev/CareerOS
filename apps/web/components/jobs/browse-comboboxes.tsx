@@ -156,7 +156,7 @@ export function SearchableCombobox({
               >
                 <span>{opt.label ?? opt.value}</span>
                 {opt.sublabel ? (
-                  <span style={{ fontSize: "0.75rem", color: "#9aa8b9", marginLeft: "0.5rem" }}>
+                  <span style={{ fontSize: "0.75rem", color: "var(--muted)", marginLeft: "0.5rem" }}>
                     {opt.sublabel}
                   </span>
                 ) : null}
@@ -268,7 +268,7 @@ export function MultiSelectCombobox({
               padding: "0.15rem 0.45rem",
               backgroundColor: "rgba(98, 221, 197, 0.15)",
               border: "1px solid rgba(98, 221, 197, 0.35)",
-              color: "#62ddc5",
+              color: "var(--accent)",
               borderRadius: "6px",
               fontSize: "0.8rem",
               fontWeight: 600,
@@ -284,7 +284,7 @@ export function MultiSelectCombobox({
               style={{
                 background: "none",
                 border: 0,
-                color: "#62ddc5",
+                color: "var(--accent)",
                 cursor: "pointer",
                 padding: 0,
                 fontSize: "0.85rem",
@@ -405,7 +405,7 @@ export function MultiSelectCombobox({
               >
                 <span>{opt.label ?? opt.value}</span>
                 {opt.sublabel ? (
-                  <span style={{ fontSize: "0.75rem", color: "#9aa8b9", marginLeft: "0.5rem" }}>
+                  <span style={{ fontSize: "0.75rem", color: "var(--muted)", marginLeft: "0.5rem" }}>
                     {opt.sublabel}
                   </span>
                 ) : null}

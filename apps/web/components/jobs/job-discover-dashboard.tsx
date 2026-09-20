@@ -1395,7 +1395,7 @@ export function JobDiscoverDashboard() {
           </div>
         </div>
 
-        {loading && !(data?.jobs.length) ? <WorkspaceLoading label="Finding your next opportunity…" /> : !visibleJobs.length ? (
+        {loading && !(data?.jobs.length) ? <WorkspaceLoading label="Finding your next opportunity…" shape="grid" rows={6} /> : !visibleJobs.length ? (
           <p className="muted">
             {filterHidingResults
               ? "Widen or clear filters above to see roles to review."
@@ -1434,17 +1434,17 @@ export function JobDiscoverDashboard() {
                   padding: "0.65rem 1rem",
                   marginBlock: "0.5rem 0.75rem",
                   backgroundColor: selectedJobIds.size > 0 ? "rgba(98, 221, 197, 0.08)" : "#11161d",
-                  border: `1px solid ${selectedJobIds.size > 0 ? "#62ddc5" : "rgba(166, 181, 201, 0.16)"}`,
+                  border: `1px solid ${selectedJobIds.size > 0 ? "var(--accent)" : "rgba(166, 181, 201, 0.16)"}`,
                   borderRadius: "10px",
                   transition: "all 0.15s ease",
                 }}
               >
-                <label style={{ display: "flex", alignItems: "center", gap: "0.6rem", cursor: "pointer", fontSize: "0.875rem", fontWeight: 600, color: "#f5f8fb" }}>
+                <label style={{ display: "flex", alignItems: "center", gap: "0.6rem", cursor: "pointer", fontSize: "0.875rem", fontWeight: 600, color: "var(--text)" }}>
                   <input
                     type="checkbox"
                     checked={visibleJobs.length > 0 && visibleJobs.every((j) => selectedJobIds.has(j.id))}
                     onChange={() => toggleSelectAllVisible(visibleJobs)}
-                    style={{ width: "1.1rem", height: "1.1rem", cursor: "pointer", accentColor: "#62ddc5" }}
+                    style={{ width: "1.1rem", height: "1.1rem", cursor: "pointer", accentColor: "var(--accent)" }}
                   />
                   <span>
                     {selectedJobIds.size > 0

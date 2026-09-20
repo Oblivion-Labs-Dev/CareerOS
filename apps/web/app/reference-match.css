@@ -23,7 +23,10 @@
   --ref-border-bright: rgba(15, 23, 42, 0.18);
   --ref-text: #0f172a;
   --ref-muted: #475569;
-  --ref-dim: #94a3b8;
+  /* #94a3b8 measured 2.56:1 on white and 2.45:1 on --ref-panel-deep, under the
+     3:1 floor the contrast spec enforces. This keeps the dim/muted/text
+     hierarchy (3.58 / 7.58 / 17.9 on white) while being legible. */
+  --ref-dim: #78899e;
   --ref-teal: #0a947e;
   --ref-cyan: #0284c7;
   --ref-violet: #6e5bd3;
@@ -169,7 +172,7 @@ body::before {
 .nav-group-label {
   height: 23px;
   padding: 0 11px;
-  color: #8fa1bd;
+  color: var(--ref-muted);
   font-size: 11px;
   font-weight: 560;
   line-height: 23px;
@@ -187,7 +190,7 @@ body::before {
   gap: 12px;
   border: 1px solid transparent;
   border-radius: 10px;
-  color: #c3cee0;
+  color: var(--ref-muted);
   font-size: 14px;
   font-weight: 460;
   text-decoration: none;
@@ -195,12 +198,12 @@ body::before {
 }
 
 .nav-link:hover {
-  color: #f5fbff;
+  color: var(--ref-text);
   background: rgba(63, 103, 151, 0.11);
 }
 
 .nav-link.active {
-  color: #13ead0;
+  color: var(--ref-teal);
   border-color: rgba(13, 232, 193, 0.52);
   background:
     linear-gradient(90deg, rgba(8, 107, 104, 0.22), rgba(7, 58, 66, 0.36)),
@@ -213,11 +216,11 @@ body::before {
   height: 21px;
   display: grid;
   place-items: center;
-  color: #9eb6da;
+  color: var(--ref-muted);
 }
 
 .nav-link.active .nav-icon {
-  color: #13ead0;
+  color: var(--ref-teal);
 }
 
 .nav-link-label {
@@ -233,7 +236,7 @@ body::before {
   place-items: center;
   border: 1px solid rgba(139, 92, 246, 0.23);
   border-radius: 999px;
-  color: #c5a9ff;
+  color: var(--ref-violet);
   background: rgba(72, 36, 152, 0.44);
   font-size: 12px;
   font-weight: 700;
@@ -278,14 +281,14 @@ body::before {
 
 .sidebar-night-card strong,
 .sidebar-profile-copy strong {
-  color: #f6f8fc;
+  color: var(--ref-text);
   font-size: 14px;
   font-weight: 650;
 }
 
 .sidebar-night-card small,
 .sidebar-profile-copy small {
-  color: #a5b3c7;
+  color: var(--ref-muted);
   font-size: 11px;
 }
 
@@ -294,14 +297,14 @@ body::before {
   height: 28px;
   display: grid;
   place-items: center;
-  color: #87a1ff;
+  color: var(--ref-violet);
   filter: drop-shadow(0 0 8px rgba(96, 117, 255, 0.6));
 }
 
 .sidebar-night-card p {
   max-width: 150px;
   margin: 10px 0 0;
-  color: #7789a4;
+  color: var(--ref-dim);
   font-size: 10px;
   line-height: 1.65;
 }
@@ -378,7 +381,7 @@ body::before {
   display: flex;
   align-items: center;
   gap: 8px;
-  color: #8090a6;
+  color: var(--ref-dim);
   font-size: 10px;
 }
 
@@ -429,17 +432,17 @@ body::before {
   display: flex;
   align-items: center;
   gap: 12px;
-  color: #97a6bc;
+  color: var(--ref-muted);
   font-size: 15px;
 }
 
 .app-topbar-context a {
-  color: #a8b5c9;
+  color: var(--ref-muted);
   text-decoration: none;
 }
 
 .app-topbar-page-title {
-  color: #f5f7fb;
+  color: var(--ref-text);
   font-weight: 650;
 }
 
@@ -454,7 +457,7 @@ body::before {
 }
 
 .app-topbar-live-state.is-offline {
-  color: #ff7b88;
+  color: var(--ref-rose);
 }
 
 .app-topbar-actions {
@@ -472,7 +475,7 @@ body::before {
   gap: 11px;
   border: 1px solid rgba(108, 145, 184, 0.28);
   border-radius: 17px;
-  color: #96a6bd;
+  color: var(--ref-muted);
   background: rgba(4, 12, 23, 0.75);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.015);
 }
@@ -493,7 +496,7 @@ body::before {
   place-items: center;
   border: 1px solid rgba(101, 137, 177, 0.18);
   border-radius: 7px;
-  color: #8495ac;
+  color: var(--ref-dim);
   background: rgba(10, 21, 37, 0.8);
   font-family: inherit;
   font-size: 10px;
@@ -511,7 +514,7 @@ body::before {
 .app-topbar-icon-button {
   width: 38px;
   height: 38px;
-  color: #b9c7da;
+  color: var(--ref-muted);
   background: rgba(7, 16, 29, 0.76);
 }
 
@@ -584,10 +587,13 @@ body::before {
 [data-theme="light"] .applications-control-page,
 [data-theme="light"] .main > :not(.applications-control-page):not(.autopilot-loading) {
   border-color: rgba(15, 23, 42, 0.08);
+  /* Tinted, not white. Cards in light mode are pure white, so the surface
+     they sit on has to be the darker of the two or they have nothing to lift
+     off — this was #ffffff → #f8fafc and the cards vanished into it. */
   background:
-    radial-gradient(circle at 30% 4%, rgba(10, 148, 126, 0.04), transparent 28%),
-    linear-gradient(145deg, #ffffff, #f8fafc);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6);
+    radial-gradient(circle at 30% 4%, rgba(10, 148, 126, 0.05), transparent 28%),
+    linear-gradient(145deg, #f4f7fa, #eaeff6);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.5);
 }
 
 .autopilot-dashboard {
@@ -614,7 +620,7 @@ body::before {
 .autopilot-eyebrow {
   display: block;
   margin: 0 0 9px;
-  color: #a6ddf7;
+  color: var(--ref-cyan);
   font-size: 12px;
   font-weight: 570;
   letter-spacing: 0.035em;
@@ -626,7 +632,7 @@ body::before {
   display: flex;
   align-items: center;
   gap: 9px;
-  color: #f5f7fb;
+  color: var(--ref-text);
   font-family: var(--font-inter), Inter, sans-serif;
   font-size: clamp(28px, 2.35vw, 38px);
   font-weight: 730;
@@ -651,7 +657,7 @@ body::before {
 .autopilot-hero p {
   max-width: 590px;
   margin: 8px 0 0;
-  color: #bdc8d9;
+  color: var(--ref-muted);
   font-size: 14px;
   line-height: 1.55;
 }
@@ -673,7 +679,7 @@ body::before {
   gap: 9px;
   border: 1px solid rgba(103, 142, 184, 0.32);
   border-radius: 11px;
-  color: #ecf2fa;
+  color: var(--ref-text);
   background: linear-gradient(180deg, rgba(10, 21, 37, 0.9), rgba(6, 14, 27, 0.92));
   font-size: 13px;
   font-weight: 590;
@@ -693,7 +699,7 @@ body::before {
 
 .autopilot-button--primary {
   border-color: var(--ref-teal);
-  color: #96ffed;
+  color: var(--ref-teal);
   background: linear-gradient(180deg, rgba(17, 92, 83, 0.78), rgba(7, 60, 58, 0.75));
   box-shadow: inset 0 0 18px rgba(13,232,193,.08), 0 0 21px rgba(13,232,193,.23);
 }
@@ -716,7 +722,7 @@ body::before {
   justify-content: space-between;
   border: 1px solid rgba(255,82,100,.35);
   border-radius: 10px;
-  color: #ffacb4;
+  color: var(--ref-rose);
   background: rgba(101,19,31,.22);
   font-size: 12px;
 }
@@ -769,7 +775,7 @@ body::before {
   z-index: 2;
   top: 23px;
   left: 22px;
-  color: #dce5f1;
+  color: var(--ref-text);
   font-size: 11px;
   font-weight: 590;
   letter-spacing: 0.025em;
@@ -816,13 +822,13 @@ body::before {
 .autopilot-batch-heading {
   display: flex;
   flex-direction: column;
-  color: #c5cfdd;
+  color: var(--ref-muted);
   font-size: 12px;
 }
 
 .autopilot-batch-heading strong {
   margin-top: 2px;
-  color: #f1f4f8;
+  color: var(--ref-text);
   font-size: 29px;
   font-weight: 690;
   line-height: 1.1;
@@ -869,7 +875,7 @@ body::before {
   position: absolute;
   right: 0;
   top: -1px;
-  color: #e4e9f1;
+  color: var(--ref-text);
   font-size: 11px;
   font-weight: 560;
 }
@@ -916,7 +922,7 @@ body::before {
   place-items: center;
   border: 1px solid rgba(87, 129, 171, 0.22);
   border-radius: 50%;
-  color: #7589a9;
+  color: var(--ref-dim);
   background: #0a1728;
 }
 
@@ -934,7 +940,7 @@ body::before {
 }
 
 .autopilot-pipeline-step small {
-  color: #b6c1d1;
+  color: var(--ref-muted);
   font-size: 11px;
 }
 
@@ -965,7 +971,7 @@ body::before {
 
 .autopilot-run-metadata span {
   overflow: hidden;
-  color: #8495ad;
+  color: var(--ref-dim);
   font-size: 9px;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -974,7 +980,7 @@ body::before {
 .autopilot-run-metadata strong {
   max-width: 100%;
   overflow: hidden;
-  color: #dde4ee;
+  color: var(--ref-text);
   font-size: 11px;
   font-weight: 540;
   text-overflow: ellipsis;
@@ -995,7 +1001,7 @@ body::before {
   display: flex;
   align-items: center;
   gap: 9px;
-  color: #e0e6ef;
+  color: var(--ref-text);
   font-size: 11px;
   font-weight: 590;
   text-transform: uppercase;
@@ -1042,14 +1048,14 @@ body::before {
 }
 
 .autopilot-donut-center strong {
-  color: #f7f8fb;
+  color: var(--ref-text);
   font-size: 29px;
   font-weight: 670;
   line-height: 1;
 }
 
 .autopilot-donut-center small {
-  color: #b7c1d1;
+  color: var(--ref-muted);
   font-size: 11px;
 }
 
@@ -1070,7 +1076,7 @@ body::before {
   display: flex;
   align-items: center;
   gap: 11px;
-  color: #aeb9cb;
+  color: var(--ref-muted);
   font-size: 12px;
 }
 
@@ -1082,7 +1088,7 @@ body::before {
 }
 
 .autopilot-donut-legend strong {
-  color: #f5f7fa;
+  color: var(--ref-text);
   font-size: 13px;
   font-weight: 620;
 }
@@ -1108,12 +1114,12 @@ body::before {
 }
 
 .autopilot-parameter-grid span {
-  color: #98a7bc;
+  color: var(--ref-muted);
   font-size: 10px;
 }
 
 .autopilot-parameter-grid strong {
-  color: #f2f5fa;
+  color: var(--ref-text);
   font-size: 16px;
   font-weight: 650;
 }
@@ -1197,7 +1203,7 @@ body::before {
   display: grid;
   place-items: center;
   border-radius: 50%;
-  color: #93a5ff;
+  color: var(--ref-violet);
   background: rgba(87, 87, 231, 0.25);
   box-shadow: 0 0 21px rgba(96, 103, 255, 0.32);
 }
@@ -1214,14 +1220,14 @@ body::before {
 }
 
 .autopilot-night-copy strong {
-  color: #f1f4fa;
+  color: var(--ref-text);
   font-size: 14px;
   font-weight: 640;
 }
 
 .autopilot-night-copy small {
   max-width: 370px;
-  color: #bcc7da;
+  color: var(--ref-muted);
   font-size: 11px;
   line-height: 1.5;
 }
@@ -1245,7 +1251,7 @@ body::before {
   gap: 13px;
   border: 1px solid rgba(115, 148, 193, 0.22);
   border-radius: 10px;
-  color: #dfe6f2;
+  color: var(--ref-text);
   background: rgba(12, 28, 53, 0.8);
   font-size: 11px;
 }
@@ -1322,7 +1328,7 @@ body::before {
   position: absolute;
   top: 41px;
   left: 57px;
-  color: #f1f4f9;
+  color: var(--ref-text);
   font-size: 25px;
   font-weight: 660;
   letter-spacing: -0.035em;
@@ -1333,7 +1339,7 @@ body::before {
   z-index: 2;
   display: block;
   margin-top: 39px;
-  color: #a9b5c7;
+  color: var(--ref-muted);
   font-size: 10px;
 }
 
@@ -1408,7 +1414,7 @@ body::before {
   grid-row: 1 / span 2;
   grid-column: 2;
   align-self: center;
-  color: #9fb0c5;
+  color: var(--ref-muted);
   font-size: 10px;
 }
 
@@ -1429,7 +1435,7 @@ body::before {
 }
 
 .autopilot-system-health > header > span {
-  color: #dce4ef;
+  color: var(--ref-text);
   font-size: 11px;
   font-weight: 620;
   letter-spacing: .025em;
@@ -1446,7 +1452,7 @@ body::before {
 }
 
 .autopilot-system-health > header > strong.is-offline {
-  color: #ff7b88;
+  color: var(--ref-rose);
 }
 
 .autopilot-system-health > header svg {
@@ -1475,7 +1481,7 @@ body::before {
   align-items: center;
   gap: 9px;
   overflow: hidden;
-  color: #b1bdd0;
+  color: var(--ref-muted);
   font-size: 9px;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1485,7 +1491,7 @@ body::before {
   width: 13px;
   height: 13px;
   flex: 0 0 auto;
-  color: #41c9ee;
+  color: var(--ref-cyan);
 }
 
 .autopilot-system-list small {
@@ -1498,7 +1504,7 @@ body::before {
 }
 
 .autopilot-system-list small.is-offline {
-  color: #ff7b88;
+  color: var(--ref-rose);
 }
 
 .autopilot-system-list small.is-recovering {
@@ -1519,7 +1525,7 @@ body::before {
   margin-top: auto;
   border: 1px solid rgba(89, 132, 177, 0.18);
   border-radius: 9px;
-  color: #aebdd2;
+  color: var(--ref-muted);
   background: rgba(12, 27, 48, 0.82);
   font-size: 9px;
 }
@@ -1533,7 +1539,7 @@ body::before {
   gap: 4px;
   border: 1px solid rgba(13,232,193,.18);
   border-radius: 8px;
-  color: #9fb0c4;
+  color: var(--ref-muted);
   background: rgba(6,31,36,.35);
   font-size: 9px;
 }
@@ -1556,7 +1562,7 @@ body::before {
   display: flex;
   align-items: center;
   gap: 7px;
-  color: #dae2ee;
+  color: var(--ref-text);
   font-size: 10px;
   font-weight: 620;
   letter-spacing: .025em;
@@ -1575,7 +1581,7 @@ body::before {
   gap: 12px;
   border: 1px solid rgba(91, 132, 177, 0.17);
   border-radius: 9px;
-  color: #b4c0d2;
+  color: var(--ref-muted);
   background: rgba(11, 25, 45, 0.78);
   font-size: 9px;
 }
@@ -1610,7 +1616,7 @@ body::before {
   position: absolute;
   left: 0;
   top: 14px;
-  color: #75859c;
+  color: var(--ref-dim);
   font-size: 9px;
 }
 
@@ -1645,7 +1651,7 @@ body::before {
 .autopilot-activity-list strong,
 .autopilot-activity-empty strong {
   overflow: hidden;
-  color: #e5e9f0;
+  color: var(--ref-text);
   font-size: 10px;
   font-weight: 580;
   text-overflow: ellipsis;
@@ -1655,7 +1661,7 @@ body::before {
 .autopilot-activity-list small,
 .autopilot-activity-empty small {
   overflow: hidden;
-  color: #8f9db1;
+  color: var(--ref-muted);
   font-size: 9px;
   line-height: 1.4;
   text-overflow: ellipsis;
@@ -1668,7 +1674,7 @@ body::before {
   align-items: center;
   justify-content: center;
   gap: 13px;
-  color: #61748f;
+  color: var(--ref-dim);
 }
 
 .autopilot-activity-empty > svg {
@@ -1717,7 +1723,7 @@ body::before {
 
 .autopilot-activity-modal header button {
   border: 0;
-  color: #c9d2df;
+  color: var(--ref-muted);
   background: transparent;
   font-size: 23px;
 }
@@ -1725,13 +1731,13 @@ body::before {
 .autopilot-activity-modal article {
   padding: 10px 0;
   border-top: 1px solid rgba(90,130,175,.12);
-  color: #afbdd0;
+  color: var(--ref-muted);
   font-size: 11px;
 }
 
 .autopilot-activity-modal time {
   flex: 0 0 auto;
-  color: #708199;
+  color: var(--ref-dim);
 }
 
 .applications-secondary-workspace {
@@ -1759,14 +1765,14 @@ body::before {
 
 .applications-secondary-header h1 {
   margin: 6px 0;
-  color: #f5f7fb;
+  color: var(--ref-text);
   font-size: 29px;
   letter-spacing: -.035em;
 }
 
 .applications-secondary-header p {
   margin: 0;
-  color: #98a9bf;
+  color: var(--ref-muted);
   font-size: 12px;
 }
 
@@ -1778,7 +1784,7 @@ body::before {
   gap: 12px;
   border: 1px solid var(--ref-border);
   border-radius: 16px;
-  color: #a8b8cc;
+  color: var(--ref-muted);
   background: rgba(6,16,29,.85);
   font-size: 12px;
 }
@@ -2023,7 +2029,7 @@ body::before {
     gap: 7px;
     border: 1px solid rgba(105,147,191,.25);
     border-radius: 9px;
-    color: #c5d1df;
+    color: var(--ref-muted);
     background: rgba(10,23,40,.8);
     font-size: 11px;
   }
@@ -2047,7 +2053,7 @@ body::before {
     place-items: center;
     border: 1px solid rgba(104,146,188,.22);
     border-radius: 8px;
-    color: #b7c4d6;
+    color: var(--ref-muted);
     background: rgba(12,25,43,.8);
   }
 
@@ -2267,7 +2273,11 @@ body::before {
   --accent-tertiary: var(--ref-violet);
   --accent-soft: rgba(13, 232, 193, 0.1);
   --accent-glow: rgba(13, 232, 193, 0.2);
-  --success: var(--ref-teal);
+  /* Deliberately not redefined here. --success used to resolve to the same
+     teal as --accent, so "submitted" and "clickable" were drawn identically
+     and neither stood out. The canonical role colours live in
+     design-language.css; these .main blocks are more specific than :root,
+     so redefining it here silently overrode them. */
   --warning: var(--ref-amber);
   --danger: var(--ref-rose);
   --gradient-hero: linear-gradient(135deg, var(--ref-teal), var(--ref-cyan));
@@ -2296,13 +2306,19 @@ body::before {
   --text: var(--ref-text);
   --text-secondary: #334155;
   --muted: #64748b;
-  --muted-dim: #94a3b8;
+  /* This redefinition loads after globals.css and so wins; keep it in step or
+     the light-mode fix there has no effect. #94a3b8 is 2.56:1 on white. */
+  --muted-dim: #78899e;
   --accent: var(--ref-teal);
   --accent-secondary: var(--ref-amber);
   --accent-tertiary: var(--ref-violet);
   --accent-soft: rgba(10, 148, 126, 0.1);
   --accent-glow: rgba(10, 148, 126, 0.22);
-  --success: var(--ref-teal);
+  /* Deliberately not redefined here. --success used to resolve to the same
+     teal as --accent, so "submitted" and "clickable" were drawn identically
+     and neither stood out. The canonical role colours live in
+     design-language.css; these .main blocks are more specific than :root,
+     so redefining it here silently overrode them. */
   --warning: var(--ref-amber);
   --danger: var(--ref-rose);
   --gradient-hero: linear-gradient(135deg, var(--ref-teal), var(--ref-cyan));
@@ -2352,7 +2368,7 @@ body::before {
 .main :is(.workflow-hero, .toc-hero, .cos-page-header, .page-shell > header) .page-title-with-status {
   display: flex;
   margin: 8px 0 7px;
-  color: #f5f7fb;
+  color: var(--ref-text);
   font-family: var(--font-inter), Inter, system-ui, sans-serif;
   font-size: clamp(30px, 2.7vw, 38px);
   font-weight: 730;
@@ -2369,13 +2385,13 @@ body::before {
 ) p {
   max-width: 68ch;
   margin: 0;
-  color: #aebbd0;
+  color: var(--ref-muted);
   font-size: 14px;
   line-height: 1.55;
 }
 
 .main :is(.toc-eyebrow, .toc-card-kicker, .aa-wizard-eyebrow, [class*="todayEyebrow"], .stat-label) {
-  color: #9fdef6;
+  color: var(--ref-cyan);
   font-size: 11px;
   font-weight: 620;
   letter-spacing: 0.055em;
@@ -2415,7 +2431,7 @@ body::before {
   gap: 8px;
   border: 1px solid rgba(103, 142, 184, 0.32);
   border-radius: 10px;
-  color: #e9f0f9;
+  color: var(--ref-text);
   background: linear-gradient(180deg, rgba(10, 21, 37, 0.92), rgba(6, 14, 27, 0.94));
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.018);
   font-size: 13px;
@@ -2427,7 +2443,7 @@ body::before {
 
 .main :is(.btn-primary, .btn.btn-primary) {
   border-color: var(--ref-teal);
-  color: #98ffed;
+  color: var(--ref-teal);
   background: linear-gradient(180deg, rgba(17, 92, 83, 0.88), rgba(7, 60, 58, 0.84));
   box-shadow: inset 0 0 18px rgba(13, 232, 193, 0.08), 0 0 18px rgba(13, 232, 193, 0.15);
 }
@@ -2441,7 +2457,7 @@ body::before {
 
 .main :is(.btn-primary, .btn.btn-primary):hover:not(:disabled) {
   border-color: #42f5d8;
-  color: #c4fff5;
+  color: var(--ref-text);
   background: linear-gradient(180deg, rgba(20, 112, 99, 0.92), rgba(8, 72, 67, 0.9));
   box-shadow: inset 0 0 20px rgba(13, 232, 193, 0.1), 0 0 22px rgba(13, 232, 193, 0.2);
 }
@@ -2520,13 +2536,13 @@ body::before {
 }
 
 .main :is(.workflow-panel, .toc-card, .focus-panel, .roadmap-phase, .panel, .dashboard-panel, .aa-panel) h2 {
-  color: #edf2f8;
+  color: var(--ref-text);
   font-weight: 640;
   letter-spacing: -0.02em;
 }
 
 .main :is(.workflow-panel, .toc-card, .focus-panel, .roadmap-phase, .panel, .dashboard-panel, .aa-panel) p {
-  color: #a7b5c9;
+  color: var(--ref-muted);
 }
 
 /* The connected workspace strip reads as a compact in-product tab bar. */
@@ -2550,31 +2566,31 @@ body::before {
   border: 0;
   border-right: 1px solid rgba(90, 132, 177, 0.13);
   border-radius: 0;
-  color: #8091aa;
+  color: var(--ref-dim);
   background: transparent;
   box-shadow: none;
 }
 
 .main .career-workspace-chip:hover,
 .main .career-workspace-chip:focus-visible {
-  color: #d6e0ec;
+  color: var(--ref-text);
   background: rgba(11, 28, 48, 0.58);
 }
 
 .main .career-workspace-chip--active {
-  color: #f0f4f9;
+  color: var(--ref-text);
   background: linear-gradient(180deg, rgba(10, 29, 48, 0.64), rgba(5, 17, 30, 0.35));
   box-shadow: inset 0 -2px 0 var(--ref-teal);
 }
 
 .main .career-workspace-chip-label {
-  color: #8394ac;
+  color: var(--ref-dim);
   font-size: 10px;
   letter-spacing: 0.055em;
 }
 
 .main .career-workspace-chip--active .career-workspace-chip-label {
-  color: #a6ddf7;
+  color: var(--ref-cyan);
 }
 
 .main .career-workspace-chip strong {
@@ -2594,11 +2610,15 @@ body::before {
   .cos-combobox-input,
   .cos-multiselect-box
 ) {
-  border: 1px solid rgba(96, 139, 184, 0.24);
-  border-radius: 10px;
-  color: #dde6f1;
-  background: linear-gradient(180deg, rgba(7, 17, 31, 0.96), rgba(5, 14, 26, 0.96));
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.012);
+  border: 1px solid var(--card-edge, rgba(96, 139, 184, 0.24));
+  border-radius: var(--radius-md);
+  color: var(--ref-text);
+  /* Was a hardcoded dark-navy gradient with no light-mode counterpart, so
+     every input, select and textarea in the app rendered as a black box in
+     light mode — and because this rule is `.main :is(select)` it outranked
+     the component stylesheets trying to fix it locally. */
+  background: var(--control-bg);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.012);
 }
 
 .main :is(
@@ -2611,7 +2631,7 @@ body::before {
   .cos-combobox-input,
   .cos-multiselect-box
 )::placeholder {
-  color: #62748e;
+  color: var(--ref-dim);
 }
 
 .main :is(
@@ -2643,7 +2663,7 @@ body::before {
 }
 
 .main label {
-  color: #c2cede;
+  color: var(--ref-muted);
   font-size: 12px;
   font-weight: 560;
 }
@@ -2673,7 +2693,7 @@ body::before {
 }
 
 .main table th {
-  color: #93a7c0;
+  color: var(--ref-muted);
   background: rgba(10, 25, 43, 0.88);
   font-size: 10px;
   font-weight: 630;
@@ -2691,12 +2711,12 @@ body::before {
 
 .main :is(.cos-badge, .phase-pill, .status-tag, .referral-status, .job-meta-pill, [class*="statusTag"], [class*="pill"]) {
   border-color: rgba(103, 145, 190, 0.22);
-  color: #b7c7db;
+  color: var(--ref-muted);
   background: rgba(10, 25, 43, 0.82);
 }
 
 .main :is(.muted, .cos-empty, .dashboard-empty, [class*="minimal-dashboard_empty"]) {
-  color: #8394ab;
+  color: var(--ref-dim);
 }
 
 .main :is(.email-sender-status, .cos-alert, .errorBanner, [class*="errorBanner"]) {
@@ -2713,7 +2733,7 @@ body::before {
   justify-content: center;
   border: 1px dashed rgba(91, 138, 195, 0.2);
   border-radius: 13px;
-  color: #8394ab;
+  color: var(--ref-dim);
   background: rgba(6, 17, 30, 0.55);
 }
 
@@ -2730,7 +2750,7 @@ body::before {
 
 .main :is(.apply-dashboard-hero, .job-guide-hero, .job-portals-hero) h1 {
   margin: 8px 0 7px;
-  color: #f5f7fb;
+  color: var(--ref-text);
   font-family: var(--font-inter), Inter, system-ui, sans-serif;
   font-size: clamp(30px, 2.7vw, 38px);
   font-weight: 730;
@@ -2741,7 +2761,7 @@ body::before {
 .main :is(.apply-dashboard-hero, .job-guide-hero, .job-portals-hero) p {
   max-width: 68ch;
   margin: 0;
-  color: #aebbd0;
+  color: var(--ref-muted);
   font-size: 14px;
   line-height: 1.55;
 }
@@ -2824,7 +2844,7 @@ body::before {
   min-height: 40px;
   border: 1px solid rgba(103, 142, 184, 0.32);
   border-radius: 10px;
-  color: #e9f0f9;
+  color: var(--ref-text);
   background: linear-gradient(180deg, rgba(10, 21, 37, 0.92), rgba(6, 14, 27, 0.94));
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.018);
   transition: transform 150ms ease, border-color 150ms ease, color 150ms ease, box-shadow 150ms ease;
@@ -2832,7 +2852,7 @@ body::before {
 
 .main .resume-corpus-app [class*="resume-corpus_primaryButton"] {
   border-color: var(--ref-teal);
-  color: #98ffed;
+  color: var(--ref-teal);
   background: linear-gradient(180deg, rgba(17, 92, 83, 0.88), rgba(7, 60, 58, 0.84));
   box-shadow: inset 0 0 18px rgba(13, 232, 193, 0.08), 0 0 18px rgba(13, 232, 193, 0.15);
 }
@@ -2853,14 +2873,14 @@ body::before {
   [class*="resume-corpus_embeddedNavItemActive"]
 ) {
   border-color: rgba(13, 232, 193, 0.42);
-  color: #83f8e5;
+  color: var(--ref-teal);
   background: linear-gradient(90deg, rgba(8, 107, 104, 0.22), rgba(7, 58, 66, 0.34));
   box-shadow: inset 2px 0 0 var(--ref-teal);
 }
 
 .main .resume-corpus-app [class*="resume-corpus_searchButton"] {
   border-color: rgba(108, 145, 184, 0.28);
-  color: #96a6bd;
+  color: var(--ref-muted);
   background: rgba(4, 12, 23, 0.78);
 }
 
@@ -3017,7 +3037,7 @@ body::before {
 
 .main .career-workspace-chip--active {
   border-color: rgba(13, 232, 193, 0.44);
-  color: #eafffb;
+  color: var(--ref-text);
   background: linear-gradient(180deg, rgba(15, 64, 68, 0.68), rgba(7, 31, 42, 0.78));
   box-shadow: inset 0 0 18px rgba(13, 232, 193, 0.06), 0 0 15px rgba(13, 232, 193, 0.08);
 }
@@ -3074,7 +3094,7 @@ body::before {
 }
 
 .main :is(.dashboard-panel-header, .aa-panel-header, .data-panel-header, .referral-message-header, .qwen-agent-header) h2 {
-  color: #edf3f9;
+  color: var(--ref-text);
   font-size: 17px;
   font-weight: 640;
   letter-spacing: -0.02em;
@@ -3132,7 +3152,7 @@ body::before {
 .main [class*="minimal-dashboard_todayGrid"] > :nth-child(2) { --card-accent: var(--ref-violet); }
 
 .main :is(.stat-value, .dashboard-metric-card strong, [class*="minimal-dashboard_statValue"]) {
-  color: #f2f6fb;
+  color: var(--ref-text);
   font-variant-numeric: tabular-nums;
   text-shadow: 0 0 18px rgba(34, 201, 255, 0.07);
 }
@@ -3193,7 +3213,7 @@ body::before {
 
 .main .workflow-overview summary {
   min-height: 48px;
-  color: #aebdd0;
+  color: var(--ref-muted);
 }
 
 /* Keep the dense scraper controls inside the same console width at every

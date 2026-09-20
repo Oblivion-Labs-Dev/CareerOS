@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "python -m uvicorn app.main:app --reload --reload-dir app --host 127.0.0.1 --port 4000",
+    "dev": "python -m uvicorn app.main:app --host 127.0.0.1 --port 4000",
     "dev:reload": "python -m uvicorn app.main:app --reload --reload-dir app --host 127.0.0.1 --port 4000",
     "start": "python -m uvicorn app.main:app --host 127.0.0.1 --port 4000",
     "typecheck": "python -m compileall app",

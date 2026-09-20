@@ -102,6 +102,31 @@ class ReadCache:
         with self._guard:
             self._entries.pop(key, None)
 
+    def touch(self, key: str, loader: Callable[[], Any] | None = None) -> None:
+        """Mark an entry stale without evicting it.
+
+        Unlike ``invalidate``, the next ``get()`` still returns the last-known
+        value immediately (a background refresh is kicked off, same as an
+        ordinary TTL expiry) instead of blocking on a synchronous rebuild.
+        Use this for invalidations that fire at high frequency from a
+        background process (e.g. a batch loop saving a row every few
+        seconds) — evicting on every one of those turns the cache cold for
+        every viewer, not just the writer, which is what a plain
+        ``invalidate`` is for. If a ``loader`` is given and the key is
+        already cached, the refresh is scheduled right away rather than
+        waiting for the next ``get()`` to notice it is stale, so a request
+        landing shortly after almost always finds a warm value.
+        A key with no existing entry is a no-op: there is nothing to keep
+        warm, and the next ``get()`` will populate it normally.
+        """
+        with self._guard:
+            entry = self._entries.get(key)
+        if entry is None:
+            return
+        entry.refreshed_at = 0.0
+        if loader is not None:
+            self._schedule_refresh(key, entry, loader)
+
     def _schedule_refresh(self, key: str, entry: _Entry, loader: Callable[[], Any]) -> None:
         # One refresh at a time per key: a burst of page loads must not queue up
         # a dozen identical rebuilds of the same expensive aggregate.

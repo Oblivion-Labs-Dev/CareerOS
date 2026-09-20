@@ -1,5 +1,7 @@
 "use client";
 
+import { WorkspaceLoading } from "@/components/ui/workspace-loading";
+import { EmptyState } from "@/components/ui/feedback";
 import { ProgressProvider } from "@/components/career-progress/progress-provider";
 import { ProgressHeader } from "@/components/career-progress/progress-header";
 import { QuestBoard } from "@/components/career-progress/quest-board";
@@ -129,7 +131,11 @@ export function MinimalDashboard() {
         </div>
 
         {loading ? (
-          <p className={styles.muted}>Loading matches…</p>
+          // Shaped like the match cards that are coming, so the grid is already
+          // the right size when they land. `loading.tsx` covers the route
+          // transition; this covers the data wait, which is the longer of the
+          // two and the one that reads as slowness.
+          <WorkspaceLoading label="Loading matches" shape="grid" rows={3} />
         ) : topJobs.length ? (
           <div className={styles.matchGrid}>
             {topJobs.slice(0, 5).map((job) => (
@@ -173,11 +179,24 @@ export function MinimalDashboard() {
             ))}
           </div>
         ) : (
-          <p className={styles.empty}>
-            No matches yet.{" "}
-            <Link href="/profile">Complete your profile</Link>, then run a scrape on{" "}
-            <Link href={discoverHref(prefs)}>Job Scraper</Link>.
-          </p>
+          // The shared empty-state component (components/ui/feedback.tsx) —
+          // this replaced a hand-rolled paragraph that was the only place in
+          // the app not using it, even though it fits this full-panel
+          // context (icon + title + actions) exactly.
+          <EmptyState
+            title="No matches yet"
+            description="Complete your profile so relevancy scoring has something to match against, then run a scrape to pull in postings."
+            actions={
+              <>
+                <Link href="/profile" className="btn btn-secondary">
+                  Complete your profile
+                </Link>
+                <Link href={discoverHref(prefs)} className="btn btn-primary">
+                  Open Job Scraper →
+                </Link>
+              </>
+            }
+          />
         )}
       </section>
 

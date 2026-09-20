@@ -1,5 +1,6 @@
 "use client";
 
+import { getClientApiBaseUrl } from "@/lib/api";
 import { useEffect, useState } from "react";
 
 export interface ModelScorecardData {
@@ -75,7 +76,11 @@ export function BenchmarkDashboard() {
   const [filterCategory, setFilterCategory] = useState<string>("all");
   const [showRunSpecs, setShowRunSpecs] = useState<boolean>(true);
 
-  const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+    // Same-origin through the Next proxy, so the login session cookie travels
+  // with the request. Resolved at call time, not module scope: at module
+  // scope this evaluates during SSR, where it would freeze to the server-side
+  // origin and defeat the point.
+    const apiUrl = getClientApiBaseUrl();
 
   const fetchBenchmarks = async () => {
     try {

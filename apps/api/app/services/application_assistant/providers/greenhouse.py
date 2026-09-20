@@ -144,7 +144,9 @@ def resolve_greenhouse_careers_form_url(
 
 
 def resolve_greenhouse_apply_url(url: str, *, company_name: str = "") -> str:
-    """Normalize Greenhouse job URLs while keeping custom careers pages intact."""
+    """Normalize a Greenhouse job URL to the canonical job-boards.greenhouse.io
+    form, redirecting a custom-branded careers-page wrapper rather than
+    keeping it — see the comment below on why that redirect is necessary."""
     if not url:
         return url
 

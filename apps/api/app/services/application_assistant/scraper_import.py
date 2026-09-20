@@ -56,6 +56,15 @@ def scraper_job_to_aa_job(scraper_job: dict[str, Any]) -> dict[str, Any]:
         "scraperJobId": scraper_job["id"],
         "scraperRelevancyScore": scraper_job.get("relevancyScore"),
         "scraperKeywordsMatched": scraper_job.get("keywordsMatched") or [],
+        # Sponsorship signal, carried across the boundary rather than recomputed.
+        # `apply_h1b_fields` already derives this from the title + description
+        # for every scraped posting, but it was being dropped here: 533 snapshot
+        # jobs were flagged "H1B friendly" while not a single autopilot job
+        # carried the field, so nothing downstream could filter or rank on it.
+        "h1bStatus": scraper_job.get("h1bStatus") or "unknown",
+        "h1bLabel": scraper_job.get("h1bLabel") or "",
+        "h1bReason": scraper_job.get("h1bReason") or "",
+        "h1bSignals": scraper_job.get("h1bSignals") or [],
     }
 
 

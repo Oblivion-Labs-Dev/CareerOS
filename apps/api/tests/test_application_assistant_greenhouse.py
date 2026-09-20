@@ -28,12 +28,19 @@ class TestGreenhouseAdapterDetection:
 
 
 class TestGreenhouseUrlResolution:
-    def test_resolves_datadog_careers_page(self):
+    def test_resolves_datadog_careers_page_to_canonical_greenhouse_url(self):
         from app.services.application_assistant.providers.greenhouse import resolve_greenhouse_apply_url
 
+        # A custom-branded wrapper around a real Greenhouse posting (confirmed
+        # live, see resolve_greenhouse_apply_url's own comment): its markup
+        # doesn't match our submit-button/field selectors, which are built
+        # against Greenhouse's own standard form, so navigating to the
+        # canonical job-boards.greenhouse.io URL is what actually lets the
+        # submission go through — the custom wrapper used to be kept intact,
+        # which is what broke it.
         url = "https://careers.datadoghq.com/detail/8088589/?gh_jid=8088589"
         resolved = resolve_greenhouse_apply_url(url, company_name="Datadog")
-        assert resolved == "https://careers.datadoghq.com/detail/8088589/?gh_jid=8088589"
+        assert resolved == "https://job-boards.greenhouse.io/datadog/jobs/8088589?gh_jid=8088589"
 
     def test_keeps_direct_greenhouse_url(self):
         from app.services.application_assistant.providers.greenhouse import resolve_greenhouse_apply_url
@@ -89,7 +96,9 @@ class TestGreenhouseAdapterMapping:
         assert len(mapped) == 3
         assert mapped[0]["classification"] == "verified"
         assert mapped[0]["proposedValue"] == "Jane"
-        assert mapped[1]["proposedValue"] == "jane@example.com"
+        # A taggable +career variant of the candidate's own email, not the
+        # bare address — see profile_answer_resolver.py's email resolution.
+        assert mapped[1]["proposedValue"] == "jane+career@example.com"
 
     def test_sensitive_fields_not_inferred(self):
         from app.services.application_assistant.providers.base import FormField

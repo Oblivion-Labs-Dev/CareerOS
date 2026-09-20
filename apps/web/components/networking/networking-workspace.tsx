@@ -13,7 +13,7 @@ import {
 } from "@/lib/networking-api";
 
 const STATUS_COLOR: Record<string, string> = {
-  active: "#2ee8c9",
+  active: "var(--accent)",
   asked: "#f59e0b",
   referred: "#34d399",
   inactive: "#94a3b8",
@@ -120,7 +120,7 @@ function OutreachPanel({
       </div>
       {loading ? <p className="muted">Drafting with your resume/profile as context…</p> : null}
       {error ? (
-        <p style={{ color: "#f43f5e", fontSize: 13 }}>{error}</p>
+        <p style={{ color: "var(--danger)", fontSize: 13 }}>{error}</p>
       ) : null}
       {draft ? (
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
@@ -291,7 +291,7 @@ export function NetworkingWorkspace() {
       </article>
 
       <article className="workflow-panel dashboard-panel--wide">
-        {error ? <p style={{ color: "#f43f5e", marginBottom: 12 }}>{error}</p> : null}
+        {error ? <p style={{ color: "var(--danger)", marginBottom: 12 }}>{error}</p> : null}
         {!selected ? (
           <p className="muted">Pick or add a company on the left to open its workspace.</p>
         ) : loadingWorkspace ? (

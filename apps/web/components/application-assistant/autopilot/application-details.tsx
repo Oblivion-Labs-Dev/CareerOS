@@ -84,7 +84,11 @@ export function ApplicationDetails({
   const canSetState = settableFrom.includes(job.status || "");
   const status = statusView(job.status);
   const score = typeof job.matchScore === "number" && Number.isFinite(job.matchScore) ? Math.min(100, Math.max(0, Math.round(job.matchScore))) : null;
-  const reason = job.status === "INELIGIBLE" ? job.ineligibilityDetail || INELIGIBILITY_LABELS[job.ineligibilityReason || ""] || job.lastError : job.skipReason || job.lastError;
+  const reason = job.status === "INELIGIBLE"
+    ? job.ineligibilityDetail || INELIGIBILITY_LABELS[job.ineligibilityReason || ""] || job.lastError
+    : job.status === "REJECTED"
+      ? (job.rejectionEvidence?.subject ? `From: "${job.rejectionEvidence.subject}"` : "Marked rejected")
+      : job.skipReason || job.lastError;
   const answers = Object.entries(job.answers || {});
   // Autopilot stops on a question it cannot answer from the profile. The panel
   // is where the user is already looking at that application, so the question
@@ -153,7 +157,10 @@ export function ApplicationDetails({
           }}
         >
           <option value="" disabled>{busy ? "Saving…" : "Choose a state…"}</option>
-          {states.map((state) => (
+          {/* A submitted application is a real record, not a bucket to relabel
+              away — the backend only accepts SUBMITTED -> REJECTED here, so
+              that is the only option offered instead of one that 409s. */}
+          {(job.status === "SUBMITTED" ? states.filter((s) => s.value === "REJECTED") : states.filter((s) => s.value !== "REJECTED")).map((state) => (
             <option key={state.value} value={state.value} data-state={statusView(state.value).key}>
               {state.label}
             </option>

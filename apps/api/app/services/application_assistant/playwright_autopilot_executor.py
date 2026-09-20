@@ -499,10 +499,83 @@ _VOLUNTARY_DISCLOSURE_PATTERNS = (
 )
 
 
+#: Is a bot challenge actually being *presented*, as opposed to merely embedded?
+#:
+#: The previous version of this test matched `/g-recaptcha|grecaptcha/` against
+#: document.innerHTML. Greenhouse ships reCAPTCHA on every board, so that was
+#: true for every Greenhouse posting, and the caller uses it to overwrite the
+#: real failure reason. Measured on the live queue: 56 Cloudflare applications
+#: were filed as "reCAPTCHA bot protection blocked the submission" when the
+#: stored evidence said "Page contains active validation errors: This field is
+#: required." A required field nobody filled is fixable and retryable; a bot wall
+#: is neither, and it classifies as BOT_PROTECTED_BOARD. Mislabelling one as the
+#: other buries a live posting.
+#:
+#: Presence is therefore not evidence. A challenge counts only when something is
+#: on screen big enough for a human to click:
+#:
+#: * the reCAPTCHA v3 badge (`.grecaptcha-badge`) is excluded by name — it is
+#:   always visible on v3 boards and is not a challenge;
+#: * an element must have a real bounding box (>= 100x50) to count, which skips
+#:   the 1x1 and display:none iframes the invisible variants inject;
+#: * visible "I'm not a robot" / "verify you are human" wording counts on its
+#:   own, since that text only renders once a human is actually being asked.
+_VISIBLE_BOT_CHALLENGE_JS = """
+() => {
+  const MIN_W = 100, MIN_H = 50;
+  const shown = (el) => {
+    if (!el) return false;
+    const st = getComputedStyle(el);
+    if (st.display === 'none' || st.visibility === 'hidden' || parseFloat(st.opacity || '1') === 0) return false;
+    const r = el.getBoundingClientRect();
+    return r.width >= MIN_W && r.height >= MIN_H;
+  };
+  const named = (src, cls) => {
+    const s = (src || '') + ' ' + (cls || '');
+    if (/turnstile/i.test(s)) return 'Cloudflare Turnstile';
+    if (/hcaptcha|h-captcha/i.test(s)) return 'hCaptcha';
+    if (/captcha-delivery|datadome/i.test(s)) return 'DataDome';
+    if (/recaptcha/i.test(s)) return 'reCAPTCHA';
+    return '';
+  };
+  for (const f of document.querySelectorAll('iframe')) {
+    // The v3 badge wraps an api2/anchor iframe of roughly the same size as the
+    // v2 checkbox, so dimensions cannot separate them — the badge ancestor is
+    // the only reliable signal, and it has to be checked here too, not just on
+    // the widget elements below.
+    if (f.closest('.grecaptcha-badge')) continue;
+    const label = named(f.src, f.className);
+    if (label && shown(f)) return label;
+  }
+  for (const el of document.querySelectorAll('.g-recaptcha, .h-captcha, .cf-turnstile, [data-sitekey]')) {
+    if (el.closest('.grecaptcha-badge')) continue;   // v3 badge is not a challenge
+    const label = named('', el.className) || 'reCAPTCHA';
+    if (shown(el)) return label;
+  }
+  const body = document.body ? (document.body.innerText || '') : '';
+  if (/i'?m not a robot|verify you are human|are you a robot|complete the security check/i.test(body)) {
+    return 'CAPTCHA';
+  }
+  return '';
+}
+"""
+
+
 def _is_voluntary_disclosure(label: str) -> bool:
     """True when a question is an optional demographic self-identification."""
     text = (label or "").lower()
     return any(pattern in text for pattern in _VOLUNTARY_DISCLOSURE_PATTERNS)
+
+
+def _is_lever_board(page: Any) -> bool:
+    """True when the current page is hosted on Lever.
+
+    Lever fronts its checkbox/radio inputs with an hCaptcha widget that a
+    genuine click can trigger mid-form (confirmed in the field by other
+    Playwright-driven application tooling); code that needs to avoid
+    programmatic clicks specifically on Lever checks this first.
+    """
+    return "lever.co" in (getattr(page, "url", "") or "").lower()
 
 
 async def _advance_workday_to_form(page: Any, log_callback: Any = None) -> str:
@@ -2157,6 +2230,17 @@ async def _fill_standard_and_react_fields(
                     el.dispatchEvent(new Event('change', { bubbles: true }));
                 }""")
                 if not await target_box.is_checked():
+                    # Lever fronts its checkbox/radio inputs with an hCaptcha
+                    # widget that a genuine click() - even Playwright's own,
+                    # not just a raw DOM click - can trigger mid-form, which
+                    # then blocks every field after it. The property-set above
+                    # already covers the ordinary React case; only fall back to
+                    # a real click on boards where that risk doesn't exist, and
+                    # never claim the field is filled when it was deliberately
+                    # left untouched to avoid tripping the captcha.
+                    if _is_lever_board(page):
+                        logger.info("Lever checkbox did not register via property-set; skipping the click fallback to avoid triggering hCaptcha - leaving '%s' for review.", group_lbl[:50])
+                        continue
                     label_loc = page.locator(f'label[for="{chosen_id}"]').first
                     if await label_loc.count() > 0:
                         await label_loc.click(force=True)
@@ -2462,6 +2546,7 @@ async def execute_live_playwright_submission(
     fill_only: bool = False,
     hand_off_seconds: float | None = 0.0,
     on_confirmed: Any = None,
+    on_submit_attempt: Any = None,
 ) -> dict[str, Any]:
     """Run the submission on the dedicated Proactor-loop thread (see browser_runner._ensure_playwright_loop).
 
@@ -2495,6 +2580,7 @@ async def execute_live_playwright_submission(
                 fill_only=fill_only,
                 hand_off_seconds=hand_off_seconds,
                 on_confirmed=on_confirmed,
+                on_submit_attempt=on_submit_attempt,
             ),
             # hand_off_seconds=None means the window stays open until the
             # candidate closes it, so there is no deadline to enforce here
@@ -2513,6 +2599,7 @@ async def execute_live_playwright_submission(
         fill_only=fill_only,
         hand_off_seconds=hand_off_seconds,
         on_confirmed=on_confirmed,
+        on_submit_attempt=on_submit_attempt,
     )
 
 
@@ -2526,6 +2613,7 @@ async def _execute_live_playwright_submission_impl(
     fill_only: bool = False,
     hand_off_seconds: float | None = 0.0,
     on_confirmed: Any = None,
+    on_submit_attempt: Any = None,
 ) -> dict[str, Any]:
     """Execute autonomous browser submission with strict pre-submit and post-submit verification.
 
@@ -2714,9 +2802,14 @@ async def _execute_live_playwright_submission_impl(
         # "we bailed out before they ever saw it".
         handed_off = False
 
-        # Apply Cloud Stealth Anti-Fingerprinting Profile
+        # Apply Cloud Stealth Anti-Fingerprinting Profile. The identity is drawn
+        # per host so a board that challenges one fingerprint is not retried with
+        # the same one; `session_host`/`session_fingerprint` let the bot-wall
+        # detection below report it as burned.
         from app.services.application_assistant.stealth_browser_profile import apply_stealth_profile
-        await apply_stealth_profile(context, page)
+
+        session_host = (urlparse(app_url).netloc or "").lower()
+        session_fingerprint = await apply_stealth_profile(context, page, host=session_host)
 
         try:
             logger.info("Navigating to application URL: %s", app_url)
@@ -2866,7 +2959,10 @@ async def _execute_live_playwright_submission_impl(
             # reported live on the Databricks posting.
             #
             # BUT: some boards (Roblox confirmed live 2026-09-14) sign the framed
-            # embed URL with a `validityToken` query param, and *that* variant
+            # embed URL with a `validityToken` query param — or, verified live
+            # on Coinbase 2026-09-16, a plain `token` param carrying the same
+            # kind of signed value (?token=...&for=coinbase&gh_jid=...). Either
+            # name means the link is signed, so *that* variant
             # renders the complete standalone form - 33 inputs including resume
             # upload and a working "Submit application" button, verified by
             # direct top-level navigation with no employer page involved at all.
@@ -2881,10 +2977,11 @@ async def _execute_live_playwright_submission_impl(
             # Standalone ATS URLs (jobs.lever.co/.../apply, a real Greenhouse
             # job page, Ashby application URLs) are unaffected: they are proper
             # top-level pages and are still followed.
-            if embed_src and "/embed/job_app" in embed_src and "validityToken=" not in embed_src:
+            has_signed_embed_token = bool(re.search(r"[?&](?:validityToken|token)=", embed_src))
+            if embed_src and "/embed/job_app" in embed_src and not has_signed_embed_token:
                 logger.info(
                     "Not following %s: Greenhouse's embed endpoint only renders a "
-                    "submittable form while framed (no validityToken present). "
+                    "submittable form while framed (no signing token present). "
                     "Staying on %s and driving the form through its iframe instead.",
                     embed_src, page.url,
                 )
@@ -2893,9 +2990,9 @@ async def _execute_live_playwright_submission_impl(
                         "Staying on the employer's page — its embedded form only works there.",
                     )
                 embed_src = ""
-            elif embed_src and "/embed/job_app" in embed_src and "validityToken=" in embed_src:
+            elif embed_src and "/embed/job_app" in embed_src and has_signed_embed_token:
                 logger.info(
-                    "Following signed embed URL directly (validityToken present, "
+                    "Following signed embed URL directly (signing token present, "
                     "renders full form standalone): %s", embed_src,
                 )
                 if log_callback:
@@ -3132,6 +3229,17 @@ async def _execute_live_playwright_submission_impl(
                     wall = ""
                 if wall:
                     logger.warning("%s bot protection is blocking the form at %s", wall, page.url)
+                    # Burn this identity for this host so the next attempt does
+                    # not walk into the same wall wearing the same face.
+                    if session_fingerprint is not None and session_host:
+                        try:
+                            from app.services.application_assistant.browser_fingerprint import (
+                                fingerprint_pool,
+                            )
+
+                            fingerprint_pool.report_blocked(session_host, session_fingerprint)
+                        except Exception:
+                            logger.debug("Could not record blocked fingerprint", exc_info=True)
                     return {
                         "submitted": False,
                         "error": (
@@ -3899,6 +4007,40 @@ async def _execute_live_playwright_submission_impl(
             if log_callback:
                 log_callback(f"Clicking final Submit button on {company}...")
             await submit_button.scroll_into_view_if_needed()
+
+            # Record the intent to submit *before* clicking, and durably.
+            #
+            # Everything after this line may be lost — the confirmation page may
+            # never render, the browser may die, the process may be killed — and
+            # in every one of those cases the employer may still have received
+            # the application. This marker is the only evidence that separates
+            # "we never sent anything, retry freely" from "we may have sent it,
+            # never retry automatically". Writing it after the click, or only in
+            # memory, would lose exactly the cases it exists for.
+            if on_submit_attempt is not None:
+                try:
+                    await on_submit_attempt()
+                except Exception:
+                    logger.exception(
+                        "Could not record the submit attempt for %s; refusing to "
+                        "click, because an unrecorded click cannot be told apart "
+                        "from a failure that sent nothing.",
+                        company,
+                    )
+                    return {
+                        "submitted": False,
+                        "error": (
+                            "Could not durably record the submit attempt before clicking. "
+                            "Stopped rather than risk an unrecoverable duplicate."
+                        ),
+                        "preSubmitValidationErrors": ["submit-intent-not-recorded"],
+                        "evidence": {
+                            "preScreenshotPath": str(pre_screenshot_path.resolve()),
+                            "preSubmitValidationErrors": ["submit-intent-not-recorded"],
+                        },
+                        "fieldsFilled": filled_fields,
+                    }
+
             await submit_button.click()
             await asyncio.sleep(4.0)
 
@@ -4051,14 +4193,7 @@ async def _execute_live_playwright_submission_impl(
                 # button is still active" into a reason that classifies as
                 # BOT_PROTECTED_BOARD and stops the job being retried forever.
                 try:
-                    bot_wall = await target_frame.evaluate(
-                        "() => { const srcs = [...document.querySelectorAll('iframe')].map(f => f.src || '').join(' '); "
-                        "const html = document.documentElement.innerHTML; "
-                        "if (/recaptcha/i.test(srcs) || /g-recaptcha|grecaptcha/i.test(html)) return 'reCAPTCHA'; "
-                        "if (/turnstile/i.test(srcs) || /cf-turnstile/i.test(html)) return 'Cloudflare Turnstile'; "
-                        "if (/hcaptcha/i.test(srcs) || /h-captcha/i.test(html)) return 'hCaptcha'; "
-                        "return ''; }"
-                    )
+                    bot_wall = await target_frame.evaluate(_VISIBLE_BOT_CHALLENGE_JS)
                 except Exception:
                     bot_wall = ""
                 # A form still on screen because it is asking for the emailed

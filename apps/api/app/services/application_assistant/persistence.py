@@ -572,27 +572,45 @@ AUTOPILOT_STATS_CACHE_KEY = "autopilot_status_company_stats"
 
 
 def _invalidate_autopilot_jobs_cache() -> None:
-    """Drop the cached job list and precomputed stats so the next read rebuilds them.
+    """Mark the cached job list and precomputed stats stale so the next read
+    picks up this write, without forcing every other concurrent viewer to pay
+    a synchronous full rebuild (~5,000+ rows deserialized and sorted).
 
-    The list endpoint serves from a background-refreshed cache, which is fine
-    for polling but not for the moment right after the user clicks Apply or
-    Mark submitted — they must see their own action immediately, not up to a
-    TTL later. Every write goes through save/delete below, so invalidating here
-    is enough to keep the user's own changes instant while still absorbing the
-    polling load.
+    This runs on every save/delete below — including every status change the
+    batch loop makes while a run is active, which is every few seconds. A
+    hard ``invalidate()`` here used to evict the entry outright, so the very
+    next dashboard request (from *anyone*, not just the user who triggered
+    the write) landed on a cold cache and paid the full rebuild inline. Live
+    during a batch run, that made "click Submitted / Manual Review" feel slow
+    on nearly every click, not just the first one. ``touch`` keeps serving the
+    last-known value immediately while kicking off a background refresh, so a
+    write is reflected within one refresh cycle (milliseconds locally)
+    without ever blocking a request.
     """
+    # No loader is passed here (unlike a typical `touch`): this runs while the
+    # caller's own write may still be inside an open session_scope, so firing
+    # a background reload immediately risks reading pre-commit state on
+    # SQLite. Marking the entries stale without a loader defers the refresh
+    # to the next `get()` — by which point the write's session has always
+    # already closed — while still avoiding the eviction that forced a
+    # synchronous rebuild on that next call.
     from app.services.read_cache import read_cache
 
-    read_cache.invalidate(AUTOPILOT_JOBS_CACHE_KEY)
-    read_cache.invalidate(AUTOPILOT_STATS_CACHE_KEY)
+    read_cache.touch(AUTOPILOT_JOBS_CACHE_KEY)
+    read_cache.touch(AUTOPILOT_STATS_CACHE_KEY)
 
 
 # Statuses a job can sit in where there is still something to do. A duplicate
 # record in any of these keeps a posting on a list the user works through, even
 # after the application has actually been sent.
+#
+# SUBMISSION_UNKNOWN belongs here: once a sibling record has definitively
+# submitted, a maybe-submitted record for the same posting is simply a
+# duplicate, and leaving it open would ask the user to check a posting that is
+# already settled.
 _OPEN_AUTOPILOT_STATUSES = (
     "DISCOVERED", "SCORED", "QUEUED", "APPLYING", "STAGED", "NEEDS_REVIEW",
-    "MANUAL_REVIEW", "FAILED",
+    "MANUAL_REVIEW", "FAILED", "SUBMISSION_UNKNOWN",
 )
 
 
@@ -601,6 +619,158 @@ def canonical_application_url(url: str | None) -> str:
     if not url:
         return ""
     return str(url).split("?")[0].split("#")[0].rstrip("/").strip().lower()
+
+
+#: One in-flight attempt per posting, enforced in the database.
+ENTITY_APPLICATION_CLAIM = "aa_application_claim"
+
+
+def application_identity(job: dict[str, Any]) -> str:
+    """The stable key identifying the posting this job record applies to.
+
+    The ATS's own posting id is preferred, because the same posting is served
+    under several host shapes (``boards.greenhouse.io/<co>/jobs/123``, the
+    regional board, the employer's branded mirror carrying ``?gh_jid=123``) and
+    a URL-derived key treats each of those as a different job. Falls back to the
+    canonical URL when the URL carries no recognisable id.
+    """
+    from app.services.application_assistant.job_filter_ranker import (
+        canonical_ats_posting_id,
+    )
+
+    url = str(job.get("applicationUrl") or job.get("url") or "")
+    posting_id = canonical_ats_posting_id(url)
+    if posting_id:
+        return posting_id
+    canonical = canonical_application_url(url)
+    return f"url:{canonical}" if canonical else ""
+
+
+def _identity_claim_id(identity: str) -> str:
+    """Row id for an identity's claim. Hashed to fit the 64-char primary key."""
+    import hashlib
+
+    return "apclaim_" + hashlib.sha256(identity.encode("utf-8")).hexdigest()[:40]
+
+
+def claim_application_identity(
+    db: Session, identity: str, job_app_id: str, lease_seconds: int = 900
+) -> bool:
+    """Take the in-flight claim on a posting, or return False if one is held.
+
+    ``claim_job_lock`` admits one worker per *job record*. That is not the same
+    guarantee: the same posting routinely has more than one record (re-scraped,
+    re-imported, re-queued), and two of those could hold their own record locks
+    and submit to the same employer concurrently. This claim is keyed on the
+    posting instead, so only one attempt at a posting can be in flight at a time
+    no matter how many records point at it.
+
+    Enforced by the database, not by an in-memory set, so it survives a restart
+    and holds across processes. Written as a single ``INSERT ... ON CONFLICT DO
+    UPDATE ... WHERE``, which SQLite applies atomically: either this caller's
+    row lands and rowcount is 1, or the existing claim is still live and the
+    guarded update matches nothing and rowcount is 0. There is no window between
+    the check and the write for a second caller to slip through.
+
+    The lease expires so a crashed attempt cannot hold a posting forever — the
+    same recovery model as the per-record job lock.
+    """
+    from datetime import UTC, datetime, timedelta
+
+    from sqlalchemy import func, or_
+    from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+
+    if not identity:
+        # Nothing to key on. Refusing here would block every job whose URL
+        # carries no id, so fall through to the per-record lock instead.
+        return True
+
+    now = now_iso()
+    payload = {
+        "identity": identity,
+        "jobId": job_app_id,
+        "claimedAt": now,
+        "expiresAt": (datetime.now(UTC) + timedelta(seconds=lease_seconds)).isoformat(),
+    }
+
+    holder = func.json_extract(EntityStore.payload, "$.jobId")
+    expires_at = func.json_extract(EntityStore.payload, "$.expiresAt")
+
+    statement = (
+        sqlite_insert(EntityStore)
+        .values(
+            id=_identity_claim_id(identity),
+            entity_type=ENTITY_APPLICATION_CLAIM,
+            payload=payload,
+        )
+        .on_conflict_do_update(
+            index_elements=[EntityStore.id],
+            set_={"payload": payload},
+            where=or_(
+                holder == job_app_id,        # our own claim, being extended
+                expires_at.is_(None),        # claimed without an expiry - stale
+                expires_at <= now,           # lease ran out (ISO-8601 sorts)
+            ),
+        )
+        .execution_options(synchronize_session=False)
+    )
+
+    result = db.execute(statement)
+    if not result.rowcount:
+        return False
+    db.flush()
+    return True
+
+
+def release_application_identity(db: Session, identity: str, job_app_id: str) -> bool:
+    """Give up the claim on a posting, if this job is the one holding it."""
+    if not identity:
+        return False
+
+    from sqlalchemy import delete, func
+
+    statement = (
+        delete(EntityStore)
+        .where(EntityStore.id == _identity_claim_id(identity))
+        .where(EntityStore.entity_type == ENTITY_APPLICATION_CLAIM)
+        .where(func.json_extract(EntityStore.payload, "$.jobId") == job_app_id)
+        .execution_options(synchronize_session=False)
+    )
+    result = db.execute(statement)
+    db.flush()
+    return bool(result.rowcount)
+
+
+def application_identity_holder(db: Session, identity: str) -> str | None:
+    """The job id currently holding a posting's claim, if any."""
+    if not identity:
+        return None
+    row = get_entity(db, ENTITY_APPLICATION_CLAIM, _identity_claim_id(identity))
+    return str(row.get("jobId")) if row else None
+
+
+def most_recent_submit_attempt(db: Session, *, exclude_id: str | None = None) -> str | None:
+    """The `submitAttemptedAt` timestamp of the most recent submit click
+    across every job, or None if none has one yet.
+
+    Backs the minimum-gap pacing in `submission_pacing.py`: consecutive
+    submissions need to know how long ago the last one actually happened, and
+    with thousands of job rows a full `list_entities` scan plus a Python
+    max() would repeat the exact cost mistake `company_cap.py` had before it
+    moved to a single indexed pass — so this resolves in SQL instead. ISO-8601
+    sorts correctly as a plain string, so `MAX()` needs no date parsing.
+    """
+    from sqlalchemy import func
+
+    stamp = func.json_extract(EntityStore.payload, "$.submitAttemptedAt")
+    query = db.query(func.max(stamp)).filter(
+        EntityStore.entity_type == ENTITY_AUTOPILOT_JOB,
+        stamp.isnot(None),
+    )
+    if exclude_id:
+        query = query.filter(EntityStore.id != exclude_id)
+    result = query.scalar()
+    return str(result) if result else None
 
 
 def close_duplicate_applications(db: Session, submitted_job: dict[str, Any]) -> list[str]:
@@ -756,6 +926,7 @@ def get_autopilot_status_company_stats(db: Session) -> dict[str, Any]:
         "failed": {},
         "skipped": {},
         "ineligible": {},
+        "rejected": {},
     }
 
     STATUS_MAP = {
@@ -768,6 +939,7 @@ def get_autopilot_status_company_stats(db: Session) -> dict[str, Any]:
         "FAILED": "failed",
         "SKIPPED": "skipped",
         "INELIGIBLE": "ineligible",
+        "REJECTED": "rejected",
     }
 
     for st, comp, cnt in rows:
@@ -788,6 +960,41 @@ def get_autopilot_status_company_stats(db: Session) -> dict[str, Any]:
             company_counts_by_status[st] = {}
         company_counts_by_status[st][comp] = company_counts_by_status[st].get(comp, 0) + cnt
 
+    title_query = text("""
+        SELECT 
+            json_extract(payload, '$.status') as status,
+            TRIM(json_extract(payload, '$.title')) as title,
+            COUNT(*) as count
+        FROM entities 
+        WHERE entity_type = 'aa_autopilot_job'
+        GROUP BY status, title
+    """)
+    title_rows = db.execute(title_query).fetchall()
+
+    title_counts_by_status: dict[str, dict[str, int]] = {
+        "all": {},
+        "queued": {},
+        "submitted": {},
+        "review": {},
+        "manual": {},
+        "failed": {},
+        "skipped": {},
+        "ineligible": {},
+        "rejected": {},
+    }
+
+    for st, title_val, cnt in title_rows:
+        st = st or "QUEUED"
+        title_val = title_val or "Unknown Role"
+
+        title_counts_by_status["all"][title_val] = title_counts_by_status["all"].get(title_val, 0) + cnt
+        bucket = STATUS_MAP.get(st)
+        if bucket:
+            title_counts_by_status[bucket][title_val] = title_counts_by_status[bucket].get(title_val, 0) + cnt
+        if st not in title_counts_by_status:
+            title_counts_by_status[st] = {}
+        title_counts_by_status[st][title_val] = title_counts_by_status[st].get(title_val, 0) + cnt
+
     ui_counts = {
         "all": sum(status_counts.values()),
         "submitted": status_counts.get("SUBMITTED", 0),
@@ -797,12 +1004,43 @@ def get_autopilot_status_company_stats(db: Session) -> dict[str, Any]:
         "failed": status_counts.get("FAILED", 0),
         "skipped": status_counts.get("SKIPPED", 0),
         "ineligible": status_counts.get("INELIGIBLE", 0),
+        "rejected": status_counts.get("REJECTED", 0),
     }
+
+    # Submitted-today / submitted-last-24h as a single cheap SQL aggregate,
+    # so the dashboard never has to pull hundreds of full SUBMITTED job
+    # payloads to the client just to count how many landed recently.
+    # `date('now')` is UTC, which is not the day the person reading the
+    # dashboard is living in: at 19:06 Pacific the UTC day has already rolled
+    # over, so "submitted today" collapsed to 1 while 273 had gone out in the
+    # last 24 hours. The API runs on the candidate's own machine, so SQLite's
+    # 'localtime' is the right day boundary — and the stored timestamps are UTC
+    # ISO strings, so both sides of the comparison have to be converted.
+    today_query = text("""
+        SELECT
+            SUM(CASE WHEN date(ts, 'localtime') = date('now', 'localtime') THEN 1 ELSE 0 END) as today,
+            SUM(CASE WHEN julianday('now') - julianday(ts) <= 1.0 THEN 1 ELSE 0 END) as last24h
+        FROM (
+            SELECT COALESCE(
+                json_extract(payload, '$.submittedAt'),
+                json_extract(payload, '$.updatedAt')
+            ) as ts
+            FROM entities
+            WHERE entity_type = 'aa_autopilot_job'
+              AND json_extract(payload, '$.status') = 'SUBMITTED'
+              AND COALESCE(json_extract(payload, '$.duplicateSubmission'), 0) = 0
+        )
+        WHERE ts IS NOT NULL
+    """)
+    today_row = db.execute(today_query).fetchone()
 
     stats = {
         "statusCounts": status_counts,
         "uiCounts": ui_counts,
         "companyCountsByStatus": company_counts_by_status,
+        "titleCountsByStatus": title_counts_by_status,
+        "submittedToday": int(today_row[0] or 0) if today_row else 0,
+        "submitted24h": int(today_row[1] or 0) if today_row else 0,
     }
     try:
         set_kv(db, "autopilot_status_company_stats", stats)
@@ -970,5 +1208,78 @@ def is_duplicate_application(
             return True, existing
 
     return False, None
+
+
+def is_strict_duplicate_processed(
+    db: Session,
+    company: str,
+    title: str,
+    posting_date: str | None,
+    application_url: str,
+    exclude_id: str | None = None,
+) -> tuple[bool, dict[str, Any] | None, str]:
+    """Check whether a job is already processed in ANY status under strict matching.
+
+    Strict rules require matching:
+    1. company (casefold normalized)
+    2. title (casefold normalized)
+    3. posting date (if present on both, must match; if neither has date, they match)
+    4. canonical application URL
+
+    Already processed statuses: SUBMITTED, SUBMISSION_UNKNOWN, MANUAL_REVIEW,
+    NEEDS_REVIEW, STAGED, INELIGIBLE, FAILED, SKIPPED.
+
+    Returns (is_dup, matching_job, reason_string).
+    """
+    PROCESSED_STATUSES = {
+        "SUBMITTED",
+        # A posting one record may already have applied to is not a posting a
+        # second record may freely try. Until the unknown one is resolved, this
+        # employer may already hold the candidate's application.
+        "SUBMISSION_UNKNOWN",
+        "MANUAL_REVIEW",
+        "NEEDS_REVIEW",
+        "STAGED",
+        "INELIGIBLE",
+        "FAILED",
+        "SKIPPED",
+    }
+    all_jobs = list_entities(db, ENTITY_AUTOPILOT_JOB)
+    target_url = canonical_application_url(application_url)
+    target_company = re.sub(r"[^\w]", "", str(company or "").lower())
+    target_title = re.sub(r"[^\w\s]", "", str(title or "").lower()).strip()
+    target_date = str(posting_date or "").strip()[:10].lower()
+
+    if not target_company or not target_title or not target_url:
+        return False, None, ""
+
+    for existing in all_jobs:
+        ex_id = existing.get("id")
+        if exclude_id and ex_id == exclude_id:
+            continue
+        ex_status = (existing.get("status") or "").upper()
+        if ex_status not in PROCESSED_STATUSES:
+            continue
+
+        ex_company = re.sub(r"[^\w]", "", str(existing.get("company") or "").lower())
+        if ex_company != target_company:
+            continue
+
+        ex_title = re.sub(r"[^\w\s]", "", str(existing.get("title") or "").lower()).strip()
+        if ex_title != target_title:
+            continue
+
+        ex_url = canonical_application_url(existing.get("applicationUrl") or existing.get("url") or "")
+        if not ex_url or ex_url != target_url:
+            continue
+
+        ex_date = str(existing.get("postingDate") or existing.get("datePosted") or "").strip()[:10].lower()
+        if target_date and ex_date and target_date != ex_date:
+            continue
+
+        reason = f"Already processed in status {ex_status} (strict match: company, title, postingDate, url)"
+        return True, existing, reason
+
+    return False, None, ""
 
 

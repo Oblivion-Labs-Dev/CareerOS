@@ -114,6 +114,17 @@ logging.getLogger("uvicorn.access").addHandler(file_handler)
 # counts, latency, context usage, retries and fallback events — was written to a
 # logger with no handler and silently discarded. Everything CareerOS logs should
 # land in the same file regardless of which spelling the module picked.
+# Resume building narrates its own decisions under "career_os.resume_build",
+# which inherits the handlers below. The summary of a build is INFO: what came
+# in, how many slots were weak, what was replaced and why, how the skills lines
+# were ordered, which requirements nothing evidences, and a tally of every
+# reason a candidate was refused. The per-candidate detail is DEBUG, because a
+# single build refuses a few hundred candidates — raise it with
+# CAREEROS_RESUME_LOG_LEVEL=DEBUG when a specific bullet needs explaining.
+logging.getLogger("career_os.resume_build").setLevel(
+    getattr(logging, (os.environ.get("CAREEROS_RESUME_LOG_LEVEL") or "INFO").upper(), logging.INFO)
+)
+
 careeros_logger = logging.getLogger("careeros")
 careeros_logger.setLevel(logging.INFO)
 careeros_logger.addHandler(file_handler)
@@ -242,6 +253,71 @@ async def _retention_loop() -> None:
             logger.exception("Retention sweep failed; will retry next cycle.")
 
 
+def _restore_diagnostic_errors() -> None:
+    """Rehydrate DiagnosticErrorStore from the database — see its docstring
+    in services/observability.py. Without this, `/diagnostic/errors` genuinely
+    could not answer for anything that happened before the current process
+    started, which was the actual gap behind "you debug live runs by reading
+    api.log": the structured store existed but never survived a restart.
+    """
+    try:
+        from app.services.observability import error_store
+
+        count = error_store.load_from_db()
+        if count:
+            logger.info("Restored %d diagnostic error(s) from the database.", count)
+    except Exception:
+        logger.exception("Could not restore diagnostic errors at startup.")
+
+
+def _recover_stranded_applications() -> None:
+    """Return anything stuck mid-application to the queue. Never starts a run.
+
+    Kept non-fatal: a failure here must not stop the API coming up, since the
+    dashboard is how the user would diagnose it.
+    """
+    try:
+        from app.services.application_assistant.autopilot_runner import (
+            recover_stranded_applying_jobs,
+        )
+
+        recover_stranded_applying_jobs()
+    except Exception:
+        logger.exception("Could not recover stranded APPLYING jobs at startup.")
+
+
+def _warm_autopilot_caches() -> None:
+    """Pre-populate the Autopilot jobs/stats read-cache so the dashboard's
+    first request after a restart does not pay the full synchronous rebuild
+    (~5,000+ rows deserialized and sorted) — the same cost `_invalidate_autopilot_jobs_cache`
+    now avoids on every batch-loop write via `touch`. Runs on a worker thread
+    so it never delays startup or the health check.
+    """
+    try:
+        from app.db.store import session_scope
+        from app.services.application_assistant.persistence import (
+            AUTOPILOT_JOBS_CACHE_KEY,
+            AUTOPILOT_STATS_CACHE_KEY,
+            get_autopilot_status_company_stats,
+            list_autopilot_jobs,
+        )
+        from app.services.read_cache import read_cache
+
+        def _load_jobs() -> list:
+            with session_scope() as db:
+                return list_autopilot_jobs(db)
+
+        def _load_stats() -> dict:
+            with session_scope() as db:
+                return get_autopilot_status_company_stats(db)
+
+        read_cache.get(AUTOPILOT_JOBS_CACHE_KEY, 5.0, _load_jobs)
+        read_cache.get(AUTOPILOT_STATS_CACHE_KEY, 30.0, _load_stats)
+        logging.getLogger("career_os.main").info("Autopilot dashboard caches warmed at startup.")
+    except Exception:
+        logging.getLogger("career_os.main").exception("Could not warm autopilot caches at startup.")
+
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     _warn_if_multi_worker()
@@ -249,6 +325,15 @@ async def lifespan(_app: FastAPI):
     seed_error_fix_history_if_empty()
     reconcile_error_history_on_startup()
     _ensure_ollama_started_background()
+    # Nothing is left mid-application across a restart. Autopilot never starts
+    # a batch on its own - every run comes from an explicit request - so a job
+    # stranded in APPLYING by a killed process would otherwise sit there until
+    # the user started a run purely to clear it. This requeues those; a job
+    # whose submit was already issued becomes SUBMISSION_UNKNOWN instead of
+    # being retried. It starts nothing.
+    _recover_stranded_applications()
+    _restore_diagnostic_errors()
+    asyncio.create_task(asyncio.to_thread(_warm_autopilot_caches))
     retention_task = asyncio.create_task(_retention_loop())
     logger.info("CareerOS API started and local file logging initialized.")
     try:
@@ -336,14 +421,23 @@ def _ensure_ollama_started_background() -> None:
     import subprocess
     import urllib.request
 
+    base = settings.careeros_ollama_health_url.rstrip("/")
     try:
-        req = urllib.request.Request("http://127.0.0.1:11434/api/tags", headers={"User-Agent": "CareerOS"})
+        req = urllib.request.Request(f"{base}/api/tags", headers={"User-Agent": "CareerOS"})
         with urllib.request.urlopen(req, timeout=1.5) as resp:
             if resp.status == 200:
-                logger.info("Ollama is already running and reachable at http://127.0.0.1:11434")
+                logger.info("Ollama is already running and reachable at %s", base)
                 return
     except Exception:
         pass
+
+    # Only the machine actually hosting Ollama should try to start it. When this
+    # is pointed at another host - a container reaching the host through
+    # host.docker.internal - there is no local binary to launch and no business
+    # launching one, so report and stop.
+    if "127.0.0.1" not in base and "localhost" not in base:
+        logger.info("Ollama is configured at %s and is not reachable; not starting a local instance.", base)
+        return
 
     ollama_path = shutil.which("ollama")
     if not ollama_path:

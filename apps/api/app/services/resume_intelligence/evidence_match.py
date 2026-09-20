@@ -158,14 +158,17 @@ def _match(text: str, jd: str, semantic_enabled: bool, k1: float, b: float, rrf_
     vectors=None
     if semantic_enabled and sentences and reqs:
         try:
-            vectors=semantic.embed_many([(digest,s) for s in sentences]+[("match-req",r["text"]) for r in reqs])
+            # Resume sentences are passages, requirements are queries.
+            passages=semantic.embed_many([(digest,s) for s in sentences])
+            queries=semantic.embed_queries([("match-req",r["text"]) for r in reqs])
+            vectors={**passages,**queries} if passages is not None and queries is not None else None
         except Exception:
             vectors=None
     for req in reqs:
         rank=index.rank(tuple(terms(req["text"])))
         rankings=[rank]
         if vectors is not None:
-            q=vectors.get(semantic.cache_key("match-req",req["text"]))
+            q=vectors.get(semantic.cache_key("match-req",req["text"],semantic.QUERY))
             if q:
                 sims=[semantic.cosine(q,vectors.get(semantic.cache_key(digest,s),(0.,)*len(q))) for s in sentences]
                 rankings.append(sorted(range(len(sentences)),key=lambda i:(-sims[i],i)))

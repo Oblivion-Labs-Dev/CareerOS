@@ -1,18 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { getAutopilotJobsPage, getAutopilotStats } from "@/lib/application-assistant-api";
 import type { AutopilotJobRow } from "./job-types";
-import type { SortMode, StatusFilter } from "./job-presentation";
+import { STATUS_QUERIES, applicationCounts, type SortMode, type StatusFilter } from "./job-presentation";
 
-const statuses: Record<StatusFilter, string | undefined> = {
-  all: undefined,
-  queued: "QUEUED,APPLYING",
-  submitted: "SUBMITTED",
-  review: "NEEDS_REVIEW,STAGED",
-  manual: "MANUAL_REVIEW",
-  failed: "FAILED",
-  skipped: "SKIPPED",
-  ineligible: "INELIGIBLE",
-};
+const statuses = STATUS_QUERIES;
 
 // Global in-memory cache for loaded pages to eliminate tab-switching lag
 interface PageCacheEntry {
@@ -22,6 +13,7 @@ interface PageCacheEntry {
   offset: number;
   counts: Record<string, number>;
   companyCounts: Record<string, number>;
+  titleCounts?: Record<string, number>;
   timestamp: number;
 }
 
@@ -31,6 +23,7 @@ interface AutopilotStatsData {
   statusCounts: Record<string, number>;
   uiCounts: Record<string, number>;
   companyCountsByStatus: Record<string, Record<string, number>>;
+  titleCountsByStatus?: Record<string, Record<string, number>>;
   timestamp: number;
 }
 
@@ -48,8 +41,9 @@ async function fetchStatsCached(): Promise<AutopilotStatsData | null> {
         if (res.success) {
           globalStats = {
             statusCounts: res.statusCounts || {},
-            uiCounts: res.uiCounts || {},
+            uiCounts: applicationCounts(res.statusCounts || {}),
             companyCountsByStatus: res.companyCountsByStatus || {},
+            titleCountsByStatus: res.titleCountsByStatus || {},
             timestamp: Date.now(),
           };
         }
@@ -67,9 +61,10 @@ export function useApplicationPages(
   filter: StatusFilter,
   sort: SortMode,
   query: string,
-  company?: string
+  company?: string,
+  title?: string
 ) {
-  const cacheKey = `${filter}:${sort}:${query.trim()}:${company?.trim() || ""}`;
+  const cacheKey = `${filter}:${sort}:${query.trim()}:${company?.trim() || ""}:${title?.trim() || ""}`;
   const initialEntry = pageCache.get(cacheKey);
 
   const [jobs, setJobs] = useState<AutopilotJobRow[]>(initialEntry ? initialEntry.jobs : []);
@@ -82,6 +77,15 @@ export function useApplicationPages(
     }
     if (globalStats && globalStats.companyCountsByStatus[filter]) {
       return globalStats.companyCountsByStatus[filter];
+    }
+    return {};
+  });
+  const [titleCounts, setTitleCounts] = useState<Record<string, number>>(() => {
+    if (initialEntry && initialEntry.titleCounts && Object.keys(initialEntry.titleCounts).length > 0) {
+      return initialEntry.titleCounts;
+    }
+    if (globalStats && globalStats.titleCountsByStatus && globalStats.titleCountsByStatus[filter]) {
+      return globalStats.titleCountsByStatus[filter];
     }
     return {};
   });
@@ -103,7 +107,7 @@ export function useApplicationPages(
     return () => clearTimeout(timer);
   }, [query]);
 
-  // Load server-side stats for instant tab counts and full company lists
+  // Load server-side stats for instant tab counts and full company and title lists
   useEffect(() => {
     void fetchStatsCached().then((stats) => {
       if (!stats) return;
@@ -111,6 +115,10 @@ export function useApplicationPages(
       setCompanyCounts((prev) => {
         if (Object.keys(prev).length > 0) return prev;
         return stats.companyCountsByStatus[filter] || stats.companyCountsByStatus["all"] || {};
+      });
+      setTitleCounts((prev) => {
+        if (Object.keys(prev).length > 0) return prev;
+        return (stats.titleCountsByStatus && (stats.titleCountsByStatus[filter] || stats.titleCountsByStatus["all"])) || {};
       });
     });
   }, [filter]);
@@ -120,7 +128,7 @@ export function useApplicationPages(
       if (busy.current && !reset) return;
       const version = reset ? ++generation.current : generation.current;
 
-      const currentKey = `${filter}:${sort}:${search.trim()}:${company?.trim() || ""}`;
+      const currentKey = `${filter}:${sort}:${search.trim()}:${company?.trim() || ""}:${title?.trim() || ""}`;
       const cached = pageCache.get(currentKey);
 
       if (reset) {
@@ -131,9 +139,10 @@ export function useApplicationPages(
           setHasMore(cached.hasMore);
           setCounts(cached.counts);
           setCompanyCounts(cached.companyCounts);
+          setTitleCounts(cached.titleCounts || {});
           setLoading(false);
           // If recent enough, skip re-fetch
-          if (Date.now() - cached.timestamp < 15_000) return;
+          if (Date.now() - cached.timestamp < 15_000) { busy.current = false; return; }
         } else {
           offset.current = 0;
           if (!cached) {
@@ -152,10 +161,11 @@ export function useApplicationPages(
           status: statuses[filter],
           search,
           company: company?.trim() || undefined,
+          title: title?.trim() || undefined,
           sortBy: sort === "match" ? "matchScore" : sort === "recent" ? "submittedAt" : sort,
           sortDir: sort === "company" ? "asc" : "desc",
           limit: 24,
-          offset: offset.current,
+          offset: reset ? 0 : offset.current,
         });
 
         if (version !== generation.current) return;
@@ -171,16 +181,7 @@ export function useApplicationPages(
           setHasMore(result.hasMore && result.jobs.length > 0);
 
           const c = result.statusCounts || {};
-          const newCounts = {
-            all: Object.values(c).reduce((sum, n) => sum + n, 0),
-            submitted: c.SUBMITTED || 0,
-            queued: (c.QUEUED || 0) + (c.APPLYING || 0),
-            review: (c.NEEDS_REVIEW || 0) + (c.STAGED || 0),
-            manual: c.MANUAL_REVIEW || 0,
-            failed: c.FAILED || 0,
-            skipped: c.SKIPPED || 0,
-            ineligible: c.INELIGIBLE || 0,
-          };
+          const newCounts = applicationCounts(c);
           setCounts(newCounts);
 
           const serverCompCounts =
@@ -189,6 +190,12 @@ export function useApplicationPages(
               : globalStats?.companyCountsByStatus[filter] || {};
           setCompanyCounts(serverCompCounts);
 
+          const serverTitleCounts =
+            result.titleCounts && Object.keys(result.titleCounts).length > 0
+              ? result.titleCounts
+              : (globalStats?.titleCountsByStatus && globalStats.titleCountsByStatus[filter]) || {};
+          setTitleCounts(serverTitleCounts);
+
           pageCache.set(currentKey, {
             jobs: merged,
             total: result.total,
@@ -196,6 +203,7 @@ export function useApplicationPages(
             offset: offset.current,
             counts: newCounts,
             companyCounts: serverCompCounts,
+            titleCounts: serverTitleCounts,
             timestamp: Date.now(),
           });
 
@@ -212,7 +220,7 @@ export function useApplicationPages(
         }
       }
     },
-    [filter, sort, search, company]
+    [filter, sort, search, company, title]
   );
 
   const invalidate = useCallback(() => {
@@ -223,7 +231,7 @@ export function useApplicationPages(
   useEffect(() => {
     void load(true);
     return invalidate;
-  }, [filter, sort, search, company, revision, invalidate, load]);
+  }, [filter, sort, search, company, title, revision, invalidate, load]);
 
   useEffect(() => {
     if (!hasMore || loading || error || !sentinel.current) return;
@@ -247,6 +255,7 @@ export function useApplicationPages(
     jobs,
     counts,
     companyCounts,
+    titleCounts,
     loading,
     hasMore,
     error,

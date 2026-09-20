@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
+import Link from "next/link";
 import styles from "./night-batch-card.module.css";
 import { PIPELINE_STAGES, type AutopilotLog } from "@/hooks/use-autopilot-state";
 
@@ -13,6 +14,9 @@ export interface NightBatchConfig {
 
 interface NightBatchCardProps {
   isLive: boolean;
+  /** What the profile cannot answer, and which questions hold the most work.
+   *  Shown before Start rather than discovered mid-application. */
+  readiness?: import("@/lib/application-assistant-api").AutopilotReadiness | null;
   onStartBatch: (config: NightBatchConfig) => Promise<void>;
   onPause?: () => Promise<void>;
   onStop?: () => Promise<void>;
@@ -61,6 +65,7 @@ const MATCH_FLOORS = [50, 60, 70, 80, 90];
 
 export function NightBatchCard({
   isLive,
+  readiness,
   onStartBatch,
   onPause,
   onStop,
@@ -116,6 +121,15 @@ export function NightBatchCard({
     }
     return counts;
   }, [queueScores]);
+
+  // Answering a grouped question here saves it once and requeues every
+  // application it finishes — the alternative being to answer the same
+  // screening question separately on each of fifty postings.
+  const blockingGaps = readiness?.profile?.blocking ?? [];
+  // Headline counts only. The questions themselves are answered in the Review
+  // tab — see PendingQuestionAnswers, which is the single implementation.
+  const blockedApplications = readiness?.questions?.blockedJobCount ?? 0;
+  const quickWins = readiness?.questions?.singleAnswerJobCount ?? 0;
 
   const progressPercent = targetCount > 0 ? Math.min(100, Math.round((processedCount / targetCount) * 100)) : 0;
 
@@ -410,18 +424,70 @@ export function NightBatchCard({
                 )}
               </>
             ) : (
+              <>
+              {/* What the profile cannot answer, shown while it can still be
+                  fixed. A gap used to be found only once the browser had opened
+                  the posting, which spent a real run to learn it. */}
+              {blockingGaps.length > 0 && (
+                <div className={styles.readinessPanel} role="alert">
+                  <p className={styles.readinessTitle}>
+                    {blockingGaps.length} answer{blockingGaps.length === 1 ? "" : "s"} needed before this run can start
+                  </p>
+                  <ul className={styles.readinessList}>
+                    {blockingGaps.map((gap) => (
+                      <li key={gap.profileKey}>
+                        <a href={gap.fixAt || "/profile"}>{gap.rawLabel}</a>
+                        <span className={styles.readinessHint}> — {gap.question}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {/* One warning, not a worklist.
+                  This card is the control that starts a run; a scrolling list
+                  of questions directly above the Start button buried it. The
+                  questions themselves are answerable in the Review tab, which
+                  is where the user is already working through applications. */}
+              {blockedApplications > 0 && (
+                <p className={styles.questionWarning} role="status">
+                  <span aria-hidden="true">⚠</span>
+                  <span>
+                    <strong>{blockedApplications.toLocaleString()}</strong> application
+                    {blockedApplications === 1 ? " is" : "s are"} waiting on unanswered
+                    questions
+                    {quickWins > 0 && (
+                      <>
+                        {" "}— <strong>{quickWins.toLocaleString()}</strong> need just one
+                        answer
+                      </>
+                    )}
+                    .{" "}
+                    <Link href="/applications?tab=review" className={styles.questionWarningLink}>
+                      Answer them in Review →
+                    </Link>
+                  </span>
+                </p>
+              )}
+
               <button
                 type="button"
                 id="start-night-batch-btn"
                 className={styles.btnPrimary}
                 onClick={handleStart}
-                disabled={busy}
+                disabled={busy || blockingGaps.length > 0}
+                title={
+                  blockingGaps.length > 0
+                    ? `Answer ${blockingGaps.length} profile question${blockingGaps.length === 1 ? "" : "s"} first`
+                    : undefined
+                }
               >
                 <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
                   <path d="M8 5v14l11-7z" />
                 </svg>
                 {busy ? "Starting Night Batch…" : `Start Night Batch (${finalSize} Jobs)`}
               </button>
+              </>
             )}
           </div>
         </div>

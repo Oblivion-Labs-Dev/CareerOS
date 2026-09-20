@@ -68,6 +68,26 @@ def api_key() -> str:
         return ""
 
 
+def applications_enabled() -> bool:
+    """Whether Gemini may be used while applying to a job.
+
+    The job-application path - answering screening questions, the match gate
+    that decides whether a posting is worth submitting, and per-application
+    resume tailoring - is deliberately separated from the job-discovery
+    enrichment layer. Discovery is offline, batched and cheap to retry, so a
+    wrong or missing answer there costs nothing. An application is sent once to
+    a real employer, so the user wants that path answered from their own
+    recorded profile and evidence, not from a hosted model.
+
+    Off unless ``CAREEROS_GEMINI_APPLICATIONS`` explicitly turns it on.
+    ``CAREEROS_GEMINI_ENABLED`` still governs discovery enrichment, and turning
+    that off disables both.
+    """
+    return _env_flag("CAREEROS_GEMINI_ENABLED", True) and _env_flag(
+        "CAREEROS_GEMINI_APPLICATIONS", False
+    )
+
+
 @dataclass(frozen=True)
 class GeminiConfig:
     enabled: bool

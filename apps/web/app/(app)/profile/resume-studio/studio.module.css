@@ -66,3 +66,45 @@
 .requirements strong { font-size: 10px; letter-spacing: .08em; }
 .requirements small { color: var(--text-muted); }
 .requirements blockquote { margin: 12px 0; padding: 12px; border-left: 2px solid #00d7b0; font-size: 12px; line-height: 1.6; }
+
+/* Evidence coverage: what the posting asks for that the corpus can support.
+   This replaced a word-overlap number that read 25-40% for every posting and
+   so told the reader nothing. */
+.coveragePanel {
+  display: grid;
+  gap: 1rem;
+  margin-top: 1.6rem;
+  padding: 1.4rem 1.5rem;
+  border: 1px solid var(--border, rgba(0,0,0,.12));
+  border-radius: 18px;
+  background: color-mix(in srgb, currentColor 3%, transparent);
+}
+.coveragePanel h2 { margin: .3rem 0 0; font-size: 1.15rem; font-weight: 600; }
+.coveragePanel p { margin: .35rem 0 0; opacity: .72; font-size: .86rem; line-height: 1.5; }
+.gapList { display: grid; gap: .5rem; }
+.gapList > span { font-size: .74rem; font-weight: 650; letter-spacing: .06em; text-transform: uppercase; opacity: .6; }
+.gapList > div { display: flex; flex-wrap: wrap; gap: .35rem; }
+.gapList b {
+  padding: .22rem .55rem;
+  border-radius: 8px;
+  background: color-mix(in srgb, #d99a2b 16%, transparent);
+  color: #a9761c;
+  font-size: .78rem;
+  font-weight: 600;
+}
+
+/* The skills lines, and which entries this posting actually named. */
+.skillsPanel { margin-top: 1.6rem; }
+.skillsLines { display: grid; gap: .8rem; margin-top: 1rem; }
+.skillsLines article {
+  padding: .9rem 1.1rem;
+  border: 1px solid var(--border, rgba(0,0,0,.12));
+  border-radius: 14px;
+}
+.skillsLines article[data-changed="true"] { border-color: color-mix(in srgb, currentColor 28%, transparent); }
+.skillsLines header { display: flex; align-items: baseline; justify-content: space-between; gap: .8rem; }
+.skillsLines header b { font-size: .88rem; font-weight: 650; }
+.skillsLines header span { font-size: .72rem; opacity: .6; }
+.skillsLines p { margin: .5rem 0 0; font-size: .82rem; line-height: 1.6; opacity: .78; }
+.skillsLines p span[data-match="true"] { font-weight: 700; opacity: 1; }
+.skillsLines small { display: block; margin-top: .45rem; font-size: .72rem; opacity: .55; }

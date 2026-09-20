@@ -149,7 +149,7 @@ export function JobSearchAnalytics() {
                     <td className="p-sm">
                       <span
                         className="inline-block px-2 py-0.5 rounded-full text-xs text-white"
-                        style={{ background: BUCKET_COLORS[row.bucket] || "#64748b" }}
+                        style={{ background: BUCKET_COLORS[row.bucket] || "var(--muted)" }}
                       >
                         {row.bucket}
                       </span>

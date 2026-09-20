@@ -33,6 +33,8 @@ from app.services.application_assistant.domain import (
 from app.services.application_assistant.job_filter_ranker import filter_and_rank_jobs
 from app.services.intelligence.night_shift_config import is_tier_1
 from app.services.application_assistant.persistence import (
+    application_identity,
+    claim_application_identity,
     claim_job_lock,
     get_active_autopilot_run,
     get_autopilot_job,
@@ -40,10 +42,20 @@ from app.services.application_assistant.persistence import (
     get_settings,
     list_autopilot_jobs,
     list_discovered_jobs,
+    most_recent_submit_attempt,
+    release_application_identity,
     release_job_lock,
     save_autopilot_job,
     save_autopilot_run,
     save_settings,
+)
+from app.services.application_assistant import company_cap
+from app.services.application_assistant.company_blacklist import partition_by_blacklist
+from app.services.application_assistant.submission_pacing import seconds_until_next_submission
+from app.services.application_assistant.submission_outcome import (
+    classify_unproven_outcome,
+    explain_unknown_submission,
+    submit_was_attempted,
 )
 from app.services.application_assistant.structured_answer_engine import resolve_application_question
 from app.services.observability import (
@@ -188,6 +200,70 @@ def _is_submittable_board(job: dict[str, Any]) -> bool:
 # it. Capped at 5 so a stray value cannot spawn an unbounded number of browsers.
 APPLY_CONCURRENCY = max(1, min(5, int(os.environ.get("AUTOPILOT_APPLY_CONCURRENCY", "1"))))
 
+
+def recover_stranded_applying_jobs(worker_id: str | None = None) -> dict[str, int]:
+    """Return jobs stuck in APPLYING to the queue. Starts nothing.
+
+    A job is left in APPLYING when the process dies mid-attempt. Until now the
+    only thing that cleaned those up was starting a run, which meant a stranded
+    job either sat there indefinitely or forced the user to kick off a batch
+    they did not want just to clear it. Autopilot must not run unless the user
+    asks it to, so recovery has to be available without starting anything.
+
+    The submit marker decides the outcome, exactly as in the run-time sweep: a
+    job whose submit click was already issued becomes SUBMISSION_UNKNOWN and is
+    never silently retried, because recovery must not become the duplicate.
+    Only an attempt that provably never reached submit goes back to the queue.
+    """
+    requeued = 0
+    uncertain = 0
+    with session_scope() as session:
+        for job in list_autopilot_jobs(session):
+            if job.get("status") != AutopilotJobStatus.APPLYING.value:
+                continue
+            if worker_id and job.get("lockedBy") == worker_id:
+                # Belongs to a live worker in this process; leave it alone.
+                continue
+            if submit_was_attempted(job):
+                job["status"] = AutopilotJobStatus.SUBMISSION_UNKNOWN.value
+                job["lastErrorType"] = ApplicationErrorType.SUBMISSION_UNCERTAIN.value
+                job["aiExplanation"] = explain_unknown_submission(job)
+                uncertain += 1
+            else:
+                job["status"] = AutopilotJobStatus.QUEUED.value
+                requeued += 1
+            job["lockedBy"] = None
+            job["lockedAt"] = None
+            job["lockExpiresAt"] = None
+            save_autopilot_job(session, job)
+            release_application_identity(session, application_identity(job), str(job.get("id")))
+
+    if requeued or uncertain:
+        logger.info(
+            "Recovered %d stranded APPLYING job(s): %d requeued, %d submission-uncertain.",
+            requeued + uncertain,
+            requeued,
+            uncertain,
+        )
+    return {"requeued": requeued, "submissionUnknown": uncertain}
+
+
+def collect_priority_ids(opts: dict[str, Any]) -> list[str]:
+    """The job ids the user explicitly asked for, in the order given.
+
+    Both spellings are accepted. The readiness gate already honoured the
+    plural, but only the singular was ever consumed when priorities were
+    recorded, so a ``priorityJobIds`` batch skipped the gate and then quietly
+    lost its priority. Duplicates are collapsed, keeping the first position.
+    """
+    raw = [opts.get("priorityJobId"), *(opts.get("priorityJobIds") or [])]
+    seen: dict[str, None] = {}
+    for pid in raw:
+        if pid:
+            seen.setdefault(str(pid), None)
+    return list(seen)
+
+
 TRANSIENT_ERRORS = {
     ApplicationErrorType.NAVIGATION_TIMEOUT.value,
     ApplicationErrorType.NETWORK_ERROR.value,
@@ -293,6 +369,14 @@ class AutopilotRunner:
         # (and popped) in _process_batch_loop's claim step, front of the list first.
         self.priority_job_ids: list[str] = []
 
+        # The same ids, but never drained. `priority_job_ids` is popped as jobs
+        # are claimed, so by the time a job reaches the per-job pacing check its
+        # id has already left that list. Clicking Apply is an explicit
+        # instruction to send *this* application, so it overrides the
+        # per-company rate limits — and that has to stay true for the whole of
+        # the job's journey through the run, not just until it is claimed.
+        self.manual_apply_job_ids: set[str] = set()
+
         # ── Concurrency state ──
         self.concurrency: int = APPLY_CONCURRENCY
         self.stagger_delay: float = DEFAULT_STAGGER_DELAY
@@ -316,6 +400,7 @@ class AutopilotRunner:
         # its slots on work it can actually complete.
         self.submittable_boards_only: bool = True
         self._logged_board_filter: bool = False
+        self._logged_company_cap: bool = False
 
     @classmethod
     def get_instance(cls) -> AutopilotRunner:
@@ -391,6 +476,45 @@ class AutopilotRunner:
             opts = kwargs.get("options") or db or {}
         else:
             opts = options or kwargs.get("options") or {}
+        # ── Pre-flight: refuse rather than discover a gap mid-application ────
+        #
+        # A missing answer used to be found only once the browser had opened the
+        # posting and scraped the form: the attempt was abandoned and the job
+        # filed in review. 872 jobs are in that state, 484 of them blocked on a
+        # field nothing could answer, and each one cost a real browser run.
+        #
+        # Checked here, at the very top: before the options are parsed, before
+        # the run row is written, and before the resume branch below, so a
+        # resume of a live run cannot slip past it. Its own short session, since
+        # reading inside the run-row write transaction is the hazard called out
+        # in _ensure_queue_preprocessor's docstring.
+        #
+        # `start()` is not only the console's path - per-job retry, the
+        # reprocess sweeps and the self-healer all call it. A deliberate
+        # single-job retry is the user asking for exactly that job, so
+        # priorityJobId bypasses the gate; only unattended batches are held.
+        if not (opts.get("priorityJobId") or opts.get("priorityJobIds")):
+            from app.db.store import get_kv
+            from app.services.application_assistant.profile_readiness import (
+                evaluate_profile_readiness,
+            )
+
+            with session_scope() as readiness_db:
+                readiness = evaluate_profile_readiness(get_kv(readiness_db, "profile"))
+            if not readiness.ready:
+                self.log_event(
+                    f"Run refused before starting: {readiness.summary()}",
+                    level="warning",
+                    metadata={"blockingCount": len(readiness.blocking)},
+                )
+                return {
+                    "success": False,
+                    "refused": True,
+                    "reason": "profile_incomplete",
+                    "message": readiness.summary(),
+                    "readiness": readiness.to_dict(),
+                }
+
         target_count = int(opts.get("targetProcessCount") or opts.get("batchSize") or 25)
 
         # Applications run one at a time regardless of what the caller asked
@@ -435,6 +559,7 @@ class AutopilotRunner:
         self.tier_guardrails = bool(_opt("tierGuardrails", True))
         self.submittable_boards_only = bool(_opt("submittableBoardsOnly", True))
         self._logged_board_filter = False
+        self._logged_company_cap = False
         # Carry the resolved configuration onto this run so the next start that
         # omits it reads back the same values rather than the defaults.
         opts = {
@@ -459,11 +584,12 @@ class AutopilotRunner:
                     )
                     self.log_event(f"Batch model set to {chosen_model}", level="info")
 
-        priority_job_id = opts.get("priorityJobId")
-        if priority_job_id:
+        requested_priority = collect_priority_ids(opts)
+        for priority_job_id in reversed(requested_priority):
             if priority_job_id in self.priority_job_ids:
                 self.priority_job_ids.remove(priority_job_id)
             self.priority_job_ids.insert(0, priority_job_id)
+        self.manual_apply_job_ids.update(requested_priority)
 
         # Initialize worker states
         self.worker_states = {
@@ -636,7 +762,21 @@ class AutopilotRunner:
             j for j in jobs
             if j.get("status") == AutopilotJobStatus.SUBMITTED.value and not j.get("duplicateSubmission")
         ]
-        staged_jobs = [j for j in jobs if j.get("status") in (AutopilotJobStatus.STAGED.value, "NEEDS_REVIEW")]
+        # MANUAL_REVIEW counts here too. These are attempts the automation made
+        # and could not finish — the posting was reached and no application was
+        # sent, leaving the work for the candidate by hand. Leaving them out
+        # made the success rate read 49% when 1,252 manual-review jobs sat
+        # beside 1,040 submissions; the honest figure over the same rows is 31%.
+        # SKIPPED and INELIGIBLE stay out on purpose: those were filtered before
+        # any attempt, so they were never a chance to succeed.
+        staged_jobs = [
+            j for j in jobs
+            if j.get("status") in (
+                AutopilotJobStatus.STAGED.value,
+                "NEEDS_REVIEW",
+                AutopilotJobStatus.MANUAL_REVIEW.value,
+            )
+        ]
         skipped_jobs = [j for j in jobs if j.get("status") == AutopilotJobStatus.SKIPPED.value]
         failed_jobs = [j for j in jobs if j.get("status") in (AutopilotJobStatus.FAILED.value, "ERROR")]
         queued_jobs = [j for j in jobs if j.get("status") in (AutopilotJobStatus.QUEUED.value, AutopilotJobStatus.APPLYING.value)]
@@ -722,18 +862,21 @@ class AutopilotRunner:
             if current_job_id:
                 job = get_autopilot_job(session, current_job_id)
                 if job and job.get("status") == AutopilotJobStatus.APPLYING.value:
-                    history = job.get("checkpointHistory") or []
-                    last_step = history[-1].get("step") if history else ""
-                    if last_step in (CheckpointStep.SUBMITTING.value, CheckpointStep.VERIFYING_SUBMISSION.value):
-                        job["status"] = AutopilotJobStatus.STAGED.value
+                    # The durable submit marker decides this, not the checkpoint
+                    # history. CheckpointStep.SUBMITTING was only ever read here
+                    # and never actually recorded by any code path, so this guard
+                    # never fired and every interrupted submit was requeued.
+                    if submit_was_attempted(job):
+                        job["status"] = AutopilotJobStatus.SUBMISSION_UNKNOWN.value
                         job["lastErrorType"] = ApplicationErrorType.SUBMISSION_UNCERTAIN.value
-                        job["aiExplanation"] = "Interrupted during submit — staged as SUBMISSION_UNCERTAIN to prevent duplicates"
+                        job["aiExplanation"] = explain_unknown_submission(job)
                         save_autopilot_job(session, job)
-                        run["stagedCount"] = (run.get("stagedCount") or 0) + 1
+                        run["submissionUnknownCount"] = (run.get("submissionUnknownCount") or 0) + 1
                     else:
                         job["status"] = AutopilotJobStatus.QUEUED.value
                         save_autopilot_job(session, job)
                     release_job_lock(session, current_job_id, self.worker_id)
+                    release_application_identity(session, application_identity(job), current_job_id)
 
             run["status"] = AutopilotRunStatus.RUNNING.value
             run["currentJobId"] = None
@@ -745,11 +888,20 @@ class AutopilotRunner:
                 if aj.get("status") == AutopilotJobStatus.APPLYING.value:
                     exp = aj.get("lockExpiresAt")
                     if not exp or exp <= now or aj.get("lockedBy") != self.worker_id:
-                        aj["status"] = AutopilotJobStatus.QUEUED.value
+                        # Same rule as above: an orphaned job whose submit click
+                        # had already been issued must never be swept back onto
+                        # the queue, or recovery itself becomes the duplicate.
+                        if submit_was_attempted(aj):
+                            aj["status"] = AutopilotJobStatus.SUBMISSION_UNKNOWN.value
+                            aj["lastErrorType"] = ApplicationErrorType.SUBMISSION_UNCERTAIN.value
+                            aj["aiExplanation"] = explain_unknown_submission(aj)
+                        else:
+                            aj["status"] = AutopilotJobStatus.QUEUED.value
                         aj["lockedBy"] = None
                         aj["lockedAt"] = None
                         aj["lockExpiresAt"] = None
                         save_autopilot_job(session, aj)
+                        release_application_identity(session, application_identity(aj), str(aj.get("id")))
 
             self.log_event("Batch run recovered successfully", level="info")
 
@@ -1047,6 +1199,82 @@ class AutopilotRunner:
                 reverse=True,
             )
 
+            # Retire jobs at a blacklisted company before anything else runs.
+            #
+            # Unlike the pacing hold below, this is not something the batch
+            # exempts a manually-clicked job from: a blacklist entry is the
+            # candidate's own standing "never again" decision, not automation
+            # flood control, so it binds even on a job the candidate clicked
+            # Apply on earlier (before adding the company to the list, or from
+            # a stale queue view). Removing the company from Settings is the
+            # override, not a per-job click.
+            with session_scope() as db:
+                blacklist = get_settings(db).get("companyBlacklist") or []
+            queued, blacklisted = partition_by_blacklist(queued, blacklist)
+            if blacklisted:
+                with session_scope() as db:
+                    for blocked_job in blacklisted:
+                        save_autopilot_job(db, blocked_job)
+                companies = sorted({str(j.get("company") or "?") for j in blacklisted})
+                self.log_event(
+                    f"{len(blacklisted)} queued application(s) filed ineligible — "
+                    f"on your do-not-apply list ({', '.join(companies[:4])}"
+                    f"{'…' if len(companies) > 4 else ''}).",
+                    level="info",
+                )
+
+            # Pace per employer before anything is claimed.
+            #
+            # This has to happen here rather than inside the per-job pipeline.
+            # A held job keeps its QUEUED status by design, so if the pipeline
+            # were the only gate the loop would claim it, skip it, and claim it
+            # again on the next pass — spinning on the same postings and burning
+            # processedCount against work it never attempted.
+            #
+            # `queued` is already sorted best-match-first, and partition_by_cap
+            # preserves that order, so the jobs released when a window rolls are
+            # the best-matching ones without ranking anything twice.
+            with session_scope() as db:
+                cap_all_jobs = list_autopilot_jobs(db)
+            # A job the user clicked Apply on is exempt. Pacing exists to stop
+            # the *automation* flooding one employer; an explicit click is the
+            # user deciding this particular application is worth sending now.
+            # Held out of the partition rather than filtered afterwards, so its
+            # slot is not spent on behalf of some other queued job.
+            manual = [j for j in queued if j.get("id") in self.manual_apply_job_ids]
+            paceable = [j for j in queued if j.get("id") not in self.manual_apply_job_ids]
+            queued, cap_held = company_cap.partition_by_cap(paceable, cap_all_jobs)
+            for job in manual:
+                company_cap.clear_hold(job)
+            queued = manual + queued
+            if cap_held:
+                with session_scope() as db:
+                    for held_job in cap_held:
+                        save_autopilot_job(db, held_job)
+                if not self._logged_company_cap:
+                    self._logged_company_cap = True
+                    companies = sorted({str(j.get("company") or "?") for j in cap_held})
+                    by_tier: dict[str, int] = {}
+                    for held_job in cap_held:
+                        tier = str(held_job.get("companyCapTier") or "?")
+                        by_tier[tier] = by_tier.get(tier, 0) + 1
+                    limits = ", ".join(
+                        f"{cap}/{name}" for name, cap, _days in company_cap.COMPANY_CAP_TIERS
+                    )
+                    tiers = ", ".join(f"{n} by the {t} limit" for t, n in sorted(by_tier.items()))
+                    self.log_event(
+                        f"{len(cap_held)} queued application(s) are pacing against the "
+                        f"per-company limits ({limits}; {tiers}) "
+                        f"({', '.join(companies[:4])}{'…' if len(companies) > 4 else ''}). "
+                        "They stay queued and resume automatically, best matches first.",
+                        level="info",
+                        metadata={
+                            "heldCount": len(cap_held),
+                            "companies": companies[:20],
+                            "heldByTier": by_tier,
+                        },
+                    )
+
             # Jobs the user explicitly clicked "Apply" on jump the queue first —
             # see priority_job_ids above.
             if self.priority_job_ids:
@@ -1085,7 +1313,14 @@ class AutopilotRunner:
                 for cand in queued:
                     if len(claimed_jobs) >= claim_limit:
                         break
-                    if claim_job_lock(db, cand["id"], self.worker_id):
+                    # Lease must outlive the watchdog that bounds actual processing
+                    # (PLAYWRIGHT_WATCHDOG_TIMEOUT, default 600s) plus margin for the
+                    # save/cleanup after it fires. The 300s persistence-layer default
+                    # was shorter than a single slow job's real runtime, so a stale-
+                    # lock recovery sweep (every `/autopilot/start`, which happens on
+                    # every restart) could reset a job to QUEUED while a worker was
+                    # still legitimately mid-submission on it.
+                    if claim_job_lock(db, cand["id"], self.worker_id, lease_seconds=int(PLAYWRIGHT_WATCHDOG_TIMEOUT) + 120):
                         claimed_jobs.append(cand)
                     else:
                         self.metrics.lock_contention_count += 1
@@ -1317,6 +1552,10 @@ class AutopilotRunner:
         the description there is nothing to be ambiguous *about*, so the gate
         steps aside rather than judging a posting it cannot read.
         """
+        from app.services.gemini.config import applications_enabled
+
+        if not applications_enabled():
+            return None  # Treated as "proceed", exactly like an unavailable gate.
         try:
             from app.services.gemini import match_gate
 
@@ -1369,18 +1608,107 @@ class AutopilotRunner:
             )
             return
 
-        # An ATS will not accept a second application to the same posting — it
-        # just leaves the form on screen, which surfaces as an opaque "submit
-        # button is still active" failure after a full browser run. Check before
-        # opening a browser at all, and record it as the dead end it is.
+        # Pre-application validation:
+        # 1. Management / Director / Executive Role Exclusion
+        # Prioritizes individual contributor software engineers (SDE 1, 2, 3, Senior SDE, Staff, Principal, Lead SWE)
         from app.services.application_assistant.ineligibility import (
             IneligibilityReason,
             apply_ineligibility,
             find_duplicate_submission,
         )
+        from app.services.application_assistant.persistence import (
+            is_strict_duplicate_processed,
+            list_autopilot_jobs,
+        )
 
+        title_raw = str(job_item.get("title") or "").strip()
+        title_lower = title_raw.lower()
+        MANAGEMENT_KEYWORDS = (
+            "director", "manager", "engineering manager", "product manager",
+            "program manager", "project manager", "head of", "vp", "vice president",
+            "chief", "managing director", "lead manager",
+        )
+        if any(re.search(rf"\b{re.escape(kw)}\b", title_lower) for kw in MANAGEMENT_KEYWORDS):
+            detail = f"Management/director role excluded: '{title_raw}'"
+            apply_ineligibility(job_item, IneligibilityReason.ROLE_EXCLUDED, detail)
+            job_item["lastError"] = detail
+            self._record_checkpoint(job_item, CheckpointStep.SKIPPED, detail)
+            with session_scope() as db:
+                save_autopilot_job(db, job_item)
+            self.log_event(f"Role Excluded: {job_item.get('company')} — {title_raw} ({detail})", level="info")
+            return
+
+        # 2. Company pacing caps — COMPANY_CAP_TIERS applications to one employer
+        # across three rolling windows at once (5/day, 10/week, 20/month), with
+        # every tier raised by FRESH_POSTING_BONUS for a role published in the
+        # last day. `job=job_item` is what lets that bonus apply here.
+        #
+        # A capped posting is held, not disqualified: it keeps its QUEUED status
+        # and gains companyCapHoldUntil, so it re-enters the ordinary claim path
+        # by itself once the window rolls. This used to mark the job INELIGIBLE
+        # with COMPANY_CAP_REACHED, which buried a perfectly live posting in a
+        # terminal bucket the user works through expecting genuine dead ends.
+        #
+        # The batch loop filters held jobs out before claiming, so reaching this
+        # branch is the narrow race where the cap filled between that filter and
+        # this attempt. Held here as well rather than trusted to the caller.
+        #
+        # Unless the user clicked Apply on this job: that is an explicit
+        # instruction to send this one, and it overrides the limits at both
+        # gates. Checked against manual_apply_job_ids rather than
+        # priority_job_ids because the latter has already been drained by the
+        # claim step before execution reaches here.
+        company_raw = str(job_item.get("company") or "").strip()
+        manual_apply = job_item.get("id") in self.manual_apply_job_ids
+        if manual_apply:
+            company_cap.clear_hold(job_item)
+            self.log_event(
+                f"Manual Apply overrides the per-company limits for {company_raw or 'this employer'}.",
+                level="info",
+            )
+        if not manual_apply:
+            with session_scope() as db:
+                all_db_jobs = list_autopilot_jobs(db)
+
+            cap_release = company_cap.company_hold(
+                [j for j in all_db_jobs if j.get("id") != job_item.get("id")],
+                company_raw,
+                job=job_item,
+            )
+            if cap_release is not None:
+                company_cap.apply_hold(job_item, cap_release)
+                job_item["status"] = AutopilotJobStatus.QUEUED.value
+                detail = (
+                    job_item.get("companyCapReason") or f"{company_raw} is at its application cap"
+                )
+                self._record_checkpoint(job_item, CheckpointStep.SKIPPED, detail)
+                with session_scope() as db:
+                    save_autopilot_job(db, job_item)
+                self.log_event(f"Company paced: {company_raw} — {detail}", level="info")
+                return
+
+        # 3. Strict Pre-Application Duplicate Check across ANY status
+        posting_date = job_item.get("postingDate") or job_item.get("datePosted")
+        app_url = job_item.get("applicationUrl") or job_item.get("url") or ""
         with session_scope() as db:
-            already_submitted = list_autopilot_jobs(db, AutopilotJobStatus.SUBMITTED.value)
+            is_strict_dup, dup_job, dup_reason = is_strict_duplicate_processed(
+                db, company_raw, title_raw, posting_date, app_url, exclude_id=job_item.get("id")
+            )
+        if is_strict_dup and dup_job is not None:
+            detail = dup_reason or f"Already processed in status {dup_job.get('status')}"
+            apply_ineligibility(job_item, IneligibilityReason.DUPLICATE_APPLICATION, detail)
+            job_item["lastError"] = detail
+            self._record_checkpoint(job_item, CheckpointStep.SKIPPED, detail)
+            with session_scope() as db:
+                save_autopilot_job(db, job_item)
+            self.log_event(
+                f"Strict Duplicate: {company_raw} — {title_raw} ({detail})",
+                level="warning",
+            )
+            return
+
+        # 4. Standard already-submitted duplicate protection
+        already_submitted = [j for j in all_db_jobs if j.get("status") == AutopilotJobStatus.SUBMITTED.value]
         duplicate = find_duplicate_submission(job_item, already_submitted)
         if duplicate is not None:
             when = str(duplicate.get("submittedAt") or "")[:10] or "earlier"
@@ -1396,9 +1724,38 @@ class AutopilotRunner:
             )
             return
 
+        # 5. One in-flight attempt per posting, enforced in the database.
+        #
+        # The per-record lease (claim_job_lock) cannot express this: the same
+        # posting routinely has several records, and each would happily take its
+        # own lease and submit concurrently to one employer. Keyed on the ATS
+        # posting id so the board's various host shapes collapse to one claim.
+        identity = application_identity(job_item)
+        job_item["applicationIdentity"] = identity
+        job_id = str(job_item.get("id") or "")
+        with session_scope() as db:
+            identity_claimed = claim_application_identity(db, identity, job_id)
+        if not identity_claimed:
+            detail = "Another attempt for this posting is already in flight"
+            job_item["lastError"] = detail
+            self._record_checkpoint(job_item, CheckpointStep.SKIPPED, detail)
+            with session_scope() as db:
+                save_autopilot_job(db, job_item)
+            self.log_event(
+                f"Concurrent attempt refused: {job_item.get('company')} — {job_item.get('title')} ({detail})",
+                level="warning",
+            )
+            return
+
         attempt = (job_item.get("attemptCount") or 0) + 1
         job_item["attemptCount"] = attempt
         job_item["lastAttemptRunId"] = run_id
+        # The marker describes *this* attempt. A record the user resolved by
+        # hand and put back on the queue still carries the previous attempt's
+        # marker, and leaving it would make the next pre-submit failure look
+        # like a possible submission and park a job that is genuinely safe to
+        # retry. The checkpoint history keeps the older attempt's trail.
+        job_item.pop("submitAttemptedAt", None)
         self._record_checkpoint(job_item, CheckpointStep.JOB_CLAIMED, f"Attempt {attempt}/{MAX_JOB_ATTEMPTS}")
         with session_scope() as db:
             save_autopilot_job(db, job_item)
@@ -1438,13 +1795,45 @@ class AutopilotRunner:
                 )
                 return
 
-            if err_type in TRANSIENT_ERRORS and attempt < MAX_JOB_ATTEMPTS:
+            # A transient error is only safe to retry while nothing has been sent.
+            # NAVIGATION_TIMEOUT is transient and is also exactly what a board
+            # throws while the confirmation page fails to render *after* the
+            # submit click — retrying there reapplies to a posting the employer
+            # may already have. The duplicate guards at the top of this method
+            # cannot catch it, because they all exclude this job's own record.
+            if (
+                err_type in TRANSIENT_ERRORS
+                and attempt < MAX_JOB_ATTEMPTS
+                and not submit_was_attempted(job_item)
+            ):
                 delay = 2 if attempt == 1 else 5
                 self.log_event(f"Transient error ({err_type}). Retrying attempt {attempt + 1} after {delay}s...", level="warning")
                 await asyncio.sleep(delay)
                 return await self._process_single_job_with_retries(run_id, job_item, worker_state)
 
-            job_item["status"] = AutopilotJobStatus.FAILED.value
+            unproven_status, unproven_error = classify_unproven_outcome(job_item)
+            job_item["status"] = unproven_status
+            if unproven_status == AutopilotJobStatus.SUBMISSION_UNKNOWN.value:
+                job_item["lastErrorType"] = unproven_error
+                job_item["aiExplanation"] = explain_unknown_submission(job_item)
+                self._record_checkpoint(
+                    job_item, CheckpointStep.STAGED,
+                    f"Submission unverified after {err_type}: {exc_detail}",
+                )
+                with self._run_update_lock:
+                    with session_scope() as db:
+                        save_autopilot_job(db, job_item)
+                        r = get_autopilot_run(db, run_id)
+                        if r:
+                            r["submissionUnknownCount"] = (r.get("submissionUnknownCount") or 0) + 1
+                            save_autopilot_run(db, r)
+                self.log_event(
+                    f"Submission unverified after {err_type}: {job_item.get('company')} — "
+                    f"{job_item.get('title')}. Parked as SUBMISSION_UNKNOWN; no automatic retry.",
+                    level="warning",
+                )
+                return
+
             job_item["aiExplanation"] = f"Failed due to error: {err_type} ({exc_detail})"
             self._record_checkpoint(job_item, CheckpointStep.FAILED, f"Failed on error: {err_type}")
 
@@ -1510,6 +1899,17 @@ class AutopilotRunner:
                 logger.exception("Could not preserve failed job %s as a preparation draft", job_item.get("id"))
 
             self.log_event(f"Application failed ({err_type}): {job_item.get('company')} — {job_item.get('title')}", level="error")
+        finally:
+            # The claim guards one attempt at a time, not the posting forever —
+            # whether this posting may be attempted again is decided by the job's
+            # status (SUBMITTED and SUBMISSION_UNKNOWN both refuse), not by
+            # holding a lease open. Releasing here keeps a crashed attempt from
+            # stranding a posting until its lease expires.
+            try:
+                with session_scope() as db:
+                    release_application_identity(db, identity, job_id)
+            except Exception:
+                logger.exception("Could not release the posting claim for %s", job_id)
 
     def _classify_error(self, exc: Exception) -> str:
         msg = str(exc).lower()
@@ -2041,6 +2441,61 @@ class AutopilotRunner:
         with session_scope() as db:
             save_autopilot_job(db, job_item)
 
+        async def _record_submit_attempt() -> None:
+            """Enforce the minimum submission gap, then persist the point of no
+            return before the executor clicks submit.
+
+            The wait is computed against the most recent `submitAttemptedAt`
+            across every job (excluding this one), not just this job's own
+            history — the goal is that no two submissions, to any company,
+            land closer together than the configured gap. Runs on the
+            Playwright thread, so it takes its own session for both the read
+            and the write. The final write has to reach disk before the click
+            returns, which is why this is awaited rather than fired and
+            forgotten: if the process dies during the click, this row is what
+            stops the job being retried.
+            """
+            def _last_attempt() -> str | None:
+                with session_scope() as db:
+                    return most_recent_submit_attempt(db, exclude_id=job_item.get("id"))
+
+            last_attempt = await asyncio.to_thread(_last_attempt)
+            wait_seconds = seconds_until_next_submission(last_attempt)
+            if wait_seconds > 0:
+                self.log_event(
+                    f"{w_prefix}Pacing {company} — {title}: waiting "
+                    f"{wait_seconds:.0f}s so this submission doesn't land right "
+                    "after the last one",
+                    level="info",
+                    metadata={"slot": slot_idx, "company": company, "title": title},
+                )
+                await asyncio.sleep(wait_seconds)
+
+            stamp = now_iso()
+            job_item["submitAttemptedAt"] = stamp
+            # The checkpoint entry is appended directly rather than through
+            # _record_checkpoint: this runs on the Playwright thread, and
+            # _record_checkpoint broadcasts onto the SSE asyncio queues, which
+            # belong to the server's loop. Keeping this path to plain data plus
+            # one DB write avoids a cross-thread queue write on the one code
+            # path that must not fail.
+            history = job_item.get("checkpointHistory")
+            if not isinstance(history, list):
+                history = []
+                job_item["checkpointHistory"] = history
+            history.append({
+                "step": CheckpointStep.SUBMITTING.value,
+                "timestamp": stamp,
+                "details": "Final submit click issued",
+            })
+            job_item["currentStep"] = CheckpointStep.SUBMITTING.value
+
+            def _write() -> None:
+                with session_scope() as db:
+                    save_autopilot_job(db, job_item)
+
+            await asyncio.to_thread(_write)
+
         try:
             result = await asyncio.wait_for(
                 execute_live_playwright_submission(
@@ -2050,6 +2505,7 @@ class AutopilotRunner:
                     headless=headless_mode,
                     timeout_sec=PLAYWRIGHT_INNER_TIMEOUT,
                     log_callback=_granular_log,
+                    on_submit_attempt=_record_submit_attempt,
                 ),
                 timeout=PLAYWRIGHT_WATCHDOG_TIMEOUT,
             )
@@ -2082,7 +2538,14 @@ class AutopilotRunner:
                 worker_state.status = "submitting"
                 worker_state.current_step = "SUBMITTED"
             job_item["status"] = AutopilotJobStatus.SUBMITTED.value
-            job_item["submittedAt"] = now_iso()
+            job_item["submittedAt"] = job_item.get("submitAttemptedAt") or now_iso()
+            # Confirmation read straight off the page is the strongest evidence
+            # there is, and it arrives without waiting for anyone's mail server.
+            # Recorded as evidence on the record rather than as a separate
+            # status, so "still open" stays SUBMITTED minus REJECTED and no
+            # existing count has to learn a new state.
+            job_item["confirmedAt"] = now_iso()
+            job_item["confirmationSource"] = result.get("submissionSource") or "browser"
             evidence = dict(result.get("evidence", {}) or {})
             evidence["tailoringMode"] = job_item.get("tailoringMode")
             evidence["resumeFileUsed"] = job_item.get("resumeFileUsed")
@@ -2205,7 +2668,6 @@ class AutopilotRunner:
             )
         else:
             err_msg = result.get("error") or "Submission unconfirmed"
-            job_item["status"] = AutopilotJobStatus.FAILED.value
             job_item["lastError"] = err_msg
             evidence = result.get("evidence", {}) or {}
             if evidence.get("unresolvedRequiredFields") or evidence.get("preSubmitValidationErrors"):
@@ -2215,7 +2677,50 @@ class AutopilotRunner:
             else:
                 job_item["lastErrorType"] = ApplicationErrorType.SUBMISSION_UNCERTAIN.value
             job_item["submissionEvidence"] = evidence
+
+            # "Not confirmed" is not the same as "not sent". If the submit click
+            # was already issued, this attempt may have reached the employer, and
+            # FAILED is a retryable bucket — both /autopilot/reprocess-failed and
+            # the in-run retry would put it straight back on the queue and apply a
+            # second time. Park it where nothing retries it automatically instead.
+            unproven_status, unproven_error = classify_unproven_outcome(job_item, result)
+            job_item["status"] = unproven_status
+            if unproven_error:
+                job_item["lastErrorType"] = unproven_error
             job_item["aiExplanation"] = err_msg
+
+            if unproven_status == AutopilotJobStatus.SUBMISSION_UNKNOWN.value:
+                # Do not run the ineligibility classifier over one of these. Its
+                # job is to explain why a posting could never be applied to, and
+                # this posting may already have been applied to — filing it as a
+                # dead end would hide an application the candidate might have
+                # sent, which is the opposite of what the user needs to see.
+                job_item["aiExplanation"] = explain_unknown_submission(job_item)
+                self._record_checkpoint(
+                    job_item, CheckpointStep.STAGED, f"Submission unverified: {err_msg}"
+                )
+                if worker_state:
+                    worker_state.status = "done"
+                    worker_state.current_step = "SUBMISSION_UNKNOWN"
+                with self._run_update_lock:
+                    with session_scope() as db:
+                        save_autopilot_job(db, job_item)
+                        r = get_autopilot_run(db, run_id)
+                        if r:
+                            r["submissionUnknownCount"] = (r.get("submissionUnknownCount") or 0) + 1
+                            save_autopilot_run(db, r)
+                self.log_event(
+                    f"{w_prefix}Submission unverified for {company} — {title}: {err_msg}. "
+                    "Parked as SUBMISSION_UNKNOWN; Autopilot will not retry it.",
+                    level="warning",
+                    metadata={
+                        "slot": slot_idx, "company": company, "title": title,
+                        "status": AutopilotJobStatus.SUBMISSION_UNKNOWN.value,
+                        "submitAttemptedAt": job_item.get("submitAttemptedAt"),
+                    },
+                )
+                return
+
             # A board that refuses automation outright is not a technical
             # failure to retry — it is a posting the user can still submit by
             # hand. Without this the classifier was never consulted here, so a
@@ -2270,14 +2775,30 @@ class AutopilotRunner:
         """Top-Level Exception Boundary ensuring no unhandled exception can crash the batch worker."""
         self.log_event(f"Unhandled automation error on {job_item.get('company')}: {exc}", level="error")
 
-        job_item["status"] = AutopilotJobStatus.FAILED.value
         job_item["lastError"] = str(exc)
         job_item["lastErrorType"] = ApplicationErrorType.UNKNOWN_ERROR.value
-        job_item["aiExplanation"] = f"Automation error: {exc}"
-        self._record_checkpoint(job_item, CheckpointStep.FAILED, f"Unhandled exception: {exc}")
+
+        # Even here, where nothing is known about what went wrong, whether the
+        # submit click had already been issued is known — and that is the only
+        # thing that decides whether retrying is safe.
+        unproven_status, unproven_error = classify_unproven_outcome(job_item)
+        job_item["status"] = unproven_status
+        if unproven_status == AutopilotJobStatus.SUBMISSION_UNKNOWN.value:
+            job_item["lastErrorType"] = unproven_error
+            job_item["aiExplanation"] = explain_unknown_submission(job_item)
+            self._record_checkpoint(
+                job_item, CheckpointStep.STAGED, f"Submission unverified: {exc}"
+            )
+        else:
+            job_item["aiExplanation"] = f"Automation error: {exc}"
+            self._record_checkpoint(job_item, CheckpointStep.FAILED, f"Unhandled exception: {exc}")
+
         with self._run_update_lock, session_scope() as db:
             save_autopilot_job(db, job_item)
             r = get_autopilot_run(db, run_id)
             if r:
-                r["failedCount"] = (r.get("failedCount") or 0) + 1
+                if unproven_status == AutopilotJobStatus.SUBMISSION_UNKNOWN.value:
+                    r["submissionUnknownCount"] = (r.get("submissionUnknownCount") or 0) + 1
+                else:
+                    r["failedCount"] = (r.get("failedCount") or 0) + 1
                 save_autopilot_run(db, r)

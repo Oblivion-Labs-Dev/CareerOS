@@ -67,10 +67,48 @@ STEALTH_EVASION_JS = """
 """
 
 
-async def apply_stealth_profile(context: BrowserContext, page: Page) -> None:
-    """Apply full stealth anti-detection script on page and context initialization."""
-    await context.add_init_script(STEALTH_EVASION_JS)
-    await page.evaluate(STEALTH_EVASION_JS)
+async def apply_stealth_profile(
+    context: BrowserContext,
+    page: Page,
+    *,
+    host: str = "",
+) -> Any:
+    """Apply the evasion script under a fingerprint drawn for this session.
+
+    `STEALTH_EVASION_JS` above is kept as the fixed fallback, but the normal
+    path now parameterises the same protections with a per-session identity
+    from `browser_fingerprint`. Every session previously reported identical
+    WebGL/plugin/language values, which is its own detectable signature; see
+    that module and NIGHT_BATCH_DECISIONS.md.
+
+    Returns the fingerprint in use so the caller can retire it via
+    `fingerprint_pool.report_blocked(host, fp)` if the page turns out to be a
+    bot wall. Returns None if fingerprint generation failed, in which case the
+    fixed script was applied instead — a working fixed profile beats no
+    stealth at all.
+    """
+    from app.services.application_assistant.browser_fingerprint import (
+        build_evasion_script,
+        fingerprint_pool,
+    )
+
+    try:
+        fingerprint = fingerprint_pool.acquire(host or "default")
+        script = build_evasion_script(fingerprint)
+    except Exception:
+        await context.add_init_script(STEALTH_EVASION_JS)
+        await page.evaluate(STEALTH_EVASION_JS)
+        return None
+
+    await context.add_init_script(script)
+    await page.evaluate(script)
+    # Keep the HTTP-level identity agreeing with the JS-level one: a header UA
+    # that contradicts navigator.platform is worse than no spoofing.
+    try:
+        await context.set_extra_http_headers({"User-Agent": fingerprint.user_agent})
+    except Exception:
+        pass
+    return fingerprint
 
 
 async def humanized_type(element: Any, text: str, min_delay_ms: int = 35, max_delay_ms: int = 85) -> None:

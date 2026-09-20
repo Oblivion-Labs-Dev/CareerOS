@@ -25,6 +25,7 @@ APPLICATION_FIELD_DEFAULTS: dict[str, str] = {
     "veteran": "I am not a protected veteran",
     "disability": "No, I don't have a disability",
     "smsConsent": "No - I do not consent to receiving text messages",
+    "marketingConsent": "No",
     "pronouns": "Prefer not to say",
     "phoneCountryCode": "+1",
 }

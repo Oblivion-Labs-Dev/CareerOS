@@ -3,5 +3,5 @@ import { JobDiscoverDashboard } from "@/components/jobs/job-discover-dashboard";
 import { WorkspaceLoading } from "@/components/ui/workspace-loading";
 
 export default function JobDiscoverPage() {
-  return <Suspense fallback={<WorkspaceLoading label="Loading Browse Jobs…" />}><JobDiscoverDashboard/></Suspense>;
+  return <Suspense fallback={<WorkspaceLoading label="Loading Browse Jobs…" shape="grid" rows={6} />}><JobDiscoverDashboard/></Suspense>;
 }

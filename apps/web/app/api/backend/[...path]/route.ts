@@ -28,7 +28,48 @@ async function proxy(request: NextRequest, context: { params: Promise<{ path: st
     const responseHeaders = new Headers(response.headers);
     responseHeaders.delete("content-encoding");
     responseHeaders.delete("content-length");
-    return new Response(response.body, { status: response.status, headers: responseHeaders });
+
+    // Guard the upstream stream. The dashboard holds a long-lived SSE
+    // connection (/autopilot/events) through this proxy, so every time the API
+    // restarts — which `uvicorn --reload` does on any backend edit — that
+    // stream is severed mid-flight. Returning `response.body` unwrapped let
+    // that surface as an unhandled rejection and take the whole Next dev server
+    // down with it: the logs showed the API reloading and answering 200s, then
+    // `apps/web dev: Failed`. Closing the stream cleanly turns an upstream
+    // restart into a dropped connection the browser simply reconnects after.
+    if (!response.body) {
+      return new Response(null, { status: response.status, headers: responseHeaders });
+    }
+
+    const upstream = response.body;
+    const guarded = new ReadableStream({
+      async start(controller) {
+        const reader = upstream.getReader();
+        try {
+          for (;;) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            controller.enqueue(value);
+          }
+          controller.close();
+        } catch {
+          // Upstream went away (API reload, network blip). End the response
+          // instead of rejecting — the client reconnects on its own.
+          try {
+            controller.close();
+          } catch {
+            /* already closed */
+          }
+        } finally {
+          reader.releaseLock();
+        }
+      },
+      cancel() {
+        upstream.cancel().catch(() => {});
+      },
+    });
+
+    return new Response(guarded, { status: response.status, headers: responseHeaders });
   } catch (err: any) {
     console.error(`[backend-proxy-error] failed proxying to ${target.toString()}:`, err, err?.cause);
     return Response.json({ detail: "CareerOS API is unavailable.", error: String(err), cause: String(err?.cause), code: err?.cause?.code, target: target.toString() }, { status: 503 });

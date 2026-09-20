@@ -136,6 +136,7 @@ class SettingsPayload(BaseModel):
     browser: dict[str, Any] | None = None
     fieldMapping: dict[str, Any] | None = None
     domainAllowlist: list[str] | None = None
+    companyBlacklist: list[dict[str, Any]] | None = None
 
 
 class QwenChatPayload(BaseModel):

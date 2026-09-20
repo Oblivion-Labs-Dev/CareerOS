@@ -160,12 +160,17 @@
   color: var(--accent);
 }
 
+/* The one line that names this surface, so it carries the display face.
+   Serif at 400 reads larger and calmer than sans at 750 did — the old weight
+   was compensating for a face with nothing to say at that size. */
 .title {
-  margin: 0.15rem 0 0.2rem;
-  font-size: 1.28rem;
-  font-weight: 750;
+  margin: 0.1rem 0 0.25rem;
+  font-family: var(--font-display);
+  font-size: var(--text-xl);
+  font-weight: 400;
   color: var(--text);
-  letter-spacing: -0.02em;
+  letter-spacing: -0.015em;
+  line-height: 1.1;
 }
 
 /* Replaces the old marketing-copy subtitle: the two numbers that actually
@@ -424,6 +429,105 @@
   color: var(--warning);
 }
 
+/* Pre-flight readiness, shown next to Start.
+   Same idea as .floorReach above: a consequence stated while the person can
+   still act on it, rather than reported afterwards. Warning tone by default
+   because the default case is blocking; data-tone="info" for the
+   which-question-clears-most panel, which is guidance and not a barrier. */
+.readinessPanel {
+  margin: 0 0 0.6rem;
+  padding: 0.55rem 0.7rem;
+  border-radius: 0.5rem;
+  border: 1px solid color-mix(in srgb, var(--warning) 35%, transparent);
+  background: color-mix(in srgb, var(--warning) 8%, transparent);
+  text-align: left;
+}
+
+.readinessPanel[data-tone="info"] {
+  border-color: color-mix(in srgb, var(--accent, var(--text)) 25%, transparent);
+  background: color-mix(in srgb, var(--accent, var(--text)) 6%, transparent);
+}
+
+.readinessTitle {
+  margin: 0 0 0.35rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.readinessList {
+  margin: 0;
+  padding-left: 1rem;
+  display: grid;
+  gap: 0.25rem;
+  font-size: 0.76rem;
+  color: var(--text);
+}
+
+.readinessList a {
+  color: var(--text);
+  font-weight: 600;
+  text-decoration: underline;
+}
+
+.readinessList a:hover,
+.readinessList a:focus-visible {
+  color: var(--warning);
+}
+
+.readinessHint {
+  color: var(--muted);
+}
+
+/* Answer a grouped question in place. Saving here writes one library entry and
+   requeues every application the answer finishes, so the input belongs next to
+   the count it clears rather than behind a navigation. */
+.answerRow {
+  display: flex;
+  gap: 0.4rem;
+  margin: 0.3rem 0 0.15rem;
+}
+
+.answerRow input {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 0.35rem 0.5rem;
+  border-radius: 0.4rem;
+  border: 1px solid var(--border, #d4d4d8);
+  background: var(--surface, #fff);
+  color: var(--text-strong, var(--foreground, #111));
+  font: inherit;
+  font-size: 0.75rem;
+}
+
+.answerRow input:focus-visible {
+  outline: 2px solid var(--accent, var(--text));
+  outline-offset: 1px;
+}
+
+.answerRow button {
+  padding: 0.35rem 0.7rem;
+  border-radius: 0.4rem;
+  border: 1px solid var(--border, #d4d4d8);
+  background: var(--surface, #fff);
+  color: var(--text-strong, var(--foreground, #111));
+  font: inherit;
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.answerRow button:hover:not(:disabled),
+.answerRow button:focus-visible:not(:disabled) {
+  border-color: var(--accent, var(--text));
+}
+
+.answerRow button:disabled,
+.answerRow input:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
 /* Footer */
 .actionsFooter {
   display: flex;
@@ -641,9 +745,14 @@
   font-weight: 650;
   line-height: 1.2;
   color: var(--text);
-  background-color: var(--card);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm, 10px);
+  /* --surface-1/--card-edge rather than --card/--border: those are redefined
+     inside `.main` per theme, so a control rendered outside that scope fell
+     back to the dark root value and drew as a black box in light mode. These
+     are defined at :root and keyed off [data-theme] on <html>, so they are
+     correct wherever the control ends up. */
+  background-color: var(--surface-1, var(--card));
+  border: 1px solid var(--card-edge, var(--border));
+  border-radius: var(--radius-sm);
   cursor: pointer;
   outline: none;
   transition: border-color var(--duration-fast, .15s) var(--ease-out, ease),
@@ -775,3 +884,34 @@
   .liveBannerTop { flex-direction: column; align-items: flex-start; }
   .liveOrbit { margin: -1.2rem 0 -0.8rem; }
 }
+
+/* Questions holding applications — a warning, not a worklist.
+   Amber because it is a blocker the user can clear, not an error. The list
+   itself lives in the Review tab; putting it here buried the Start button
+   under a scrolling queue. */
+.questionWarning {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  margin: 0 0 14px;
+  padding: 11px 13px;
+  border: 1px solid color-mix(in srgb, #f5b544 38%, transparent);
+  border-left: 3px solid #f5b544;
+  border-radius: 10px;
+  background: color-mix(in srgb, #f5b544 13%, transparent);
+  color: color-mix(in srgb, #f5b544 30%, var(--ref-text, #f4f7fb));
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.questionWarning strong { color: #f5b544; font-weight: 750; }
+
+.questionWarningLink {
+  color: #f5b544;
+  font-weight: 650;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  white-space: nowrap;
+}
+
+.questionWarningLink:hover { color: #ffcf76; }

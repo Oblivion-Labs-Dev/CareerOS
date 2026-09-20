@@ -58,6 +58,13 @@ class AnswerResolution:
     model_used: str | None = None
     raw_llm_response: str | None = None
     blocking_errors: list[str] = field(default_factory=list)
+    # Non-blocking: the employer's own question may itself be worth a second
+    # look (immigration-status screening, a salary-history request some
+    # jurisdictions restrict) — see jurisdiction_compliance.py. Distinct from
+    # blocking_errors, which is about CareerOS being unable to answer safely;
+    # this is about the question being asked at all. Never delays or blocks
+    # resolution, and is never legal advice.
+    compliance_warnings: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -75,6 +82,7 @@ class AnswerResolution:
             "modelUsed": self.model_used,
             "rawLlmResponse": self.raw_llm_response,
             "blockingErrors": self.blocking_errors,
+            "complianceWarnings": self.compliance_warnings,
         }
 
 
@@ -84,7 +92,12 @@ def _get_work_auth(profile: dict[str, Any]) -> dict[str, Any]:
     """Extract the structured workAuth object with safe defaults."""
     wa = profile.get("workAuth") or {}
     return {
-        "authorizedToWorkInUS": wa.get("authorizedToWorkInUS", True),
+        # No default: whether the candidate is legally authorized to work in
+        # the US is a factual claim on a real application, and defaulting it
+        # to True fabricated that claim for any profile that had not yet
+        # recorded it. `_resolve_work_authorized` is the only reader and
+        # treats None as "cannot verify" rather than guessing either way.
+        "authorizedToWorkInUS": wa.get("authorizedToWorkInUS"),
         "authorizationType": wa.get("authorizationType", ""),
         "requiresSponsorshipNowOrFuture": wa.get("requiresSponsorshipNowOrFuture",
             str(profile.get("sponsorship", "")).lower() in ("yes", "true", "1")),
@@ -271,6 +284,42 @@ def _match_preferred_office(options: list[str], profile: dict[str, Any]) -> str 
 
 
 def resolve_answer(
+    question_text: str,
+    profile: dict[str, Any],
+    options: list[str] | None = None,
+    field_id: str = "",
+    answer_lib: list[dict[str, Any]] | None = None,
+    question_type: QuestionType | None = None,
+) -> AnswerResolution:
+    """Resolve an application field answer, then flag the *question itself*
+    if it's worth a second look before the candidate answers it.
+
+    The resolution logic lives in `_resolve_answer_impl`, unchanged; this
+    wrapper only adds `compliance_warnings` — see `jurisdiction_compliance.py`
+    and the field's own docstring on `AnswerResolution`. Kept as a thin outer
+    layer rather than folded into the impl so the compliance check runs
+    exactly once regardless of which of the impl's many early returns fired.
+    """
+    resolution = _resolve_answer_impl(
+        question_text, profile, options=options, field_id=field_id,
+        answer_lib=answer_lib, question_type=question_type,
+    )
+    from app.services.application_assistant.jurisdiction_compliance import (
+        check_immigration_status_screening,
+        check_salary_history_request,
+    )
+
+    warning = check_immigration_status_screening(question_text) or check_salary_history_request(
+        question_text, profile,
+    )
+    if warning:
+        resolution.compliance_warnings.append(warning.message)
+        if resolution.validator_status == "UNVALIDATED":
+            resolution.validator_status = "WARN"
+    return resolution
+
+
+def _resolve_answer_impl(
     question_text: str,
     profile: dict[str, Any],
     options: list[str] | None = None,
@@ -716,11 +765,25 @@ def _years_threshold(question: str) -> tuple[int, bool] | None:
 
 
 def _resolve_years_experience(res: AnswerResolution, profile: dict, opts: list[str]) -> None:
-    yoe = profile.get("yearsExperience", 8)
+    """Answer only from a recorded figure.
+
+    This used to default to 8 when nothing was recorded, and again when the
+    recorded value would not parse. Years of experience is a checkable fact that
+    screening rules gate on, so an invented one is both a false statement and a
+    claim that can knock the application out. With nothing recorded the question
+    belongs to the candidate — profile_readiness surfaces it as a blocking gap
+    so it is asked before a run rather than guessed at during one.
+    """
+    raw = profile.get("yearsExperience", profile.get("yearsOfExperience"))
     try:
-        yoe_int = int(yoe)
-    except (ValueError, TypeError):
-        yoe_int = 8
+        yoe_int = int(str(raw).strip())
+    except (ValueError, TypeError, AttributeError):
+        res.blocking_errors.append(
+            "No years-of-experience figure is recorded on the profile, and it "
+            "must not be guessed — screening rules gate on this number."
+        )
+        res.confidence = 0.0
+        return
 
     if opts:
         # Check if this is a boolean Yes/No question (e.g. "Are you in your early career?")
@@ -774,6 +837,11 @@ def _resolve_years_experience(res: AnswerResolution, profile: dict, opts: list[s
 def _resolve_work_authorized(res: AnswerResolution, profile: dict, opts: list[str]) -> None:
     wa = _get_work_auth(profile)
     auth = wa["authorizedToWorkInUS"]
+    if auth is None:
+        # Genuinely unknown — decline rather than guess either way. Leaving
+        # res.answer unset surfaces this as a real pending question instead
+        # of stating a work-authorization status the candidate never gave.
+        return
     if opts:
         if auth:
             yes_opt = None
@@ -966,6 +1034,42 @@ def _resolve_export_control(res: AnswerResolution, profile: dict, opts: list[str
     BUG FIX: Previous system selected "A United States citizen or national"
     via fuzzy match. Must never select citizenship options when usCitizen=false.
     """
+    # Some boards put the export-control question the other way round and ask
+    # for a country rather than a status: "In which country did you obtain
+    # citizenship, nationality, or permanent residency?" Answering that with
+    # "None of the above" is a non-answer, so the field stayed empty - the same
+    # status-versus-value confusion as the time-zone question.
+    question = (res.question or "").lower()
+    if re.search(r"(which|what)\s+countr(y|ies)", question):
+        country = str(
+            profile.get("citizenshipCountry") or profile.get("citizenship") or ""
+        ).strip()
+        if not country:
+            res.blocking_errors.append(
+                "This asks which country the candidate holds citizenship in, and "
+                "no citizenship country is recorded on the profile."
+            )
+            res.confidence = 0.0
+            return
+        if opts:
+            matched = _match_option(opts, country)
+            if not matched:
+                res.blocking_errors.append(
+                    f"Citizenship country is {country!r}, but none of the offered "
+                    "options match it."
+                )
+                res.confidence = 0.0
+                return
+            res.answer = matched
+            res.resolution_method = PROFILE_OPTION_MAPPING
+        else:
+            res.answer = country
+            res.resolution_method = PROFILE_EXACT
+        res.profile_key = "citizenshipCountry"
+        res.source_value = country
+        res.confidence = 0.95
+        return
+
     wa = _get_work_auth(profile)
 
     # Only select citizenship/national options if actually true
@@ -1134,6 +1238,24 @@ def _resolve_race(res: AnswerResolution, profile: dict, opts: list[str]) -> None
         # ambiguous against this particular list, so decline instead of picking
         # one. A single match is still taken, which keeps the standard EEOC
         # wording ("Asian (Not Hispanic or Latino)") resolving normally.
+        # When the form offers the candidate's own, more specific ancestry, that
+        # is the truthful answer and is preferred over the broad category. The
+        # candidate is South Asian and confirmed both are correct — "which one
+        # depends on the granularity the form asks for". Keyed on an explicitly
+        # recorded sub-category, never inferred, so this cannot become the
+        # guess-a-narrower-option failure the comment above describes.
+        specific = str(profile.get("raceEthnicitySpecific") or "").strip()
+        if specific:
+            specific_word = re.compile(rf"\b{re.escape(specific)}\b", re.I)
+            exact = [o for o in safe_opts if specific_word.search(o)]
+            if len(exact) == 1:
+                res.answer = exact[0]
+                res.resolution_method = PROFILE_OPTION_MAPPING
+                res.profile_key = "raceEthnicitySpecific"
+                res.source_value = specific
+                res.confidence = 0.95
+                return
+
         val_word = re.compile(rf"\b{re.escape(val.strip())}\b", re.I) if val.strip() else None
         fitting = [o for o in safe_opts if val_word and val_word.search(o)] if val_word else []
         if len(fitting) == 1:
@@ -1480,7 +1602,14 @@ def _resolve_salary(res: AnswerResolution, profile: dict, opts: list[str]) -> No
         res.source_value = profile.get("salaryExpectations")
         res.confidence = 0.9
         return
-    _resolve_from_profile(res, profile, opts, "salaryExpectations", fallback="Open / Negotiable")
+    # No `fallback=` here: "Open / Negotiable" is a real, specific claim about
+    # the candidate's negotiating stance, not a universally-true non-answer
+    # like RACE's "Prefer not to answer". Submitting it when the candidate
+    # never actually said that is exactly the guess this module's other
+    # resolvers are written to refuse. Leaving it unresolved surfaces as a
+    # pending question the candidate answers once, same as any other blocked
+    # field — not a fabricated answer on a live application.
+    _resolve_from_profile(res, profile, opts, "salaryExpectations")
 
 def _resolve_notice_period(res: AnswerResolution, profile: dict, opts: list[str]) -> None:
     q_low = (res.question or "").lower()
@@ -1518,25 +1647,291 @@ def _resolve_sms_consent(res: AnswerResolution, profile: dict, opts: list[str]) 
     _resolve_from_profile(res, profile, opts, "smsConsent",
                           fallback=APPLICATION_FIELD_DEFAULTS.get("smsConsent", "No"))
 
+def _resolve_marketing_consent(res: AnswerResolution, profile: dict, opts: list[str]) -> None:
+    _resolve_from_profile(res, profile, opts, "marketingConsent",
+                          fallback=APPLICATION_FIELD_DEFAULTS.get("marketingConsent", "No"))
+
+#: Descriptive level -> the CEFR band a form offering bare codes expects.
+_CEFR_FOR_LEVEL = {
+    "native": "C2", "bilingual": "C2", "fluent": "C2",
+    "proficient": "C2", "professional": "C1", "advanced": "C1",
+    "intermediate": "B2", "conversational": "B1", "basic": "A2",
+}
+
+
 def _resolve_english_proficiency(res: AnswerResolution, profile: dict, opts: list[str]) -> None:
-    target = "Fluent"
+    """Answer from the level the candidate recorded, not from a constant.
+
+    This used to assert "Fluent" unconditionally, reading nothing from the
+    profile. That is a claim about the candidate made on their behalf, and it
+    was wrong here — the recorded level is "Proficient". A self-assessment
+    belongs to the person being assessed, so with nothing recorded this now goes
+    to review rather than picking a level.
+    """
+    target = str(
+        profile.get("englishLevel")
+        or profile.get("english_level")
+        or profile.get("englishProficiency")
+        or ""
+    ).strip()
+
+    if not target:
+        res.blocking_errors.append(
+            "No English proficiency level is recorded on the profile. Set one on "
+            "the Profile page (Citizenship & work eligibility) rather than having "
+            "a level asserted on your behalf."
+        )
+        res.confidence = 0.0
+        return
+
     if opts:
         # Some forms (observed on Sezzle) offer bare CEFR codes (A1-C2)
         # instead of descriptive text — "Fluent"/"Professional"/"Native"
-        # share no substring with "C2", so the descriptive-text match below
-        # always missed and left the field unresolved. C2 is the correct
-        # CEFR level for a fluent/native-equivalent self-assessment.
+        # share no substring with "C2", so a descriptive-text match always
+        # missed and left the field unresolved.
         cefr_opts = {o.strip().upper() for o in opts}
         if cefr_opts & {"A1", "A2", "B1", "B2", "C1", "C2"}:
-            matched = _match_option(opts, "C2") or _match_option(opts, "C1")
-            res.answer = matched or target
+            band = _CEFR_FOR_LEVEL.get(target.lower(), "C1")
+            matched = _match_option(opts, band) or _match_option(opts, "C1")
         else:
-            matched = _match_option(opts, target) or _match_option(opts, "Professional") or _match_option(opts, "Native")
-            res.answer = matched or target
+            matched = (
+                _match_option(opts, target)
+                or _match_option(opts, "Fluent")
+                or _match_option(opts, "Professional")
+                or _match_option(opts, "Native")
+            )
+        if not matched:
+            res.blocking_errors.append(
+                f"The recorded English level is {target!r}, but none of the offered "
+                "options express it."
+            )
+            res.confidence = 0.0
+            return
+        res.answer = matched
+        res.resolution_method = PROFILE_OPTION_MAPPING
+    else:
+        res.answer = target
+        res.resolution_method = PROFILE_EXACT
+
+    res.profile_key = "englishLevel"
+    res.source_value = target
+    res.confidence = 0.95
+
+#: US state / territory -> IANA zone and the name application forms expect.
+#: Only the unambiguous ones. A state split across zones is deliberately absent
+#: so it falls through to review rather than guessing the wrong half.
+_STATE_TIMEZONES: dict[str, tuple[str, str]] = {
+    "washington": ("America/Los_Angeles", "Pacific Time (PT)"),
+    "oregon": ("America/Los_Angeles", "Pacific Time (PT)"),
+    "california": ("America/Los_Angeles", "Pacific Time (PT)"),
+    "nevada": ("America/Los_Angeles", "Pacific Time (PT)"),
+    "utah": ("America/Denver", "Mountain Time (MT)"),
+    "colorado": ("America/Denver", "Mountain Time (MT)"),
+    "new mexico": ("America/Denver", "Mountain Time (MT)"),
+    "montana": ("America/Denver", "Mountain Time (MT)"),
+    "wyoming": ("America/Denver", "Mountain Time (MT)"),
+    "arizona": ("America/Phoenix", "Mountain Time (MT, no DST)"),
+    "illinois": ("America/Chicago", "Central Time (CT)"),
+    "texas": ("America/Chicago", "Central Time (CT)"),
+    "minnesota": ("America/Chicago", "Central Time (CT)"),
+    "wisconsin": ("America/Chicago", "Central Time (CT)"),
+    "iowa": ("America/Chicago", "Central Time (CT)"),
+    "missouri": ("America/Chicago", "Central Time (CT)"),
+    "arkansas": ("America/Chicago", "Central Time (CT)"),
+    "louisiana": ("America/Chicago", "Central Time (CT)"),
+    "oklahoma": ("America/Chicago", "Central Time (CT)"),
+    "alabama": ("America/Chicago", "Central Time (CT)"),
+    "mississippi": ("America/Chicago", "Central Time (CT)"),
+    "new york": ("America/New_York", "Eastern Time (ET)"),
+    "new jersey": ("America/New_York", "Eastern Time (ET)"),
+    "massachusetts": ("America/New_York", "Eastern Time (ET)"),
+    "pennsylvania": ("America/New_York", "Eastern Time (ET)"),
+    "virginia": ("America/New_York", "Eastern Time (ET)"),
+    "maryland": ("America/New_York", "Eastern Time (ET)"),
+    "georgia": ("America/New_York", "Eastern Time (ET)"),
+    "north carolina": ("America/New_York", "Eastern Time (ET)"),
+    "south carolina": ("America/New_York", "Eastern Time (ET)"),
+    "ohio": ("America/New_York", "Eastern Time (ET)"),
+    "connecticut": ("America/New_York", "Eastern Time (ET)"),
+    "maine": ("America/New_York", "Eastern Time (ET)"),
+    "vermont": ("America/New_York", "Eastern Time (ET)"),
+    "new hampshire": ("America/New_York", "Eastern Time (ET)"),
+    "rhode island": ("America/New_York", "Eastern Time (ET)"),
+    "delaware": ("America/New_York", "Eastern Time (ET)"),
+    "west virginia": ("America/New_York", "Eastern Time (ET)"),
+}
+
+_STATE_ABBREVIATIONS = {
+    "wa": "washington", "or": "oregon", "ca": "california", "nv": "nevada",
+    "ut": "utah", "co": "colorado", "nm": "new mexico", "mt": "montana",
+    "wy": "wyoming", "az": "arizona", "il": "illinois", "tx": "texas",
+    "mn": "minnesota", "wi": "wisconsin", "ia": "iowa", "mo": "missouri",
+    "ar": "arkansas", "la": "louisiana", "ok": "oklahoma", "al": "alabama",
+    "ms": "mississippi", "ny": "new york", "nj": "new jersey",
+    "ma": "massachusetts", "pa": "pennsylvania", "va": "virginia",
+    "md": "maryland", "ga": "georgia", "nc": "north carolina",
+    "sc": "south carolina", "oh": "ohio", "ct": "connecticut", "me": "maine",
+    "vt": "vermont", "nh": "new hampshire", "ri": "rhode island",
+    "de": "delaware", "wv": "west virginia",
+}
+
+
+def candidate_timezone(profile: dict) -> tuple[str, str] | None:
+    """The candidate's own time zone, as (IANA id, display name).
+
+    Prefers an explicit profile value, then derives one from the recorded
+    state. Returns ``None`` rather than a guess when the location does not
+    resolve unambiguously - an invented time zone on a submitted application is
+    a false statement, and review is the correct outcome.
+    """
+    explicit = str(profile.get("timezone") or profile.get("timeZone") or "").strip()
+    if explicit:
+        return (explicit, explicit)
+
+    haystacks = [
+        str(profile.get("state") or ""),
+        str(profile.get("location") or ""),
+        str(profile.get("currentLocation") or ""),
+    ]
+    for raw in haystacks:
+        low = raw.strip().lower()
+        if not low:
+            continue
+        if low in _STATE_TIMEZONES:
+            return _STATE_TIMEZONES[low]
+        for part in re.split(r"[,/|]", low):
+            token = part.strip()
+            if token in _STATE_TIMEZONES:
+                return _STATE_TIMEZONES[token]
+            expanded = _STATE_ABBREVIATIONS.get(token)
+            if expanded:
+                return _STATE_TIMEZONES[expanded]
+    return None
+
+
+def _resolve_timezone_location(res: AnswerResolution, profile: dict, opts: list[str]) -> None:
+    """"What time zone are you in?" - wants a zone, not a yes/no.
+
+    TIMEZONE_AVAILABILITY answers "Yes", which is right for "can you work
+    Eastern hours?" and meaningless here; the field stayed empty and the
+    application was held for a DOM verification mismatch.
+    """
+    resolved = candidate_timezone(profile)
+    if not resolved:
+        res.blocking_errors.append(
+            "The profile does not record a time zone and none could be derived "
+            "from the recorded location, so this needs a human answer."
+        )
+        res.confidence = 0.0
+        return
+
+    iana, display = resolved
+    if opts:
+        matched = (
+            _match_option(opts, display)
+            or _match_option(opts, iana)
+            or _match_option(opts, display.split(" (")[0])
+        )
+        if not matched:
+            res.blocking_errors.append(
+                f"The candidate is in {display}, but none of the offered options "
+                "match it; picking the nearest would state the wrong zone."
+            )
+            res.confidence = 0.0
+            return
+        res.answer = matched
+        res.resolution_method = PROFILE_OPTION_MAPPING
+    else:
+        res.answer = display
+        res.resolution_method = DETERMINISTIC_RULE
+
+    res.profile_key = "location"
+    res.source_value = profile.get("location")
+    res.confidence = 0.92
+
+
+def _resolve_employer_count(res: AnswerResolution, profile: dict, opts: list[str]) -> None:
+    """"How many companies have you worked for?" - counted from work history.
+
+    Previously intercepted by DEGREE, because the question dates its window by
+    naming a degree, so an employer count was answered with a qualification
+    level.
+    """
+    history = profile.get("workExperience") or profile.get("experience") or []
+    employers = {
+        str(entry.get("company") or entry.get("employer") or "").strip().lower()
+        for entry in history
+        if isinstance(entry, dict)
+    }
+    employers.discard("")
+
+    if not employers:
+        res.blocking_errors.append(
+            "No work history is recorded on the profile, so the number of "
+            "employers cannot be counted without inventing it."
+        )
+        res.confidence = 0.0
+        return
+
+    count = str(len(employers))
+    if opts:
+        matched = _match_option(opts, count)
+        if not matched:
+            res.blocking_errors.append(
+                f"The profile records {count} employers, but none of the offered "
+                "options express that."
+            )
+            res.confidence = 0.0
+            return
+        res.answer = matched
+        res.resolution_method = PROFILE_OPTION_MAPPING
+    else:
+        res.answer = count
+        res.resolution_method = PROFILE_EXACT
+
+    res.profile_key = "workExperience"
+    res.source_value = sorted(employers)
+    res.confidence = 0.9
+
+
+def _resolve_originality_declaration(res: AnswerResolution, profile: dict, opts: list[str]) -> None:
+    """Affirmed, at the candidate's explicit instruction.
+
+    The declaration reads, in Canonical's wording: "I agree to use only my own
+    words. I understand that plagiarism, the use of AI or other generated
+    content will disqualify my application."
+
+    This resolver originally refused to answer, on the grounds that CareerOS
+    drafts with a language model and ticking the box would therefore assert
+    something untrue. The candidate was shown that reasoning in full and
+    overruled it, which is their call to make: they are the one making the
+    declaration, and they are the one who bears it if an employer disagrees.
+
+    The instruction came with a condition attached — that answers "need to
+    sound more human" — and the substance of the position is that the answers
+    are composed from the candidate's own recorded stories and reviewed by
+    them, so the words are theirs in the sense the clause is asking about.
+    That is a defensible reading; it is simply not one automation may adopt on
+    someone's behalf without being asked.
+
+    Recorded here rather than argued again, so a future reader knows this is a
+    deliberate decision and not an oversight.
+    """
+    target = "I agree"
+    if opts:
+        res.answer = (
+            _match_option(opts, "I agree")
+            or _match_option(opts, "Agree")
+            or _match_option(opts, "Yes")
+            or _match_option(opts, "I acknowledge")
+            or _match_option(opts, "Accept")
+            or opts[0]
+        )
     else:
         res.answer = target
     res.resolution_method = DETERMINISTIC_RULE
-    res.confidence = 0.95
+    res.confidence = 0.9
+
 
 def _resolve_privacy_consent(res: AnswerResolution, profile: dict, opts: list[str]) -> None:
     target = "I agree"
@@ -1906,6 +2301,12 @@ def _resolve_education_start_year(res: AnswerResolution, profile: dict, opts: li
 def _resolve_education_end_year(res: AnswerResolution, profile: dict, opts: list[str]) -> None:
     _resolve_education_history(res, profile, opts, "end-year", 0)
 
+def _resolve_education_end_month(res: AnswerResolution, profile: dict, opts: list[str]) -> None:
+    _resolve_education_history(res, profile, opts, "end-month", 0)
+
+def _resolve_education_start_month(res: AnswerResolution, profile: dict, opts: list[str]) -> None:
+    _resolve_education_history(res, profile, opts, "start-month", 0)
+
 def _resolve_gpa(res: AnswerResolution, profile: dict, opts: list[str]) -> None:
     """Answer a GPA question only from a recorded GPA.
 
@@ -2096,9 +2497,13 @@ _RESOLVERS: dict[QuestionType, Any] = {
     QuestionType.RELOCATE: _resolve_relocate,
     QuestionType.WORK_ARRANGEMENT: _resolve_work_arrangement,
     QuestionType.TIMEZONE_AVAILABILITY: _resolve_timezone_availability,
+    QuestionType.TIMEZONE_LOCATION: _resolve_timezone_location,
+    QuestionType.EMPLOYER_COUNT: _resolve_employer_count,
+    QuestionType.ORIGINALITY_DECLARATION: _resolve_originality_declaration,
     QuestionType.SALARY: _resolve_salary,
     QuestionType.NOTICE_PERIOD: _resolve_notice_period,
     QuestionType.SMS_CONSENT: _resolve_sms_consent,
+    QuestionType.MARKETING_CONSENT: _resolve_marketing_consent,
     QuestionType.ENGLISH_PROFICIENCY: _resolve_english_proficiency,
     QuestionType.PRIVACY_CONSENT: _resolve_privacy_consent,
     QuestionType.ACCURACY_CONFIRMATION: _resolve_accuracy_confirmation,
@@ -2110,6 +2515,8 @@ _RESOLVERS: dict[QuestionType, Any] = {
     QuestionType.DISCIPLINE: _resolve_discipline,
     QuestionType.EDUCATION_START_YEAR: _resolve_education_start_year,
     QuestionType.EDUCATION_END_YEAR: _resolve_education_end_year,
+    QuestionType.EDUCATION_END_MONTH: _resolve_education_end_month,
+    QuestionType.EDUCATION_START_MONTH: _resolve_education_start_month,
     QuestionType.GPA: _resolve_gpa,
     QuestionType.TEST_SCORE: _resolve_test_score,
     QuestionType.LOCATION_CONFIRMATION: _resolve_location_confirmation,

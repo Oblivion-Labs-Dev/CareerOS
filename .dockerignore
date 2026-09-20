@@ -1,0 +1,80 @@
+# Build context exclusions.
+#
+# Two jobs. The first is speed: this repo carries node_modules, a Python venv
+# and a multi-gigabyte data directory, none of which belong in a build context.
+# The second matters more — nothing here may ever be baked into an image. The
+# data directory holds the live SQLite database, logged-in browser profiles,
+# private resumes and application evidence, and an image is a shareable
+# artifact. Browser state reaches a container through a volume at run time or
+# not at all.
+
+# ── Never bake these in ────────────────────────────────────────────────────
+.env
+.env.*
+!.env.example
+!.env.docker.example
+**/.env
+**/.env.*
+!**/.env.example
+apps/api/data/
+apps/api/logs/
+data/
+logs/
+# ...but the repository-root data/ also holds two seed files that are tracked in
+# git and are source, not runtime state: the resume corpus (imported directly by
+# apps/web/app/(app)/resume-corpus/corpus-seed-data.ts) and the interview story
+# corpus (loaded by services/story_index.py, which is what resume tailoring
+# retrieves evidence from). Excluding them left /app/data missing entirely, so
+# the web typecheck failed to resolve its import and the story index had no
+# corpus to load. The blanket rule above is aimed at apps/api/data.
+!data/resume-corpus-initial.json
+!data/interview-story-corpus.json
+**/browser_profile/
+**/chrome-profile/
+**/sessions/
+**/storage-state*.json
+apps/web/e2e/.auth/
+apps/extension/db.json
+apps/web/public/resumes/
+*.pem
+*.key
+
+# ── Dependencies and build output (reinstalled in the image) ───────────────
+node_modules/
+**/node_modules/
+.pnpm-store/
+apps/api/.venv/
+**/__pycache__/
+**/*.pyc
+**/.pytest_cache/
+**/.mypy_cache/
+**/.ruff_cache/
+apps/web/.next/
+apps/web/out/
+packages/*/dist/
+apps/extension/dist/
+apps/extension/.firefox-run/
+
+# ── Test and diagnostic artifacts ──────────────────────────────────────────
+apps/web/test-results/
+apps/web/e2e/.artifacts/
+apps/web/e2e/screenshots/
+apps/web/.scratch/
+scratch/
+tmp/
+**/screenshots/
+**/traces/
+**/tailored_resumes/
+
+# ── Repo noise ─────────────────────────────────────────────────────────────
+.git/
+.github/
+.vscode/
+.idea/
+**/.DS_Store
+*.log
+docs/screenshots/
+career-os-repairs/
+kiro_*
+*.md
+!README.md

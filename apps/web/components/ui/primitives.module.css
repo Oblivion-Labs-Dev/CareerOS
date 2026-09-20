@@ -453,6 +453,44 @@
     var(--card);
 }
 
+/* A danger-tinted variant of .empty — visually distinct from a genuine empty
+   state so "the search returned nothing" and "this page crashed" never look
+   like the same thing. */
+.routeError {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+  padding: var(--space-12) var(--space-6);
+  text-align: center;
+  border: 1px solid color-mix(in srgb, var(--danger) 28%, var(--card-edge, var(--border-strong)));
+  border-radius: var(--radius-md);
+  background:
+    radial-gradient(80% 60% at 50% 0%, color-mix(in srgb, var(--danger) 6%, transparent), transparent 70%),
+    var(--surface-1, var(--card));
+  box-shadow: var(--elev-1);
+}
+
+.routeErrorIcon {
+  display: grid;
+  place-items: center;
+  width: 2.75rem;
+  height: 2.75rem;
+  border-radius: var(--radius-full);
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--danger) 30%, transparent);
+  font-family: var(--font-figure, monospace);
+  font-weight: 700;
+}
+
+.routeErrorDigest {
+  font-family: var(--font-figure, monospace);
+  font-size: var(--text-2xs, 0.6875rem);
+  color: var(--muted);
+}
+
 .emptyIcon {
   display: grid;
   place-items: center;

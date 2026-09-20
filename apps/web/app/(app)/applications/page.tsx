@@ -21,16 +21,30 @@ function ApplicationQueueLoading() {
  * Autopilot = operational control center for the autonomous applier.
  * Broader career analytics stay on the main CareerOS Dashboard.
  *
- * The control center owns four sections (Overview / Applications / Review /
- * Diagnostics). The pre-redesign per-status tabs are now filters inside
- * Applications, but their old `?tab=` links still resolve here so nothing that
- * linked into this page breaks — and the tracker/inbox/pipeline surfaces remain
- * reachable at their original query params.
+ * Overview (Night Batch controls + metrics) and the Applications workspace
+ * always render together now, not as separate tabs — "Review" is just a
+ * status filter inside Applications, and "Diagnostics" is its own page
+ * (`/diagnostic`, linked from here rather than rendered inline). The old
+ * `?tab=` links this map covers still resolve to something sensible so
+ * nothing that linked into this page breaks, and the tracker/inbox/pipeline
+ * surfaces remain reachable at their original query params.
  */
 const CONTROL_CENTER_TABS: Record<string, "overview" | "applications" | "review" | "diagnostics"> = {
   autopilot: "overview",
   overview: "overview",
   applications: "applications",
+  attention: "applications",
+  progress: "applications",
+  history: "applications",
+  manual: "applications",
+  rejected: "applications",
+  ineligible: "applications",
+  discovered: "applications",
+  scored: "applications",
+  applying: "applications",
+  waiting: "applications",
+  staged: "applications",
+  needs_review: "applications",
   queued: "applications",
   submitted: "applications",
   failed: "applications",

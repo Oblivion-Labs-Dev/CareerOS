@@ -1283,7 +1283,10 @@ async def scrape_jobs(
         from app.services.job_discover.sources.hackernews import HackerNewsSource
         from app.services.job_discover.sources.himalayas import HimalayasSource
         from app.services.job_discover.sources.icims import ICIMSSource
+        from app.services.job_discover.sources.google_cse import GoogleCseJobSource
+        from app.services.job_discover.sources.indeed import IndeedSource
         from app.services.job_discover.sources.jobicy import JobicySource
+        from app.services.job_discover.sources.linkedin import LinkedInSource
         from app.services.job_discover.sources.oracle import OracleSource
         from app.services.job_discover.sources.serpapi_google_jobs import SerpApiGoogleJobsSource
         from app.services.job_discover.sources.weworkremotely import WeWorkRemotelySource
@@ -1374,6 +1377,29 @@ async def scrape_jobs(
         coros.append(run_with_sem(
             "jobicy/all",
             JobicySource().fetch_jobs(client, compiled_patterns=compiled, cutoff=cutoff, role_keys=role_keys),
+        ))
+
+        # Indeed (free, no API key). Nearly every hit carries the employer's own
+        # apply URL, so this feeds the ATS handling rather than being applied to
+        # through Indeed itself.
+        coros.append(run_with_sem(
+            "indeed/all",
+            IndeedSource().fetch_jobs(client, compiled_patterns=compiled, cutoff=cutoff, role_keys=role_keys),
+        ))
+
+        # LinkedIn guest search (free, no API key) - company/title discovery
+        # only; its cards carry no employer apply URL.
+        coros.append(run_with_sem(
+            "linkedin/all",
+            LinkedInSource().fetch_jobs(client, compiled_patterns=compiled, cutoff=cutoff, role_keys=role_keys),
+        ))
+
+        # Google Programmable Search: recent postings already sitting on applyable
+        # ATS hosts. Skips itself when no credentials are configured, and is
+        # bounded by a persisted daily quota.
+        coros.append(run_with_sem(
+            "google_cse/recent",
+            GoogleCseJobSource().fetch_jobs(client, compiled_patterns=compiled, cutoff=cutoff, role_keys=role_keys),
         ))
 
         # Hacker News 'Who is Hiring?' (free Algolia API, no API key)

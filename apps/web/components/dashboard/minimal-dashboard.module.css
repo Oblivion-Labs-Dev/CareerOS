@@ -51,10 +51,11 @@
 }
 
 .todayCard {
-  border: 1px solid var(--border);
+  border: 1px solid var(--card-edge, var(--border));
   border-radius: var(--radius-md);
-  background: var(--card);
+  background: var(--surface-1, var(--card));
   padding: 1rem 1.1rem;
+  box-shadow: var(--elev-1);
 }
 
 .todayEyebrow {
@@ -138,8 +139,8 @@
   min-height: 210px;
   display: flex;
   flex-direction: column;
-  border: 1px solid var(--border);
-  background: var(--card);
+  border: 1px solid var(--card-edge, var(--border));
+  background: var(--surface-1, var(--card));
   box-shadow: none;
   transition:
     transform var(--duration-fast) var(--ease-out),
@@ -293,9 +294,9 @@
 }
 
 .panel {
-  border: 1px solid var(--border);
+  border: 1px solid var(--card-edge, var(--border));
   border-radius: var(--radius-md);
-  background: var(--card);
+  background: var(--surface-1, var(--card));
   padding: 1rem 1.1rem;
   box-shadow: var(--shadow-card);
   margin-top: 1.25rem;
@@ -417,18 +418,6 @@
   text-underline-offset: 2px;
 }
 
-.empty {
-  margin: 0;
-  padding: 1.25rem 0 0.5rem;
-  font-size: 0.84rem;
-  line-height: 1.5;
-  color: var(--muted);
-}
-
-.empty a {
-  color: var(--accent);
-}
-
 @media (max-width: 820px) {
   .matchGrid {
     grid-template-columns: 1fr;
@@ -452,7 +441,7 @@
 .trajectory i:nth-child(3) { inset:44px; }
 .trajectory span { position:absolute; left:36px; top:24px; font-size:42px; color:#dce9b7; animation:drift 7s ease-in-out infinite; }
 @keyframes drift { 50% { transform:translate(12px,18px) rotate(30deg); } }
-.focusCard { border:1px solid var(--border); border-radius:24px; background:linear-gradient(135deg,color-mix(in srgb,#d3d9bc 15%,var(--card)),var(--card)); padding:28px; display:flex; flex-direction:column; }
+.focusCard { border:1px solid var(--card-edge,var(--border)); border-radius:var(--radius-lg); box-shadow:var(--elev-1); background:linear-gradient(135deg,color-mix(in srgb,#d3d9bc 15%,var(--surface-1,var(--card))),var(--surface-1,var(--card))); padding:28px; display:flex; flex-direction:column; }
 .focusTop { display:flex; justify-content:space-between; align-items:center; font-size:9px; letter-spacing:.14em; color:var(--muted); }
 .focusTop>span+span { font-size:31px; color:var(--accent); }
 .focusLabel { font-size:11px; color:var(--muted); margin:30px 0 8px; }

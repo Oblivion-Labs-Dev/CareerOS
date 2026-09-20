@@ -80,6 +80,53 @@ APPLYING_FRESHNESS_SECONDS = 600
 # applications. Every cycle would mean an IMAP round-trip every few seconds
 # for a mailbox that changes at human speed.
 RECONCILE_EVERY_N_CYCLES = 10
+
+# Rejection reconciliation runs on a fixed daily schedule instead of the
+# cycle-based cadence above — a full mailbox rejection-phrase search is a
+# heavier IMAP scan than the confirmation check, and rejections do not need
+# same-minute detection the way a fresh submission does. Comma-separated
+# 24h UTC hours, e.g. "8,20" for once in the morning and once at night.
+# Configurable via env var so the schedule (and frequency — add more hours,
+# or fewer) can change later without a code edit.
+def _parse_reconcile_hours(raw: str) -> list[int]:
+    hours: list[int] = []
+    for part in raw.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        try:
+            hour = int(part)
+        except ValueError:
+            continue
+        if 0 <= hour <= 23:
+            hours.append(hour)
+    return sorted(set(hours)) or [8, 20]
+
+
+REJECTION_RECONCILE_HOURS_UTC = _parse_reconcile_hours(
+    os.environ.get("REJECTION_RECONCILE_HOURS_UTC", "8,20")
+)
+REJECTION_RECONCILE_LAST_RUN_KV_KEY = "rejection_reconcile_last_run_at"
+
+
+def _due_for_scheduled_rejection_reconcile(last_run_iso: str | None, now: datetime) -> bool:
+    """True once per configured hour per day — the next cycle after 8:00 UTC
+    (or whichever hours are configured) runs it once, and nothing runs it
+    again until the next configured hour, even across a restart, since the
+    last-run timestamp is persisted rather than held in memory."""
+    last_run: datetime | None = None
+    if last_run_iso:
+        try:
+            last_run = datetime.fromisoformat(last_run_iso)
+            if last_run.tzinfo is None:
+                last_run = last_run.replace(tzinfo=timezone.utc)
+        except ValueError:
+            last_run = None
+    for hour in REJECTION_RECONCILE_HOURS_UTC:
+        scheduled_today = now.replace(hour=hour, minute=0, second=0, microsecond=0)
+        if now >= scheduled_today and (last_run is None or last_run < scheduled_today):
+            return True
+    return False
 # Queue depth is governed by high/low watermarks (app.services.intelligence.
 # night_batch_config) instead of a single fixed cap: intake pauses once QUEUED
 # reaches HIGH_QUEUE_WATERMARK, and resumes once it drops back to or below
@@ -241,6 +288,40 @@ class QueuePreprocessor:
                     did_work = True
             except Exception as exc:  # noqa: BLE001
                 logger.warning("Manual-submission reconcile failed: %s", exc)
+
+        # Same inbox, opposite direction, but its own — much sparser — schedule:
+        # a rejection email moves its one specific SUBMITTED job to REJECTED so
+        # "still open" (SUBMITTED minus REJECTED) stays accurate, but doing
+        # this on the same every-10-cycles cadence as the confirmation check
+        # above means a full mailbox rejection-phrase scan on a mailbox
+        # already busy with Autopilot's own verification/confirmation
+        # traffic. Runs twice a day (configurable via
+        # REJECTION_RECONCILE_HOURS_UTC) instead.
+        with session_scope() as _kv_db:
+            last_rejection_run = get_kv(_kv_db, REJECTION_RECONCILE_LAST_RUN_KV_KEY)
+        if _due_for_scheduled_rejection_reconcile(last_rejection_run, datetime.now(timezone.utc)):
+            try:
+                from app.services.application_assistant.rejection_reconciler import (
+                    reconcile_rejections,
+                )
+
+                rejection_result = await asyncio.to_thread(reconcile_rejections)
+                rejected = int(rejection_result.get("marked") or 0)
+                if rejected:
+                    self.stats["rejectionsDetected"] = (
+                        int(self.stats.get("rejectionsDetected", 0)) + rejected
+                    )
+                    did_work = True
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Rejection reconcile failed: %s", exc)
+            finally:
+                # Recorded even on failure/exception, so a persistently
+                # broken inbox connection cannot turn this into a retry loop
+                # every cycle until the next scheduled hour anyway — the same
+                # posture as the exception handler above, which also does not
+                # retry sooner than its own cadence.
+                with session_scope() as _kv_db:
+                    set_kv(_kv_db, REJECTION_RECONCILE_LAST_RUN_KV_KEY, now_iso())
 
         did_work |= await asyncio.to_thread(self._sync_queue_match_scores) > 0
         await asyncio.to_thread(self._rerank_pending_queue)

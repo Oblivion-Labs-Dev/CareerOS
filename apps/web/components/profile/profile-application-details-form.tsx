@@ -16,6 +16,26 @@ type Field = {
 
 type Group = { group: string; blurb: string; fields: Field[] };
 
+type EducationRow = {
+  school: string;
+  degree: string;
+  discipline: string;
+  startDate: string;
+  endDate: string;
+};
+
+const EDUCATION_COLUMNS: { key: keyof EducationRow; label: string; placeholder: string }[] = [
+  { key: "school", label: "School", placeholder: "Santa Clara University" },
+  { key: "degree", label: "Degree", placeholder: "Bachelor's Degree" },
+  { key: "discipline", label: "Field of study", placeholder: "Computer Science" },
+  { key: "startDate", label: "Start (MM/YYYY)", placeholder: "09/2012" },
+  { key: "endDate", label: "End (MM/YYYY)", placeholder: "06/2016" },
+];
+
+const EMPTY_EDUCATION: EducationRow = {
+  school: "", degree: "", discipline: "", startDate: "", endDate: "",
+};
+
 /**
  * The fields application forms ask for that the rest of the profile UI never
  * exposed. Everything here is read straight off the profile by the answer
@@ -60,6 +80,26 @@ const GROUPS: Group[] = [
         label: "Willing to relocate",
         hint: "Yes or No. Blank means the question is left for you to answer per job.",
         placeholder: "Yes",
+      },
+    ],
+  },
+  {
+    group: "Citizenship & work eligibility",
+    blurb:
+      "Export-control and nationality questions ask for these outright — “in which country did you obtain citizenship, nationality, or permanent residency?” is on 17 applications currently waiting. Blank sends each of them to Review.",
+    fields: [
+      {
+        key: "citizenshipCountry",
+        label: "Country of citizenship",
+        placeholder: "India",
+        hint: "The country whose citizenship you hold, which is not necessarily where you live now.",
+      },
+      {
+        key: "englishLevel",
+        label: "English proficiency",
+        placeholder: "Proficient",
+        hint:
+          "Used verbatim where a form takes free text, and matched to the closest offered option otherwise (including CEFR scales). Blank sends the question to Review rather than asserting a level on your behalf.",
       },
     ],
   },
@@ -190,11 +230,46 @@ export function ProfileApplicationDetailsForm({
   const [saving, setSaving] = useState(false);
   const [note, setNote] = useState<string | null>(null);
 
+  // Education is an array on the profile, and the resolver reads row 0 for
+  // "most recent degree" and later rows for the rest. The flat
+  // school/degree/discipline keys elsewhere on this page are only a fallback
+  // for a profile that never recorded the array - once it exists they are
+  // ignored, so there was no way at all to record a second degree. Forms ask
+  // for the undergraduate one routinely.
+  const initialEducation = useMemo<EducationRow[]>(() => {
+    const rows = (profile?.education as EducationRow[] | undefined) || [];
+    if (Array.isArray(rows) && rows.length) {
+      return rows.map((row) => ({
+        school: String(row?.school || ""),
+        degree: String(row?.degree || ""),
+        discipline: String(row?.discipline || ""),
+        startDate: String(row?.startDate || ""),
+        endDate: String(row?.endDate || ""),
+      }));
+    }
+    const flat = {
+      school: String(profile?.school || ""),
+      degree: String(profile?.degree || ""),
+      discipline: String(profile?.discipline || ""),
+      startDate: "",
+      endDate: "",
+    };
+    return Object.values(flat).some(Boolean) ? [flat] : [];
+  }, [profile]);
+
+  const [education, setEducation] = useState<EducationRow[]>(initialEducation);
+  useEffect(() => setEducation(initialEducation), [initialEducation]);
+
   // Re-seed whenever the profile is reloaded, so a save elsewhere on the page
   // does not leave these inputs showing stale values.
   useEffect(() => setValues(initial), [initial]);
 
-  const dirty = ALL_KEYS.some((key) => (values[key] || "") !== (initial[key] || ""));
+  const dirty =
+    ALL_KEYS.some((key) => (values[key] || "") !== (initial[key] || "")) ||
+    // Education is edited as rows, not as keys in `values`, so without this an
+    // added or changed degree left Save disabled and the edit was silently
+    // unsaveable.
+    JSON.stringify(education) !== JSON.stringify(initialEducation);
 
   // The profile prop arrives empty on the first render and is filled in once
   // the page's fetch resolves. Saving in that window used to spread an empty
@@ -234,6 +309,16 @@ export function ProfileApplicationDetailsForm({
       if (next.streetAddress) custom.address = String(next.streetAddress);
       next.customFields = custom;
 
+      // Rows with nothing in them are dropped rather than written as blanks -
+      // an empty row would otherwise become education[0] and answer "most
+      // recent degree" with nothing at all.
+      const educationRows = education.filter((row) =>
+        Object.values(row).some((value) => String(value || "").trim())
+      );
+      if (educationRows.length || Array.isArray(profile?.education)) {
+        next.education = educationRows;
+      }
+
       await postJson("/profile", { profile: next });
       setNote("Saved. New applications will use these values.");
       onSaved();
@@ -255,6 +340,76 @@ export function ProfileApplicationDetailsForm({
             ask you about instead of answering.
           </p>
         </div>
+      </div>
+
+      <div style={{ marginTop: "1.25rem" }}>
+        <h3 style={{ margin: 0, fontSize: "0.95rem" }}>Education</h3>
+        <p className="muted" style={{ margin: "0.25rem 0 0.75rem" }}>
+          Most recent degree first. Forms ask for the undergraduate degree as often as the
+          latest one, and several ask for the month and year separately — a missing row is a
+          question Autopilot has to stop and ask you about.
+        </p>
+
+        {education.map((row, index) => (
+          <div
+            key={index}
+            style={{
+              display: "grid",
+              gap: "0.75rem",
+              gridTemplateColumns: "repeat(auto-fit, minmax(11rem, 1fr))",
+              alignItems: "end",
+              marginBottom: "0.75rem",
+              paddingBottom: "0.75rem",
+              borderBottom: index < education.length - 1 ? "1px solid var(--border, #d4d4d8)" : "none",
+            }}
+          >
+            {EDUCATION_COLUMNS.map((column) => (
+              <label key={column.key} style={{ display: "flex", flexDirection: "column", gap: "0.3rem" }}>
+                <span style={{ fontSize: "0.8rem", fontWeight: 600 }}>
+                  {column.label}
+                  <span className="muted" style={{ fontWeight: 400 }}> · {index === 0 ? "most recent" : `#${index + 1}`}</span>
+                </span>
+                <input
+                  type="text"
+                  aria-label={`${column.label} for education entry ${index + 1}`}
+                  value={row[column.key] || ""}
+                  placeholder={column.placeholder}
+                  onChange={(event) =>
+                    setEducation((previous) =>
+                      previous.map((entry, position) =>
+                        position === index ? { ...entry, [column.key]: event.target.value } : entry
+                      )
+                    )
+                  }
+                  style={{
+                    padding: "0.5rem 0.65rem",
+                    borderRadius: "0.5rem",
+                    border: "1px solid var(--border, #d4d4d8)",
+                    background: "var(--surface, #fff)",
+                    color: "var(--text-strong, var(--foreground, #111))",
+                    font: "inherit",
+                  }}
+                />
+              </label>
+            ))}
+            <button
+              type="button"
+              className="ghost-button"
+              onClick={() => setEducation((previous) => previous.filter((_, position) => position !== index))}
+              style={{ justifySelf: "start" }}
+            >
+              Remove
+            </button>
+          </div>
+        ))}
+
+        <button
+          type="button"
+          className="ghost-button"
+          onClick={() => setEducation((previous) => [...previous, { ...EMPTY_EDUCATION }])}
+        >
+          Add a degree
+        </button>
       </div>
 
       {GROUPS.map((group) => (

@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import json
+import logging
 from typing import Any
 
 from app.services.application_assistant.llm_client import create_llm_client
+
+logger = logging.getLogger("career_os.application_assistant.llm_answer_generator")
 
 
 SYSTEM_INSTRUCTION = """You answer job application questions using the candidate's resume and profile.
@@ -94,6 +97,15 @@ Before returning the answer, silently check:
 6. Is there anything I can delete without losing useful information?
 
 Return only the answer. No headings, explanation, bullet points, quotation marks, or commentary."""
+
+
+class _GeminiOffForApplications(Exception):
+    """Gemini is disabled for the job-application path.
+
+    Raised and swallowed locally so that "switched off" takes exactly the same
+    fall-through route as "Gemini declined to answer", rather than needing a
+    second copy of the code below.
+    """
 
 
 def _format_profile_text(profile_data: dict[str, Any]) -> str:
@@ -190,6 +202,64 @@ _NON_ANSWER_PATTERNS = (
 )
 
 
+def story_evidence_for(question: str, *, role: str = "", limit: int = 3) -> str:
+    """Recorded experience stories that speak to this question.
+
+    The experience corpus already powers resume tailoring, but nothing fed it to
+    the code that answers application questions — so a long-form prompt like
+    Canonical's "Describe your Python software development experience" had only
+    the resume and the flat profile to work from, and declined for want of
+    evidence that was sitting in the corpus the whole time.
+
+    These are the candidate's own recorded stories, so using them is grounding,
+    not invention: the model is being handed more of what it is allowed to say,
+    never licence to say more.
+
+    ``doNotClaim`` is carried through verbatim and stated as a prohibition. A
+    story is a record of what happened *and* of what must not be read into it,
+    and dropping that half while keeping the narrative is how an application
+    ends up overstating the candidate.
+    """
+    text = f"{question} {role}".strip()
+    if not text:
+        return ""
+    try:
+        from app.services.story_index import get_index
+
+        matches = get_index().rank(text, title=role, limit=limit)
+    except Exception:  # noqa: BLE001 - evidence is an enrichment, never load-bearing
+        logger.debug("Story evidence unavailable for %r", question[:60], exc_info=True)
+        return ""
+
+    # `rank` scores every story independently, and its own docstring warns that
+    # several stories on one subject all score highly together. For a single
+    # question that is mostly fine, but three near-identical accounts crowd out
+    # the variety the answer needs, so keep one per headline.
+    blocks: list[str] = []
+    seen_headlines: set[str] = set()
+    for match in matches:
+        if len(blocks) >= limit:
+            break
+        story = match.story
+        headline_key = (story.headline or story.title or "").strip().lower()
+        if headline_key and headline_key in seen_headlines:
+            continue
+        seen_headlines.add(headline_key)
+        parts = [f"- {story.headline or story.title}".rstrip()]
+        if story.company:
+            parts[0] += f" ({story.company})"
+        body = (story.body or "").strip()
+        if body:
+            parts.append(f"  {body[:700]}")
+        if story.metrics:
+            parts.append("  Measured: " + "; ".join(str(m) for m in story.metrics[:3]))
+        if story.do_not_claim:
+            parts.append("  Must NOT be claimed: " + "; ".join(str(d) for d in story.do_not_claim[:3]))
+        blocks.append("\n".join(parts))
+
+    return "\n\n".join(blocks)
+
+
 def _is_non_answer(text: str) -> bool:
     """Whether the model declined instead of answering.
 
@@ -243,12 +313,18 @@ async def generate_theory_answer(
 
     effective_resume = resume_text or profile_data.get("resumeText") or profile_data.get("resume") or ""
     formatted_profile = _format_profile_text(profile_data)
+    story_block = story_evidence_for(question, role=role)
 
-    # Gemini first, when it is available and the question is open-ended. It is
-    # better at this than a 4B local model and costs no local RAM, which is the
-    # whole reason this layer exists. Anything it will not answer honestly falls
-    # through to the paths below unchanged.
+    # Gemini first, when it is enabled for applications and the question is
+    # open-ended. It is better at this than a 4B local model and costs no local
+    # RAM, which is the whole reason this layer exists. Anything it will not
+    # answer honestly - including being switched off for the application path -
+    # falls through to the paths below unchanged.
+    from app.services.gemini.config import applications_enabled
+
     try:
+        if not applications_enabled():
+            raise _GeminiOffForApplications
         from app.services.gemini.enrichment import answer_application_question
 
         enriched = await answer_application_question(
@@ -268,6 +344,8 @@ async def generate_theory_answer(
                 "confidence": enriched.confidence,
                 "evidence": enriched.evidence,
             }
+    except _GeminiOffForApplications:
+        pass  # Switched off for applications; the paths below answer instead.
     except Exception:  # noqa: BLE001 - optional layer, never load-bearing
         pass
 
@@ -291,7 +369,15 @@ async def generate_theory_answer(
         f"{effective_resume[:6000] if effective_resume else 'No resume text provided.'}\n\n"
         f"## Profile\n\n"
         f"{formatted_profile}\n\n"
-        f"## Question\n\n"
+        + (
+            f"## Recorded experience\n\n"
+            f"These are the candidate's own written accounts of work they did. Treat them "
+            f"as evidence on the same footing as the resume, and honour every "
+            f"\"Must NOT be claimed\" line exactly.\n\n{story_block}\n\n"
+            if story_block
+            else ""
+        )
+        + f"## Question\n\n"
         f"{question.strip()}\n"
     )
 

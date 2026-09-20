@@ -16,6 +16,60 @@ DEFAULT_MIN_MATCH_SCORE = 75.0
 DEFAULT_MAX_POST_AGE_DAYS = 7
 DEFAULT_MAX_APPLICATIONS_PER_RUN = 25
 
+# IC-level AI/ML engineering titles to treat as SWE-eligible and prioritize
+# alongside plain "software engineer" roles. Deliberately excludes anything
+# that is a leadership/executive variant (Chief AI Officer, VP, Director,
+# Head of, ...) — those are already dropped everywhere by management_keywords
+# / management_markers regardless of an "AI" prefix.
+AI_ML_TITLE_KEYWORDS = (
+    "ai engineer",
+    "applied ai engineer",
+    "agentic ai",
+    "ai agent architect",
+    "ai evals engineer",
+    "ai quality engineer",
+    "ai scraping engineer",
+    "ai scraping specialist",
+    "context engineer",
+    "ai big data engineer",
+    "forward deployed ai engineer",
+    "ai solutions engineer",
+    "ai solutions architect",
+    "ai software engineer",
+    "ai software integration engineer",
+    "generative ai engineer",
+    "genai engineer",
+    "llm engineer",
+    "llm application engineer",
+    "prompt engineer",
+    "machine learning engineer",
+    "ml engineer",
+    "deep learning engineer",
+    "nlp engineer",
+    "computer vision engineer",
+    "ml research engineer",
+    "ai research scientist",
+    "nlp research scientist",
+    "mlops engineer",
+    "llmops engineer",
+    "ai platform engineer",
+    "ai reliability engineer",
+    "ai sre",
+    "ai architect",
+    "multi-agent orchestration engineer",
+    "ai-to-ai protocol engineer",
+    "agentic fintech engineer",
+    "agentic finops engineer",
+    "agent guardrail engineer",
+    "agent boundary engineer",
+    "deterministic fallback engineer",
+    "ai lineage engineer",
+    "ai provenance engineer",
+    "slm optimization engineer",
+    "spatial ai context engineer",
+    "agentic sre",
+)
+
 
 def normalize_title(title: str) -> str:
     cleaned = re.sub(r"[^\w\s]", "", title.lower())
@@ -33,11 +87,136 @@ def normalize_location(location: str) -> str:
     return re.sub(r"\s+", " ", cleaned).strip()
 
 
+# Hosts that serve a job description rather than an application form. A posting
+# stored under one of these is unapplyable until it has been resolved to the
+# employer's own board.
+UNAPPLYABLE_LISTING_HOSTS: frozenset[str] = frozenset({
+    "www.indeed.com", "indeed.com", "in.indeed.com", "uk.indeed.com",
+    "www.linkedin.com", "linkedin.com",
+    "www.glassdoor.com", "glassdoor.com",
+    "www.ziprecruiter.com", "ziprecruiter.com",
+    "jaabz.com", "www.jaabz.com",
+    "himalayas.app", "www.himalayas.app",
+    "jobicy.com", "www.jobicy.com",
+    "remoteok.com", "remoteok.io",
+    "weworkremotely.com", "www.weworkremotely.com",
+    "news.ycombinator.com",
+})
+
+
+def _is_unapplyable_listing_url(app_url: str) -> bool:
+    from urllib.parse import urlparse
+
+    try:
+        host = (urlparse(app_url).netloc or "").lower()
+    except ValueError:
+        return False
+    return host in UNAPPLYABLE_LISTING_HOSTS
+
+
+def canonical_ats_posting_id(app_url: str) -> str:
+    """The ATS's own posting id, when the URL carries one.
+
+    The same posting is published under several host/path shapes — Greenhouse
+    alone serves `boards.greenhouse.io/<co>/jobs/123`,
+    `job-boards.greenhouse.io/<co>/jobs/123`, the regional
+    `boards.eu.greenhouse.io/...`, and the employer's own branded mirror with
+    `?gh_jid=123`. Keying dedup on netloc+path treats every one of those as a
+    different job (54 such groups observed live in a 5,003-job queue), so the
+    stable ATS id is preferred whenever it can be read off the URL.
+    """
+    from urllib.parse import parse_qs, urlparse
+
+    if not app_url:
+        return ""
+    parsed = urlparse(app_url)
+    host = (parsed.netloc or "").lower()
+    qs = parse_qs(parsed.query)
+
+    # The employer's branded mirror and the aggregator copies both carry the
+    # Greenhouse id explicitly, which is the whole point of the parameter.
+    gh_jid = (qs.get("gh_jid") or [""])[0].strip()
+    if gh_jid.isdigit():
+        return f"gh:{gh_jid}"
+
+    if "greenhouse.io" in host:
+        m = re.search(r"/jobs/(\d{4,})", parsed.path)
+        if m:
+            return f"gh:{m.group(1)}"
+
+    if "lever.co" in host:
+        m = re.search(r"/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})", parsed.path, re.I)
+        if m:
+            return f"lever:{m.group(1).lower()}"
+
+    if "ashbyhq.com" in host:
+        m = re.search(r"/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})", parsed.path, re.I)
+        if m:
+            return f"ashby:{m.group(1).lower()}"
+
+    # Jobvite keys the posting on `?j=`, and repeats the same posting once per
+    # location with a differing `loc=`. Observed live: one AppFolio opening came
+    # back from Indeed as nine rows sharing `j=of3MAfwo`.
+    if "jobvite.com" in host:
+        jv = (qs.get("j") or [""])[0].strip()
+        if jv:
+            return f"jobvite:{jv.lower()}"
+
+    # SmartRecruiters puts the posting id in the last path segment.
+    if "smartrecruiters.com" in host:
+        m = re.search(r"/(\d{6,})(?:/|$)", parsed.path)
+        if m:
+            return f"smartrecruiters:{m.group(1)}"
+
+    return ""
+
+
+def normalize_application_url(app_url: str) -> str:
+    """Host and path, lowercased, with the query and any trailing slash dropped.
+
+    This exists because the composite key is not enough on its own to tell
+    Browse that Autopilot already has a posting. The key prefers the ATS's own
+    id when the URL carries one, so the same Datadog posting reached as
+    `careers.datadoghq.com/detail/3851935` (no id in the URL) and as
+    `careers.datadoghq.com/detail/3851935/?gh_jid=3851935` (id present) hashes
+    two different ways: one keys on the clean URL, the other on `gh:3851935`.
+    Measured live, that mismatch alone left 580 postings on the Browse page
+    that Autopilot was already holding.
+
+    Normalising to host+path catches exactly that case, because the two URLs
+    differ only in the query string and a trailing slash. It stays deliberately
+    strict about the path: two different posting ids under the same employer
+    are two different openings, and folding them together on company and title
+    alone would hide real jobs.
+    """
+    if not app_url:
+        return ""
+    from urllib.parse import urlparse
+
+    parsed = urlparse(app_url.strip())
+    host = (parsed.netloc or "").lower().removeprefix("www.")
+    path = (parsed.path or "").rstrip("/")
+    if not host and not path:
+        return ""
+    return f"{host}{path}".lower()
+
+
 def generate_composite_job_key(
     company: str, title: str, app_url: str = "", external_id: str = "", location: str = "",
 ) -> str:
     norm_c = normalize_company(company)
     norm_t = normalize_title(title)
+    # The ATS's own posting id comes first, ahead of `external_id`. Both identify
+    # the posting for an ATS-native source (Greenhouse's `externalJobId` *is* the
+    # id in its URL), but only this one is stable across sources: an aggregator
+    # supplies its own per-listing id, which is unique per row and therefore
+    # makes the key unique by construction. Measured live — 578 Indeed rows
+    # produced 578 distinct keys, so neither the existing queue nor two copies of
+    # the same posting could ever match, and one AppFolio opening came through
+    # nine times.
+    canonical_id = canonical_ats_posting_id(app_url)
+    if canonical_id:
+        return f"{norm_c}::{norm_t}::{canonical_id}"
     if external_id:
         return f"{norm_c}::{norm_t}::{external_id.lower().strip()}"
     if app_url:
@@ -78,6 +257,78 @@ def build_existing_key_index(existing_jobs: list[dict[str, Any]]) -> dict[str, s
     return index
 
 
+# Applied to any posting known to be outside the United States. Large enough to
+# sink it below every US posting regardless of match score or recency, while
+# leaving international postings ordered sensibly among themselves — "US first,
+# other countries at the end", not "other countries never".
+INTERNATIONAL_QUEUE_PENALTY = 1000.0
+
+
+def is_international_location(job: dict[str, Any]) -> bool:
+    """Whether a posting is known to sit outside the United States.
+
+    Deliberately conservative and shaped like the hard filter's own test: a
+    location that names a non-US country counts as international *unless* it
+    also carries strong US evidence, so "Remote, Canada; Remote, United States"
+    and "Vienna, Virginia" stay US. Anything unknown is treated as US so a
+    missing location never silently sinks a domestic posting.
+    """
+    loc = (job.get("location") or "").lower()
+    if not loc:
+        return False
+    if not any(c in loc for c in _NON_US_COUNTRY_MARKERS):
+        return False
+    return not any(ind in loc for ind in _STRONG_US_MARKERS)
+
+
+# Kept narrow on purpose: only tokens that unambiguously name a foreign country
+# or city. The hard filter owns the exhaustive list; this is the ranking-time
+# test and a miss here costs ordering, not correctness.
+_NON_US_COUNTRY_MARKERS = (
+    "argentina", "australia", "austria", "bangladesh", "belgium", "bolivia",
+    "brazil", "bulgaria", "canada", "chile", "china", "colombia", "costa rica",
+    "croatia", "czech", "denmark", "ecuador", "egypt", "estonia", "finland",
+    "france", "germany", "ghana", "greece", "guatemala", "honduras",
+    "hong kong", "hungary", "india", "indonesia", "ireland", "israel", "italy",
+    "japan", "jordan", "kenya", "latvia", "lithuania", "malaysia", "mexico",
+    "morocco", "netherlands", "new zealand", "nicaragua", "nigeria", "norway",
+    "pakistan", "panama", "paraguay", "peru", "philippines", "poland",
+    "portugal", "qatar", "romania", "saudi", "serbia", "singapore", "slovakia",
+    "slovenia", "south africa", "south korea", "spain", "sri lanka", "sweden",
+    "switzerland", "taiwan", "thailand", "tunisia", "turkey", "uae", "ukraine",
+    "united kingdom", "uruguay", "venezuela", "vietnam",
+    # Cities distinctive enough to name a country on their own.
+    "amsterdam", "ankara", "athens", "bangalore", "barcelona", "belgrade",
+    "berlin", "bogota", "brussels", "bucharest", "budapest", "buenos aires",
+    "copenhagen", "dubai", "dublin", "gdansk", "helsinki", "hyderabad",
+    "istanbul", "kiev", "kyiv", "lima", "lisbon", "london", "madrid", "manila",
+    "milan", "munich", "oslo", "paris", "prague", "riga", "rio de janeiro",
+    "rome", "santiago", "sao paulo", "seoul", "sofia", "stockholm", "sydney",
+    "tallinn", "tel aviv", "tokyo", "toronto", "vancouver", "vienna", "vilnius",
+    "warsaw", "zurich", "krakow",
+    # Indian metros beyond Bangalore/Hyderabad — an Agoda "Gurugram" posting
+    # ranked third on the US-first list before these were added.
+    "gurugram", "gurgaon", "noida", "pune", "chennai", "mumbai", "new delhi",
+    "kolkata", "ahmedabad", "kochi", "coimbatore", "trivandrum", "mysore",
+    "bengaluru", "jaipur", "chandigarh", "indore",
+    # Other frequently-seen metros.
+    "montreal", "ottawa", "calgary", "edinburgh", "manchester", "birmingham uk",
+    "guadalajara", "monterrey", "medellin", "montevideo", "quito", "san jose costa rica",
+    "cairo", "nairobi", "lagos", "karachi", "lahore", "dhaka", "colombo",
+    "ho chi minh", "hanoi", "jakarta", "kuala lumpur", "bangkok", "shenzhen",
+    "shanghai", "beijing", "osaka", "melbourne", "brisbane", "perth", "auckland",
+    "wellington", "cape town", "johannesburg",
+    "emea", "apac", "latam",
+)
+
+# Strong enough to mean "this posting is open to US candidates" even when the
+# location also names somewhere else.
+_STRONG_US_MARKERS = (
+    "united states", "usa", "u.s.", ", us", "remote - us", "remote (us",
+    "us remote", "remote in us", "nyc", "new york",
+)
+
+
 def role_location_priority_bonus(job: dict[str, Any]) -> float:
     """Candidate-preference ranking bonus implementing strict 4-tier priority:
 
@@ -98,14 +349,15 @@ def role_location_priority_bonus(job: dict[str, Any]) -> float:
     if not loc_l and "metadata" in job and isinstance(job["metadata"], dict):
         loc_l = (job["metadata"].get("location") or "").lower()
 
-    # Non-software engineering roles must never receive SWE tier priority
-    non_swe_markers = (
-        "product manager", "program manager", "project manager", "sales engineer",
-        "solution architect", "account executive", "designer", "recruiter", "talent",
-        "marketing", "human resources", "counsel", "legal", "business analyst",
-        "operations manager", "account manager",
+    # Management and non-SWE roles must never receive SWE tier priority
+    management_markers = (
+        "director", "manager", "engineering manager", "product manager", "program manager",
+        "project manager", "sales engineer", "solution architect", "account executive",
+        "designer", "recruiter", "talent", "marketing", "human resources", "counsel",
+        "legal", "business analyst", "operations manager", "account manager", "head of",
+        "vp", "vice president", "chief", "managing director",
     )
-    if any(m in title_l for m in non_swe_markers):
+    if any(re.search(rf"\b{re.escape(m)}\b", title_l) for m in management_markers):
         return 0.0
 
     # Location classification. "Washington, D.C." / "Washington, District of
@@ -124,36 +376,40 @@ def role_location_priority_bonus(job: dict[str, Any]) -> float:
         "united states", "usa", "u.s.", "remote", "us", "remote - us", "remote, us",
     ))
 
-    # Role level classification
+    # Role level classification for individual contributor software engineers
     above_senior_markers = (
-        "staff", "principal", "distinguished", "fellow", "architect",
-        "director", "head of", "vp", "vice president",
+        "staff", "principal", "distinguished", "fellow", "architect", "lead",
     )
-    is_above_senior = any(k in title_l for k in above_senior_markers)
+    is_above_senior = any(re.search(rf"\b{re.escape(k)}\b", title_l) for k in above_senior_markers)
 
     is_senior = (
-        any(k in title_l for k in ("senior", "sr.", "sr ", "sr-", "senior swe"))
+        any(k in title_l for k in ("senior", "sr.", "sr ", "sr-", "senior swe", "sde iii", "sde 3", "swe iii", "swe 3"))
         and any(k in title_l for k in (
             "software", "backend", "full stack", "frontend", "platform",
             "infrastructure", "systems", "cloud", "security", "data",
-            "engineer", "developer",
+            "engineer", "developer", "sde", "swe", *AI_ML_TITLE_KEYWORDS,
         ))
         and not is_above_senior
     )
 
     is_staff_or_principal = (
         is_above_senior
-        and any(k in title_l for k in ("staff", "principal"))
-        and not any(k in title_l for k in ("director", "vp", "vice president", "head of"))
+        and any(re.search(rf"\b{re.escape(k)}\b", title_l) for k in ("staff", "principal", "lead", "distinguished", "fellow"))
+        and any(k in title_l for k in (
+            "software", "backend", "full stack", "frontend", "platform",
+            "infrastructure", "systems", "cloud", "security", "data",
+            "engineer", "developer", "sde", "swe", *AI_ML_TITLE_KEYWORDS,
+        ))
     )
 
     is_other_swe = (
         any(k in title_l for k in (
             "software", "backend", "back end", "full stack", "fullstack", "frontend",
             "front end", "platform", "infrastructure", "systems", "distributed",
-            "engineer", "developer",
+            "engineer", "developer", "sde", "swe", *AI_ML_TITLE_KEYWORDS,
         ))
         and not is_senior
+        and not is_staff_or_principal
         and not any(re.search(rf"\b{k}\b", title_l) for k in ("intern", "internship", "co-op", "apprentice"))
     )
 
@@ -210,6 +466,24 @@ def evaluate_hard_filters(
     # burning a full browser session per attempt.
     if not app_url:
         return False, "Posting has no application URL"
+
+    # An aggregator's own listing page is not an application form. Indeed and
+    # LinkedIn both serve a job *description* at these URLs with no form on it,
+    # so the executor opens the page, finds nothing to fill and parks the job in
+    # MANUAL_REVIEW — one wasted browser session each, and the posting can never
+    # succeed no matter how often it is retried.
+    #
+    # This is enforced here rather than in each source so no future aggregator
+    # can reintroduce it. Measured when it did: 326 autopilot jobs carried an
+    # indeed.com/linkedin.com URL, 241 of them already parked in manual review.
+    # Such a posting is only usable once it has been resolved to the employer's
+    # own board (see resolve_by_company_and_title / the redirect resolver).
+    if _is_unapplyable_listing_url(app_url):
+        return False, (
+            f"Application URL '{app_url}' is an aggregator listing page, not an "
+            "employer application form"
+        )
+
     url_path, _, url_query = app_url.partition("?")
     if re.search(r"/(?:jobs|careers|openings|positions)/?$", url_path, flags=re.I):
         # Many boards keep the index path and identify the posting in the query
@@ -233,6 +507,14 @@ def evaluate_hard_filters(
                 AutopilotJobStatus.QUEUED.value,
             ):
                 return False, f"Duplicate application already in state: {ex_status}"
+
+    # 1b. Company Application Cap (Max 50 applications per company)
+    company_norm = re.sub(r"[^\w]", "", company.lower())
+    comp_cap = int(opts.get("maxCompanyApplications") or 50)
+    company_counts = opts.get("companySubmittedCounts")
+    if company_counts and isinstance(company_counts, dict):
+        if company_counts.get(company_norm, 0) >= comp_cap:
+            return False, f"Company '{company}' has reached the {comp_cap} application cap"
 
     # 2. Posting Recency Check
     date_posted_str = job.get("datePosted")
@@ -274,6 +556,7 @@ def evaluate_hard_filters(
         "software development engineer",
         "software engineer in test",
         "full-stack",
+        *AI_ML_TITLE_KEYWORDS,
     ]
     # Short role codes and "product engineer" need word boundaries: "sde" must
     # not match inside another word, and "product engineer" must not pull in
@@ -284,6 +567,24 @@ def evaluate_hard_filters(
     )
     if not is_swe_role:
         return False, f"Role '{title}' is not a Software Engineering role"
+
+    # Exclude management / director / executive positions (prioritizing individual contributor SDEs)
+    management_keywords = (
+        "director",
+        "manager",
+        "engineering manager",
+        "product manager",
+        "program manager",
+        "project manager",
+        "head of",
+        "vp",
+        "vice president",
+        "chief",
+        "managing director",
+        "lead manager",
+    )
+    if any(re.search(rf"\b{re.escape(kw)}\b", title_lower) for kw in management_keywords):
+        return False, f"Role '{title}' is a management/director position"
 
     # Exclude internship / co-op / apprentice / student postings for experienced candidate
     intern_keywords = ("intern", "internship", "co-op", "apprentice", "working student", "fellowship")
@@ -611,11 +912,24 @@ def queue_priority_score(job: dict[str, Any]) -> float:
         and _is_senior_software_engineer_title(job)
         else 0.0
     )
+    # US postings are worked first and international ones last. The four tiers
+    # in role_location_priority_bonus are all US-shaped, so international
+    # postings get no tier — but neither do plenty of US postings whose title
+    # misses a tier, which left both groups at the same score and let recency
+    # decide. Measured live: inside the submittable-board pool the runner
+    # actually draws from, US and international both sat at a median of 8.17
+    # and the top of the claim order was Sezzle Peru, Encora Mexico and three
+    # India roles ahead of every US job. An explicit penalty is what actually
+    # enforces "US first, other countries at the end".
+    international_penalty = (
+        INTERNATIONAL_QUEUE_PENALTY if is_international_location(job) else 0.0
+    )
     return (
         fresh_override
         + role_location_priority_bonus(job)
         + float(job.get("matchScore") or 0.0)
         + posting_recency_bonus(job)
+        - international_penalty
     )
 
 
@@ -658,6 +972,14 @@ def filter_and_rank_jobs(
     # already existed before this batch ran - a real gap that let the same
     # posting get queued and submitted twice.
     existing_key_index = build_existing_key_index(existing_jobs)
+
+    company_submitted_counts: dict[str, int] = {}
+    for ex in existing_jobs:
+        if ex.get("status") == AutopilotJobStatus.SUBMITTED.value:
+            c = re.sub(r"[^\w]", "", (ex.get("company") or "").lower())
+            if c:
+                company_submitted_counts[c] = company_submitted_counts.get(c, 0) + 1
+    opts.setdefault("companySubmittedCounts", company_submitted_counts)
 
     # Load resume text / accomplishments for the heuristic-fallback path
     # below (only reached when a posting has no Mistral score) when the
@@ -763,6 +1085,10 @@ def filter_and_rank_jobs(
                 job.get("location") or "",
             )
             existing_key_index.setdefault(dup_key, set()).add(AutopilotJobStatus.QUEUED.value)
+
+        comp_key = re.sub(r"[^\w]", "", (job.get("company") or "").lower())
+        if comp_key:
+            company_submitted_counts[comp_key] = company_submitted_counts.get(comp_key, 0) + 1
 
     # Sort descending by queue priority (tier bonus + match score), then datePosted
     all_passing.sort(key=lambda j: (j.get("queuePriority", 0.0), j.get("datePosted") or ""), reverse=True)

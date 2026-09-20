@@ -1,0 +1,36 @@
+.controls { margin:0 0 22px; border:1px solid var(--border); border-radius:20px; background:radial-gradient(ellipse at 0 0,color-mix(in srgb,var(--accent) 8%,transparent),transparent 65%),var(--card); box-shadow:0 10px 30px color-mix(in srgb,var(--text) 4%,transparent); }
+.heading { display:flex; align-items:center; justify-content:space-between; gap:16px; padding:22px 24px 16px; }
+.eyebrow { font-size:10px; letter-spacing:.16em; font-weight:700; color:var(--accent); }
+.heading h2 { font-family:var(--font-outfit),sans-serif; margin:5px 0 0; font-size:23px; font-weight:550; letter-spacing:-.6px; color:var(--text); }
+.total { font-size:12px; color:var(--muted); font-variant-numeric:tabular-nums; }
+.views { display:flex; gap:6px; padding:0 18px 16px; flex-wrap:wrap; }
+.views button { display:flex; align-items:center; gap:12px; padding:10px 13px; border:1px solid transparent; border-radius:11px; background:transparent; color:var(--muted); font:inherit; font-size:12px; cursor:pointer; transition:background .18s,border-color .18s; }
+.views button strong { font-size:11px; font-weight:600; font-variant-numeric:tabular-nums; background:color-mix(in srgb,var(--text) 5%,transparent); border-radius:6px; padding:2px 6px; }
+.views button:hover { color:var(--text); background:color-mix(in srgb,var(--accent) 5%,transparent); }
+.views button[aria-pressed=true] { color:var(--accent); background:color-mix(in srgb,var(--accent) 10%,var(--card)); border-color:color-mix(in srgb,var(--accent) 26%,var(--border)); box-shadow:inset 0 1px 0 color-mix(in srgb,var(--accent) 10%,transparent); }
+/* Open / Rejected — only shown once "Submitted" is the active status. */
+.drilldown { display:flex; gap:6px; padding:0 18px 16px 30px; flex-wrap:wrap; }
+.drilldown button { display:flex; align-items:center; gap:6px; padding:6px 11px; border:1px solid var(--border); border-radius:9px; background:transparent; color:var(--muted); font:inherit; font-size:11px; cursor:pointer; transition:background .18s,border-color .18s; }
+.drilldown button strong { font-weight:600; font-variant-numeric:tabular-nums; }
+.drilldown button:hover { color:var(--text); background:color-mix(in srgb,var(--accent) 5%,transparent); }
+.drilldown button[aria-pressed=true] { color:var(--accent); background:color-mix(in srgb,var(--accent) 10%,var(--card)); border-color:color-mix(in srgb,var(--accent) 26%,var(--border)); }
+.toolbar { display:flex; align-items:center; gap:12px; flex-wrap:wrap; padding:14px 20px; border-top:1px solid var(--border); }
+.search { flex:1; min-width:180px; }
+.search,.selectLabel select,.filterToggle { min-height:38px; font:inherit; font-size:12px; padding:8px 12px; color:var(--text); border:1px solid var(--border); border-radius:9px; background:var(--card); }
+.search::placeholder { color:var(--muted); }
+.selectLabel { display:flex; align-items:center; gap:8px; font-size:11px; color:var(--muted); }
+.selectLabel select { max-width:225px; cursor:pointer; }
+.filterToggle { cursor:pointer; }
+.filterToggle[aria-expanded=true] { border-color:var(--accent); color:var(--accent); }
+.extraFilters { display:flex; flex-wrap:wrap; align-items:center; gap:10px; padding:0 20px 16px; }
+.extraFilters[hidden] { display:none; }
+/* Column widths track the card's --card-scale (1.3): a larger card in an
+   unchanged column would simply wrap onto more lines. The gap is set from the
+   card's own size rather than kept at the compact value — at 30% larger the
+   old 10px gutter left the cards visually touching. */
+.grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(min(100%,240px),1fr)); gap:22px 20px; align-items:stretch; padding-bottom:4px; }
+.views button:focus-visible,.search:focus-visible,.selectLabel select:focus-visible,.filterToggle:focus-visible { outline:2px solid var(--accent); outline-offset:3px; }
+@media(min-width:1600px) { .grid { grid-template-columns:repeat(auto-fill,minmax(228px,1fr)); } }
+@media(max-width:600px) { .heading {padding:18px 16px 12px;flex-wrap:wrap}.heading h2{font-size:21px}.views{padding:0 10px 12px;gap:4px}.views button{gap:7px;padding:9px}.toolbar{padding:12px}.search{flex-basis:100%;min-width:0}.selectLabel{flex:1;min-width:0}.selectLabel select{min-width:0;max-width:100%;flex:1}.extraFilters{padding:0 12px 12px}.grid{gap:16px 14px;grid-template-columns:repeat(auto-fill,minmax(min(100%,182px),1fr))} }
+@media(pointer:coarse) { .views button,.filterToggle,.selectLabel select,.search {min-height:44px}.search,.selectLabel select{font-size:16px} }
+@media(prefers-reduced-motion:reduce) { .views button {transition:none} }

@@ -1141,6 +1141,265 @@
 .aac-card--holographic .aac-readiness, .aac-card--holographic .aac-intelligence, .aac-card--holographic .aac-supporting-info { border-color:rgba(157, 189, 255, .25); }.aac-card--holographic .aac-timeline-step--done:not(:last-child)::after, .aac-card--holographic .aac-timeline-step--current:not(:last-child)::after { background:linear-gradient(90deg, #70e7ff, #a773ff); }.aac-card--holographic .aac-timeline-step--done .aac-timeline-node { background:linear-gradient(180deg, #ceecff, #5e8eea); }.aac-card--holographic .aac-timeline-step--current .aac-timeline-node { border-color:#d4baff; }.aac-card--holographic .aac-timeline-step--current .aac-timeline-node::after { background:#d4baff; }
 .aac-card--holographic .aac-intelligence .aac-alert, .aac-card--holographic .aac-intelligence .aac-alert::after { color:#9eeaff; }.aac-card--holographic .aac-foot { background:linear-gradient(90deg, rgba(8,15,45,.64), rgba(45,22,87,.64)); }.aac-card--holographic .aac-cta { border-radius:6px; border-color:#87edff; background:linear-gradient(135deg, #3d78c6, #35cbd4); box-shadow:0 0 18px rgba(89,231,255,.45), inset 0 1px rgba(255,255,255,.38); }
 
+/* ─────────────────────────────────────────────────────────────────────────────
+   Optional Clay treatment — claymorphism.
+
+   Three things make a surface read as clay rather than as a flat card, and all
+   three have to be present together:
+
+   * Soft-arch geometry. A large radius, larger at the top than at the bottom,
+     so the silhouette is a moulded arch instead of a rectangle with rounded
+     corners.
+   * Two-sided lighting. One diffuse drop shadow low and to the right, plus an
+     inset white highlight high and to the left. That pairing is what gives the
+     puffed, pressed-from-behind look; a single box-shadow reads as paper.
+   * No border. Clay has no outline. Its edges are described entirely by the
+     light, so every border here is removed rather than lightened.
+
+   Accent colour still comes from --aac-accent, which the status classes above
+   already set, so a queued card is blue clay and a submitted one green clay
+   without this block knowing anything about status.
+   ───────────────────────────────────────────────────────────────────────────── */
+.aac-card--clay {
+  --aac-clay-surface: linear-gradient(170deg, #ffffff 0%, #fbfaff 55%, #f1effa 100%);
+  --aac-clay-ink: #2a2d55;
+  --aac-clay-body: #6a6d8c;
+  --aac-clay-faint: #9295ae;
+  --aac-clay-hi-strong: rgba(255, 255, 255, .95);
+  --aac-clay-hi-soft: rgba(255, 255, 255, .7);
+  --aac-clay-edge: rgba(129, 129, 176, .16);
+  --aac-clay-cast-near: rgba(88, 88, 148, .1);
+  --aac-clay-cast-far: rgba(88, 88, 148, .14);
+  --aac-clay-cast-far-hover: rgba(88, 88, 148, .2);
+  --aac-clay-press-bg: linear-gradient(160deg, #f4f2fd, #ffffff);
+  --aac-clay-press-shadow: inset 0 4px 9px rgba(120, 120, 170, .2), inset 0 -2px 4px rgba(255, 255, 255, .95);
+  --aac-clay-tile: linear-gradient(160deg, #ffffff, color-mix(in srgb, var(--aac-accent) 9%, #f6f4ff));
+  --aac-clay-seam: rgba(133, 133, 178, .14);
+  --aac-clay-seam-hi: rgba(255, 255, 255, .9);
+  --aac-clay-raised: linear-gradient(160deg, #ffffff, #efedfa);
+  --aac-clay-menu: linear-gradient(170deg, #ffffff, #f4f2fc);
+  --aac-clay-cta-ink: #ffffff;
+  --aac-clay-cta-deep: #2a2d55;
+
+  --aac-text-primary: var(--aac-clay-ink);
+  --aac-text-secondary: var(--aac-clay-body);
+  --aac-text-muted: var(--aac-clay-faint);
+  --aac-text-subtle: var(--aac-clay-faint);
+  --aac-text-body: var(--aac-clay-body);
+  --aac-border: transparent;
+  border: 0;
+  border-radius: 42px 42px 26px 26px;
+  background:
+    radial-gradient(120% 70% at 50% -10%, color-mix(in srgb, var(--aac-accent) 12%, transparent), transparent 62%),
+    var(--aac-clay-surface);
+  box-shadow:
+    inset 0 3px 6px var(--aac-clay-hi-strong),
+    inset 3px 0 6px var(--aac-clay-hi-soft),
+    inset -2px -4px 10px var(--aac-clay-edge),
+    0 18px 34px var(--aac-clay-cast-far),
+    0 3px 10px var(--aac-clay-cast-near);
+  text-align: center;
+}
+
+/* Dark clay is not light clay dimmed. The surface becomes a moulded charcoal
+   and the highlight drops to a few percent white, because on a dark ground a
+   near-opaque inset edge reads as a glowing outline rather than as light
+   falling across a surface. */
+[data-theme="dark"] .aac-card--clay {
+  --aac-clay-surface: linear-gradient(170deg, #262738 0%, #1f2030 55%, #191a27 100%);
+  --aac-clay-ink: #eceefb;
+  --aac-clay-body: #a7aac6;
+  --aac-clay-faint: #767991;
+  --aac-clay-hi-strong: rgba(255, 255, 255, .075);
+  --aac-clay-hi-soft: rgba(255, 255, 255, .045);
+  --aac-clay-edge: rgba(0, 0, 0, .42);
+  --aac-clay-cast-near: rgba(0, 0, 0, .32);
+  --aac-clay-cast-far: rgba(0, 0, 0, .46);
+  --aac-clay-cast-far-hover: rgba(0, 0, 0, .58);
+  --aac-clay-press-bg: linear-gradient(160deg, #191a27, #23243a);
+  --aac-clay-press-shadow: inset 0 4px 10px rgba(0, 0, 0, .55), inset 0 -2px 4px rgba(255, 255, 255, .05);
+  --aac-clay-tile: linear-gradient(160deg, #2c2d42, color-mix(in srgb, var(--aac-accent) 16%, #222334));
+  --aac-clay-seam: rgba(0, 0, 0, .45);
+  --aac-clay-seam-hi: rgba(255, 255, 255, .05);
+  --aac-clay-raised: linear-gradient(160deg, #2b2c40, #212232);
+  --aac-clay-menu: linear-gradient(170deg, #2a2b3e, #202131);
+  --aac-clay-cta-ink: #10111c;
+  --aac-clay-cta-deep: #000000;
+}
+
+.aac-card--clay:hover {
+  transform: translateY(-3px);
+  box-shadow:
+    inset 0 3px 6px var(--aac-clay-hi-strong),
+    inset 3px 0 6px var(--aac-clay-hi-soft),
+    inset -2px -4px 10px var(--aac-clay-edge),
+    0 26px 46px var(--aac-clay-cast-far-hover),
+    0 4px 12px var(--aac-clay-cast-near);
+}
+.aac-card--clay:focus-visible {
+  box-shadow:
+    0 0 0 4px color-mix(in srgb, var(--aac-accent) 34%, transparent),
+    0 18px 34px var(--aac-clay-cast-far);
+}
+/* The compact treatment's accent hairline across the top and its skewed
+   halftone both cut straight across the arch, so neither survives here. */
+/* The compact treatment's accent hairline across the top and its skewed
+   halftone both cut straight across the arch, so neither survives here. */
+.aac-card--clay::after,
+.aac-card--clay::before { content: none; }
+
+.aac-card--clay .aac-card-body { padding: 1.9rem 1.7rem 1.1rem; }
+
+/* Header: the mark is centred and sits proud of the surface like the logo tiles
+   in the reference layout, and the kebab stops competing with it. */
+.aac-card--clay .aac-head { flex-direction: column; align-items: center; gap: .55rem; }
+.aac-card--clay .aac-head-main { flex-direction: column; align-items: center; gap: .55rem; text-align: center; }
+.aac-card--clay .aac-logo {
+  width: 62px; height: 62px;
+  border: 0; border-radius: 22px;
+  font-size: 1.3rem; font-weight: 700;
+  color: var(--aac-accent);
+  background: var(--aac-clay-tile);
+  box-shadow:
+    inset 0 2px 4px var(--aac-clay-hi-strong),
+    inset 0 -3px 7px color-mix(in srgb, var(--aac-accent) 14%, transparent),
+    0 10px 20px color-mix(in srgb, var(--aac-accent) 18%, transparent);
+}
+.aac-card--clay .aac-menu-wrap { top: 1rem; right: 1.1rem; }
+.aac-card--clay .aac-menu-btn {
+  border: 0; border-radius: 12px; color: var(--aac-clay-body);
+  background: var(--aac-clay-raised);
+  box-shadow: inset 0 1px 2px var(--aac-clay-hi-strong), 0 3px 7px var(--aac-clay-cast-near);
+}
+.aac-card--clay .aac-menu {
+  border: 0; border-radius: 20px;
+  background: var(--aac-clay-menu);
+  box-shadow: 0 18px 36px var(--aac-clay-cast-far), inset 0 2px 4px var(--aac-clay-hi-strong);
+}
+.aac-card--clay .aac-menu button { color: var(--aac-clay-ink); }
+.aac-card--clay .aac-menu button:hover { background: color-mix(in srgb, var(--aac-accent) 9%, transparent); }
+
+/* Status reads as the small coloured period line above the title, which is the
+   role it already plays — it just loses its pill so it can sit as type. */
+.aac-card--clay .aac-status-badge {
+  padding: 0; background: transparent;
+  font-size: .72rem; font-weight: 700; letter-spacing: .12em;
+  color: var(--aac-accent);
+}
+.aac-card--clay .aac-status-badge i { box-shadow: none; }
+
+/* The compact treatment pins the score ring top-right of this block. Clay
+   stacks the block instead and orders the tile last, so the card reads
+   mark -> status -> title -> company -> tile top to bottom. */
+.aac-card--clay .aac-primary-content {
+  padding-right: 0; text-align: center;
+  display: flex; flex-direction: column; align-items: center;
+}
+.aac-card--clay .aac-role { order: 1; }
+.aac-card--clay .aac-company { order: 2; }
+.aac-card--clay .aac-job-meta { order: 3; }
+.aac-card--clay .aac-match-ring { order: 4; }
+.aac-card--clay .aac-role {
+  margin: .1rem 0 0;
+  font-size: 1.12rem; font-weight: 750; line-height: 1.25;
+  letter-spacing: .055em; text-transform: uppercase;
+  color: var(--aac-clay-ink);
+}
+.aac-card--clay .aac-company,
+.aac-card--clay .aac-job-meta {
+  justify-content: center;
+  color: var(--aac-clay-body);
+  font-weight: 450;
+}
+.aac-card--clay .aac-company { white-space: normal; }
+
+/* Match score becomes a pressed clay tile at the foot of the content, in place
+   of the conic-gradient ring: a ring is a dashboard object, and clay is
+   moulded. */
+.aac-card--clay .aac-match-ring {
+  position: static; margin: 1rem auto 0;
+  width: 74px; height: 74px;
+  border-radius: 24px;
+  color: var(--aac-accent);
+  background: var(--aac-clay-press-bg);
+  box-shadow: var(--aac-clay-press-shadow);
+}
+.aac-card--clay .aac-match-ring::after { content: none; }
+.aac-card--clay .aac-match-ring strong { font-size: 1.32rem; font-weight: 750; }
+.aac-card--clay .aac-match-ring small { color: var(--aac-clay-body); }
+
+/* Dividers become the seam between two moulded pieces: a light line under a
+   dark one, rather than one grey rule. */
+.aac-card--clay .aac-readiness,
+.aac-card--clay .aac-intelligence,
+.aac-card--clay .aac-supporting-info {
+  border: 0; background: transparent;
+  box-shadow: inset 0 1px 0 var(--aac-clay-seam), inset 0 2px 0 var(--aac-clay-seam-hi);
+}
+.aac-card--clay .aac-timeline-track { --aac-timeline-track: var(--aac-clay-seam); }
+.aac-card--clay .aac-timeline-node {
+  background: var(--aac-clay-raised);
+  box-shadow: inset 0 1px 2px var(--aac-clay-hi-strong), 0 2px 4px var(--aac-clay-cast-near);
+}
+.aac-card--clay .aac-timeline-step--done .aac-timeline-node {
+  background: linear-gradient(160deg, color-mix(in srgb, var(--aac-accent) 70%, #ffffff), var(--aac-accent));
+  box-shadow: 0 3px 8px color-mix(in srgb, var(--aac-accent) 34%, transparent);
+}
+.aac-card--clay .aac-timeline-step--current .aac-timeline-node { border-color: var(--aac-accent); }
+.aac-card--clay .aac-timeline-step--done:not(:last-child)::after,
+.aac-card--clay .aac-timeline-step--current:not(:last-child)::after {
+  background: linear-gradient(90deg, color-mix(in srgb, var(--aac-accent) 60%, transparent), var(--aac-accent));
+}
+.aac-card--clay .aac-timeline-label { color: var(--aac-clay-body); }
+.aac-card--clay .aac-timeline-date { color: var(--aac-clay-faint); }
+.aac-card--clay .aac-intelligence .aac-alert,
+.aac-card--clay .aac-intelligence .aac-alert::after { color: var(--aac-accent); }
+
+.aac-card--clay .aac-foot {
+  justify-content: center; gap: .9rem;
+  border: 0; background: transparent;
+  box-shadow: inset 0 1px 0 var(--aac-clay-seam), inset 0 2px 0 var(--aac-clay-seam-hi);
+}
+.aac-card--clay .aac-updated { color: var(--aac-clay-faint); }
+.aac-card--clay .aac-cta {
+  border: 0; border-radius: 18px;
+  color: var(--aac-clay-cta-ink);
+  background: linear-gradient(160deg, color-mix(in srgb, var(--aac-accent) 78%, #ffffff), var(--aac-accent));
+  box-shadow:
+    inset 0 2px 3px rgba(255, 255, 255, .55),
+    inset 0 -2px 4px color-mix(in srgb, var(--aac-accent) 55%, var(--aac-clay-cta-deep)),
+    0 8px 18px color-mix(in srgb, var(--aac-accent) 34%, transparent);
+}
+.aac-card--clay .aac-cta:hover:not(:disabled) {
+  box-shadow:
+    inset 0 2px 3px rgba(255, 255, 255, .55),
+    inset 0 -2px 4px color-mix(in srgb, var(--aac-accent) 55%, var(--aac-clay-cta-deep)),
+    0 12px 24px color-mix(in srgb, var(--aac-accent) 44%, transparent);
+}
+.aac-card--clay .aac-cta--view {
+  color: var(--aac-clay-ink);
+  background: var(--aac-clay-raised);
+  box-shadow: inset 0 2px 4px var(--aac-clay-hi-strong), 0 6px 14px var(--aac-clay-cast-near);
+}
+.aac-card--clay .aac-drawer { color: var(--aac-clay-ink); background: var(--aac-clay-menu); }
+.aac-card--clay .aac-drawer-section { border: 0; box-shadow: inset 0 1px 0 var(--aac-clay-seam); }
+.aac-card--clay .aac-drawer-btn {
+  border: 0; border-radius: 16px; color: var(--aac-clay-ink);
+  background: var(--aac-clay-raised);
+  box-shadow: inset 0 2px 4px var(--aac-clay-hi-strong), 0 6px 14px var(--aac-clay-cast-near);
+}
+.aac-card--clay .aac-drawer-btn--primary {
+  color: var(--aac-clay-cta-ink);
+  background: linear-gradient(160deg, color-mix(in srgb, var(--aac-accent) 78%, #ffffff), var(--aac-accent));
+}
+
+/* No backdrop and no rail: the panel's own background shows through, the same
+   as on the Applications workspace. */
+
+@media (prefers-reduced-motion: reduce) {
+  .aac-card--clay, .aac-card--clay:hover { transform: none; }
+}
+
 .application-card-style-options { display:flex; flex-wrap:wrap; gap:.75rem; margin-top:1rem; }
 .application-card-style-option { min-width:210px; display:flex; flex-direction:column; gap:.25rem; padding:1rem; text-align:left; border:1px solid var(--border); border-radius:14px; background:var(--card); color:var(--text-secondary); cursor:pointer; transition:border-color .16s ease, background .16s ease, box-shadow .16s ease; }
 .application-card-style-option strong { color:var(--text); }.application-card-style-option span { font-size:.78rem; }.application-card-style-option:hover, .application-card-style-option.is-selected { border-color:var(--accent); background:var(--accent-soft); box-shadow:var(--shadow-sm); }

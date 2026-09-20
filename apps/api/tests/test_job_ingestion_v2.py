@@ -61,13 +61,24 @@ from app.services.job_discover.sources.workday import WorkdaySource
 # FIXTURES
 # ---------------------------------------------------------------------------
 
+# Fixture postings are dated relative to now, not pinned to a calendar date.
+#
+# Both adapters are asked for jobs newer than `now - 30 days`, and these
+# fixtures carried hardcoded timestamps (2026-08-20). They passed until the day
+# the wall clock put them exactly 30 days in the past, then began failing every
+# run — the Lever one first, the Greenhouse one a day later, each looking like a
+# regression in ingestion when nothing about ingestion had changed. A fixture
+# that asks "is this recent?" has to be dated relative to the same clock the
+# code under test reads.
+_RECENT = datetime.now(UTC) - timedelta(days=3)
+
 GREENHOUSE_FIXTURE = {
     "jobs": [
         {
             "id": 55443322,
             "internal_job_id": 998811,
             "title": "Staff Infrastructure Engineer",
-            "updated_at": "2026-08-20T14:30:00Z",
+            "updated_at": _RECENT.strftime("%Y-%m-%dT%H:%M:%SZ"),
             "absolute_url": "https://boards.greenhouse.io/stripe/jobs/55443322?gh_jid=55443322",
             "location": {"name": "San Francisco, CA"},
             "offices": [{"name": "San Francisco HQ"}, {"name": "Seattle"}],
@@ -84,7 +95,7 @@ LEVER_FIXTURE = [
     {
         "id": "lever-uuid-99",
         "text": "Principal Distributed Systems Architect",
-        "createdAt": 1787200000000,
+        "createdAt": int(_RECENT.timestamp() * 1000),
         "hostedUrl": "https://jobs.lever.co/netflix/lever-uuid-99",
         "applyUrl": "https://jobs.lever.co/netflix/lever-uuid-99/apply",
         "categories": {

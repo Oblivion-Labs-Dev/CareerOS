@@ -7,38 +7,34 @@ import { useSessionState } from "@/hooks/use-session-state";
 import { useSearchParams } from "next/navigation";
 import React, { useEffect, useRef, useState } from "react";
 import { SidePanelPortal } from "@/components/side-panel-portal";
+import { PendingQuestionAnswers, type QuestionGroupRow } from "./pending-question-answers";
 import {
   assistedFillAutopilotJob,
   approvePreflightSubmission,
   approveStagedAnswer,
-  getAutopilotJobs,
   setAutopilotJobState,
   reprocessSingleAutopilotJob,
-  resolveAggregatorUrls,
-  dedupeApplications,
   requeueBucket,
-  resetSubmittedAutopilotJobs,
   skipStagedApplication,
 } from "@/lib/application-assistant-api";
-import { LatencyDiagnosticsCenter } from "@/components/application-assistant/latency-diagnostics-center";
 import type { AutopilotJobRow } from "./job-types";
-import { FILTERS, SORTS, type StatusFilter, type SortMode } from "./job-presentation";
+import { FILTERS, SORTS, STATUS_VIEWS, SUBMITTED_DRILLDOWN, type StatusFilter, type SortMode } from "./job-presentation";
 import { useApplicationPages } from "./use-application-pages";
 import { ApplicationDetails } from "./application-details";
 import detailStyles from "./application-details.module.css";
 import { ApplicationCard } from "./application-card";
 import { QuickAddJobPanel } from "./quick-add-job-panel";
 import { CompanyFilterDropdown } from "./company-filter-dropdown";
+import { TitleFilterDropdown } from "./title-filter-dropdown";
 import styles from "./control-center.module.css";
-
-type Section = "applications" | "review" | "diagnostics";
+import gridStyles from "./application-grid.module.css";
 
 type RequeueBucket = "review" | "failed" | "manual" | "skipped" | "ineligible";
 // Sweeping the whole bucket is only safe for review/failed - see the matching
 // COMPANY_ONLY_BUCKETS guard in the backend's /autopilot/requeue-bucket.
 const COMPANY_ONLY_BUCKETS = new Set<RequeueBucket>(["manual", "skipped", "ineligible"]);
 const BUCKET_LABELS: Record<RequeueBucket, string> = {
-  review: "review",
+  review: "in review",
   failed: "failed",
   manual: "manual review",
   skipped: "skipped",
@@ -46,13 +42,16 @@ const BUCKET_LABELS: Record<RequeueBucket, string> = {
 };
 
 export function AutopilotApplicationsView({
-  section,
   onJobsChanged,
   allJobs = [],
+  questionGroups = [],
+  onAnswered,
 }: {
-  section: Section;
   onJobsChanged: () => void;
   allJobs?: AutopilotJobRow[];
+  /** Outstanding questions, answerable under the Review filter. */
+  questionGroups?: QuestionGroupRow[];
+  onAnswered?: () => void;
 }) {
   const params = useSearchParams();
   const linkedFilter = params.get("tab");
@@ -61,11 +60,15 @@ export function AutopilotApplicationsView({
   const [sortMode, setSortMode] = useSessionState<SortMode>("applications-sort", "priority");
   const [query, setQuery] = useSessionState("applications-query", "");
   const [companyFilter, setCompanyFilter] = useSessionState<string>("applications-company-filter", "");
+  const [titleFilter, setTitleFilter] = useSessionState<string>("applications-title-filter", "");
   // Which bulk requeue is awaiting confirmation, if any. Held as state rather
   // than using window.confirm so the warning can say exactly what is about to
   // happen and how many rows it touches.
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  // "Submitted" is the umbrella (open + rejected); its two children are shown
+  // as a drill-down row once it (or one of them) is the active filter.
+  const showSubmittedDrilldown = filter === "submitted" || filter === "open" || filter === "rejected";
   const [confirmRequeue, setConfirmRequeue] = useState<RequeueBucket | null>(null);
-  const [menuOpen, setMenuOpen] = useState(false);
   const [detail, setDetail] = useState<AutopilotJobRow | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
@@ -79,26 +82,14 @@ export function AutopilotApplicationsView({
       .catch(() => {if (!controller.signal.aborted) setNote("This application could not be opened. Try finding it in the list.");});
     return () => controller.abort();
   }, [linkedJob]);
-  const menuRef = useRef<HTMLDivElement>(null);
   const applyInFlight = useRef(false);
 
   useEffect(() => {
-    if (section === "review") setFilter("review");
-    else if (section === "diagnostics") setFilter("failed");
-    else if (FILTERS.some(item => item.id === linkedFilter)) setFilter(linkedFilter as StatusFilter);
-  }, [section, linkedFilter]);
+    if (FILTERS.some(item => item.id === linkedFilter)) setFilter(linkedFilter as StatusFilter);
+  }, [linkedFilter]);
 
-  useEffect(() => {
-    if (!menuOpen) return undefined;
-    const onDown = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuOpen(false);
-    };
-    document.addEventListener("mousedown", onDown);
-    return () => document.removeEventListener("mousedown", onDown);
-  }, [menuOpen]);
-
-  const pages = useApplicationPages(section === "review" ? "review" : filter, sortMode, query, companyFilter);
-  const { jobs, counts, companyCounts: serverCompanyCounts } = pages;
+  const pages = useApplicationPages(filter, sortMode, query, companyFilter, titleFilter);
+  const { jobs, counts, companyCounts: serverCompanyCounts, titleCounts: serverTitleCounts } = pages;
 
   // Use precomputed server company counts for the current status (covers all companies, e.g. all 152 on manual)
   const companyCounts = React.useMemo(() => {
@@ -107,17 +98,9 @@ export function AutopilotApplicationsView({
     }
     const map: Record<string, number> = {};
     const source = allJobs.length > 0 ? allJobs : jobs;
-    const activeKey = section === "review" ? "review" : filter;
 
     const matching = source.filter((j) => {
-      if (activeKey === "review") return j.status === "NEEDS_REVIEW" || j.status === "STAGED";
-      if (activeKey === "submitted") return j.status === "SUBMITTED";
-      if (activeKey === "manual") return j.status === "MANUAL_REVIEW";
-      if (activeKey === "queued") return j.status === "QUEUED" || j.status === "APPLYING";
-      if (activeKey === "failed") return j.status === "FAILED";
-      if (activeKey === "skipped") return j.status === "SKIPPED";
-      if (activeKey === "ineligible") return j.status === "INELIGIBLE";
-      return true;
+      return FILTERS.find(item => item.id === filter)?.match(j) ?? true;
     });
 
     for (const j of matching) {
@@ -127,7 +110,7 @@ export function AutopilotApplicationsView({
       }
     }
     return map;
-  }, [serverCompanyCounts, allJobs, jobs, section, filter]);
+  }, [serverCompanyCounts, allJobs, jobs, filter]);
 
   const sortedCompanies = React.useMemo(() => {
     return Object.entries(companyCounts).sort((a, b) => {
@@ -136,13 +119,40 @@ export function AutopilotApplicationsView({
     });
   }, [companyCounts]);
 
+  // Use precomputed server title counts for the current status, same shape as companyCounts.
+  const titleCounts = React.useMemo(() => {
+    if (serverTitleCounts && Object.keys(serverTitleCounts).length > 0) {
+      return serverTitleCounts;
+    }
+    const map: Record<string, number> = {};
+    const source = allJobs.length > 0 ? allJobs : jobs;
+
+    const matching = source.filter((j) => {
+      return FILTERS.find(item => item.id === filter)?.match(j) ?? true;
+    });
+
+    for (const j of matching) {
+      const t = (j.title || "").trim();
+      if (t) {
+        map[t] = (map[t] || 0) + 1;
+      }
+    }
+    return map;
+  }, [serverTitleCounts, allJobs, jobs, filter]);
+
+  const sortedTitles = React.useMemo(() => {
+    return Object.entries(titleCounts).sort((a, b) => {
+      if (b[1] !== a[1]) return b[1] - a[1];
+      return a[0].localeCompare(b[0]);
+    });
+  }, [titleCounts]);
+
   const totalStatusJobs = React.useMemo(() => {
-    const activeKey = section === "review" ? "review" : filter;
-    if (typeof counts[activeKey] === "number" && counts[activeKey] > 0) {
-      return counts[activeKey];
+    if (typeof counts[filter] === "number" && counts[filter] > 0) {
+      return counts[filter];
     }
     return Object.values(companyCounts).reduce((sum, n) => sum + n, 0);
-  }, [counts, section, filter, companyCounts]);
+  }, [counts, filter, companyCounts]);
 
   // Reset company filter only if the chosen company definitely does not exist in the non-empty status list
   useEffect(() => {
@@ -151,74 +161,31 @@ export function AutopilotApplicationsView({
     }
   }, [companyCounts, companyFilter, setCompanyFilter]);
 
-  useApplicationScroll(`${section}:${filter}:${sortMode}:${query}:${companyFilter}`, pages.loading, pages.hasMore, jobs.length, pages.loadMore);
+  // Same guard for the title filter — clear it if the selected title has no jobs left in this status.
+  useEffect(() => {
+    if (titleFilter && Object.keys(titleCounts).length > 0 && !titleCounts[titleFilter]) {
+      setTitleFilter("");
+    }
+  }, [titleCounts, titleFilter, setTitleFilter]);
+
+  useApplicationScroll(`${filter}:${sortMode}:${query}:${companyFilter}:${titleFilter}`, pages.loading, pages.hasMore, jobs.length, pages.loadMore);
 
   const visible = React.useMemo(() => {
-    if (!companyFilter) return jobs;
-    return jobs.filter((j) => (j.company || "").trim().toLowerCase() === companyFilter.trim().toLowerCase());
-  }, [jobs, companyFilter]);
+    let result = jobs;
+    if (companyFilter) {
+      result = result.filter((j) => (j.company || "").trim().toLowerCase() === companyFilter.trim().toLowerCase());
+    }
+    if (titleFilter) {
+      result = result.filter((j) => (j.title || "").trim().toLowerCase() === titleFilter.trim().toLowerCase());
+    }
+    return result;
+  }, [jobs, companyFilter, titleFilter]);
 
   const loading = pages.loading && jobs.length === 0;
   const pagination = <div ref={pages.sentinel} style={{ padding: "20px", textAlign: "center" }}>
     <p role="status">{pages.error || (pages.loading ? "Loading applications…" : `${jobs.length} of ${pages.total} applications`)}</p>
-    {(pages.hasMore || pages.error) && <button className={styles.filterChip} disabled={pages.loading} onClick={pages.loadMore}>{pages.error ? "Retry" : "Load 20 more"}</button>}
+    {(pages.hasMore || pages.error) && <button className={styles.filterChip} disabled={pages.loading} onClick={pages.loadMore}>{pages.error ? "Retry" : "Load 24 more"}</button>}
   </div>;
-
-  const downloadJson = async () => {
-    setMenuOpen(false);
-    let all: AutopilotJobRow[] = jobs.filter((j) => j.status === "SUBMITTED");
-    try {
-      const res = await getAutopilotJobs("SUBMITTED", 200);
-      all = (res.jobs || []) as AutopilotJobRow[];
-    } catch {
-      /* fall back to what's loaded */
-    }
-    const payload = {
-      exportTimestamp: new Date().toISOString(),
-      totalSubmitted: all.length,
-      applications: all.map((j) => ({
-        id: j.id,
-        company: j.company,
-        title: j.title,
-        location: j.location,
-        applicationUrl: j.applicationUrl,
-        status: j.status,
-        submittedAt: j.submittedAt || j.updatedAt,
-        matchScore: j.matchScore,
-        resumeFileUsed: j.resumeFileUsed,
-        answers: j.answers || {},
-      })),
-    };
-    const url = URL.createObjectURL(new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" }));
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `careeros_submitted_${new Date().toISOString().slice(0, 10)}.json`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-    setNote(`Exported ${all.length} submitted application(s).`);
-  };
-
-  const resetAll = async () => {
-    setMenuOpen(false);
-    const confirmed = window.confirm(
-      "Reset staged, failed and in-flight jobs back to unapplied?" +
-      "\n\nSubmitted, skipped and ineligible applications are left alone. This cannot be undone.",
-    );
-    if (!confirmed) return;
-    setBusy("reset");
-    try {
-      await resetSubmittedAutopilotJobs("ALL");
-      setNote("Reset complete.");
-      pages.refresh();
-      onJobsChanged();
-    } catch (err) {
-      setNote(err instanceof Error ? err.message : "Reset failed");
-    } finally {
-      setBusy(null);
-    }
-  };
 
   const approveAnswers = async (job: AutopilotJobRow) => {
     const questions = job.pendingQuestions || [];
@@ -323,42 +290,6 @@ export function AutopilotApplicationsView({
     }
   };
 
-  /** Jobs stored at an aggregator listing have no application form at that
-   *  URL. This looks each one up on the employer's own board and repoints it. */
-  const fixAggregatorLinks = async () => {
-    setBusy("aggregator");
-    setNote(null);
-    setMenuOpen(false);
-    try {
-      const res = await resolveAggregatorUrls();
-      setNote(res.message);
-      pages.refresh();
-      onJobsChanged();
-    } catch (err) {
-      setNote(err instanceof Error ? err.message : "Could not resolve aggregator links");
-    } finally {
-      setBusy(null);
-    }
-  };
-
-  /** The same posting can be discovered many times; this keeps the record that
-   *  got furthest and retires the rest so the lists stop repeating. */
-  const removeDuplicates = async () => {
-    setBusy("dedupe");
-    setNote(null);
-    setMenuOpen(false);
-    try {
-      const res = await dedupeApplications();
-      setNote(res.message);
-      pages.refresh();
-      onJobsChanged();
-    } catch (err) {
-      setNote(err instanceof Error ? err.message : "Could not remove duplicates");
-    } finally {
-      setBusy(null);
-    }
-  };
-
   /** Send a bucket back to the queue - the whole thing for review/failed, or
    *  (required) just the current company filter's slice for manual/skipped/
    *  ineligible, so "requeue" from a filtered tab only touches what's shown. */
@@ -393,163 +324,48 @@ export function AutopilotApplicationsView({
     }
   };
 
-  // ── Review workflow ──
-  if (section === "review") {
-    let reviewJobs = jobs.filter((j) => j.status === "NEEDS_REVIEW" || j.status === "STAGED");
-    if (companyFilter) {
-      reviewJobs = reviewJobs.filter(
-        (j) => (j.company || "").trim().toLowerCase() === companyFilter.trim().toLowerCase()
-      );
-    }
-    return (
-      <div className={styles.mainCol}>
-        {/* Company filter toolbar for Review queue */}
-        <div className={styles.filterBar} style={{ marginBottom: "1rem" }}>
-          <CompanyFilterDropdown
-            value={companyFilter}
-            onChange={setCompanyFilter}
-            companies={sortedCompanies}
-            totalCount={totalStatusJobs}
-          />
-
-          {(() => {
-            const scopedCount = companyFilter ? (companyCounts[companyFilter] ?? 0) : (counts["review"] ?? 0);
-            if (scopedCount <= 0) return null;
-            return (
-              <button
-                type="button"
-                className={styles.filterChip}
-                disabled={busy === "requeue"}
-                onClick={() => setConfirmRequeue("review")}
-              >
-                {busy === "requeue"
-                  ? "Moving…"
-                  : companyFilter
-                    ? `Move ${scopedCount} ${companyFilter} to queue`
-                    : `Move all ${scopedCount} to queue`}
-              </button>
-            );
-          })()}
-        </div>
-
-        {note && <div className={styles.empty}>{note}</div>}
-        {loading ? (
-          <p className={styles.loadingText}>Loading review queue…</p>
-        ) : reviewJobs.length === 0 ? (
-          <div className={styles.empty}>
-            {companyFilter
-              ? `No review applications found for ${companyFilter}.`
-              : "Nothing is waiting on you. Autopilot stages an application here only when it can't answer something safely on its own."}
-          </div>
-        ) : (
-          reviewJobs.map((job) => {
-            const questions = job.pendingQuestions || [];
-            return (
-              <section key={job.id} className={styles.reviewCard}>
-                <div className={styles.reviewCompany}>{job.company || "Unknown company"}</div>
-                <div className={styles.reviewRole}>{job.title || "Unknown role"}</div>
-
-                {questions.length > 0 ? (
-                  questions.map((q) => (
-                    <div key={q.question}>
-                      <div className={styles.reviewQuestion}>
-                        <span className={styles.reviewMetaLabel}>Question</span>
-                        {q.question}
-                      </div>
-                      {q.options && q.options.length > 0 ? (
-                        <select
-                          className={styles.searchInput}
-                          style={{ marginTop: "0.6rem", maxWidth: "100%", width: "100%" }}
-                          value={answerDrafts[`${job.id}:${q.question}`] || ""}
-                          onChange={(e) =>
-                            setAnswerDrafts((prev) => ({ ...prev, [`${job.id}:${q.question}`]: e.target.value }))
-                          }
-                        >
-                          <option value="">Select an answer…</option>
-                          {q.options.map((o) => (
-                            <option key={o} value={o}>{o}</option>
-                          ))}
-                        </select>
-                      ) : (
-                        <input
-                          type="text"
-                          className={styles.searchInput}
-                          style={{ marginTop: "0.6rem", maxWidth: "100%", width: "100%" }}
-                          placeholder="Your answer…"
-                          value={answerDrafts[`${job.id}:${q.question}`] || ""}
-                          onChange={(e) =>
-                            setAnswerDrafts((prev) => ({ ...prev, [`${job.id}:${q.question}`]: e.target.value }))
-                          }
-                        />
-                      )}
-                    </div>
-                  ))
-                ) : (
-                  <div className={styles.reviewQuestion}>
-                    <span className={styles.reviewMetaLabel}>Why Autopilot stopped</span>
-                    {job.lastError || "Staged for human review."}
-                  </div>
-                )}
-
-                <p className={styles.reviewReason}>
-                  <span className={styles.reviewMetaLabel}>Reason for review</span>
-                  Autopilot found no deterministic answer in your CareerOS profile, so it stopped rather than
-                  guessing on a real application.
-                </p>
-
-                <div className={styles.reviewActions}>
-                  <button
-                    type="button"
-                    className={`${styles.filterChip} ${styles.filterChipActive}`}
-                    disabled={busy === job.id}
-                    onClick={() => void approveAnswers(job)}
-                  >
-                    {busy === job.id ? "Applying…" : "Approve & continue"}
-                  </button>
-                  <button type="button" className={styles.filterChip} disabled={busy === job.id} onClick={() => void skipJob(job)}>
-                    Skip application
-                  </button>
-                </div>
-              </section>
-            );
-          })
-        )}
-        {pagination}
-      </div>
-    );
-  }
-
-  // ── Applications + Diagnostics (shared card grid, different detail emphasis) ──
   return (
     <div>
-      {section === "diagnostics" && (
-        <div style={{ marginBottom: "1rem" }}>
-          <LatencyDiagnosticsCenter />
-        </div>
-      )}
-
       {/* Add Job by URL lived only on ApplyBoard, which the control-center
           redesign stopped rendering — so there was no way to queue a specific
           posting from the UI at all. */}
-      {section === "applications" && (
-        <div style={{ marginBottom: "1rem" }}>
-          <QuickAddJobPanel onAdded={() => { pages.refresh(); onJobsChanged(); }} />
+      <div style={{ marginBottom: "1rem" }}>
+        <QuickAddJobPanel onAdded={() => { pages.refresh(); onJobsChanged(); }} />
+      </div>
+
+      <section className={gridStyles.controls} aria-label="Application filters">
+        <div className={gridStyles.heading}><div><span className={gridStyles.eyebrow}>YOUR NEXT CHAPTER</span><h2>Application workspace</h2></div><span className={gridStyles.total}>{(counts.all ?? 0).toLocaleString()} applications</span></div>
+        {/* Literal status names, not a "Needs you"/"In progress" grouping —
+            every status is one click away, all the time. */}
+        <nav className={gridStyles.views} aria-label="Application status">
+          <button type="button" aria-pressed={filter === "all"} onClick={() => setFilter("all")}><span>All applications</span><strong>{(counts.all ?? 0).toLocaleString()}</strong></button>
+          {STATUS_VIEWS.map(id => {
+            const item = FILTERS.find(f => f.id === id)!;
+            const isActive = id === "submitted" ? showSubmittedDrilldown : filter === id;
+            return (
+              <button key={id} type="button" aria-pressed={isActive} data-view={id} onClick={() => setFilter(id)}>
+                <span>{item.label}</span><strong>{(counts[id] ?? 0).toLocaleString()}</strong>
+              </button>
+            );
+          })}
+        </nav>
+        {showSubmittedDrilldown && (
+          <nav className={gridStyles.drilldown} aria-label="Submitted breakdown">
+            {SUBMITTED_DRILLDOWN.map(id => {
+              const item = FILTERS.find(f => f.id === id)!;
+              return (
+                <button key={id} type="button" aria-pressed={filter === id} onClick={() => setFilter(id)}>
+                  {item.label} <strong>{(counts[id] ?? 0).toLocaleString()}</strong>
+                </button>
+              );
+            })}
+          </nav>
+        )}
+        <div className={gridStyles.toolbar}>
+          <input className={gridStyles.search} type="search" aria-label="Search applications" placeholder="Search company, role or location…" value={query} onChange={event => setQuery(event.target.value)} />
+          <button className={gridStyles.filterToggle} type="button" aria-expanded={filtersOpen} aria-controls="application-extra-filters" onClick={() => setFiltersOpen(!filtersOpen)}>Filters{companyFilter || titleFilter ? " •" : ""}</button>
         </div>
-      )}
-
-      <div className={styles.filterBar}>
-        {FILTERS.map((f) => (
-          <button
-            key={f.id}
-            type="button"
-            className={`${styles.filterChip} ${filter === f.id ? styles.filterChipActive : ""}`}
-            onClick={() => setFilter(f.id)}
-          >
-            {f.label}
-            <span style={{ opacity: 0.7 }}>{counts[f.id] ?? 0}</span>
-          </button>
-        ))}
-
+      <div id="application-extra-filters" className={gridStyles.extraFilters} hidden={!filtersOpen}>
         <CompanyFilterDropdown
           value={companyFilter}
           onChange={setCompanyFilter}
@@ -557,9 +373,16 @@ export function AutopilotApplicationsView({
           totalCount={totalStatusJobs}
         />
 
+        <TitleFilterDropdown
+          value={titleFilter}
+          onChange={setTitleFilter}
+          titles={sortedTitles}
+          totalCount={totalStatusJobs}
+        />
+
         <select
           className={styles.searchInput}
-          style={{ maxWidth: "13rem", colorScheme: "dark", cursor: "pointer" }}
+          style={{ maxWidth: "13rem", cursor: "pointer" }}
           value={sortMode}
           onChange={(e) => setSortMode(e.target.value as SortMode)}
           aria-label="Sort applications"
@@ -599,26 +422,18 @@ export function AutopilotApplicationsView({
           );
         })()}
 
-        <div className={styles.overflowWrap} ref={menuRef}>
-          <button type="button" className={styles.overflowBtn} onClick={() => setMenuOpen((v) => !v)} aria-label="More actions">
-            ⋯
-          </button>
-          {menuOpen && (
-            <div className={styles.overflowMenu}>
-              <button type="button" onClick={() => void downloadJson()}>Download submitted as JSON</button>
-              <button type="button" disabled={busy === "aggregator"} onClick={() => void fixAggregatorLinks()}>
-                {busy === "aggregator" ? "Resolving links…" : "Resolve aggregator links"}
-              </button>
-              <button type="button" disabled={busy === "dedupe"} onClick={() => void removeDuplicates()}>
-                {busy === "dedupe" ? "Removing duplicates…" : "Remove duplicate applications"}
-              </button>
-              <button type="button" className={styles.overflowDanger} disabled={busy === "reset"} onClick={() => void resetAll()}>
-                Reset all to unapplied…
-              </button>
-            </div>
-          )}
-        </div>
       </div>
+
+      </section>
+
+      {/* The questions holding these applications, answerable in place.
+          Below the filter bar and above the cards: the user comes to Review to
+          clear blockers, and one answer here can finish dozens of the cards
+          underneath it. Only under this filter — it is not relevant to
+          submitted or ineligible work. */}
+      {filter === "review" && questionGroups.length > 0 && (
+        <PendingQuestionAnswers groups={questionGroups} onAnswered={onAnswered} />
+      )}
 
       {confirmRequeue && (
         <div className={styles.confirmBackdrop} role="presentation" onClick={() => setConfirmRequeue(null)}>
@@ -659,11 +474,11 @@ export function AutopilotApplicationsView({
       {note && <div className={styles.empty} style={{ marginBottom: "0.75rem" }}>{note}</div>}
 
       {loading ? (
-        <WorkspaceLoading label="Loading applications…" />
+        <WorkspaceLoading label="Loading applications…" shape="grid" rows={6} />
       ) : visible.length === 0 ? (
         <div className={styles.empty}>No applications match this filter.</div>
       ) : (
-        <div className={styles.appGrid}>
+        <div className={gridStyles.grid} aria-label="Applications">
           {visible.map((job) => (
             <ApplicationCard key={job.id} job={job} busy={busy} detailed={detail?.id === job.id}
               onDetails={() => transitionSurface(() => setDetail(job))} onApply={() => void applyNow(job)}

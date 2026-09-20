@@ -1,12 +1,17 @@
 "use client";
 
+import { getClientApiBaseUrl } from "@/lib/api";
 import { useEffect, useState } from "react";
 import { DEFAULT_API_BASE } from "@career-os/core";
 import { detectBrowser } from "@/lib/extension-install";
 import { getFirefoxInstallUrl, resolveStoreUrls, type ExtensionStoreUrls } from "@/lib/extension-store";
 import { StoreInstallButton } from "@/components/store-install-button";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || DEFAULT_API_BASE;
+// Same-origin through the Next proxy, so the login session cookie travels
+// with the request. Resolved at call time, not module scope: at module
+// scope this evaluates during SSR, where it would freeze to the server-side
+// origin and defeat the point.
+const resolveApiBase = () => getClientApiBaseUrl();
 
 const ENV_STORE_URLS: ExtensionStoreUrls = {
   chrome: process.env.NEXT_PUBLIC_CHROME_WEB_STORE_URL || null,
@@ -21,7 +26,7 @@ export function LandingFirefoxInstall() {
 
   useEffect(() => {
     setBrowser(detectBrowser() === "firefox" ? "firefox" : "other");
-    fetch(`${API_BASE}/extension/info`)
+    fetch(`${resolveApiBase()}/extension/info`)
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
         if (data?.storeUrls) {

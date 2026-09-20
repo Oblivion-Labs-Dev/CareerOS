@@ -1,5 +1,6 @@
 "use client";
 
+import { getClientApiBaseUrl } from "@/lib/api";
 import { useEffect, useState } from "react";
 
 type ApproachRow = {
@@ -29,7 +30,11 @@ type Payload = {
   ablation?: { subsets: Array<{ signals: string[]; rocAuc: number | null; gateRecall: number | null; adversarialPassed: number }> };
 };
 
-const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
+// Same-origin through the Next proxy, so the login session cookie travels
+// with the request. Resolved at call time, not module scope: at module
+// scope this evaluates during SSR, where it would freeze to the server-side
+// origin and defeat the point.
+const apiBase = () => getClientApiBaseUrl();
 
 /** Approaches CareerOS currently uses, so the page shows where we stand today. */
 const CURRENT = "naive-coverage";
@@ -51,9 +56,9 @@ export function MatcherBenchmark() {
 
   useEffect(() => {
     let cancelled = false;
-    fetch(`${API}/matcher-benchmark`, { credentials: "include" })
+    fetch(`${apiBase()}/matcher-benchmark`, { credentials: "include" })
       .then((res) => {
-        if (!res.ok) throw new Error(`API returned ${res.status}`);
+        if (!res.ok) throw new Error(`apiBase() returned ${res.status}`);
         return res.json();
       })
       .then((payload) => !cancelled && setData(payload))

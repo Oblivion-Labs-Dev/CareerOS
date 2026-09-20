@@ -5,6 +5,7 @@ import { Suspense, useCallback, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { CareerWorkspaceStrip } from "@/components/career-workspace-strip";
 import { ProfileApplicationDetailsForm } from "@/components/profile/profile-application-details-form";
+import { ProfileExperienceCorpus } from "@/components/profile/profile-experience-corpus";
 import { ProfileExperienceSection } from "@/components/profile/profile-experience-section";
 import { ProfileDocumentsSection } from "@/components/profile/profile-documents-section";
 import { ResumeProfileSwitcher } from "@/components/profile/resume-profile-switcher";
@@ -275,6 +276,20 @@ export default function ProfilePage() {
                 embedded
                 profileName={String(profile.fullName || profile.firstName || "").trim()}
               />
+            </section>
+
+            <section className="workflow-panel dashboard-panel--wide" id="corpus" aria-label="Experience corpus">
+              <div className="dashboard-panel-header">
+                <div>
+                  <span className="toc-card-kicker">Experience corpus</span>
+                  <h2>Everything you have written down</h2>
+                  <p className="muted" style={{ marginTop: "0.35rem" }}>
+                    Your full body of work — each story with the skills and infrastructure it actually evidences,
+                    the numbers you can cite, and the claims it will not support. One story at a time.
+                  </p>
+                </div>
+              </div>
+              <ProfileExperienceCorpus />
             </section>
 
             <section className="dashboard-layout dashboard-layout--full">

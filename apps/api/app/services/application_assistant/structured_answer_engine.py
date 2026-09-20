@@ -154,6 +154,12 @@ async def resolve_level_3_gemini(
     technology and figure in the reply against the candidate's own documents
     before returning it.
     """
+    from app.services.gemini.config import applications_enabled
+
+    if not applications_enabled():
+        # Gemini is switched off for the application path; the local model and
+        # the deterministic resolvers below answer on their own.
+        return None
     try:
         from app.services.gemini.enrichment import answer_application_question
 

@@ -710,7 +710,7 @@ def _local_disabled_substitute(
     if gemini is not None:
         logger.info("CAREEROS_LOCAL_LLM=off: using Gemini instead of the local model.")
         return gemini
-    logger.info("CAREEROS_LOCAL_LLM=off and no GEMINI_API_KEY: running deterministic only.")
+    logger.info("CAREEROS_LOCAL_LLM=off and no Gemini available for applications: running deterministic only.")
     return LLMClient(base_url="", model="")
 
 
@@ -749,10 +749,15 @@ def _build_gemini_fallback(*, timeout: int, max_retries: int, confidence_thresho
     """Gemini Flash client used as the automatic fallback when the primary model fails.
 
     Returns None when GEMINI_API_KEY isn't configured, so callers that never
-    set that key see identical behavior to before (no fallback attempted).
+    set that key see identical behavior to before (no fallback attempted), and
+    also when Gemini is switched off for the application path - everything in
+    this module runs while applying to a job, so that switch applies here in
+    full. Callers already handle a missing fallback by staying deterministic.
     """
+    from app.services.gemini.config import applications_enabled
+
     gemini_key = os.environ.get("GEMINI_API_KEY", "")
-    if not gemini_key:
+    if not gemini_key or not applications_enabled():
         return None
     return LLMClient(
         base_url="https://generativelanguage.googleapis.com/v1beta/openai",

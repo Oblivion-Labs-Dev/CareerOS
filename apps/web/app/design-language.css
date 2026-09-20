@@ -13,6 +13,207 @@
    token-driven and theme-aware; nothing here changes markup or behaviour.
    ========================================================================= */
 
+/* ─── Scales: the substrate the rest of this file assumes ───────────────────
+   These did not exist. The app was using 12 distinct border radii, 12 distinct
+   font sizes and ad hoc rgba shadows, chosen per component — which is the
+   single loudest reason the interface reads as assembled rather than designed.
+   Ratios, not round numbers: the type scale is a 1.25 major third from a 16px
+   base, so sizes relate to each other instead of merely differing.
+   ========================================================================= */
+
+:root {
+  /* Type. --text-* are sizes; the display sizes are for Instrument Serif.
+     --text-3xs extends the ratio one step further than the original 8: the
+     Autopilot control centre is a genuinely dense operational surface —
+     timestamps, badges, avatar initials — that was reaching for 8/9/10px
+     directly rather than being forced onto --text-2xs, which would have made
+     every tiny badge visibly oversized for its container. */
+  --text-3xs: 0.5625rem;  /* 9px — timestamps, badges, avatar initials only */
+  --text-2xs: 0.6875rem;  /* 11px — micro-labels, the smallest legible size */
+  --text-xs: 0.75rem;     /* 12px */
+  --text-sm: 0.875rem;    /* 14px */
+  --text-base: 1rem;      /* 16px — body */
+  --text-lg: 1.25rem;     /* 20px */
+  --text-xl: 1.5rem;      /* 24px */
+  --text-2xl: 2rem;       /* 32px */
+  --text-3xl: 2.5rem;     /* 40px — display only */
+
+  /* Space: 4px base, doubling. Anything not on this scale is a bug. */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+  --space-12: 3rem;
+
+  /* Radius: four steps, not twelve. */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 16px;
+  --radius-full: 999px;
+
+  /* Elevation and surfaces — and the two themes do genuinely opposite things.
+     This is the correction to an earlier mistake here, which dropped borders
+     everywhere in favour of shadow: that is right for light mode and wrong for
+     dark. On a near-black canvas a soft shadow lands on black and disappears,
+     so the cards measured 1.07x against the page and read as having no edge.
+
+     DARK (the Linear / Vercel / Raycast model): separation comes from a
+     genuinely lighter surface plus a hairline edge. The inset top highlight is
+     the specular line a real lit surface would have, and is most of why a card
+     reads as an object rather than a rectangle of paint. Shadow contributes
+     little and is kept only for hover.
+
+     LIGHT (the Stripe model): the canvas is tinted and the card is pure white
+     — the card is *lighter* than the page, not darker. White-on-tint can never
+     reach a large lightness ratio, so the edge and a layered, cool-tinted
+     shadow carry it. The blue-violet cast in the shadow is deliberate: a pure
+     black shadow on white reads as grey dirt. */
+  --surface-0: #020913;
+  --surface-1: #121b27;
+  --surface-2: #18232f;
+  --card-edge: rgb(255 255 255 / 0.09);
+  /* Form controls read as recessed, so on dark they sit *below* the card
+     surface rather than above it. On light they are white like the card and
+     rely on their border. */
+  --control-bg: #0c1420;
+  --elev-1:
+    0 1px 2px rgb(0 0 0 / 0.40),
+    inset 0 1px 0 rgb(255 255 255 / 0.06);
+  --elev-2:
+    0 8px 24px rgb(0 0 0 / 0.45),
+    inset 0 1px 0 rgb(255 255 255 / 0.07);
+  --elev-3:
+    0 20px 48px rgb(0 0 0 / 0.55),
+    inset 0 1px 0 rgb(255 255 255 / 0.08);
+
+  /* Faces. */
+  --font-body: var(--font-geist), var(--font-inter), system-ui, sans-serif;
+  --font-display: var(--font-display), Georgia, "Times New Roman", serif;
+  --font-figure: var(--font-figure), ui-monospace, "SF Mono", monospace;
+}
+
+[data-theme="light"] {
+  /* Tinted canvas, white card. The page must be the darker of the two or the
+     card has nothing to sit on. */
+  --surface-0: #f2f5f9;
+  --surface-1: #ffffff;
+  --surface-2: #ffffff;
+  --card-edge: rgb(15 23 42 / 0.08);
+  --control-bg: #ffffff;
+  --elev-1:
+    0 1px 2px rgb(15 23 42 / 0.04),
+    0 2px 6px rgb(50 50 93 / 0.06);
+  --elev-2:
+    0 2px 4px rgb(15 23 42 / 0.04),
+    0 12px 28px rgb(50 50 93 / 0.10);
+  --elev-3:
+    0 4px 8px rgb(15 23 42 / 0.04),
+    0 24px 56px rgb(50 50 93 / 0.14);
+}
+
+/* ─── Colour roles ──────────────────────────────────────────────────────────
+   One colour per meaning. Previously --success resolved to --ref-teal, the
+   same value as --accent, so "this was submitted" and "click this" were drawn
+   identically and neither stood out. Splitting the roles is what lets a card's
+   state be read without reading its text.
+
+   --accent stays teal and now means ACTION ONLY: buttons, links, focus rings.
+   ========================================================================= */
+
+:root,
+[data-theme="dark"] {
+  --success: #34d399;   /* submitted, confirmed */
+  --ai: #9365f5;        /* match scores, model output */
+  --warning: #f5b544;   /* paced, blocked, needs an answer */
+  --danger: #ff5264;    /* failed */
+  /* Text drawn ON a filled role colour. Both of these are dark because every
+     role colour above is light enough to need dark text on it. */
+  --on-accent: #06131a;
+  --on-role: #0b1017;
+}
+
+[data-theme="light"] {
+  /* Darkened until each clears 4.5:1 on white — the dark-theme values are far
+     too light to sit on a light surface. */
+  --success: #047857;
+  --ai: #6d28d9;
+  --warning: #b45309;
+  --danger: #dc2626;
+  --on-accent: #ffffff;
+  --on-role: #ffffff;
+}
+
+/* ─── Scrollbars ────────────────────────────────────────────────────────────
+   Eleven components scrolled with no treatment at all and fell back to the OS
+   default, which is the single biggest reason scrolling felt unfinished. Done
+   once, globally, rather than in eleven stylesheets: a thin rail over a
+   transparent track, dim at rest and brighter on hover, reserving no layout
+   space so nothing reflows when a list becomes scrollable.
+   ========================================================================= */
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--text) 22%, transparent) transparent;
+}
+
+*::-webkit-scrollbar { width: 6px; height: 6px; }
+*::-webkit-scrollbar-track { background: transparent; }
+
+*::-webkit-scrollbar-thumb {
+  border-radius: var(--radius-full);
+  background: color-mix(in srgb, var(--text) 22%, transparent);
+  transition: background 160ms ease;
+}
+
+*:hover::-webkit-scrollbar-thumb { background: color-mix(in srgb, var(--text) 42%, transparent); }
+*::-webkit-scrollbar-thumb:hover { background: color-mix(in srgb, var(--text) 60%, transparent); }
+*::-webkit-scrollbar-corner { background: transparent; }
+
+/* Keep a scroll gesture inside the panel it started in, so flicking a long
+   list does not then scroll the page behind it. */
+[data-scroll],
+.scroll-rail { overscroll-behavior: contain; }
+
+/* ─── Editorial display ─────────────────────────────────────────────────────
+   Instrument Serif on page and section headings only. The restraint is the
+   point: a serif everywhere is a costume, a serif on the one line that names
+   the page is a voice. Optical sizing wants tighter tracking as it grows.
+   ========================================================================= */
+
+h1, .page-title, .display {
+  font-family: var(--font-display);
+  font-weight: 400;
+  letter-spacing: -0.015em;
+  line-height: 1.12;
+}
+
+/* ─── Figures ───────────────────────────────────────────────────────────────
+   Every number the user reads. Tabular numerals are the whole reason: without
+   them a count animating 1,067 -> 1,068 visibly reflows, because proportional
+   digits have different widths. `.metric-value` and friends are the existing
+   class names these pages already use.
+   ========================================================================= */
+
+.metric-value,
+.metric-number,
+.stat-value,
+.figure,
+[data-figure] {
+  font-family: var(--font-figure);
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1, "zero" 1;
+  letter-spacing: -0.02em;
+}
+
+/* Any element holding digits that should not jitter, without changing face. */
+.tabular,
+table td,
+time {
+  font-variant-numeric: tabular-nums;
+}
+
 /* ─── Buttons (≈207 usages across the app) ─── */
 
 .btn,
@@ -550,3 +751,38 @@ button:focus-visible,
 ::view-transition-group(*){animation-duration:220ms;animation-timing-function:ease-out}
 [data-motion="paused"] article[data-job-id]{transform:none!important}
 @media(prefers-reduced-motion:reduce){::view-transition-group(*){animation:none!important}}
+
+/* ─── Skeleton bars ─────────────────────────────────────────────────────────
+   The shimmer for loading placeholders. Lives here rather than in
+   workspace-loading.module.css because it is a token-level treatment shared by
+   every shape that component renders, and because this file is where the
+   reduced-motion conventions for the app already are.
+
+   Animation is opt-in via prefers-reduced-motion: no-preference, matching the
+   rest of this file. With motion reduced the bar still renders, just still —
+   the information a placeholder carries is its shape and position, not its
+   movement. */
+
+.skeleton {
+  background: color-mix(in srgb, var(--text) 8%, transparent);
+  border-radius: var(--radius-sm, 0.4rem);
+  display: block;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .skeleton {
+    background: linear-gradient(
+      90deg,
+      color-mix(in srgb, var(--text) 6%, transparent) 25%,
+      color-mix(in srgb, var(--text) 12%, transparent) 37%,
+      color-mix(in srgb, var(--text) 6%, transparent) 63%
+    );
+    background-size: 400% 100%;
+    animation: skeleton-sheen 1.4s ease-in-out infinite;
+  }
+}
+
+@keyframes skeleton-sheen {
+  0% { background-position: 100% 50%; }
+  100% { background-position: 0 50%; }
+}

@@ -24,8 +24,86 @@ async def start_autopilot(
     from app.services.application_assistant.autopilot_runner import AutopilotRunner
     runner = AutopilotRunner.get_instance()
     run = await runner.start(options=options)
+
+    # A refusal has to be a non-2xx to be seen at all. The dashboard's aaFetch
+    # only raises on !res.ok and reads `detail`, so returning the refusal as a
+    # 200 body would leave the user staring at a Start button that did nothing
+    # and said nothing. 409 carries the structured gap list through unchanged.
+    if isinstance(run, dict) and run.get("refused"):
+        logger.info("start_autopilot refused: %s", run.get("message"))
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "reason": run.get("reason", "not_ready"),
+                "message": run.get("message", "This run cannot start yet."),
+                "readiness": run.get("readiness", {}),
+            },
+        )
+
     logger.info("start_autopilot finished runner.start(), returning run id: %s", (run or {}).get("id"))
     return {"success": True, "run": run}
+
+
+@router.get("/autopilot/readiness")
+def autopilot_readiness() -> dict[str, Any]:
+    """What the profile cannot answer, and which questions hold the most work.
+
+    Read-only, so the dashboard can show both before Start is pressed rather
+    than only after a refusal — the same idea as the match-floor preview, which
+    tells the user a run will do nothing while they can still change it.
+    """
+    from app.db.store import get_kv, session_scope
+    from app.services.application_assistant.pending_question_groups import (
+        group_pending_questions,
+        summarise,
+    )
+    from app.services.application_assistant.persistence import list_autopilot_jobs
+    from app.services.application_assistant.profile_readiness import (
+        evaluate_profile_readiness,
+    )
+
+    with session_scope() as db:
+        readiness = evaluate_profile_readiness(get_kv(db, "profile"))
+        review_jobs = [
+            job for job in list_autopilot_jobs(db)
+            if (job.get("status") or "") in ("NEEDS_REVIEW", "MANUAL_REVIEW")
+        ]
+
+    questions = summarise(group_pending_questions(review_jobs))
+    return {
+        "success": True,
+        "profile": readiness.to_dict(),
+        "questions": questions,
+    }
+
+
+@router.post("/autopilot/question-groups/answer")
+def answer_question_group_route(
+    payload: dict[str, Any] = Body(default_factory=dict),
+    db: Session = Depends(db_session),
+) -> dict[str, Any]:
+    """Answer one grouped question and release every application it finishes.
+
+    The counterpart to GET /autopilot/readiness: that lists the questions
+    holding the most work, this clears one of them everywhere at once instead of
+    asking the candidate the same thing fifty times.
+    """
+    from app.services.application_assistant.pending_question_groups import (
+        answer_question_group,
+    )
+
+    try:
+        result = answer_question_group(
+            db,
+            question=payload.get("question") or "",
+            answer=payload.get("answer") or "",
+            variants=payload.get("variants") or [],
+            job_ids=payload.get("jobIds") or [],
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    return {"success": True, **result}
 
 
 @router.post("/autopilot/pause")
@@ -288,6 +366,7 @@ def get_autopilot_jobs_list(
     status: str | None = Query(default=None, description="Single status, or comma-separated list (e.g. QUEUED,NEEDS_REVIEW,STAGED)"),
     search: str | None = Query(default=None),
     role: str | None = Query(default=None, description="Case-insensitive substring match against job title"),
+    title: str | None = Query(default=None, description="Exact or substring match against job title"),
     location: str | None = Query(default=None, description="Case-insensitive substring match against job location"),
     company: str | None = Query(default=None, description="Case-insensitive substring match against company name"),
     sortBy: str = Query(default="matchScore", description="Field to sort by: matchScore, submittedAt, or updatedAt"),
@@ -305,9 +384,14 @@ def get_autopilot_jobs_list(
     from app.db.store import session_scope
     from app.services.read_cache import read_cache
 
-    statuses = {s.strip() for s in status.split(",")} if status else None
+    statuses = {s.strip().upper() for s in status.split(",")} if isinstance(status, str) and status else None
+    search_str = search if isinstance(search, str) else ""
+    role_str = role if isinstance(role, str) else ""
+    title_str = title if isinstance(title, str) else ""
+    location_str = location if isinstance(location, str) else ""
+    company_str = company if isinstance(company, str) else ""
 
-    # Load precomputed status and company counts (very fast group-by or memory cache)
+    # Load precomputed status, company, and title counts (very fast group-by or memory cache)
     def _load_stats() -> dict[str, Any]:
         with session_scope() as db:
             return get_autopilot_status_company_stats(db)
@@ -315,6 +399,7 @@ def get_autopilot_jobs_list(
     stats = read_cache.get(AUTOPILOT_STATS_CACHE_KEY, 30.0, _load_stats)
     status_counts = stats.get("statusCounts", {})
     company_counts_by_status = stats.get("companyCountsByStatus", {})
+    title_counts_by_status = stats.get("titleCountsByStatus", {})
 
     if status and status in company_counts_by_status:
         company_counts = dict(company_counts_by_status[status])
@@ -328,12 +413,24 @@ def get_autopilot_jobs_list(
     else:
         company_counts = {}
 
+    if status and status in title_counts_by_status:
+        title_counts = dict(title_counts_by_status[status])
+    elif status and "," in status:
+        title_counts = {}
+        for s in (statuses or ()):
+            for t, cnt in title_counts_by_status.get(s, {}).items():
+                title_counts[t] = title_counts.get(t, 0) + cnt
+    elif not status or status.lower() == "all":
+        title_counts = dict(title_counts_by_status.get("all", {}))
+    else:
+        title_counts = {}
+
     def _load_all_jobs() -> list[dict[str, Any]]:
         with session_scope() as db:
             return list_autopilot_jobs(db)
 
     all_jobs = read_cache.get(AUTOPILOT_JOBS_CACHE_KEY, AUTOPILOT_JOBS_TTL_SECONDS, _load_all_jobs)
-    jobs = [job for job in all_jobs if not statuses or job.get("status") in statuses]
+    jobs = [job for job in all_jobs if not statuses or (job.get("status") or "").upper() in statuses]
 
     if not company_counts:
         for job in jobs:
@@ -341,15 +438,25 @@ def get_autopilot_jobs_list(
             if c_name:
                 company_counts[c_name] = company_counts.get(c_name, 0) + 1
 
-    if search and search.strip():
-        needle = search.strip().lower()
+    if not title_counts:
+        for job in jobs:
+            t_name = (job.get("title") or "").strip()
+            if t_name:
+                title_counts[t_name] = title_counts.get(t_name, 0) + 1
+
+    if search_str.strip():
+        needle = search_str.strip().lower()
         jobs = [j for j in jobs if any(needle in str(j.get(k) or "").lower()
                 for k in ("company", "title", "location", "status", "lastErrorType"))]
-    role_q = (role or "").strip().lower()
-    location_q = (location or "").strip().lower()
-    company_q = (company or "").strip().lower()
-    if role_q:
-        jobs = [j for j in jobs if role_q in str(j.get("title") or "").lower()]
+    title_q = (title_str or role_str).strip().lower()
+    location_q = location_str.strip().lower()
+    company_q = company_str.strip().lower()
+    if title_q:
+        exact_title_matches = [j for j in jobs if str(j.get("title") or "").strip().lower() == title_q]
+        if exact_title_matches:
+            jobs = exact_title_matches
+        else:
+            jobs = [j for j in jobs if title_q in str(j.get("title") or "").lower()]
     if location_q:
         jobs = [j for j in jobs if location_q in str(j.get("location") or "").lower()]
     if company_q:
@@ -359,20 +466,25 @@ def get_autopilot_jobs_list(
         else:
             jobs = [j for j in jobs if company_q in str(j.get("company") or "").lower()]
 
-    reverse = sortDir.lower() != "asc"
+    sortBy_str = sortBy if isinstance(sortBy, str) else "matchScore"
+    sortDir_str = sortDir if isinstance(sortDir, str) else "desc"
+    limit_int = limit if isinstance(limit, int) else 24
+    offset_int = offset if isinstance(offset, int) else 0
+
+    reverse = sortDir_str.lower() != "asc"
     jobs.sort(key=lambda j: str(j.get("id") or ""))
-    if sortBy == "company":
+    if sortBy_str == "company":
         jobs.sort(key=lambda j: str(j.get("company") or "").lower(), reverse=reverse)
-    elif sortBy == "priority":
+    elif sortBy_str == "priority":
         from app.services.application_assistant.application_list_priority import application_list_priority
         jobs.sort(key=application_list_priority, reverse=reverse)
-    elif sortBy in ("submittedAt", "updatedAt"):
-        jobs.sort(key=lambda j: str(j.get(sortBy) or j.get("updatedAt") or ""), reverse=reverse)
+    elif sortBy_str in ("submittedAt", "updatedAt"):
+        jobs.sort(key=lambda j: str(j.get(sortBy_str) or j.get("updatedAt") or ""), reverse=reverse)
     else:
         jobs.sort(key=lambda j: j.get("matchScore") or 0, reverse=reverse)
 
     total = len(jobs)
-    page = [_lean_job(job) for job in jobs[offset:offset + limit]]
+    page = [_lean_job(job) for job in jobs[offset_int:offset_int + limit_int]]
     if any(job.get("status") == "SUBMITTED" for job in page):
         from app.services.application_assistant.application_journey import assess_receipt
         with session_scope() as db:
@@ -387,7 +499,8 @@ def get_autopilot_jobs_list(
         "total": total,
         "statusCounts": status_counts,
         "companyCounts": company_counts,
-        "hasMore": offset + limit < total,
+        "titleCounts": title_counts,
+        "hasMore": offset_int + limit_int < total,
     }
 
 
@@ -1040,6 +1153,7 @@ def requeue_bucket(
     that record is not recoverable.
     """
     from app.services.application_assistant.persistence import (
+        is_strict_duplicate_processed,
         list_autopilot_jobs,
         save_autopilot_job,
     )
@@ -1062,10 +1176,26 @@ def requeue_bucket(
     wanted = set(REQUEUABLE_BUCKETS[bucket])
     company_lower = company.lower()
     moved = 0
+    skipped_duplicates = 0
     for job in list_autopilot_jobs(db):
         if str(job.get("status") or "").upper() not in wanted:
             continue
         if company and str(job.get("company") or "").strip().lower() != company_lower:
+            continue
+        # A job parked here can have since been submitted under a different
+        # record (re-discovered posting, manual re-import) — requeuing it
+        # would just walk it straight back to "duplicate" after wasting a
+        # queue slot and a match-scoring pass, so catch it here instead.
+        is_dup, dup_job, _reason = is_strict_duplicate_processed(
+            db,
+            job.get("company") or "",
+            job.get("title") or "",
+            job.get("postingDate") or job.get("datePosted"),
+            job.get("applicationUrl") or job.get("url") or "",
+            exclude_id=job.get("id"),
+        )
+        if is_dup and dup_job is not None and dup_job.get("status") == "SUBMITTED":
+            skipped_duplicates += 1
             continue
         job["previousStatus"] = job.get("status")
         job["status"] = "QUEUED"
@@ -1087,14 +1217,16 @@ def requeue_bucket(
         moved += 1
 
     scope = f" from {company}" if company else ""
+    dup_note = f" ({skipped_duplicates} already-submitted duplicate(s) skipped)" if skipped_duplicates else ""
     return {
         "success": True,
         "bucket": bucket,
         "company": company or None,
         "moved": moved,
+        "skippedDuplicates": skipped_duplicates,
         "message": (
-            f"Moved {moved} application{'' if moved == 1 else 's'}{scope} back to the queue."
-            if moved else f"Nothing in that bucket{scope} to requeue."
+            f"Moved {moved} application{'' if moved == 1 else 's'}{scope} back to the queue.{dup_note}"
+            if moved else f"Nothing in that bucket{scope} to requeue.{dup_note}"
         ),
     }
 
@@ -1135,7 +1267,11 @@ def reset_submitted_autopilot_jobs(
 
 
 def _requeue_autopilot_jobs_by_status(statuses: tuple[str, ...]) -> dict[str, Any]:
-    from app.services.application_assistant.persistence import list_autopilot_jobs, save_autopilot_job
+    from app.services.application_assistant.persistence import (
+        is_strict_duplicate_processed,
+        list_autopilot_jobs,
+        save_autopilot_job,
+    )
     from app.db.store import session_scope, now_iso
 
     reprocessed_count = 0
@@ -1146,7 +1282,25 @@ def _requeue_autopilot_jobs_by_status(statuses: tuple[str, ...]) -> dict[str, An
             # the same hard filter again and re-pollute the queue.
             if j.get("status") == "INELIGIBLE" or j.get("ineligibilityReason"):
                 continue
+            # Never requeue a posting this system may already have applied to.
+            # These two statuses are the whole duplicate defence: SUBMITTED is
+            # proven sent, SUBMISSION_UNKNOWN is unproven either way. A bulk
+            # requeue is an automatic action, and neither may be retried
+            # automatically. The user can still put one back deliberately with
+            # the state selector, which is an explicit human decision.
+            if j.get("status") in ("SUBMITTED", "SUBMISSION_UNKNOWN"):
+                continue
             if j.get("status") in statuses:
+                is_dup, dup_job, _reason = is_strict_duplicate_processed(
+                    db,
+                    j.get("company") or "",
+                    j.get("title") or "",
+                    j.get("postingDate") or j.get("datePosted"),
+                    j.get("applicationUrl") or j.get("url") or "",
+                    exclude_id=j.get("id"),
+                )
+                if is_dup and dup_job is not None and dup_job.get("status") == "SUBMITTED":
+                    continue
                 j["status"] = "QUEUED"
                 j["lastError"] = None
                 j["lastErrorType"] = None
@@ -1242,7 +1396,11 @@ async def reprocess_skipped_autopilot_jobs() -> dict[str, Any]:
 @router.post("/autopilot/jobs/{id}/reprocess")
 async def reprocess_single_autopilot_job(id: str) -> dict[str, Any]:
     """Return one failed job to the queue without starting Autopilot."""
-    from app.services.application_assistant.persistence import get_autopilot_job, save_autopilot_job
+    from app.services.application_assistant.persistence import (
+        get_autopilot_job,
+        is_strict_duplicate_processed,
+        save_autopilot_job,
+    )
     from app.db.store import session_scope, now_iso
 
     job_title = ""
@@ -1250,6 +1408,39 @@ async def reprocess_single_autopilot_job(id: str) -> dict[str, Any]:
         job = get_autopilot_job(db, id)
         if not job:
             raise HTTPException(status_code=404, detail="Job not found")
+
+        # This endpoint is what every per-job retry button calls, and it is an
+        # automatic path: it requeues without the user asserting anything about
+        # what happened. A posting that may already carry an application is not
+        # eligible for that. Resolving one is a judgement only the user can make
+        # after looking at the posting, so it goes through set-state instead.
+        if job.get("status") == "SUBMISSION_UNKNOWN":
+            return {
+                "success": False,
+                "id": id,
+                "message": (
+                    f"'{job.get('title', 'Job')}' at {job.get('company')} may already have been "
+                    "submitted — the submit button was clicked but no confirmation could be read. "
+                    "Open the posting to check, then record the outcome from the state selector. "
+                    "Autopilot will not retry it automatically."
+                ),
+            }
+
+        is_dup, dup_job, _reason = is_strict_duplicate_processed(
+            db,
+            job.get("company") or "",
+            job.get("title") or "",
+            job.get("postingDate") or job.get("datePosted"),
+            job.get("applicationUrl") or job.get("url") or "",
+            exclude_id=job.get("id"),
+        )
+        if is_dup and dup_job is not None and dup_job.get("status") == "SUBMITTED":
+            return {
+                "success": False,
+                "id": id,
+                "message": f"'{job.get('title', 'Job')}' at {job.get('company')} was already submitted "
+                f"(see {dup_job.get('id')}) — not requeuing a duplicate.",
+            }
 
         job_title = job.get("title", "Job")
         job["status"] = "QUEUED"
@@ -1282,6 +1473,20 @@ def reconcile_manual_submissions_route() -> dict[str, Any]:
     )
 
     return reconcile_manual_submissions()
+
+
+@router.post("/autopilot/reconcile-rejections")
+def reconcile_rejections_route() -> dict[str, Any]:
+    """Mark exactly one SUBMITTED application REJECTED per rejection email found.
+
+    Same principle as reconcile-manual-submissions, run the other direction:
+    the employer's rejection email is the signal, and only the one job it can
+    be pinned to (by company, timing, and role when named) is ever touched —
+    never every open application at that employer.
+    """
+    from app.services.application_assistant.rejection_reconciler import reconcile_rejections
+
+    return reconcile_rejections()
 
 
 # Assisted hand-offs in flight, keyed by job id, so a second click does not open
@@ -1455,11 +1660,24 @@ USER_SETTABLE_STATES: dict[str, dict[str, Any]] = {
         "ineligibilityReason": "POSTING_EXPIRED",
     },
     "SKIPPED": {"label": "Skipped - not worth applying to"},
+    # A manual fallback for the automatic Gmail rejection reconciler
+    # (rejection_reconciler.py) — lets the user record a rejection that
+    # arrived worded in a way the classifier did not recognize.
+    "REJECTED": {"label": "Rejected - the employer passed"},
 }
 
 # The buckets whose jobs the user may relabel. A queued or in-flight job belongs
-# to the automation; a submitted one is already recorded.
-USER_RELABELLABLE_FROM = ("NEEDS_REVIEW", "STAGED", "FAILED", "MANUAL_REVIEW")
+# to the automation; SUBMITTED is included only as the source for the
+# SUBMITTED -> REJECTED manual fallback above, not to let a real submission be
+# relabelled away as anything else it did not become.
+#
+# SUBMISSION_UNKNOWN is here because resolving one is exactly the judgement this
+# selector exists for: the user opens the posting, sees whether their
+# application is on it, and records what they found. Automation deliberately has
+# no way to do that, which is why nothing else may move a job out of this bucket.
+USER_RELABELLABLE_FROM = (
+    "NEEDS_REVIEW", "STAGED", "FAILED", "MANUAL_REVIEW", "SUBMITTED", "SUBMISSION_UNKNOWN",
+)
 
 
 @router.get("/autopilot/job-states")
@@ -1514,6 +1732,20 @@ def set_autopilot_job_state(
                     f"{', '.join(USER_RELABELLABLE_FROM)} jobs can."
                 ),
             )
+        # SUBMITTED is only relabellable to REJECTED (the manual rejection
+        # fallback) — a real, recorded submission must not be turned into
+        # QUEUED/SKIPPED/etc. through this same generic path. Symmetrically, a
+        # job that was never actually submitted cannot be "rejected".
+        if current == "SUBMITTED" and requested != "REJECTED":
+            raise HTTPException(
+                status_code=409,
+                detail="A submitted application can only be relabelled Rejected here.",
+            )
+        if requested == "REJECTED" and current != "SUBMITTED":
+            raise HTTPException(
+                status_code=409,
+                detail="Only a submitted application can be marked Rejected.",
+            )
 
         meta = USER_SETTABLE_STATES[requested]
         job["previousStatus"] = current
@@ -1539,6 +1771,12 @@ def set_autopilot_job_state(
             job["submissionSource"] = None
             job["queuedAt"] = now_iso()
             job["attemptCount"] = 0
+        elif requested == "REJECTED":
+            # Unlike every other target state, this one starts from a real
+            # submission — submittedAt/submissionSource are history, not a
+            # stale artifact, and must survive the relabel.
+            job["rejectedAt"] = job.get("rejectedAt") or now_iso()
+            job["rejectionEvidence"] = job.get("rejectionEvidence") or {"source": "manual"}
         else:
             # Leaving SUBMITTED means it was not actually sent.
             job["submittedAt"] = None

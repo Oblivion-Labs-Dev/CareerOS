@@ -9,7 +9,7 @@ import {
   type ResolvedReadiness,
 } from "./application-readiness";
 import "./application-queue-card.css";
-import { APPLICATION_CARD_STYLE_EVENT, readApplicationCardStyle, type ApplicationCardStyle } from "./application-card-preferences";
+import { APPLICATION_CARD_STYLE_EVENT, applyApplicationCardStyleAttribute, readApplicationCardStyle, type ApplicationCardStyle } from "./application-card-preferences";
 
 export type QueueApplication = {
   id: string;
@@ -453,7 +453,13 @@ export function ApplicationQueueCard({
   const closeDrawer = () => setDrawerOpen(false);
 
   useEffect(() => {
-    const syncStyle = () => setCardStyle(readApplicationCardStyle());
+    const syncStyle = () => {
+      const next = readApplicationCardStyle();
+      setCardStyle(next);
+      // Also publish it on <html>, so the page behind the cards can match the
+      // treatment. Done here rather than only on save so a reload restores it.
+      applyApplicationCardStyleAttribute(next);
+    };
     syncStyle();
     window.addEventListener(APPLICATION_CARD_STYLE_EVENT, syncStyle);
     return () => window.removeEventListener(APPLICATION_CARD_STYLE_EVENT, syncStyle);
@@ -659,7 +665,7 @@ export function ApplicationQueueCard({
                       target="_blank"
                       rel="noopener noreferrer"
                       onClick={(event) => event.stopPropagation()}
-                      style={{ color: "#2ee8c9", textDecoration: "underline" }}
+                      style={{ color: "var(--accent)", textDecoration: "underline" }}
                       title="Open the exact resume PDF submitted for this application"
                     >
                       {app.resumeFileUsed}
@@ -732,7 +738,7 @@ export function ApplicationQueueCard({
                         <div style={{ fontSize: "11px", fontWeight: 600, color: "var(--text, #e2e8f0)", marginBottom: "0.25rem" }}>
                           {key}
                         </div>
-                        <div style={{ fontSize: "11px", fontFamily: "monospace", color: "#2ee8c9", wordBreak: "break-word" }}>
+                        <div style={{ fontSize: "11px", fontFamily: "monospace", color: "var(--accent)", wordBreak: "break-word" }}>
                           {String(val || "—")}
                         </div>
                       </div>

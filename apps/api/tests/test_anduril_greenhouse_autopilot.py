@@ -175,7 +175,11 @@ async def test_greenhouse_anduril_form_filling_and_file_safety():
         }
 
         # 1. Run standard and custom filling
-        filled = await _fill_standard_and_react_fields(
+        # Returns (filled, filled_ids): filled_ids (label -> live DOM element
+        # id) is what verification needs to confirm a combobox was actually
+        # selected rather than just typed into as text — see
+        # _fill_standard_and_react_fields's own docstring.
+        filled, filled_ids = await _fill_standard_and_react_fields(
             page=page,
             profile=profile,
             answer_lib=[],
@@ -185,7 +189,9 @@ async def test_greenhouse_anduril_form_filling_and_file_safety():
         )
 
         assert filled.get("First Name") == "Akshay"
-        assert filled.get("Email") == "amsborse@gmail.com"
+        # A taggable +career variant of the candidate's own email, not the
+        # bare address — see derive_contact_email / profile_answer_resolver.py.
+        assert filled.get("Email") == "amsborse+career@gmail.com"
         assert filled.get("Resume") == "test_sample_resume.pdf"
 
         # 2. Verify file safety in field_fill_engine: attempt to pass text to a file input

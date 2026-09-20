@@ -24,7 +24,7 @@ export function ApplicationJourney({ jobId, view = "Journey" }: { jobId: string;
     return () => controller.abort();
   }, [jobId, revision]);
   if (error) return <section className={styles.journey}><p role="alert">Could not load this application's evidence.</p><button onClick={() => setRevision(n => n + 1)}>Retry</button></section>;
-  if (!data) return <WorkspaceLoading label="Loading application journey…" />;
+  if (!data) return <WorkspaceLoading label="Loading application journey…" shape="list" rows={4} />;
   return <section className={styles.journey} aria-label="Connected application journey">
     <div className={styles.assessment} data-state={data.assessment.state}><span>SUBMISSION EVIDENCE</span><h3>{data.assessment.label}</h3><p>{data.assessment.explanation}</p></div>
     <div hidden={view !== "Documents"}>

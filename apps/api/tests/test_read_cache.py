@@ -81,3 +81,45 @@ def test_different_keys_do_not_serialize_on_the_same_lock() -> None:
     assert value == "b"
     assert elapsed < 0.2
     t.join()
+
+
+def test_touch_keeps_serving_last_value_without_blocking() -> None:
+    """`touch` (unlike `invalidate`) must never make the next `get()` pay a
+    synchronous rebuild — that regression is exactly what made every
+    Autopilot dashboard click slow while a batch loop was writing every few
+    seconds (2026-09-16)."""
+    cache = ReadCache()
+    cache.get("k3", 60.0, lambda: "v1")
+
+    cache.touch("k3")
+
+    start = time.monotonic()
+    value = cache.get("k3", 60.0, lambda: "v2")
+    elapsed = time.monotonic() - start
+
+    assert value == "v1"  # last-known value, served instantly
+    assert elapsed < 0.05
+
+
+def test_touch_on_missing_key_is_a_safe_no_op() -> None:
+    cache = ReadCache()
+    cache.touch("never-cached")  # must not raise
+    assert cache.get("never-cached", 60.0, lambda: "fresh") == "fresh"
+
+
+def test_touch_with_loader_refreshes_in_background() -> None:
+    cache = ReadCache()
+    cache.get("k4", 60.0, lambda: "v1")
+
+    done = threading.Event()
+
+    def slow_loader() -> str:
+        time.sleep(0.05)
+        done.set()
+        return "v2"
+
+    cache.touch("k4", slow_loader)
+    assert cache.get("k4", 60.0, lambda: "unused") == "v1"  # not blocked
+
+    assert done.wait(timeout=1)
+    assert cache.get("k4", 60.0, lambda: "unused") == "v2"

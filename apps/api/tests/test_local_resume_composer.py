@@ -10,7 +10,13 @@ from app.services.resume_intelligence.local_document import render
 
 
 def evidence(**updates):
+    # `resumeApproved` is explicit because approval is now one shared policy
+    # (see story_index.resume_approval_state) rather than "anything not marked
+    # false". These tests are about exact sourcing and rendering, so they state
+    # that their evidence was approved instead of relying on a default; the
+    # tests that are about approval set it, or the metrics behind it, themselves.
     return {"id": "platform", "company": "Example", "project": "Reliable platform", "evidenceTier": "professional",
+            "resumeApproved": True,
             "currentBullet": "Built Kubernetes infrastructure with automated deployments and reliable recovery.", **updates}
 
 

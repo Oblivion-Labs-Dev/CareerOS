@@ -81,7 +81,12 @@ def test_cache_is_defensive_and_embeddings_fall_back(monkeypatch):
 
 
 def test_strong_semantic_negation_does_not_certify_evidence(monkeypatch):
-    monkeypatch.setattr(em.semantic,"embed_many",lambda items:{em.semantic.cache_key(*i):(1.,0.) for i in items})
+    # Both directions are stubbed: passages and queries are embedded by
+    # separate calls now, because BGE wants its query instruction on one side
+    # and not the other. Faking maximal similarity needs to cover both.
+    identical=lambda items:{em.semantic.cache_key(*i):(1.,0.) for i in items}
+    monkeypatch.setattr(em.semantic,"embed_many",identical)
+    monkeypatch.setattr(em.semantic,"embed_queries",identical)
     r=em.match_text("I have no experience with Kubernetes.","Required: Kubernetes experience.")
     assert r["semanticAvailable"] and r["score"]==0
 

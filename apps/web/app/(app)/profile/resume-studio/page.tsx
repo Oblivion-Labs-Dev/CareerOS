@@ -11,7 +11,10 @@ type StudioResult = {
   matchComparison: { before: Match; after: Match; delta: number | null; notice: string };
   result: {
     mode: Mode; tailoringSummary?: string; eligibleReplacementCount?: number;
-    warnings: string[]; requirementCoverage: number;
+    warnings: string[]; requirementCoverage: number | null;
+    skillsReordered?: number;
+    skillsOrder?: Array<{ id: string; label: string; decision: string; items: string[]; original: string[]; matched: string[]; reason: string }>;
+    evidenceCoverage?: { percent: number | null; covered: string[]; uncovered: string[]; detail: string };
     resumeBullets: Array<{ id: string; decision: "KEEP" | "REORDER" | "REPLACE"; richText: Array<{text: string; bold: boolean}>; company: string; project: string; optimizedBullet: string; selectionReason: string; requirementIds: string[]; source: { text: string; field: string } }>;
     requirements: Array<{ id: string; text: string; category: string; coverageStatus: string }>;
   };
@@ -124,7 +127,27 @@ export default function ResumeStudioPage() {
         <p>{result.matchComparison.notice}</p>
         <details><summary>Review {result.matchComparison.after.requirements.length} requirements and their evidence</summary><div className={styles.requirements}>{result.matchComparison.after.requirements.map(req => <article key={req.id}><strong>{req.status.toUpperCase()}</strong><p>{req.text}</p><small>{req.reason}</small>{req.evidence.map((e, i) => <blockquote key={i}>{e.quote}</blockquote>)}</article>)}</div></details>
       </div> : null}
-      <div className={styles.evidenceHeader}><div className={styles.panelTitle}><span className={styles.step}>03</span><div><h2>Behind the resume</h2><p>See what stayed, moved, or was replaced, and why.</p></div></div><span>{result.result.resumeBullets.length} SOURCE-BACKED BULLETS</span></div>
+      {result.result.evidenceCoverage ? <div className={styles.coveragePanel}>
+        <div><span className={styles.eyebrow}>EVIDENCE COVERAGE</span>
+          <h2>{result.result.evidenceCoverage.percent === null ? "Not assessed" : `${result.result.evidenceCoverage.percent}% of this posting is evidenced`}</h2>
+          <p>{result.result.evidenceCoverage.detail}</p></div>
+        {result.result.evidenceCoverage.uncovered.length > 0 ? <div className={styles.gapList}>
+          <span>Nothing in your recorded experience speaks to:</span>
+          <div>{result.result.evidenceCoverage.uncovered.map(gap => <b key={gap}>{gap}</b>)}</div>
+        </div> : <p className={styles.reviewNote}>Every requirement this posting names has evidence behind it.</p>}
+      </div> : null}
+
+      {result.result.skillsOrder && result.result.skillsOrder.length > 0 ? <div className={styles.skillsPanel}>
+        <div className={styles.panelTitle}><span className={styles.step}>03</span><div><h2>Skills, in this posting&rsquo;s order</h2>
+          <p>{result.result.skillsReordered ? `${result.result.skillsReordered} of ${result.result.skillsOrder.length} lines re-ordered. Same skills, nothing added.` : "Your skills already lead with what this posting asks for."}</p></div></div>
+        <div className={styles.skillsLines}>{result.result.skillsOrder.map(line => <article key={line.id} data-changed={line.decision === "REORDER"}>
+          <header><b>{line.label}</b><span>{line.decision === "REORDER" ? `${line.matched.length} matched` : "unchanged"}</span></header>
+          <p>{line.items.map((item, index) => <span key={item} data-match={line.matched.includes(item)}>{item}{index < line.items.length - 1 ? " · " : ""}</span>)}</p>
+          <small>{line.reason}</small>
+        </article>)}</div>
+      </div> : null}
+
+      <div className={styles.evidenceHeader}><div className={styles.panelTitle}><span className={styles.step}>04</span><div><h2>Behind the resume</h2><p>See what stayed, moved, or was replaced, and why.</p></div></div><span>{result.result.resumeBullets.length} SOURCE-BACKED BULLETS</span></div>
       {result.omittedForFit > 0 ? <p className={styles.reviewNote}>{result.omittedForFit} lower-ranked achievements were omitted to keep the resume on one page.</p> : null}
       {result.result.warnings.length > 0 ? <details className={styles.reviewNote}><summary>{result.result.warnings.length} source checks to review before applying</summary><ul>{result.result.warnings.map((warning, i) => <li key={i}>{warning}</li>)}</ul></details> : <p className={styles.reviewNote}>Review the final wording before using this resume for an application.</p>}
       <div className={styles.evidenceGrid}>{result.result.resumeBullets.map((bullet, i) => <details key={`${bullet.id}-${i}`} className={styles.sourceCard}><summary><span>{String(i + 1).padStart(2, "0")}</span><div><b>{bullet.project || bullet.company}</b><small>{bullet.company || "Personal project"}  ·  {bullet.decision}</small></div><span>+</span></summary><h4>{bullet.decision}</h4><p>{bullet.selectionReason}</p><p>{bullet.richText?.map((run, index) => run.bold ? <strong key={index}>{run.text}</strong> : <span key={index}>{run.text}</span>) || bullet.optimizedBullet}</p><h4>Matched to this posting</h4><ul>{result.result.requirements.filter(req => bullet.requirementIds.includes(req.id)).map(req => <li key={req.id}>{req.text}</li>)}</ul><small>Source: {bullet.source.field === "approvedResume" ? "your approved baseline resume" : bullet.source.field.includes("interview") ? "your reviewed behavioral story" : "your reviewed resume evidence"}.</small></details>)}</div>

@@ -18,6 +18,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+from app.config import settings
 from app.db.store import session_scope, list_entities
 from app.services.observability import (
     tracer,
@@ -137,9 +138,10 @@ def get_system_health(db: Session = Depends(db_session)) -> dict[str, Any]:
     # 5. Ollama
     ollama_ok = False
     ollama_lat = 0.0
+    ollama_base = settings.careeros_ollama_health_url.rstrip("/")
     try:
         t0 = time.time()
-        req = urllib.request.Request("http://127.0.0.1:11434/api/tags", headers={"User-Agent": "CareerOS-Health"})
+        req = urllib.request.Request(f"{ollama_base}/api/tags", headers={"User-Agent": "CareerOS-Health"})
         with urllib.request.urlopen(req, timeout=1.2) as resp:
             if resp.status == 200:
                 ollama_ok = True
@@ -152,7 +154,7 @@ def get_system_health(db: Session = Depends(db_session)) -> dict[str, Any]:
         "name": "Ollama Service",
         "category": "inference",
         "status": "Healthy" if ollama_ok else "Down",
-        "details": "Ollama local inference runtime available on port 11434" if ollama_ok else "Ollama unreachable on http://127.0.0.1:11434",
+        "details": f"Ollama inference runtime available at {ollama_base}" if ollama_ok else f"Ollama unreachable on {ollama_base}",
         "latencyMs": ollama_lat,
         "updatedAt": now,
     }
@@ -172,7 +174,7 @@ def get_system_health(db: Session = Depends(db_session)) -> dict[str, Any]:
     else:
         if ollama_ok:
             try:
-                req = urllib.request.Request("http://127.0.0.1:11434/api/tags", headers={"User-Agent": "CareerOS-Health"})
+                req = urllib.request.Request(f"{ollama_base}/api/tags", headers={"User-Agent": "CareerOS-Health"})
                 with urllib.request.urlopen(req, timeout=1.0) as resp:
                     data = json.loads(resp.read().decode())
                     models = [m.get("name", "").lower() for m in data.get("models", [])]

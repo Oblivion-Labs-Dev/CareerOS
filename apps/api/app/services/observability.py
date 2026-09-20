@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import asyncio
 from contextlib import contextmanager
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field, fields as dataclass_fields
 from datetime import datetime, timezone
 import json
 import logging
@@ -424,12 +424,65 @@ class DiagnosticError:
 
 
 class DiagnosticErrorStore:
-    """Searchable & filterable error log store with correlation IDs."""
+    """Searchable & filterable error log store with correlation IDs.
+
+    Persisted to the entity table (entity_type "diagnostic_error") as of the
+    Phase 3 logging audit, which found this class's own docstring claim of
+    "In-memory + persisted" was false for every store in this module — a
+    grep for every DB-write mechanism used elsewhere in this codebase
+    (session_scope, upsert_entity, set_kv, raw SQL) turned up zero hits here.
+    Confirmed live: `/diagnostic/errors` returned `{"total": 0}` for a
+    dev server that had been running for hours, because every restart wiped
+    it. Errors are the highest-value, lowest-volume of the three in-memory
+    stores in this file (genuine failures, not routine per-request spans), so
+    this is the one made durable; `tracer`'s HTTP-level spans and
+    `agent_tracker`'s LLM-call records stay in-memory for now — see the audit
+    notes in agent/PHASE3_PLAN.md for why persisting those next is a separate,
+    explicitly-scoped task rather than folded in here.
+
+    No pruning on the DB side yet: rows accumulate untrimmed, and only the
+    `max_errors` most recent are loaded back into memory on startup. Genuine
+    failures are low-frequency enough that this is a reasonable simplification
+    for now rather than adding retention logic nothing has asked for yet.
+    """
 
     def __init__(self, max_errors: int = 500):
         self.max_errors = max_errors
         self.errors: list[DiagnosticError] = []
         self._lock = threading.Lock()
+
+    def load_from_db(self) -> int:
+        """Rehydrate from the database after a restart. Returns how many
+        loaded. Never raises — a failure here must not block API startup."""
+        try:
+            from app.db.store import list_entities, session_scope
+
+            with session_scope() as db:
+                rows = list_entities(db, "diagnostic_error")
+        except Exception:
+            logging.getLogger("career_os.observability").exception(
+                "Could not load diagnostic errors from the database at startup."
+            )
+            return 0
+
+        rows.sort(key=lambda r: r.get("timestamp") or "", reverse=True)
+        # upsert_entity stamps every row with its own bookkeeping fields
+        # (updatedAt, createdAt, ...) that aren't DiagnosticError fields.
+        # Filtering to the dataclass's own field names — rather than naming
+        # each bookkeeping key to exclude — stays correct if the entity store
+        # ever adds another one.
+        valid_keys = {f.name for f in dataclass_fields(DiagnosticError)}
+        loaded: list[DiagnosticError] = []
+        for row in rows[: self.max_errors]:
+            try:
+                loaded.append(DiagnosticError(**{k: v for k, v in row.items() if k in valid_keys}))
+            except TypeError:
+                continue  # A row written by an older schema; skip rather than crash startup.
+
+        loaded.reverse()  # oldest first, matching how record_error appends
+        with self._lock:
+            self.errors = loaded
+        return len(loaded)
 
     def record_error(
         self,
@@ -476,6 +529,19 @@ class DiagnosticErrorStore:
             self.errors.append(entry)
             if len(self.errors) > self.max_errors:
                 self.errors.pop(0)
+
+        # Persist so a restart doesn't erase it — see the class docstring.
+        # Best-effort: a DB write failing here must not lose the in-memory
+        # record or block whatever code path just failed and is reporting it.
+        try:
+            from app.db.store import session_scope, upsert_entity
+
+            with session_scope() as db:
+                upsert_entity(db, "diagnostic_error", asdict(entry))
+        except Exception:
+            logging.getLogger("career_os.observability").exception(
+                "Could not persist diagnostic error %s.", entry.id
+            )
 
         # Trigger alarm check asynchronously
         alarm_manager.evaluate_alarms()
@@ -711,13 +777,16 @@ class AlarmManager:
 
     def _check_ollama_down(self) -> tuple[bool, str]:
         # Fast health check to Ollama tags
+        from app.config import settings
+
+        base = settings.careeros_ollama_health_url.rstrip("/")
         try:
-            req = urllib.request.Request("http://127.0.0.1:11434/api/tags", headers={"User-Agent": "CareerOS-Health"})
+            req = urllib.request.Request(f"{base}/api/tags", headers={"User-Agent": "CareerOS-Health"})
             with urllib.request.urlopen(req, timeout=1.0) as resp:
                 if resp.status == 200:
                     return False, "Ollama is responding"
         except Exception:
-            return True, "Ollama service at 127.0.0.1:11434 is unreachable or timed out."
+            return True, f"Ollama service at {base} is unreachable or timed out."
         return False, "OK"
 
     def _check_repeated_failures(self) -> tuple[bool, str]:

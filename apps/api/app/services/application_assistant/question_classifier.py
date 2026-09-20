@@ -51,6 +51,13 @@ class QuestionType(str, Enum):
     DISCIPLINE = "DISCIPLINE"
     EDUCATION_START_YEAR = "EDUCATION_START_YEAR"
     EDUCATION_END_YEAR = "EDUCATION_END_YEAR"
+    #: Greenhouse's education block asks for month and year as two separate
+    #: required fields. Only the year half was ever classified, so every board
+    #: using that layout left "End date month" empty and held the application -
+    #: 16 of them live. _resolve_education_history already knew how to produce a
+    #: month; nothing asked it for one.
+    EDUCATION_START_MONTH = "EDUCATION_START_MONTH"
+    EDUCATION_END_MONTH = "EDUCATION_END_MONTH"
     GPA = "GPA"
     TEST_SCORE = "TEST_SCORE"
 
@@ -81,6 +88,7 @@ class QuestionType(str, Enum):
 
     # ── Compliance / Consent ──
     SMS_CONSENT = "SMS_CONSENT"
+    MARKETING_CONSENT = "MARKETING_CONSENT"
     PRIVACY_CONSENT = "PRIVACY_CONSENT"
     ACCURACY_CONFIRMATION = "ACCURACY_CONFIRMATION"
     BACKGROUND_CHECK = "BACKGROUND_CHECK"
@@ -93,7 +101,25 @@ class QuestionType(str, Enum):
     RELOCATE = "RELOCATE"
     WORK_ARRANGEMENT = "WORK_ARRANGEMENT"
     TIMEZONE_AVAILABILITY = "TIMEZONE_AVAILABILITY"
+    #: "What time zone are you in?" — wants the candidate's actual zone, not a
+    #: yes/no. Distinct from TIMEZONE_AVAILABILITY ("can you work Eastern
+    #: hours?"), whose resolver answers "Yes"; answering "Yes" to "what time
+    #: zone are you in" leaves the field invalid and the application blocked.
+    TIMEZONE_LOCATION = "TIMEZONE_LOCATION"
     SALARY = "SALARY"
+
+    #: "How many companies have you worked for since your degree?" — a count
+    #: drawn from work history. It mentions "degree" only to date the window,
+    #: and the bare DEGREE pattern intercepted it, answering an employer count
+    #: with a qualification level.
+    EMPLOYER_COUNT = "EMPLOYER_COUNT"
+
+    #: "I agree to use only my own words... the use of AI or other generated
+    #: content will disqualify my application." Never auto-affirmed: CareerOS
+    #: composes answers with a model, so ticking this states something untrue
+    #: to the employer and is self-disqualifying by its own terms. Classified
+    #: so it can be named and routed to a human, not so it can be answered.
+    ORIGINALITY_DECLARATION = "ORIGINALITY_DECLARATION"
 
     # ── Miscellaneous ──
     HOW_HEARD = "HOW_HEARD"
@@ -171,6 +197,26 @@ SENSITIVE_FACTUAL_TYPES: frozenset[QuestionType] = frozenset({
 # E.g., "permanent authorization" must match before "authorized to work".
 
 _CLASSIFICATION_RULES: list[tuple[QuestionType, list[str]]] = [
+    # A self-rated academic performance question ("How did you perform in
+    # mathematics/your native language at high school?") contains "school"
+    # and would otherwise match SCHOOL further below, sending the candidate's
+    # actual school NAME in as the answer to a field that wants a subjective
+    # rating — guaranteed to fail DOM verification against whatever rating
+    # options the field really offers. No resolver can answer this honestly
+    # without fabricating a claim, so it deliberately routes to UNKNOWN
+    # (normal LLM/manual-review path) instead of being misrouted to SCHOOL.
+    (QuestionType.UNKNOWN, [
+        r"how\s+(?:did|would)\s+you\s+(?:rate|perform|describe)\b.{0,60}\b(?:school|education)",
+    ]),
+    # A question asking whether the candidate correctly *entered* their name
+    # ("Have you added your full legal name and surname (including any middle
+    # names)?") is a self-attestation, not a request for the name itself —
+    # "surname"/"name" below would otherwise route it to LAST_NAME/FULL_NAME
+    # and answer with the candidate's actual last name, which never matches
+    # whatever Yes/No or checkbox control the field actually is.
+    (QuestionType.ACCURACY_CONFIRMATION, [
+        r"have\s+you\s+(?:added|entered|completed|provided|included)\s+your\s+(?:full\s+)?(?:legal\s+)?name",
+    ]),
     # ── Work Auth (specific before general) ──
     (QuestionType.PERMANENT_WORK_AUTHORIZATION, [
         r"permanent\s+(work\s+)?authoriz",
@@ -230,7 +276,17 @@ _CLASSIFICATION_RULES: list[tuple[QuestionType, list[str]]] = [
     # answered in the profile's screeningAnswers for other companies
     # (Anduril's conflict-of-interest question is the same underlying ask).
     (QuestionType.GOVERNMENT_CONFLICT, [
-        r"government\s+(employee|official)",
+        r"government\s+(employee|official|employment|service)",
+        # Scale AI asks "Are you a current or former civilian or military
+        # employee of the United States Government?" and "Do you have any
+        # restrictions on post-government employment?". Neither writes
+        # "government employee" adjacently, so both fell through to UNKNOWN and
+        # were answered "NA" -- which reads as a non-answer on a compliance
+        # question that has a clear factual answer of "No" for this candidate.
+        r"(civilian|military)\s+(or\s+\w+\s+)?employee",
+        r"employee\s+of\s+the\s+(united\s+states|u\.?s\.?|federal)",
+        r"post-?\s*government\s+employment",
+        r"restrictions?\s+on\s+post",
         r"procurement\s+or\s+contract\s+award",
         r"oversight.*(business|company|contract)",
         r"conflict\s*of\s*interest",
@@ -240,11 +296,24 @@ _CLASSIFICATION_RULES: list[tuple[QuestionType, list[str]]] = [
     # Work authorization questions that mention country ("authorized to work in the country outlined", etc.)
     # must be classified as WORK_AUTHORIZED rather than falling into CITIZENSHIP.
     (QuestionType.WORK_AUTHORIZED, [
-        r"authorized\s+to\s+work",
-        r"authorization\s+to\s+work",
+        # Every "authori[sz]" spelling below accepts both the American and the
+        # British form. These patterns were American-only, so "Are you
+        # authorised to work in the country in which this role is located?"
+        # matched nothing here and fell through to the bare COUNTRY pattern —
+        # the identical failure the adverb comment below describes, recurring
+        # for a different reason. Boards written outside the US use the "s"
+        # spelling routinely; 18 live applications were held by it.
+        r"authori[sz]ed\s+to\s+work",
+        # "authorized to lawfully work in the country..." — an adverb between
+        # "to" and "work" broke the plain contiguous match above and fell
+        # through everything else to the bare COUNTRY pattern much further
+        # down, which answered a Yes/No work-authorization question with the
+        # candidate's country name.
+        r"authori[sz]ed\s+to\s+(?:lawfully|legally)\s+work",
+        r"authori[sz]ation\s+to\s+work",
         r"right\s+to\s+work",
         r"eligible\s+to\s+(?:legally\s+)?work",
-        r"legally\s+(authorized|able|eligible)\s+to\s+work",
+        r"legally\s+(authori[sz]ed|able|eligible)\s+to\s+work",
         r"eligible\s+for\s+employment",
         r"work\s+authoriz",
         r"work\s+status",
@@ -332,6 +401,36 @@ _CLASSIFICATION_RULES: list[tuple[QuestionType, list[str]]] = [
         r"name[^?]{0,40}\b(reference|referral\s+contact)\b",
     ]),
 
+    # Checked before everything else. The declaration is a long sentence that
+    # happens to contain words other patterns key on, and getting it wrong is
+    # not a formatting problem — auto-affirming it misrepresents the candidate
+    # to the employer. Name it first so it can be routed to a human.
+    (QuestionType.ORIGINALITY_DECLARATION, [
+        r"only\s+my\s+own\s+words",
+        r"(use\s+of\s+)?(ai|artificial\s+intelligence)[^.]{0,60}(not\s+permitted|disqualif|prohibited)",
+        r"plagiarism[^.]{0,80}disqualif",
+        r"generated\s+content[^.]{0,40}disqualif",
+    ]),
+
+    # Checked before DEGREE: this question dates its window by naming a degree
+    # ("since you graduated your first undergraduate degree"), and the bare
+    # `degree` pattern matched that incidental mention — answering an employer
+    # count with a qualification level.
+    (QuestionType.EMPLOYER_COUNT, [
+        r"how\s+many\s+(companies|employers|organi[sz]ations)",
+        r"number\s+of\s+(companies|employers)\s+(you|have)",
+    ]),
+
+    # Checked before TIMEZONE_AVAILABILITY: that type's resolver answers "Yes",
+    # which is the right answer to "can you work Eastern hours?" and a
+    # non-answer to "what time zone are you in?".
+    (QuestionType.TIMEZONE_LOCATION, [
+        r"what\s+time\s*zone\s+are\s+you",
+        r"which\s+time\s*zone\s+(are\s+you|do\s+you)",
+        r"your\s+time\s*zone\s*\??\s*\*?$",
+        r"^\s*time\s*zone\s*\*?\s*$",
+    ]),
+
     # A question asking for first AND last name wants the whole name. This
     # used to fall through to LAST_NAME, so "What is your preferred first and
     # last name?" was answered "Borse" on a submitted application.
@@ -349,6 +448,16 @@ _CLASSIFICATION_RULES: list[tuple[QuestionType, list[str]]] = [
     # anywhere in the text and would otherwise intercept this question
     # first, well before it ever reaches SMS_CONSENT's own patterns.
     (QuestionType.SMS_CONSENT, [r"text\s*message", r"\bsms\b", r"whatsapp", r"consent.*(text|message)"]),
+    # Also checked before EMAIL: "Please email me about future job openings"
+    # and "Email me about other job openings within <company>'s entities" are
+    # marketing opt-in checkboxes, not a request for the candidate's email
+    # address — the bare EMAIL pattern below matched "email" and answered
+    # with the candidate's address, which never satisfies a checkbox.
+    (QuestionType.MARKETING_CONSENT, [
+        r"email\s+me\s+about\s+(?:other\s+|future\s+)?job\s+openings",
+        r"notify\s+me\s+(?:of|about)\s+(?:future|other)\s+(?:job\s+)?opportunities",
+        r"keep\s+me\s+(?:up\s*to\s*date|informed)\s+(?:on|about)\s+(?:future\s+)?(?:job\s+)?opportunities",
+    ]),
     (QuestionType.EMAIL, [r"e-?mail"]),
     (QuestionType.PHONE_COUNTRY, [r"country\s*code", r"dial\s*code"]),
     (QuestionType.PHONE, [r"phone", r"telephone", r"mobile", r"\btel\b", r"cell"]),
@@ -453,6 +562,12 @@ _CLASSIFICATION_RULES: list[tuple[QuestionType, list[str]]] = [
         # through every pattern above and stayed unresolved on 8 straight
         # postings despite the candidate's city/state already being on file.
         r"where.*intend.*work",
+        # "Where are you currently based?" is a WH-question wanting the
+        # candidate's actual location (unlike LOCATION_CONFIRMATION's
+        # "are you based in <place>" yes/no above), so fell through
+        # everything and stayed unresolved despite the city/state being on
+        # file.
+        r"where\s+are\s+you\s+(?:currently\s+)?based",
     ]),
 
     # ── Professional ──
@@ -462,7 +577,9 @@ _CLASSIFICATION_RULES: list[tuple[QuestionType, list[str]]] = [
         r"most\s+recent.*(company|employer)",
         r"company\s*name",
         r"where.*most\s+recently\s+worked",
-        r"organization",
+        # Both spellings, for the same reason as the work-authorization
+        # patterns above: non-US boards write "organisation".
+        r"organi[sz]ation",
     ]),
     (QuestionType.CURRENT_TITLE, [
         r"current\s*(job\s*)?title",
@@ -540,12 +657,34 @@ _CLASSIFICATION_RULES: list[tuple[QuestionType, list[str]]] = [
 
     # ── Education ──
     (QuestionType.SCHOOL, [r"school", r"university", r"college", r"institution"]),
-    (QuestionType.DEGREE, [r"degree", r"level\s*of\s*education", r"highest\s*degree"]),
+    (QuestionType.DEGREE, [
+        r"degree",
+        r"level\s*of\s*education",
+        # "highest level of completed education" — an inserted word between
+        # "of" and "education" broke the plain pattern above and left the
+        # field unresolved.
+        r"level\s+of\s+\w+\s+education",
+        r"highest\s*degree",
+    ]),
     (QuestionType.DISCIPLINE, [r"major", r"discipline", r"field\s*of\s*study"]),
     # Greenhouse's education block asks for the years a degree was studied.
     # These must be matched here, ahead of NOTICE_PERIOD: its r"start\s*date"
     # pattern otherwise claims "Start date year" and answers an education
     # field with the candidate's availability to start a job.
+    # Month variants are listed before the year ones: Greenhouse's education
+    # block renders month and year as two separate required selects, and only
+    # the year half was ever classified - so "End date month" stayed empty and
+    # held the application. _resolve_education_history already produced a month
+    # on request; nothing asked it for one.
+    (QuestionType.EDUCATION_END_MONTH, [
+        r"end\s*date\s*month",
+        r"end\s*month",
+        r"graduation\s*month",
+    ]),
+    (QuestionType.EDUCATION_START_MONTH, [
+        r"start\s*date\s*month",
+        r"start\s*month",
+    ]),
     (QuestionType.EDUCATION_START_YEAR, [
         r"start\s*date\s*year",
         r"start\s*year",
@@ -587,6 +726,11 @@ _CLASSIFICATION_RULES: list[tuple[QuestionType, list[str]]] = [
         r"when\s+(?:can|could|would|are\s+you\s+able\s+to)\s+start",
         r"earliest\s+(?:possible\s+)?start",
         r"availability\s+to\s+start",
+        # "When are you available to begin work at <company>?" — "available
+        # to begin" (rather than "start") and "when are you" (rather than
+        # "when can/could/would you") both fell outside the patterns above.
+        r"available\s+to\s+begin",
+        r"when\s+are\s+you\s+available",
         r"how\s+active\s+are\s+you\s+(in|with)\s+your\s+job\s+search",
         r"job\s*search\s*(activity|status)",
     ]),
@@ -665,10 +809,19 @@ _CLASSIFICATION_RULES: list[tuple[QuestionType, list[str]]] = [
         # with no rule these fell to UNKNOWN and blocked the whole application.
         r"personal\s*/?\s*familial\s+relationship",
         r"familial\s+relationship",
+        # Agoda asks "Do you as a candidate have a personal relationship with a
+        # current Agoda employee?" - no "familial", so the two patterns above
+        # both missed it and the question fell to UNKNOWN.
+        r"personal\s+relationship\s+with\s+(a|an|any)?\s*(current|existing)?\s*\w*\s*employee",
         r"relationships?\s*\(current\s+\w+\s+employees",
         r"(inventions?|trademarks?|copyrights?|patents?).*(retain|carve\s*out|exclude)",
         r"wish\s+to\s+retain\s+and/?or\s+create",
-        r"previously\s+applied",
+        # "previously applied" was here too, lumped in with the employment
+        # patterns below — but applying to a job is not employment history,
+        # and the profile keeps no record of past applications to answer
+        # from. Answering it as COMPANY_HISTORY gave a confident answer to a
+        # question CareerOS has no honest basis for; removed so it falls
+        # through to human review instead.
         r"previously\s*(worked|employed|consulted|been\s+employed)",
         r"previously\s+been\s+employed",
         r"worked\s+at\s+or\s+consulted",
@@ -680,6 +833,14 @@ _CLASSIFICATION_RULES: list[tuple[QuestionType, list[str]]] = [
         r"do\s+you\s+currently[^?]{0,60}(worked|work|been\s+employed)\s*(at|for|by)",
         r"currently[,\s]+or\s+have\s+you\s+previously",
         r"have\s+you\s+(ever\s+)?been\s+employed\s*(by|at|for)",
+        # Asana: "Have you been employed, or otherwise engaged, by an Asana
+        # entity in the past?" - the parenthetical between "employed" and "by"
+        # broke the contiguous pattern above, the same way the adverb did in
+        # the work-authorization block.
+        r"been\s+employed[^?]{0,40}\bby\b",
+        # Booking Holdings: "Are you presently employed by any company within
+        # the Booking Holdings group" - "presently", not "currently".
+        r"(are|were)\s+you\s+(presently|currently)\s+employed\s*(by|at|with)",
         # Block: "Have you ever been employed full-time at Block or its
         # subsidiaries?" — "full-time" sits between "employed" and "at",
         # breaking the tighter pattern above.

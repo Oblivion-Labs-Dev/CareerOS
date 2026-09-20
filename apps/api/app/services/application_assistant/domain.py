@@ -69,6 +69,22 @@ class AutopilotJobStatus(str, Enum):
     # real opportunities and must stay visible.
     MANUAL_REVIEW = "MANUAL_REVIEW"
     SUBMITTED = "SUBMITTED"
+    # The attempt reached the final submit and then lost the thread — the click
+    # landed but no confirmation could be read, the browser died mid-verify, the
+    # process was killed. The application may or may not have been sent.
+    #
+    # This exists because the alternative was recording it as FAILED, and FAILED
+    # is a retryable bucket: the requeue endpoints and the in-run retry both put
+    # it straight back on the queue, which applies a second time to a posting
+    # that may already have the candidate's application. Automation must never
+    # retry one of these on its own. The user opens the posting, checks whether
+    # their application is there, and records the answer with the state selector;
+    # a confirmation email reconciles it forward to SUBMITTED without their help.
+    SUBMISSION_UNKNOWN = "SUBMISSION_UNKNOWN"
+    # A SUBMITTED application the employer has since declined. Split out from
+    # SUBMITTED so "still open" (awaiting a response) can be counted as
+    # SUBMITTED minus REJECTED, rather than everything that was ever sent.
+    REJECTED = "REJECTED"
     SKIPPED = "SKIPPED"
     FAILED = "FAILED"
     # Terminal and non-actionable: the candidate cannot apply to this posting at
@@ -103,6 +119,12 @@ class IneligibilityReason(str, Enum):
     # candidate — the operator has reserved these for a hand-written
     # application, so the batch declines to submit on their behalf.
     MANUAL_APPLICATION_REQUIRED = "MANUAL_APPLICATION_REQUIRED"
+    ROLE_EXCLUDED = "ROLE_EXCLUDED"
+    COMPANY_CAP_REACHED = "COMPANY_CAP_REACHED"
+    # The candidate's own standing decision, recorded in Settings — not
+    # something the automation discovered about the posting. Permanent until
+    # the candidate removes the company from their list.
+    COMPANY_BLACKLISTED = "COMPANY_BLACKLISTED"
 
 
 class ApplicationErrorType(str, Enum):

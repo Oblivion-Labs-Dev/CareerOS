@@ -165,3 +165,107 @@ def determinism_check(runs: list[list[float]]) -> dict[str, Any]:
         default=0.0,
     )
     return {"stable": identical, "maxDrift": round(drift, 4)}
+
+
+# ---------------------------------------------------------------------------
+# Ranked retrieval
+# ---------------------------------------------------------------------------
+# The metrics above grade one score against one binary label, which is the
+# right shape for the AUTO APPLY gate. Evidence retrieval is a different
+# question: given a posting, does the *ordering* put the bullets that genuinely
+# support it at the top? A single AUC cannot answer that, because what matters
+# is the first handful - a resume has room for a few bullets, so a retriever
+# that finds everything relevant at rank 40 is useless.
+#
+# Precision and recall are therefore reported @k, and they pull in opposite
+# directions by construction: precision@k asks "of the k I showed, how many
+# were right", recall@k asks "of all the right ones, how many did I show". A
+# retriever is only better if it improves one without giving back the other,
+# which is why both are always printed together.
+
+
+def precision_at_k(ranked_labels: list[int], k: int) -> float | None:
+    """Fraction of the top k that are relevant."""
+    if k <= 0 or not ranked_labels:
+        return None
+    top = ranked_labels[:k]
+    return sum(top) / len(top)
+
+
+def recall_at_k(ranked_labels: list[int], k: int) -> float | None:
+    """Fraction of all relevant items that appear in the top k."""
+    total = sum(ranked_labels)
+    if not total:
+        return None  # No relevant evidence exists; recall is undefined, not zero.
+    return sum(ranked_labels[:k]) / total
+
+
+def reciprocal_rank(ranked_labels: list[int]) -> float:
+    """1/rank of the first relevant item, or 0 if none is retrieved."""
+    for index, label in enumerate(ranked_labels, start=1):
+        if label:
+            return 1 / index
+    return 0.0
+
+
+def average_precision(ranked_labels: list[int]) -> float | None:
+    """Mean of precision@k taken at every rank where a relevant item appears."""
+    total = sum(ranked_labels)
+    if not total:
+        return None
+    hits = 0
+    running = 0.0
+    for index, label in enumerate(ranked_labels, start=1):
+        if label:
+            hits += 1
+            running += hits / index
+    return running / total
+
+
+def ndcg_at_k(ranked_labels: list[int], k: int) -> float | None:
+    """Discounted gain over the best possible ordering of the same labels."""
+    total = sum(ranked_labels)
+    if not total or k <= 0:
+        return None
+    def dcg(labels: list[int]) -> float:
+        return sum(label / math.log2(index + 1) for index, label in enumerate(labels[:k], start=1))
+    ideal = sorted(ranked_labels, reverse=True)
+    best = dcg(ideal)
+    return dcg(ranked_labels) / best if best else None
+
+
+@dataclass
+class RetrievalReport:
+    """One retriever's ranked results over a set of queries."""
+
+    name: str
+    #: One list of 0/1 labels per query, ordered by the retriever's ranking.
+    rankings: list[list[int]] = field(default_factory=list)
+    latencies: list[float] = field(default_factory=list)
+    notes: list[str] = field(default_factory=list)
+
+    def summary(self, ks: tuple[int, ...] = (1, 3, 5, 10)) -> dict[str, Any]:
+        graded = [r for r in self.rankings if sum(r)]
+        latency = statistics.mean(self.latencies) if self.latencies else None
+        out: dict[str, Any] = {
+            "retriever": self.name,
+            "queries": len(self.rankings),
+            # Queries with no relevant evidence at all are excluded from the
+            # averages rather than scored zero: they say something about the
+            # corpus, not about the ranking, and counting them would make every
+            # retriever look equally bad on the postings nothing can answer.
+            "gradedQueries": len(graded),
+        }
+        for k in ks:
+            precisions = [p for p in (precision_at_k(r, k) for r in graded) if p is not None]
+            recalls = [r_ for r_ in (recall_at_k(r, k) for r in graded) if r_ is not None]
+            out[f"p@{k}"] = _round(statistics.mean(precisions)) if precisions else None
+            out[f"r@{k}"] = _round(statistics.mean(recalls)) if recalls else None
+        maps = [a for a in (average_precision(r) for r in graded) if a is not None]
+        ndcgs = [n for n in (ndcg_at_k(r, 10) for r in graded) if n is not None]
+        out["map"] = _round(statistics.mean(maps)) if maps else None
+        out["ndcg@10"] = _round(statistics.mean(ndcgs)) if ndcgs else None
+        out["mrr"] = _round(statistics.mean([reciprocal_rank(r) for r in graded])) if graded else None
+        out["latencyMs"] = round(latency * 1000, 1) if latency else None
+        out["notes"] = self.notes
+        return out

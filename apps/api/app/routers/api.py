@@ -252,42 +252,30 @@ def upsert_profile(payload: ProfilePayload, db: Session = Depends(db_session)) -
     return {"success": True, "profile": profile}
 
 
-@router.get("/api/db")
-def get_api_db(db: Session = Depends(db_session)) -> dict[str, Any]:
-    return {
-        "success": True,
-        "profile": get_kv(db, "profile"),
-        "documents": get_kv(db, "documents") or {"defaultResume": None, "defaultCoverLetter": None},
-        "applications": list_entities(db, "application"),
-        "jobs": list_entities(db, "job"),
-        "learnedAnswers": list_entities(db, "learned_answer"),
-        "sessions": list_entities(db, "autofill_session"),
-        "fieldMappings": list_entities(db, "field_mapping"),
-        "activityEvents": list_entities(db, "career_event"),
-    }
+# GET/POST /api/db used to be defined here too, as a narrower stand-in that
+# only read/wrote `profile` and `documents`. FastAPI matches routes in
+# registration order, so this pair silently shadowed the fuller implementation
+# further down in this file (then named `legacy_get_db`/`legacy_post_db`) on
+# every request — meaning the Chrome extension's full sync
+# (apps/extension/src/db/sync.ts), which POSTs applications, jobs,
+# learnedAnswers, sessions, fieldMappings, activityEvents and settings on every
+# write, silently had all of that dropped except profile and documents. Worse,
+# the shadowing POST handler carried no auth check at all, while the real one
+# is guarded by `require_legacy_sync_auth` for exactly this full-DB-overwrite
+# endpoint — so the shadow was also a silent authorization bypass wherever
+# CAREER_OS_DEV_MODE is off. Removed rather than fixed in place, since a
+# working, fuller, already-guarded duplicate existed.
 
 
-@router.post("/api/db")
-def upsert_api_db(payload: dict[str, Any], db: Session = Depends(db_session)) -> dict[str, Any]:
-    if "profile" in payload and payload["profile"] is not None:
-        set_kv(db, "profile", payload["profile"])
-    if "documents" in payload and payload["documents"] is not None:
-        set_kv(db, "documents", payload["documents"])
-    return {"success": True}
-
-
-@router.post("/api/parse-resume")
-def parse_resume_route(db: Session = Depends(db_session)) -> dict[str, Any]:
-    docs = get_kv(db, "documents") or {}
-    resume = docs.get("defaultResume") or {}
-    text = resume.get("text") or resume.get("content") or ""
-    if text:
-        parsed = parse_resume_into_profile(text)
-        current = get_kv(db, "profile") or {}
-        merged = {**current, **parsed}
-        set_kv(db, "profile", merged)
-        return {"success": True, "parsed": True, "profile": merged}
-    return {"success": True, "parsed": False, "reason": "No resume text found"}
+# The route used to be defined here too, calling
+# `parse_resume_into_profile(text)` with a single positional argument against a
+# function that actually takes `(profile, documents, *, force=False)` — a
+# TypeError on every call. FastAPI matches routes in registration order, so
+# this broken handler silently shadowed the correct one below (further down in
+# this file, then named `legacy_parse_resume`) on every request to
+# `/api/parse-resume`, and the frontend's `{ force }` payload
+# (`lib/documents-api.ts`) only ever matched the shadowed one anyway. Removed
+# rather than fixed in place, since a working duplicate already existed.
 
 
 @router.post("/jobs/extract")
@@ -578,6 +566,76 @@ async def job_discover_gap_analysis(payload: JobGapAnalysisPayload, db: Session 
     }
 
 
+def _processed_autopilot_identity(db: Session) -> tuple[set[str], set[str]]:
+    """Two identities for every job Autopilot already holds, in any status.
+
+    Browse is for postings that have not been dealt with yet, so a job that
+    Autopilot has queued, applied to, submitted, is reviewing, or has ruled out
+    must not appear here. `get_synced_scraper_job_ids` only catches the ones
+    added from this page, and Autopilot's own scraper finds postings Browse
+    never touched, so the queue itself has to be consulted. Every status counts:
+    there is nothing for the user to do on this page with a job that is already
+    somewhere in the pipeline.
+
+    Two identities are returned because neither is sufficient alone:
+
+    * the **composite key**, which prefers the ATS's own posting id and so
+      folds together the several host/path shapes one posting is published
+      under; and
+    * the **normalised URL**, which catches the case the key misses — the same
+      URL with and without a query string, where one side can read an id off it
+      and the other cannot.
+
+    Matching on company and title alone is deliberately *not* done: two
+    different posting ids at one employer are two different openings, and
+    collapsing them would hide real jobs.
+    """
+    from app.services.application_assistant.job_filter_ranker import (
+        generate_composite_job_key,
+        normalize_application_url,
+    )
+    from app.services.application_assistant.persistence import AUTOPILOT_JOBS_CACHE_KEY, list_autopilot_jobs
+    from app.services.read_cache import read_cache
+
+    def _load_all_autopilot_jobs() -> list[dict[str, Any]]:
+        with session_scope() as inner_db:
+            return list_autopilot_jobs(inner_db)
+
+    all_jobs = read_cache.get(AUTOPILOT_JOBS_CACHE_KEY, 30.0, _load_all_autopilot_jobs)
+    keys = {
+        generate_composite_job_key(
+            job.get("company") or "",
+            job.get("title") or "",
+            job.get("applicationUrl") or "",
+            job.get("externalJobId") or "",
+            job.get("location") or "",
+        )
+        for job in all_jobs
+    }
+    urls = {normalize_application_url(job.get("applicationUrl") or "") for job in all_jobs}
+    urls.discard("")
+    return keys, urls
+
+
+def _is_unprocessed(job: dict[str, Any], processed_keys: set[str], processed_urls: set[str]) -> bool:
+    """Whether this discovered posting is absent from the Autopilot pipeline."""
+    from app.services.application_assistant.job_filter_ranker import (
+        generate_composite_job_key,
+        normalize_application_url,
+    )
+
+    key = generate_composite_job_key(
+        job.get("companyName") or "",
+        job.get("title") or "",
+        job.get("url") or "",
+        str(job.get("externalJobId") or job.get("externalId") or ""),
+        job.get("location") or "",
+    )
+    if key in processed_keys:
+        return False
+    return normalize_application_url(job.get("url") or "") not in processed_urls
+
+
 @router.get("/jobs/discover")
 def list_discovered_jobs(
     db: Session = Depends(db_session),
@@ -604,9 +662,12 @@ def list_discovered_jobs(
 
     synced_ids = get_synced_scraper_job_ids(db)
     dismissed_ids = set(snapshot.get("dismissedIds") or [])
+    processed_keys, processed_urls = _processed_autopilot_identity(db)
     available_jobs = [
         job for job in (snapshot.get("jobs") or [])
-        if job.get("id") not in synced_ids and job.get("id") not in dismissed_ids
+        if job.get("id") not in synced_ids
+        and job.get("id") not in dismissed_ids
+        and _is_unprocessed(job, processed_keys, processed_urls)
     ]
     from app.services.job_discover.browse_filters import filter_facets
     available_jobs = filter_facets(available_jobs, specialties=specialties, seniorities=seniorities, work_modes=work_modes, experience=experience, companies=companies)
@@ -650,7 +711,12 @@ def browse_filter_options(db: Session = Depends(db_session)):
     from app.services.application_assistant.scraper_import import get_synced_scraper_job_ids
     snapshot = job_discover.get_snapshot(db)
     excluded = get_synced_scraper_job_ids(db) | set(snapshot.get("dismissedIds") or [])
-    jobs = [job for job in snapshot.get("jobs", []) if job.get("id") not in excluded]
+    processed_keys, processed_urls = _processed_autopilot_identity(db)
+    jobs = [
+        job for job in snapshot.get("jobs", [])
+        if job.get("id") not in excluded
+        and _is_unprocessed(job, processed_keys, processed_urls)
+    ]
     result = filter_options(jobs)
     result["freshness"] = [value for value in ["24", "168", "720"] if job_discover.filter_jobs(jobs, freshness=value, per_page=1)[1]]
     result["sponsorship"] = [value for value in ["likely", "friendly", "unlikely"] if job_discover.filter_jobs(jobs, sponsorship=value, per_page=1)[1]]
@@ -1181,12 +1247,12 @@ def get_recruiter_outreach_campaigns(
 
 # Legacy extension compatibility
 @router.get("/api/db")
-def legacy_get_db(db: Session = Depends(db_session)) -> dict[str, Any]:
+def get_api_db(db: Session = Depends(db_session)) -> dict[str, Any]:
     return legacy_db_snapshot(db)
 
 
 @router.post("/api/db")
-def legacy_post_db(
+def upsert_api_db(
     payload: dict[str, Any],
     request: Request,
     db: Session = Depends(db_session),
@@ -1201,7 +1267,7 @@ class ParseResumePayload(BaseModel):
 
 
 @router.post("/api/parse-resume")
-async def legacy_parse_resume(payload: ParseResumePayload | None = None, db: Session = Depends(db_session)) -> dict[str, Any]:
+async def parse_resume_route(payload: ParseResumePayload | None = None, db: Session = Depends(db_session)) -> dict[str, Any]:
     profile = get_kv(db, "profile") or {}
     documents = get_kv(db, "documents") or {}
     try:
@@ -1321,6 +1387,11 @@ def save_accomplishment_route(payload: AccomplishmentPayload, db: Session = Depe
         updated["currentBullet"] = incoming["resumeEvolution"]["current"]
     elif "currentBullet" in incoming:
         updated["resumeEvolution"] = {**(updated.get("resumeEvolution") or {}), "current": incoming["currentBullet"]}
+    if previous:
+        old_bullet = (previous.get("resumeEvolution") or {}).get("current", previous.get("currentBullet"))
+        new_bullet = (updated.get("resumeEvolution") or {}).get("current", updated.get("currentBullet"))
+        if old_bullet != new_bullet:
+            updated["resumeApproved"] = False  # Approval belongs to the reviewed wording.
     if previous:
         snapshot = {k: v for k, v in previous.items() if k != "revisionHistory"}
         updated["revisionHistory"] = [*(previous.get("revisionHistory") or []), snapshot]
@@ -1639,7 +1710,9 @@ async def test_resolve_field_route(payload: TestResolveRequest) -> dict[str, Any
     """Test resolution of a specific question variation with rule resolver and model resolution."""
     import time
     from app.services.application_assistant.benchmark_dataset import BENCHMARK_PROFILE, BENCHMARK_RESUME_TEXT
-    from app.services.application_assistant.profile_answer_resolver import resolve_profile_answer
+    # The resolver is `resolve_answer`; this route still imported a name it had
+    # before a rename, so every call returned 500 rather than a resolution.
+    from app.services.application_assistant.profile_answer_resolver import resolve_answer
     from app.services.application_assistant.question_classifier import classify_question, QuestionType
     from app.services.application_assistant.cross_field_validator import validate_answers
     from app.services.application_assistant.submission_policy import SubmissionPolicy
@@ -1649,7 +1722,7 @@ async def test_resolve_field_route(payload: TestResolveRequest) -> dict[str, Any
 
     # 1. Deterministic Rule Classifier & Resolver
     qtype = classify_question(payload.question)
-    resolution = resolve_profile_answer(
+    resolution = resolve_answer(
         field_id=payload.fieldId,
         question_text=payload.question,
         profile=active_profile,

@@ -11,7 +11,7 @@ export function QuestBoard() {
   const {data,busy,mutate,error} = useCareerProgress();
   const [focus,setFocus] = useState<string | null>(null);
   const quest = data?.quests.find(item=>item.id===focus);
-  if (!data) return error ? null : <WorkspaceLoading label="Loading your weekly quests…" />;
+  if (!data) return error ? null : <WorkspaceLoading label="Loading your weekly quests…" shape="list" rows={3} />;
   const complete = (id: string) => mutate(`/quests/${id}/complete`,{week:data.week});
   return <section className={styles.progressBoard} aria-label="Career progress">
     <div className={styles.boardHeading}><div><span className={styles.eyebrow}>PROGRESS WITH PURPOSE</span><h2>A little momentum, every week.</h2></div><span className={styles.week}>Week of {data.week} · {data.preferences.timezone}</span></div>

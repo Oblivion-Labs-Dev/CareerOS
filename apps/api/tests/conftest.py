@@ -28,6 +28,17 @@ _TEST_ENV = {
     # that a 429 is retried would prove it once, on one day's limits.
     "CAREEROS_GEMINI_ENABLED": "0",
     "GEMINI_API_KEY": "",
+    # Run the suite as a fresh checkout does: with no admin password, so the
+    # login gate is off. The gate is now deny-by-default, and `settings` reads
+    # .env — so without this the developer's own password switched enforcement
+    # on for the whole suite and 401'd every test that calls an endpoint
+    # through TestClient. Twenty-one of them, none of which are about auth.
+    #
+    # Tests that *are* about the gate turn it on for themselves by patching
+    # is_auth_configured (see test_auth_gate.py), which is the honest way round:
+    # the behaviour under test is stated in the test rather than inherited from
+    # whatever happens to be in the environment.
+    "CAREER_OS_ADMIN_PASSWORD": "",
 }
 _PREVIOUS_ENV = {key: os.environ.get(key) for key in _TEST_ENV}
 os.environ.update(_TEST_ENV)

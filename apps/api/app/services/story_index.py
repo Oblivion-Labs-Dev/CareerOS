@@ -283,6 +283,104 @@ _ALL_VOCABULARIES: dict[str, dict[str, tuple[str, ...]]] = {
 }
 
 
+# ---------------------------------------------------------------------------
+# Technology sub-groups
+# ---------------------------------------------------------------------------
+# `TECHNOLOGY_VOCABULARY` is one flat table, which is the right shape for
+# matching but the wrong shape for everything downstream that has to *present*
+# a story or feed a resume. "Python, Kubernetes, Cosmos DB, Terraform, Kusto"
+# is a single undifferentiated list; a resume's Skills section, and a reader
+# deciding whether a story is about a language or about a platform, both need
+# to know which of those is a language and which is infrastructure.
+#
+# The flat table already carried that structure as section comments. This makes
+# it data instead, so it can be queried rather than read by a human. Groups are
+# checked against the vocabulary at import (see `_technology_group_map`), so a
+# tag renamed in one place and not the other fails loudly instead of silently
+# dropping out of the breakdown.
+TECHNOLOGY_GROUPS: dict[str, tuple[str, ...]] = {
+    "Languages": (
+        "Python", "Java", "C#", ".NET", "Kotlin", "Go", "TypeScript", "JavaScript",
+        "SQL", "Scala", "C/C++", "Linux Kernel", "Rust", "Swift", "PHP", "Elixir",
+        "Ruby on Rails",
+    ),
+    "Cloud platforms": ("AWS", "Azure", "GCP", "Azure Government"),
+    "Compute & orchestration": (
+        "Kubernetes", "Docker", "Helm", "ECS", "AWS Lambda",
+        "Azure Durable Functions", "AWS Step Functions",
+    ),
+    "Messaging & streaming": (
+        "Kafka", "Event Hub", "SQS", "SNS", "Flink", "Spark",
+        "Change Data Capture", "Kinesis", "Pulsar",
+    ),
+    "Data stores": (
+        "Cosmos DB", "DynamoDB", "PostgreSQL", "Redis", "S3", "SQLite", "Neo4j",
+        "OpenSearch", "Firebase", "Snowflake", "Cassandra", "MongoDB", "ClickHouse",
+    ),
+    "ML & AI": (
+        "SageMaker", "XGBoost", "Quantile Regression", "LLM", "RAG", "Ollama",
+        "Amazon Bedrock", "Deep Learning", "Machine Learning", "PyTorch",
+        "LangChain", "Pinecone",
+    ),
+    "Infrastructure as code & CI": (
+        "AWS CDK", "Terraform", "Bicep", "ARM Templates", "CI/CD", "Ansible",
+        "Argo CD", "flux", "Airflow", "dbt",
+    ),
+    "Observability": ("CloudWatch", "Kusto", "Prometheus", "OpenTelemetry", "Datadog"),
+    "Web & interfaces": (
+        "gRPC", "REST", "GraphQL", "React", "FastAPI", "App Mesh", "Playwright",
+        "WebSockets", "React Native", "Android", "Vue.js",
+    ),
+    "Security & identity": (
+        "Microsoft Purview", "Microsoft Defender", "Microsoft Entra",
+        "Conditional Access", "DLP", "Managed Identity", "OAuth", "RBAC",
+    ),
+}
+
+#: Which groups answer "what can this person build with" as against "what did
+#: they run it on". A resume's Skills line wants the first; a platform or SRE
+#: posting is mostly asking about the second, and a story that evidences four
+#: infrastructure tags and no language is still exactly the right story for it.
+SKILL_GROUPS = ("Languages", "ML & AI", "Web & interfaces")
+INFRASTRUCTURE_GROUPS = (
+    "Cloud platforms", "Compute & orchestration", "Messaging & streaming",
+    "Data stores", "Infrastructure as code & CI", "Observability",
+    "Security & identity",
+)
+
+
+@lru_cache(maxsize=1)
+def _technology_group_map() -> dict[str, str]:
+    """Canonical technology tag -> its sub-group.
+
+    Anything in the vocabulary but not in a group lands in "Other" rather than
+    disappearing, so adding a technology without classifying it degrades the
+    breakdown instead of losing the tag.
+    """
+    mapping = {tag: group for group, tags in TECHNOLOGY_GROUPS.items() for tag in tags}
+    return {tag: mapping.get(tag, "Other") for tag in TECHNOLOGY_VOCABULARY}
+
+
+def technology_group(tag: str) -> str | None:
+    """The sub-group of a technology tag, or None if it is not a technology."""
+    return _technology_group_map().get(tag)
+
+
+def group_technologies(tags: Iterable[str]) -> dict[str, list[str]]:
+    """Group technology tags for display, in the order `TECHNOLOGY_GROUPS` lists.
+
+    Non-technology tags are dropped: this is asked for a story's technologies,
+    and a concept or behavioural tag appearing here would read as a tool.
+    """
+    grouped: dict[str, list[str]] = {}
+    for tag in sorted(set(tags)):
+        group = _technology_group_map().get(tag)
+        if group:
+            grouped.setdefault(group, []).append(tag)
+    order = [*TECHNOLOGY_GROUPS, "Other"]
+    return {group: grouped[group] for group in order if group in grouped}
+
+
 # Tags whose name is also an ordinary English word. Matching these
 # case-insensitively tagged "go through the templates" as the Go language,
 # "at the helm" as Helm, and "the rest of the team" as REST - which put a
@@ -404,6 +502,95 @@ COVERAGE_K = 1.5
 # read as professional experience, and the only way to prevent that reliably is
 # to carry the distinction all the way into the prompt rather than trusting the
 # model to infer it from context.
+# ---------------------------------------------------------------------------
+# Resume approval
+# ---------------------------------------------------------------------------
+# Whether a piece of evidence may be used on a resume. This lives here, beside
+# the index, because the corpus browser and the resume composer must agree: one
+# shows the user what is usable, the other uses it, and a second copy of the
+# rule would let them drift.
+#
+# The rule used to be `story["resumeApproved"] is True` and nothing else. No
+# story in the corpus has ever carried that field and no screen set it, so
+# every one of the 132 sentences the composer extracts was permanently
+# unapproved, the replacement pool was always empty, and the "tailored" resume
+# came back byte-identical to the baseline for every posting.
+#
+# So there are now two ways to be usable, and two ways not to be:
+#
+# * an explicit ``resumeApproved: true`` — the user said yes in the corpus
+#   browser, and that always wins;
+# * an explicit ``resumeApproved: false`` — the user said no, which always
+#   wins too and is the only way to be permanently excluded;
+# * otherwise, **auto-approval** for evidence strong enough that asking would
+#   be a formality: professional experience, marked very strong. Everything
+#   else stays pending, which is the "review by exception" queue the browser
+#   surfaces;
+# * and, above all of those, an **unverified metric** blocks the evidence
+#   whatever anyone has said about it.
+#
+# Auto-approval is deliberately narrow. A personal project described as
+# employer work, or a number nobody has checked, is exactly the kind of claim
+# that must not reach an employer without a human looking at it.
+
+AUTO_APPROVE_EVIDENCE = "professional"
+AUTO_APPROVE_STRENGTH = "very_strong"
+
+#: The states a piece of evidence can be in. "auto" and "approved" are the two
+#: usable ones; they are reported separately so the UI can say which decision
+#: it was, and so the user can see what was let through without being asked.
+APPROVAL_STATES = ("approved", "auto", "pending", "unverified", "declined")
+
+
+def has_unverified_metrics(record: dict[str, Any]) -> bool:
+    """Whether any metric on this record is still unverified.
+
+    Both shapes are checked because the corpus writes numbers two ways: a
+    ``metrics`` list of dicts, and a ``metricMetadata`` mapping. A record with
+    either kind of unchecked number is not eligible for auto-approval.
+    """
+    unresolved = [
+        m for m in (record.get("metrics") or [])
+        if isinstance(m, dict) and m.get("verification") != "verified"
+    ]
+    unresolved.extend(
+        m for m in (record.get("metricMetadata") or {}).values()
+        if isinstance(m, dict) and m.get("verification") != "verified"
+    )
+    return bool(unresolved)
+
+
+def resume_approval_state(record: dict[str, Any]) -> str:
+    """One of ``APPROVAL_STATES`` for a merged record-and-story dict.
+
+    Callers pass ``{**accomplishment, **story}`` so that a field set on the
+    story (its evidence tier, its own approval) wins over the record's, while
+    record-level facts the story does not carry (strength, metrics) still
+    apply.
+    """
+    explicit = record.get("resumeApproved")
+    if explicit is False:
+        return "declined"
+    # An unchecked number vetoes everything above it, including an explicit
+    # yes. Approving a story says its wording is fair; it does not say anybody
+    # has verified the figure attached to it, and a number is the one thing on
+    # a resume that gets checked.
+    if has_unverified_metrics(record):
+        return "unverified"
+    if explicit is True:
+        return "approved"
+    evidence = str(record.get("evidence") or record.get("evidenceTier") or "").strip()
+    strength = str(record.get("strength") or "").strip()
+    if evidence == AUTO_APPROVE_EVIDENCE and strength == AUTO_APPROVE_STRENGTH:
+        return "auto"
+    return "pending"
+
+
+def resume_approved(record: dict[str, Any]) -> bool:
+    """Whether this evidence may be placed on a resume."""
+    return resume_approval_state(record) in ("approved", "auto")
+
+
 EVIDENCE_TIERS = ("professional", "personal-project", "planned")
 TIER_WEIGHT = {"professional": 1.0, "personal-project": 0.85, "planned": 0.4}
 TIER_LABEL = {
@@ -429,6 +616,9 @@ class Story:
     do_not_claim: list[str] = field(default_factory=list)
     evidence: str = "professional"
     strength: str = "strong"
+    #: One of ``APPROVAL_STATES``: whether this story's text may be placed on a
+    #: resume, and whether that was the user's decision or the auto rule.
+    approval: str = "pending"
 
     @property
     def all_tags(self) -> set[str]:
@@ -448,13 +638,26 @@ class Story:
             "evidence": self.evidence,
             "strength": self.strength,
             "technologies": sorted(self.technologies),
+            # The same technologies, split the way a reader and a resume both
+            # need them: grouped for display, and rolled up into what the
+            # candidate builds with as against what they ran it on.
+            "technologyGroups": group_technologies(self.technologies),
+            "skills": sorted(self.grouped_technologies(SKILL_GROUPS)),
+            "infrastructure": sorted(self.grouped_technologies(INFRASTRUCTURE_GROUPS)),
             "concepts": sorted(self.concepts),
             "signals": sorted(self.behavioural),
             "primary": sorted(self.primary),
             "metrics": list(self.metrics),
             "doNotClaim": list(self.do_not_claim),
+            "approval": self.approval,
+            "resumeUsable": self.approval in ("approved", "auto"),
             "chars": len(self.body),
         }
+
+    def grouped_technologies(self, groups: Iterable[str]) -> set[str]:
+        """This story's technologies that fall in any of `groups`."""
+        wanted = set(groups)
+        return {t for t in self.technologies if technology_group(t) in wanted}
 
 
 @dataclass
@@ -673,6 +876,7 @@ def _story_from_record(record: dict[str, Any]) -> Story:
         # experience unless it says so.
         evidence=str(record.get("evidence") or "personal-project").strip(),
         strength=str(record.get("strength") or "strong").strip(),
+        approval=resume_approval_state(record),
     )
 
 

@@ -25,7 +25,7 @@ from __future__ import annotations
 import logging
 import re
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 import httpx
 
@@ -63,14 +63,29 @@ def _board_tokens(company_slug: str, company_name: str = "") -> list[str]:
     out: list[str] = []
     for seed in seeds:
         low = re.sub(r"[^a-z0-9\- ]", "", seed.lower()).strip()
-        for candidate in (
+        words = [w for w in re.split(r"[\s\-]+", low) if w]
+        candidates = [
             low.replace(" ", "").replace("-", ""),  # torcrobotics
             low.replace(" ", "-"),                   # torc-robotics
             low.replace(" ", ""),
-        ):
+        ]
+        # Boards are very often registered under a shortened trading name rather
+        # than the full legal one: "Parallel Web Systems" publishes on Ashby as
+        # `parallel`, so neither `parallelwebsystems` nor `parallel-web-systems`
+        # ever matched and the posting looked unresolvable. Falling back to the
+        # first word (and first two) is safe here because `_match_job` still
+        # requires a strong title overlap — an unrelated company that happens to
+        # own the short token contributes no convincing match. Verified: a
+        # `parallel` Greenhouse board exists for an automotive firm and is
+        # correctly rejected on title.
+        if len(words) > 1:
+            candidates.append(words[0])
+            candidates.append("".join(words[:2]))
+            candidates.append("-".join(words[:2]))
+        for candidate in candidates:
             if candidate and candidate not in out:
                 out.append(candidate)
-    return out[:6]
+    return out[:8]
 
 
 def _parse_himalayas(url: str) -> tuple[str, str]:
@@ -80,6 +95,64 @@ def _parse_himalayas(url: str) -> tuple[str, str]:
     if len(parts) >= 4 and parts[0] == "companies" and parts[2] == "jobs":
         return parts[1], parts[3]
     return "", ""
+
+
+# Words that appear in so many engineering titles that sharing one says nothing
+# about which posting this is. Distinct from _STOPWORDS, which strips filler:
+# these are meaningful words that are simply not *discriminating*.
+_GENERIC_ROLE_TOKENS = frozenset({
+    "senior", "sr", "junior", "jr", "staff", "principal", "lead", "mid",
+    "level", "engineer", "engineering", "developer", "development", "software",
+    "member", "technical", "specialist", "analyst", "architect", "consultant",
+    "manager", "director", "head", "associate", "intern", "contract",
+    "fulltime", "full", "time", "part", "team", "group", "new", "grad",
+    "i", "ii", "iii", "iv", "one", "two", "three",
+})
+
+
+def _distinctive_tokens(text: str) -> set[str]:
+    """The words in a title that actually identify *which* role it is."""
+    return _tokens(text) - _GENERIC_ROLE_TOKENS
+
+
+def _match_by_distinctive_token(
+    jobs: list[dict[str, Any]], wanted: str
+) -> dict[str, Any] | None:
+    """Fall back to an unambiguous domain match when titles were rewritten.
+
+    Aggregators frequently republish a posting under their own wording:
+    jaabz lists one Parallel role as "Senior Security Engineer (Application &
+    AI Agent Security)" while the employer's own board calls it "Member of
+    Technical Staff, Product Security". Those share only the word "security",
+    so the overlap test above rejects a correct match.
+
+    This accepts a match only when it is *unambiguous*: exactly one posting on
+    the board shares any distinctive (non-boilerplate) word with the wanted
+    title. If two candidates share one, the board has more than one role in
+    that area and guessing between them risks applying to the wrong job, so
+    nothing is returned. Generic words like "senior" or "engineer" are excluded
+    precisely because nearly every posting shares them.
+    """
+    wanted_distinctive = _distinctive_tokens(wanted)
+    if not wanted_distinctive:
+        return None
+
+    candidates = [
+        job for job in jobs
+        if wanted_distinctive & _distinctive_tokens(job.get("title") or "")
+    ]
+    if len(candidates) != 1:
+        if len(candidates) > 1:
+            logger.debug(
+                "Distinctive-token fallback found %d candidates for %r — too "
+                "ambiguous to pick one", len(candidates), wanted[:60],
+            )
+        return None
+    logger.info(
+        "Matched %r to %r on a unique distinctive token",
+        wanted[:50], (candidates[0].get("title") or "")[:50],
+    )
+    return candidates[0]
 
 
 def _match_job(jobs: list[dict[str, Any]], wanted: str) -> dict[str, Any] | None:
@@ -101,7 +174,10 @@ def _match_job(jobs: list[dict[str, Any]], wanted: str) -> dict[str, Any] | None
     if best is not None and best_score >= 0.6:
         return best
     logger.debug("No confident title match (best %.2f) for %r", best_score, wanted[:60])
-    return None
+    # Strict overlap missed. Before giving up, try the rewritten-title case —
+    # it only returns something when exactly one posting on the board is
+    # plausibly the same role, so an ambiguous board still yields nothing.
+    return _match_by_distinctive_token(jobs, wanted)
 
 
 def _greenhouse_lookup(board: str) -> list[dict[str, Any]]:
@@ -170,6 +246,102 @@ _BOARD_LOOKUPS = (
 def is_aggregator_url(url: str) -> bool:
     host = (urlparse(url or "").netloc or "").lower()
     return any(host.endswith(h) for h in AGGREGATOR_HOSTS)
+
+
+# Board listings are reused constantly (the same employer shows up across many
+# postings in one scrape), and a miss is as worth caching as a hit.
+_BOARD_LISTING_CACHE: dict[tuple[str, str], list[dict[str, Any]]] = {}
+
+
+def _cached_lookup(ats_name: str, lookup: Any, board: str) -> list[dict[str, Any]]:
+    key = (ats_name, board)
+    if key not in _BOARD_LISTING_CACHE:
+        try:
+            _BOARD_LISTING_CACHE[key] = lookup(board)
+        except Exception:
+            _BOARD_LISTING_CACHE[key] = []
+    return _BOARD_LISTING_CACHE[key]
+
+
+def resolve_by_company_and_title(
+    company_name: str, title: str, *, max_board_candidates: int = 3
+) -> dict[str, Any] | None:
+    """Find an employer's real posting from just a company name and a job title.
+
+    This is what turns a LinkedIn discovery into something applyable. LinkedIn's
+    guest cards carry no employer apply URL and its detail endpoint does not
+    either (verified on live postings), but the company name plus the title is
+    enough to look the posting up on the employer's own board.
+
+    Measured on 20 live LinkedIn results: 6 resolved this way. The misses are
+    overwhelmingly large enterprises on Workday/Taleo/iCIMS, which publish no
+    equivalent open listing endpoint — those stay unresolved rather than being
+    guessed at.
+    """
+    if not company_name or not title:
+        return None
+
+    for board in _board_tokens(company_name, company_name)[:max_board_candidates]:
+        for ats_name, lookup in _BOARD_LOOKUPS:
+            listing = _cached_lookup(ats_name, lookup, board)
+            if not listing:
+                continue
+            match = _match_job(listing, title)
+            if not match:
+                continue
+            resolved = match.get("absolute_url") or ""
+            if not resolved:
+                continue
+            logger.info(
+                "Resolved %s / %s -> %s", company_name[:30], title[:40], resolved[:70]
+            )
+            return {
+                "applicationUrl": resolved,
+                "company": company_name,
+                "title": match.get("title") or title,
+                "source": f"{ats_name}:{board}",
+            }
+    return None
+
+
+def resolve_company_branded_greenhouse_url(
+    url: str, *, company_name: str = "", title: str = ""
+) -> dict[str, Any] | None:
+    """Resolve a company's own branded careers page back to its Greenhouse URL.
+
+    Some employers mirror their Greenhouse postings on their own domain
+    (``coinbase.com/careers/positions/7847431?gh_jid=7847431``) without an
+    iframe or a discoverable form on that page — the automation correctly
+    finds nothing to fill, but the posting is real and automatable at its
+    actual Greenhouse address. The mirror page always carries the numeric
+    Greenhouse job id in a ``gh_jid`` query parameter, so this is an *id*
+    lookup against the employer's public board (unlike ``resolve_aggregator_url``
+    above, which has no id to work with and has to fuzzy-match on title).
+    """
+    qs = parse_qs(urlparse(url).query)
+    gh_jid = (qs.get("gh_jid") or [""])[0].strip()
+    if not gh_jid or not gh_jid.isdigit():
+        return None
+
+    for board in _board_tokens(company_name, company_name):
+        jobs = _greenhouse_lookup(board)
+        if not jobs:
+            continue
+        match = next((j for j in jobs if str(j.get("id") or "") == gh_jid), None)
+        if not match:
+            continue
+        resolved = match.get("absolute_url") or ""
+        if not resolved:
+            continue
+        logger.info("Resolved company-branded page %s -> %s", url[:70], resolved)
+        return {
+            "applicationUrl": resolved,
+            "company": company_name or board,
+            "title": match.get("title") or title,
+            "source": f"greenhouse:{board}",
+        }
+    logger.info("Could not resolve gh_jid=%s on %s to a Greenhouse board", gh_jid, url[:70])
+    return None
 
 
 def resolve_aggregator_url(

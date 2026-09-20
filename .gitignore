@@ -15,6 +15,9 @@ venv/
 *.db
 *.sqlite3
 apps/api/data/
+# Scratch data directory for running Docker against a throwaway copy of the
+# database and browser profile instead of the live one (CAREEROS_DATA_DIR).
+apps/api/.docker-data/
 apps/extension/releases/
 apps/extension/db.json
 apps/extension/logs/
@@ -65,3 +68,18 @@ apps/web/.scratch/
 
 # Kiro scratch/diagnostic files (repo root)
 kiro_*
+
+# Private local UAT execution reports
+apps/api/data/uat/
+
+# Isolated UI acceptance-test build output
+apps/web/.next-uat/
+apps/web/.next-grid-uat/
+
+# Scratch output containing rendered personal resumes — never commit private resumes
+data/resume-tests/
+tmp/
+
+# Playwright test-run screenshots/artifacts (throwaway, like playwright-report/)
+apps/web/e2e/.artifacts/
+apps/web/e2e/screenshots/

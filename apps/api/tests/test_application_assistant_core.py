@@ -63,7 +63,12 @@ class TestAnswerClassification:
             label="Email Address", profile=profile
         )
         assert cls == AnswerClassification.VERIFIED
-        assert value == "jane@example.com"
+        # The resolver submits a taggable +career variant of the candidate's
+        # own email (profile_answer_resolver.py), not the bare address, so
+        # confirmation mail can be told apart from a manually-submitted
+        # application. Same deliverable inbox — Gmail plus-addressing routes
+        # jane+career@example.com to jane@example.com.
+        assert value == "jane+career@example.com"
         assert conf == 1.0
 
     def test_sensitive_work_auth_requires_verified(self):
@@ -118,7 +123,10 @@ class TestAnswerClassification:
         )
         assert cls == AnswerClassification.VERIFIED
         assert value == "Microsoft"
-        assert source == "profile.currentCompany"
+        # classify_answer delegates to resolve_answer first (see its own
+        # comment: a raw profile-key lookup here isn't options-aware), which
+        # labels its source by question type rather than by profile key.
+        assert source == "resolver.CURRENT_COMPANY"
 
     def test_company_field_unknown_without_company_data(self):
         profile = {"fullName": "Akshay Borse", "firstName": "Akshay", "lastName": "Borse"}

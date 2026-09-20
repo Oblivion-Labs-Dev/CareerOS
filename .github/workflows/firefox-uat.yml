@@ -1,0 +1,45 @@
+name: Firefox UAT contracts
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'apps/api/app/services/uat/**'
+      - 'apps/api/app/services/application_assistant/field_fill_engine.py'
+      - 'apps/api/app/services/application_assistant/profile_answer_resolver.py'
+      - 'apps/api/tests/test_firefox_uat*'
+      - 'apps/api/scripts/firefox_uat.py'
+      - 'apps/api/requirements-uat.txt'
+      - '.github/workflows/firefox-uat.yml'
+permissions:
+  contents: read
+jobs:
+  contracts:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: apps/api
+    env:
+      CAREEROS_FIREFOX_UAT: '1'
+      CAREEROS_LIVE_APPLY: '0'
+      HF_HUB_OFFLINE: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: |
+            apps/api/requirements.txt
+            apps/api/requirements-uat.txt
+      - run: python -m pip install -r requirements.txt -r requirements-uat.txt pytest httpx
+      - run: python -m playwright install firefox
+      - run: python -m camoufox fetch official/152.0.4-beta.30
+      - run: python -m pytest tests/test_firefox_uat.py tests/test_firefox_uat_browser.py -q
+      - run: python scripts/firefox_uat.py --engines firefox camoufox --output data/uat/ci.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: firefox-uat-synthetic-results
+          path: apps/api/data/uat/ci.json
+          retention-days: 7

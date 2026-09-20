@@ -54,6 +54,26 @@ def parse_resume_fields(text: str, profile: dict[str, Any]) -> tuple[dict[str, A
             updated["lastName"] = " ".join(parts[1:])
         extracted["fullName"] = updated["fullName"]
 
+    # Structure: employment history, education and skills. Until this existed
+    # the four regexes above were the whole parser, so a profile built by
+    # uploading a résumé still had no employers, no degrees and no dates - all
+    # of which application forms ask for, and all of which had to be typed in
+    # by hand afterwards.
+    #
+    # Structured values are always reported in `extracted`, but only written
+    # into the profile when it holds nothing there already. A résumé is
+    # evidence about the candidate; the profile is the record they approved,
+    # and silently replacing an edited work history with a re-parse of an old
+    # PDF would lose their corrections.
+    from app.services.resume_structure import parse_structure
+
+    for key, value in parse_structure(text).items():
+        if not value:
+            continue
+        extracted[key] = value
+        if not updated.get(key):
+            updated[key] = value
+
     return updated, extracted
 
 

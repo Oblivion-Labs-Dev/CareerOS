@@ -1,0 +1,162 @@
+# CareerOS development stack.
+#
+#   docker compose up
+#
+# Runs the dashboard on :5000 and the API — with Playwright and Chromium inside
+# it — on :4000. Ollama stays on the host. The database stays where it is.
+#
+# ── About the database ────────────────────────────────────────────────────────
+# CareerOS does not use MySQL. `apps/api/.env` sets
+# `CAREER_OS_DATABASE_URL=sqlite:///./data/career_os.db`, no MySQL driver is
+# installed, and `app/db/store.py` is SQLite-specific throughout (WAL pragmas,
+# json_extract/json_set, an ON CONFLICT upsert). So there is no database service
+# here and nothing is migrated: the container uses the *existing* database file
+# through the `apps/api/data` bind mount below, with its existing data.
+#
+# ── Do not run this at the same time as the local dev servers ────────────────
+# Both write the same SQLite file and the same browser profile, and `main.py`
+# refuses to run more than one worker precisely because Autopilot state is
+# process-local. Two API processes is the one configuration that can corrupt
+# application state. Stop `scripts/restart-dev.ps1` first, or set
+# CAREEROS_DATA_DIR to a scratch copy (see docs/docker.md).
+
+name: careeros
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+      args:
+        # Image size is dominated by PyTorch, not by CareerOS. See docs/docker.md.
+        #   cpu (default) - CPU-only wheels, no CUDA. This is all the code can
+        #                   use: semantic.py loads with device="cpu".
+        #   default       - CUDA wheels, ~10 GB larger, unusable without a GPU.
+        TORCH_VARIANT: ${CAREEROS_TORCH_VARIANT:-cpu}
+        # false drops sentence-transformers entirely for the smallest image.
+        # Resume ranking then falls back to BM25, which semantic.py already
+        # handles deliberately. Fine for API/UI work, not for tuning retrieval.
+        INSTALL_ML: ${CAREEROS_INSTALL_ML:-true}
+        # pytest/ruff/mypy, so `docker compose exec api python -m pytest` works.
+        INSTALL_DEV: ${CAREEROS_INSTALL_DEV:-true}
+    image: ${CAREEROS_API_IMAGE:-careeros-api:dev}
+    ports:
+      - "4000:4000"
+    environment:
+      # ── Database ──────────────────────────────────────────────────────────
+      # Relative to the API working directory, exactly as the local workflow
+      # resolves it, so the same file is opened either way.
+      CAREER_OS_DATABASE_URL: ${CAREER_OS_DATABASE_URL:-sqlite:///./data/career_os.db}
+
+      # ── Host Ollama ───────────────────────────────────────────────────────
+      # host.docker.internal resolves to the host from inside the container; the
+      # extra_hosts entry below makes that work on Linux too. Overridable, and
+      # the application code keeps its localhost defaults so nothing
+      # Docker-specific is baked into business logic.
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434/v1}
+      APPLICATION_ASSISTANT_LLM_BASE_URL: ${APPLICATION_ASSISTANT_LLM_BASE_URL:-http://host.docker.internal:11434/v1}
+      # Read by the health probes in main.py, diagnostic.py and observability.py,
+      # which would otherwise report the container's own empty localhost.
+      CAREEROS_OLLAMA_HEALTH_URL: ${CAREEROS_OLLAMA_HEALTH_URL:-http://host.docker.internal:11434}
+
+      # ── Browser ───────────────────────────────────────────────────────────
+      # Headless is already the default in autopilot_runner.py; stated here
+      # because a container has no display and a headed launch would simply
+      # fail. The profile directory is pointed at the mounted volume so a
+      # logged-in session survives `docker compose down`.
+      AA_HEADLESS: ${AA_HEADLESS:-true}
+      AA_BROWSER_PROFILE_DIR: /app/apps/api/data/application_assistant/browser_profile
+
+      # ── Safety ────────────────────────────────────────────────────────────
+      # These are set explicitly because `env_file` below loads apps/api/.env,
+      # which sets ALLOW_REAL_SUBMISSION=true for the local workflow. Compose
+      # gives `environment` precedence over `env_file`, so stating it here is
+      # what stops a real submission leaking into a brand-new container
+      # environment that shares the live database. Verified with
+      # `docker compose config`, which is how the leak was caught.
+      #
+      # submission_guard.assert_submission_permitted() refuses the final submit
+      # click unless this is true. Flip it deliberately, per the safeguards in
+      # AGENTS.md, once you actually intend to submit from Docker.
+      ALLOW_REAL_SUBMISSION: ${ALLOW_REAL_SUBMISSION_DOCKER:-false}
+      CAREEROS_LIVE_APPLY: "0"
+      # One worker. main.py raises otherwise.
+      WEB_CONCURRENCY: "1"
+
+      PYTHONUNBUFFERED: "1"
+    env_file:
+      # Optional: the real .env is gitignored and is not copied into the image.
+      # Values above win, so Docker networking overrides local hostnames.
+      - path: ./apps/api/.env
+        required: false
+    volumes:
+      # The live database, browser profiles, screenshots, tailored resumes and
+      # traces. Read-write and deliberately the real directory — the task is to
+      # use the existing data, not a copy. Point CAREEROS_DATA_DIR elsewhere to
+      # work against a scratch copy instead.
+      - ${CAREEROS_DATA_DIR:-./apps/api/data}:/app/apps/api/data
+      # Source for hot reload. The data mount above is nested inside this path
+      # and takes precedence, so it is not shadowed.
+      - ./apps/api/app:/app/apps/api/app:ro
+      - ./apps/api/tests:/app/apps/api/tests:ro
+      # Embedding weights, so the resume ranker does not fall back to BM25 after
+      # every rebuild. Named volume: these are downloaded artifacts, not source.
+      - careeros-models:/models
+    extra_hosts:
+      # Required on Linux, harmless on Docker Desktop where it already resolves.
+      - "host.docker.internal:host-gateway"
+    # Chromium needs more than the default 64MB of shared memory or it crashes
+    # on content-heavy pages.
+    shm_size: "1gb"
+    restart: unless-stopped
+    command:
+      - python
+      - -m
+      - uvicorn
+      - app.main:app
+      - --host
+      - 0.0.0.0
+      - --port
+      - "4000"
+      - --reload
+      # Scoped to app/ so a screenshot or a database write never triggers a
+      # reload — a reload mid-submission is exactly what kills a live browser.
+      - --reload-dir
+      - app
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    image: careeros-web:dev
+    ports:
+      - "5000:5000"
+    environment:
+      # The dashboard proxies every backend call through
+      # app/api/backend/[...path]/route.ts, which reads this. Inside the compose
+      # network the API is reachable by service name, and only by service name —
+      # this proxy runs server-side in the web container, where localhost is the
+      # web container itself.
+      #
+      # Deliberately not ${CAREER_OS_API_PUBLIC_URL:-...}: Compose substitutes
+      # from the repository-root .env, which sets that variable to
+      # http://localhost:4000 for the local workflow. Inheriting it here
+      # silently pointed the proxy at nothing. Override with the Docker-specific
+      # name below if you really need to.
+      CAREER_OS_API_PUBLIC_URL: ${CAREEROS_DOCKER_API_URL:-http://api:4000}
+      NEXT_TELEMETRY_DISABLED: "1"
+      WATCHPACK_POLLING: "true"
+    volumes:
+      # Source only. node_modules and .next are anonymous volumes so the host's
+      # Windows-built node_modules never shadows the Linux install in the image.
+      - ./apps/web:/app/apps/web
+      - /app/apps/web/node_modules
+      - /app/apps/web/.next
+      - /app/node_modules
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  careeros-models:

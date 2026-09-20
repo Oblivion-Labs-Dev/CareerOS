@@ -33,7 +33,7 @@ const MODE_COPY: Record<TailoringMode, { label: string; description: string }> =
 };
 
 function ScoreRing({ score }: { score: number }) {
-  const color = score >= 80 ? "#34d399" : score >= 50 ? "#f59e0b" : "#f43f5e";
+  const color = score >= 80 ? "#34d399" : score >= 50 ? "#f59e0b" : "var(--danger)";
   const circumference = 2 * Math.PI * 26;
   const offset = circumference * (1 - score / 100);
   return (
@@ -102,11 +102,11 @@ function AtsScorePanel({ profileId }: { profileId: string | null }) {
                 flexShrink: 0,
                 borderRadius: "50%",
                 background: item.passed ? "rgba(52,211,153,0.18)" : "rgba(244,63,94,0.18)",
-                border: `1px solid ${item.passed ? "#34d399" : "#f43f5e"}`,
+                border: `1px solid ${item.passed ? "#34d399" : "var(--danger)"}`,
               }}
             />
             <span>
-              <strong style={{ color: item.passed ? "#34d399" : "#f43f5e" }}>{item.label}</strong>
+              <strong style={{ color: item.passed ? "#34d399" : "var(--danger)" }}>{item.label}</strong>
               <br />
               <span className="muted" style={{ fontSize: "var(--cos-text-sm)" }}>
                 {item.detail}
@@ -170,7 +170,7 @@ function BulletDiffRow({ bullet }: { bullet: TailoredBullet }) {
       {bullet.changed ? (
         <>
           <p style={{ margin: 0, textDecoration: "line-through", color: "var(--text-secondary)", opacity: 0.7 }}>{bullet.original}</p>
-          <p style={{ margin: 0, color: "var(--accent)", background: "rgba(88,222,196,0.08)", borderRadius: "var(--radius-sm)", padding: "0.4rem 0.5rem" }}>
+          <p style={{ margin: 0, color: "var(--accent)", background: "color-mix(in srgb, var(--accent) 8%, transparent)", borderRadius: "var(--radius-sm)", padding: "0.4rem 0.5rem" }}>
             {bullet.tailored}
           </p>
         </>
@@ -247,7 +247,7 @@ function TailorForJob({ mode }: { mode: TailoringMode }) {
         </button>
       </div>
 
-      {error ? <p style={{ color: "#f43f5e", fontSize: "var(--cos-text-sm)" }}>{error}</p> : null}
+      {error ? <p style={{ color: "var(--danger)", fontSize: "var(--cos-text-sm)" }}>{error}</p> : null}
 
       {result ? (
         <div style={{ display: "grid", gap: "0.6rem" }}>

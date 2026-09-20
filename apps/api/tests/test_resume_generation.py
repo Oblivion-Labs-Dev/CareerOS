@@ -26,6 +26,20 @@ def generation_kwargs() -> dict[str, Any]:
     }
 
 
+def test_editing_approved_wording_requires_fresh_review(monkeypatch):
+    previous = {'id':'review-source','resumeApproved':True,'resumeEvolution':{'current':'Built verified systems.'}}
+    monkeypatch.setattr(api,'get_entity',lambda *args:previous)
+    monkeypatch.setattr(api,'upsert_entity',lambda db,kind,value:value)
+    changed=api.save_accomplishment_route(api.AccomplishmentPayload(accomplishment={
+        'id':'review-source','currentBullet':'Built a different system.','resumeApproved':True}),None)['accomplishment']
+    assert changed['resumeApproved'] is False
+    assert changed['revisionHistory'][0]['resumeApproved'] is True
+    monkeypatch.setattr(api,'get_entity',lambda *args:changed)
+    reviewed=api.save_accomplishment_route(api.AccomplishmentPayload(accomplishment={
+        'id':'review-source','resumeApproved':True}),None)['accomplishment']
+    assert reviewed['resumeApproved'] is True
+
+
 def payload(accomplishment_ids: list[str]) -> api.ResumeGeneratePayload:
     return api.ResumeGeneratePayload(
         accomplishmentIds=accomplishment_ids,

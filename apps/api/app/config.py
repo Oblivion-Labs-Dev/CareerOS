@@ -23,6 +23,15 @@ class Settings(BaseSettings):
     career_os_repair_demo_enabled: bool = False
     career_os_repair_agent_adapter: str = "mock"
 
+    # Where the health probes look for Ollama. The inference calls themselves
+    # already resolve their own base URL from OLLAMA_BASE_URL /
+    # application_assistant_llm_base_url, but the liveness checks in main.py,
+    # routers/diagnostic.py and services/observability.py had 127.0.0.1 written
+    # into them. Inside a container that is the container itself, so Ollama
+    # always read as down even when the host was serving it happily. Same
+    # default as before, so a local run is unaffected.
+    careeros_ollama_health_url: str = "http://127.0.0.1:11434"
+
     # Application Assistant
     application_assistant_enabled: bool = True
     application_assistant_llm_base_url: str = "http://localhost:11434/v1"

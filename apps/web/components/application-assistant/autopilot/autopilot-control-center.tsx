@@ -1,11 +1,16 @@
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
+  AutopilotRefusedError,
+  fetchAutopilotReadiness,
   getAutopilotJobsPage,
+  getAutopilotStats,
   pauseAutopilot,
   startAutopilot,
   stopAutopilot,
+  type AutopilotReadiness,
 } from "@/lib/application-assistant-api";
 import {
   PIPELINE_STAGES,
@@ -18,6 +23,11 @@ import styles from "./control-center.module.css";
 import { NightBatchCard, type NightBatchConfig } from "./night-batch-card";
 import { LastUpdatePanel } from "./last-update-panel";
 
+// Legacy `?tab=` values this page still accepts (see CONTROL_CENTER_TABS in
+// the route). Overview and Applications are no longer separate sections —
+// both always render together — so this is only consulted once, on mount,
+// to redirect a stale "diagnostics" link to the page that actually owns that
+// content now.
 type SectionId = "overview" | "applications" | "review" | "diagnostics";
 
 import type { AutopilotJobRow } from "./job-types";
@@ -48,46 +58,84 @@ export function AutopilotControlCenter({
 }: {
   initialSection?: SectionId;
 }) {
+  const router = useRouter();
   const { state, loading, connectionError, refresh } = useAutopilotState();
-  const [section, setSection] = useState<SectionId>(initialSection);
   const [jobs, setJobs] = useState<AutopilotJobRow[]>([]);
-  const [submittedJobs, setSubmittedJobs] = useState<AutopilotJobRow[]>([]);
   const [jobsLoading, setJobsLoading] = useState(true);
+  // True per-status totals across every job, not just the 100 most recently
+  // touched ones `jobs` holds — "Need your review" read off that capped,
+  // recency-sorted sample showed 7 while the real In-Review + Manual-Review
+  // total was over 2,000, because almost none of the top 100 most-recently-
+  // updated rows (across all 9 statuses, during an active batch run) happened
+  // to be review rows at that instant.
+  const [statusCounts, setStatusCounts] = useState<Record<string, number>>({});
+  // Submitted-today/24h come from the same cheap stats aggregate rather than
+  // a dedicated fetch of up to 500 full SUBMITTED job rows — that fetch was
+  // adding real weight to every page load just to count two numbers.
+  const [submittedToday, setSubmittedToday] = useState(0);
+  const [submitted24h, setSubmitted24h] = useState(0);
+  const [statsLoading, setStatsLoading] = useState(true);
   const [controlBusy, setControlBusy] = useState(false);
   const [controlError, setControlError] = useState<string | null>(null);
+  // Pre-flight readiness, fetched alongside the rest of the dashboard so the
+  // card can show what is missing before Start is pressed rather than after a
+  // refusal. A failure here is never fatal: the gate still refuses server-side.
+  const [readiness, setReadiness] = useState<AutopilotReadiness | null>(null);
 
-  const loadJobs = useCallback(async () => {
-    if (section !== "overview") return;
-    try {
-      const [res, subRes] = await Promise.all([
-        getAutopilotJobsPage({
-          status: ALL_STATUSES.join(","),
-          limit: 100,
-          sortBy: "updatedAt",
-          sortDir: "desc",
-        }),
-        getAutopilotJobsPage({
-          status: "SUBMITTED",
-          limit: 500,
-          sortBy: "submittedAt",
-          sortDir: "desc",
-        }),
-      ]);
-      setJobs((res.jobs || []) as AutopilotJobRow[]);
-      setSubmittedJobs((subRes.jobs || []) as AutopilotJobRow[]);
-    } catch {
-      // Leave previous snapshot in place on transient error
-    } finally {
-      setJobsLoading(false);
-    }
-  }, [section]);
+  // A stale "?tab=diagnostics" link is the one legacy case that actually
+  // points somewhere else now — Diagnostics moved to its own page rather
+  // than rendering inline here.
+  useEffect(() => {
+    if (initialSection === "diagnostics") router.replace("/diagnostic");
+  }, [initialSection, router]);
+
+  // Each call resolves independently — the metric tiles that only need
+  // `jobs` (or only need `statusCounts`) render as soon as their own fetch
+  // lands, instead of every tile waiting on whichever of the two is slowest.
+  const loadJobs = useCallback(() => {
+    void getAutopilotJobsPage({
+      status: ALL_STATUSES.join(","),
+      limit: 100,
+      sortBy: "updatedAt",
+      sortDir: "desc",
+    })
+      .then((res) => setJobs((res.jobs || []) as AutopilotJobRow[]))
+      .catch(() => {
+        // Leave previous snapshot in place on transient error
+      })
+      .finally(() => setJobsLoading(false));
+
+    void getAutopilotStats()
+      .then((res) => {
+        if (res.success) {
+          setStatusCounts(res.statusCounts || {});
+          setSubmittedToday(res.submittedToday ?? 0);
+          setSubmitted24h(res.submitted24h ?? 0);
+        }
+      })
+      .catch(() => {
+        // Leave previous snapshot in place on transient error
+      })
+      .finally(() => setStatsLoading(false));
+  }, []);
 
   useEffect(() => {
-    if (section !== "overview") return;
     void loadJobs();
     const interval = setInterval(() => void loadJobs(), 15_000);
     return () => clearInterval(interval);
-  }, [loadJobs, section]);
+  }, [loadJobs]);
+
+  // Readiness changes only when the profile or the review queue does, so it is
+  // refreshed on mount and after a run rather than on the 15s job poll.
+  const loadReadiness = useCallback(() => {
+    fetchAutopilotReadiness()
+      .then(setReadiness)
+      .catch(() => {
+        // Advisory only — the gate still refuses server-side if this is stale.
+      });
+  }, []);
+
+  useEffect(() => loadReadiness(), [loadReadiness]);
 
   const opState = resolveOperationalState(state, connectionError);
   const isLive = opState === "running" || opState === "recovering";
@@ -131,27 +179,20 @@ export function AutopilotControlCenter({
 
   const today = useMemo(() => {
     const now = new Date();
-    const oneDayAgo = now.getTime() - 24 * 60 * 60 * 1000;
-    // Count real submissions today directly from submittedJobs so it is never
-    // crowded out by paginated queued rows in the overview snapshot.
-    const pool = submittedJobs.length > 0 ? submittedJobs : jobs;
-    const submitted = pool.filter(
-      (j) =>
-        j.status === "SUBMITTED" &&
-        !j.duplicateSubmission &&
-        isSameDay(j.submittedAt || j.updatedAt, now),
-    ).length;
-    const submitted24h = pool.filter((j) => {
-      if (j.status !== "SUBMITTED" || j.duplicateSubmission) return false;
-      const ts = new Date(j.submittedAt || j.updatedAt || 0).getTime();
-      return ts >= oneDayAgo;
-    }).length;
     const skipped = jobs.filter((j) => j.status === "SKIPPED" && isSameDay(j.updatedAt, now)).length;
     const failed = jobs.filter((j) => j.status === "FAILED" && isSameDay(j.updatedAt, now)).length;
     const review = jobs.filter((j) => (j.status === "NEEDS_REVIEW" || j.status === "STAGED")).length;
     const pending = jobs.filter((j) => j.status === "QUEUED").length;
-    return { submitted, submitted24h, skipped, failed, review, pending, evaluated: submitted + skipped + failed };
-  }, [jobs, submittedJobs]);
+    return {
+      submitted: submittedToday,
+      submitted24h,
+      skipped,
+      failed,
+      review,
+      pending,
+      evaluated: submittedToday + skipped + failed,
+    };
+  }, [jobs, submittedToday, submitted24h]);
 
   // Share of every real attempt (submitted + manual review + in review +
   // failed) that ended in a submission. cumulative.staged covers both STAGED
@@ -167,25 +208,9 @@ export function AutopilotControlCenter({
     return Math.round((submitted / denom) * 100);
   }, [cumulative]);
 
-  const reviewJobs = useMemo(
-    () => jobs.filter((j) => j.status === "NEEDS_REVIEW" || j.status === "STAGED"),
-    [jobs],
-  );
-
-  const authJobs = useMemo(
-    () =>
-      jobs.filter(
-        (j) => j.lastErrorType === "AUTH_REQUIRED" || j.lastErrorType === "CAPTCHA",
-      ),
-    [jobs],
-  );
-
-  const health = useMemo(() => {
-    if (connectionError) return "offline" as const;
-    if (state?.selfHealing?.status && state.selfHealing.status !== "idle") return "degraded" as const;
-    if (authJobs.length > 0) return "attention" as const;
-    return "healthy" as const;
-  }, [connectionError, state?.selfHealing?.status, authJobs.length]);
+  // In Review (NEEDS_REVIEW + STAGED) + Manual Review — the true system-wide
+  // total, not a count derived from the capped recent-jobs sample.
+  const needsReviewCount = (statusCounts.NEEDS_REVIEW || 0) + (statusCounts.STAGED || 0) + (statusCounts.MANUAL_REVIEW || 0);
 
   // Pause/stop only. Starting a run goes through the Night Batch card, which is
   // the single place a batch is configured — there is deliberately no second
@@ -222,7 +247,25 @@ export function AutopilotControlCenter({
       await refresh();
       void loadJobs();
     } catch (err) {
-      setControlError(err instanceof Error ? err.message : "Could not start Night Batch");
+      // A refusal carries the missing answers with it. Put them into the card's
+      // readiness panel rather than flattening them to one sentence, so the
+      // user gets the same actionable list either way.
+      if (err instanceof AutopilotRefusedError) {
+        if (err.readiness) {
+          setReadiness((previous) =>
+            previous
+              ? { ...previous, profile: err.readiness! }
+              : {
+                  success: false,
+                  profile: err.readiness!,
+                  questions: { groups: [], questionCount: 0, blockedJobCount: 0, singleAnswerJobCount: 0, headline: "" },
+                },
+          );
+        }
+        setControlError(err.message);
+      } else {
+        setControlError(err instanceof Error ? err.message : "Could not start Night Batch");
+      }
     } finally {
       setControlBusy(false);
     }
@@ -264,65 +307,43 @@ export function AutopilotControlCenter({
 
       {controlError && <div className={styles.empty}>{controlError}</div>}
 
-      {/* Night Batch is the single control surface: its own header shows
-          running/ready state, and it carries its own Start (idle) and
-          Pause/Stop (live) buttons, so it renders unconditionally here rather
-          than behind a separate status bar and toggle. */}
-      {section === "overview" && (
-        <div className={styles.batchRow} data-has-history={Boolean(lastActivity || (state?.run?.processedCount ?? 0) > 0)}>
-          <NightBatchCard
-            isLive={isLive}
-            onStartBatch={handleStartNightBatch}
-            onPause={() => runControl("pause")}
-            onStop={() => runControl("stop")}
-            busy={controlBusy}
-            liveJob={liveJob}
-            targetCount={state?.run?.targetProcessCount ?? 10}
-            processedCount={state?.run?.processedCount ?? 0}
-            resumeCount={state?.run?.resumeCount ?? 1}
-            submittedCount={state?.run?.submittedCount ?? 0}
-            stagedCount={state?.run?.stagedCount ?? 0}
-            queueScores={queueScores}
-            queueLoading={jobsLoading}
-            liveConfig={state?.batchConfig ?? null}
-            stageIndex={activeStageIndex}
-            logs={state?.recentLogs ?? []}
-            healing={state?.selfHealing ?? null}
-          />
-          {(lastActivity || (state?.run?.processedCount ?? 0) > 0) && <LastUpdatePanel
-            lastActivity={lastActivity}
-            lastRun={state?.run ?? null}
-            isLive={isLive}
-          />}
-        </div>
-      )}
-      <nav className={styles.tabs}>
-        {([
-          ["overview", "Overview", 0],
-          ["applications", "Applications", 0],
-          ["review", "Review", reviewJobs.length],
-          ["diagnostics", "Diagnostics", 0],
-        ] as [SectionId, string, number][]).map(([id, label, count]) => (
-          <button
-            key={id}
-            type="button"
-            onClick={() => setSection(id)}
-            aria-pressed={section === id}
-            className={`${styles.tab} ${section === id ? styles.tabActive : ""}`}
-          >
-            {label}
-            {count > 0 && <span className={styles.tabCount}>{count}</span>}
-          </button>
-        ))}
-      </nav>
-
-      {section === "overview" && (
-        <div className={styles.overviewGrid}>
+      {/* Overview is always visible up top now, not a tab you navigate away
+          from — Night Batch's own header shows running/ready state and
+          carries its own Start (idle) and Pause/Stop (live) buttons, so it
+          renders unconditionally rather than behind a section switch. */}
+      <div className={styles.batchRow} data-has-history={Boolean(lastActivity || (state?.run?.processedCount ?? 0) > 0)}>
+        <NightBatchCard
+          isLive={isLive}
+          readiness={readiness}
+          onStartBatch={handleStartNightBatch}
+          onPause={() => runControl("pause")}
+          onStop={() => runControl("stop")}
+          busy={controlBusy}
+          liveJob={liveJob}
+          targetCount={state?.run?.targetProcessCount ?? 10}
+          processedCount={state?.run?.processedCount ?? 0}
+          resumeCount={state?.run?.resumeCount ?? 1}
+          submittedCount={state?.run?.submittedCount ?? 0}
+          stagedCount={state?.run?.stagedCount ?? 0}
+          queueScores={queueScores}
+          queueLoading={jobsLoading}
+          liveConfig={state?.batchConfig ?? null}
+          stageIndex={activeStageIndex}
+          logs={state?.recentLogs ?? []}
+          healing={state?.selfHealing ?? null}
+        />
+        {(lastActivity || (state?.run?.processedCount ?? 0) > 0) && <LastUpdatePanel
+          lastActivity={lastActivity}
+          lastRun={state?.run ?? null}
+          isLive={isLive}
+        />}
+      </div>
+      <div className={styles.overviewGrid}>
           <div className={styles.mainCol}>
             {/* ── Operational metrics ── */}
             <div className={styles.metricGrid}>
               <div className={styles.metric} data-tone="success">
-                <div className={styles.metricValue}>{jobsLoading ? "—" : today.submitted}</div>
+                <div className={styles.metricValue}>{statsLoading ? "—" : today.submitted}</div>
                 <div className={styles.metricLabel}>Submitted today</div>
                 {today.submitted24h > today.submitted && (
                   <div className={styles.metricHint}>{today.submitted24h} in last 24h</div>
@@ -337,144 +358,30 @@ export function AutopilotControlCenter({
                   {successRate == null ? <span className={styles.unknownValue}>—</span> : `${successRate}%`}
                 </div>
                 <div className={styles.metricLabel}>Success rate</div>
-                <div className={styles.metricHint}>submitted ÷ (submitted + failed)</div>
+                <div className={styles.metricHint}>submitted ÷ (submitted + review + failed)</div>
               </div>
               <div className={styles.metric} data-tone="attention">
-                <div className={styles.metricValue}>{jobsLoading ? "—" : reviewJobs.length}</div>
+                <div className={styles.metricValue}>{statsLoading ? "—" : needsReviewCount}</div>
                 <div className={styles.metricLabel}>Need your review</div>
               </div>
             </div>
-
-            {/* ── Attention center ── */}
-            <section className={styles.panel}>
-              <div className={styles.panelHead}>
-                <span className={styles.panelTitle}>Needs your attention</span>
-              </div>
-              {jobsLoading ? (
-                <p className={styles.loadingText}>Checking…</p>
-              ) : reviewJobs.length === 0 && authJobs.length === 0 ? (
-                <div className={styles.allClear}>
-                  <span className={styles.allClearDot}>●</span>
-                  Nothing needs you right now — everything else is being handled automatically.
-                </div>
-              ) : (
-                <div>
-                  {reviewJobs.length > 0 && (
-                    <div className={styles.attentionItem} data-kind="review">
-                      <span className={styles.attentionIcon}>⚠</span>
-                      <div className={styles.attentionBody}>
-                        <div className={styles.attentionTitle}>
-                          {reviewJobs.length} application{reviewJobs.length === 1 ? "" : "s"} need review
-                        </div>
-                        <div className={styles.attentionDetail}>
-                          Autopilot wasn&apos;t confident enough to safely submit without your answer.
-                        </div>
-                      </div>
-                      <button type="button" className={styles.attentionAction} onClick={() => setSection("applications")}>
-                        Review
-                      </button>
-                    </div>
-                  )}
-                  {authJobs.length > 0 && (
-                    <div className={styles.attentionItem} data-kind="auth">
-                      <span className={styles.attentionIcon}>🔑</span>
-                      <div className={styles.attentionBody}>
-                        <div className={styles.attentionTitle}>
-                          {authJobs.length} site{authJobs.length === 1 ? "" : "s"} need authentication
-                        </div>
-                        <div className={styles.attentionDetail}>
-                          {Array.from(new Set(authJobs.map((j) => j.company).filter(Boolean))).slice(0, 4).join(", ")}
-                          {" — sign in so Autopilot can continue."}
-                        </div>
-                      </div>
-                      <button type="button" className={styles.attentionAction} onClick={() => setSection("diagnostics")}>
-                        Fix
-                      </button>
-                    </div>
-                  )}
-                </div>
-              )}
-            </section>
           </div>
 
-          <div className={styles.sideCol}>
-            {/* ── Today ── */}
-            <section className={styles.panel}>
-              <div className={styles.panelHead}>
-                <span className={styles.panelTitle}>Today</span>
-              </div>
-              <div className={styles.panelBody} style={{ paddingTop: "0.35rem", paddingBottom: "0.35rem" }}>
-                <div className={styles.todayRow}>
-                  <span>Evaluated</span>
-                  <strong>{jobsLoading ? "—" : today.evaluated}</strong>
-                </div>
-                <div className={styles.todayRow}>
-                  <span>Submitted</span>
-                  <strong>{jobsLoading ? "—" : today.submitted}</strong>
-                </div>
-                <div className={styles.todayRow}>
-                  <span>Skipped</span>
-                  <strong>{jobsLoading ? "—" : today.skipped}</strong>
-                </div>
-                <div className={styles.todayRow}>
-                  <span>Queued</span>
-                  <strong>{jobsLoading ? "—" : today.pending}</strong>
-                </div>
-              </div>
-            </section>
+      </div>
 
-            {/* ── System health ── */}
-            <section className={styles.panel}>
-              <div className={styles.panelHead}>
-                <span className={styles.panelTitle}>System health</span>
-                <span className={styles.healthBadge} data-health={health}>
-                  <span className={styles.statusDot} style={{ background: "currentColor" }} />
-                  {health === "healthy" ? "Healthy" : health === "degraded" ? "Degraded" : health === "attention" ? "Attention" : "Offline"}
-                </span>
-              </div>
-              <div className={styles.panelBody} style={{ paddingTop: "0.35rem" }}>
-                <div className={styles.healthRow}>
-                  <span>Applications today</span>
-                  <strong>{jobsLoading ? "—" : today.submitted}</strong>
-                </div>
-                <div className={styles.healthRow}>
-                  <span>Success rate</span>
-                  <strong>{successRate == null ? "—" : `${successRate}%`}</strong>
-                </div>
-                <div className={styles.healthRow}>
-                  <span>Auto-recovered</span>
-                  <strong>{state?.selfHealing ? state.selfHealing.patchesApplied : "—"}</strong>
-                </div>
-                <div className={styles.healthRow}>
-                  <span>Human intervention</span>
-                  <strong>{jobsLoading ? "—" : reviewJobs.length + authJobs.length}</strong>
-                </div>
-
-                {state?.selfHealing?.lastPatchSummary ? (
-                  <div className={styles.recoveryBlock}>
-                    <span className={styles.recoveryLabel}>Last recovery</span>
-                    {state.selfHealing.lastPatchSummary}
-                  </div>
-                ) : null}
-              </div>
-            </section>
-
-            {/* Recent Activity (last activity + last run stats + live event
-                feed + recent submissions) lives in the Night Batch row above
-                when a batch is live or the panel is open. When neither is
-                true there is nothing to show here, so it is intentionally
-                left out of this idle side column rather than duplicated. */}
-          </div>
-        </div>
-      )}
-
-      {section !== "overview" && (
+      <div id="application-workspace">
         <AutopilotApplicationsView
-          section={section}
           onJobsChanged={loadJobs}
           allJobs={jobs}
+          questionGroups={readiness?.questions?.groups ?? []}
+          onAnswered={() => {
+            // An answer can requeue applications, so both the readiness list
+            // and the job counts are stale the moment it lands.
+            loadReadiness();
+            void loadJobs();
+          }}
         />
-      )}
+      </div>
     </div>
   );
 }

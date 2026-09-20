@@ -17,7 +17,9 @@
   --text: #0f172a;
   --text-secondary: #334155;
   --muted: #64748b;
-  --muted-dim: #94a3b8;
+  /* Kept in step with globals.css: #94a3b8 is 2.56:1 on white, below the 3:1
+     floor the contrast spec enforces. */
+  --muted-dim: #78899e;
 
   /* Accent & status colors */
   --accent: #0a947e;

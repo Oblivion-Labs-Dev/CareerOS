@@ -18,6 +18,7 @@ from app.services.resume_intelligence import quality, semantic
 from app.services.resume_intelligence.bm25 import BM25Index
 from app.services.resume_intelligence.fusion import reciprocal_rank_fusion
 from app.services.story_index import flat_tags as _flat_tags
+from app.services.story_index import has_unverified_metrics, resume_approved
 
 VERSION = "local-evidence-v2"
 STOP = set("the and for with that this your you our are will have from into role work team years experience required preferred must should ability strong excellent skills knowledge including about using build develop".split())
@@ -80,6 +81,116 @@ def evidenced_skills(bullets: list[dict], records: list[dict]) -> list[str]:
             if isinstance(skill, str) and skill and re.search(r"(?<!\w)" + re.escape(skill) + r"(?!\w)", bullet.get("optimizedBullet") or "", re.I):
                 skills.add(skill)
     return sorted(skills)
+
+
+#: Words that carry no signal about what a bullet demonstrates, however often a
+#: posting says them. Two of these were enough to credit a Microsoft insider-risk
+#: bullet with "5+ years building and operating backend distributed systems" on
+#: a Kafka/Flink posting, and it then replaced a real achievement. They are the
+#: vocabulary of *all* backend work, so sharing them says nothing.
+GENERIC_OVERLAP_WORDS = frozenset(
+    "backend frontend fullstack system systems service services platform platforms "
+    "software engineering engineer engineers production design designed build building "
+    "built development developing developed team teams company product products project "
+    "projects code codebase application applications feature features data user users "
+    "customer customers business technical technology technologies solution solutions "
+    "process processes support supporting tools tooling work working experience".split()
+)
+
+
+# ---------------------------------------------------------------------------
+# The bar, measured from the approved resume
+# ---------------------------------------------------------------------------
+# A candidate sentence is not competing in the abstract: it is competing for a
+# line on a specific, already-good resume, so that resume sets the standard.
+# Measured across all 24 bullets of the approved baseline:
+#
+#     pronoun-led ("I ...", "We ...")      0 of 24
+#     verb-led                            24 of 24
+#     carries a technology or concept      23 of 24
+#     carries a number                     20 of 24
+#     carries a scale figure (%, K+, TPS)  16 of 24
+#     words                                13-49, median 31
+#     distinct content words                7-29, median 21
+#
+# Two of those are categorical rather than tendencies, and they are the gate.
+#
+# **Never pronoun-led.** Not one bullet on the page begins with "I" or "We";
+# every one leads with what was done. Story prose does the opposite, and the
+# sentences that leak through are exactly the ones that describe taking part
+# rather than achieving something — "I drove the work from the Insider Risk
+# Management side.", "We established a common identifier for the user or agent
+# across the participating systems." One of those was selected and rendered
+# onto a generated resume. Even the better pronoun-led sentences ("I owned the
+# production service around it: architecture, implementation, SageMaker
+# integration, testing and launch.") read as a seam next to the page's voice,
+# which is why this is a gate and not the soft `_voice_penalty` in the ranker.
+#
+# **Always concrete.** Every bullet carries a number, a named technology, or
+# both; none is pure narration. A sentence with neither is not making a claim a
+# reader can check.
+#
+# Deliberately *not* gated: length, and the presence of a number on its own.
+# Four baseline bullets carry no number and one is only 13 words, so either
+# test would reject the page's own work. Word count in particular cannot
+# separate these classes at all — the good and vague sentences overlap exactly
+# at six distinct content words.
+MIN_TAGS_WITHOUT_A_NUMBER = 1
+
+_PRONOUN_LED = re.compile(r"^(?:I|We)(?![A-Za-z])", re.I)
+_HAS_NUMBER = re.compile(r"\d")
+
+
+def has_bullet_substance(text: str) -> bool:
+    """Whether a sentence is written to the standard of the approved resume."""
+    stripped = text.strip()
+    if _PRONOUN_LED.match(stripped):
+        return False
+    if _HAS_NUMBER.search(stripped):
+        return True
+    return len(flat_tags(stripped)) >= MIN_TAGS_WITHOUT_A_NUMBER
+
+
+#: Past-tense verbs that open an achievement. A resume bullet leads with what
+#: the candidate did; a story sentence leads with whatever the narrative needed
+#: next.
+_ACHIEVEMENT_VERBS = (
+    "architected|automated|built|consolidated|created|cut|delivered|designed|developed|"
+    "drove|eliminated|established|extended|implemented|improved|increased|integrated|"
+    "introduced|launched|led|migrated|owned|rebuilt|reduced|replaced|saved|scaled|"
+    "shipped|standardis|standardiz"
+)
+
+#: A candidate sentence has to *start* like a resume bullet. The previous rule
+#: accepted any sentence opening "I " or "We ", which let plain narration
+#: through: "We treated this cross-product information as eventually consistent
+#: enrichment" was selected and rendered onto a generated resume. It is true and
+#: it is well written, but it is a design note, not an accomplishment, and next
+#: to a real bullet it reads as filler. Requiring an achievement verb — with or
+#: without the pronoun in front of it — keeps "I owned the annual roadmap" and
+#: drops "We treated this as".
+_ACHIEVEMENT_OPENER = re.compile(
+    rf"^(?:(?:I|We)\s+)?(?:{_ACHIEVEMENT_VERBS})",
+    re.I,
+)
+
+#: Sentences that deny or limit what the candidate did. The corpus is written
+#: honestly, so its bodies are full of them — "I didn't own their internal
+#: risk-detection systems", "that was not my design" — and they are there
+#: precisely to stop an over-claim in an interview. As candidate resume bullets
+#: they are worse than useless: one was selected and rendered onto a generated
+#: resume during testing, directly beneath a genuine achievement.
+#:
+#: A negated auxiliary is the reliable signal. A real resume bullet effectively
+#: never contains one, while every disclaimer does, so this is high precision
+#: without catching legitimate phrasing like "with no data loss" or "zero
+#: downtime" that a bare "not" would have swept up.
+_DISCLAIMER = re.compile(
+    r"\b(?:did|was|were|is|are|had|have|has|do|does|could|would|should|ca|wo)(?:n['’]t|\s+not)\b"
+    r"|\bnot\s+(?:my|mine|our|ours|responsible|involved|the\s+owner|owned|designed|built)\b"
+    r"|\bnever\s+(?:owned|designed|built|led|shipped|established)\b",
+    re.I,
+)
 
 
 def _normalized(line: str) -> str:
@@ -158,7 +269,7 @@ def _candidates(records: list[dict]) -> list[dict]:
                 continue
             # Extract complete sentences, never splice facts from separate stories.
             for sentence in re.split(r"(?<=[.!?])\s+|\n+", story.get("body") or ""):
-                if re.match(r"^(?:I |We |Built |Designed |Implemented |Led |Created |Delivered |Reduced |Improved |Developed )", sentence.strip()):
+                if _ACHIEVEMENT_OPENER.match(sentence.strip()):
                     entries.append(("interviewStories.body", sentence, story))
         seen = set()
         for field, text, story in entries:
@@ -170,14 +281,26 @@ def _candidates(records: list[dict]) -> list[dict]:
                 continue
             if re.match(r"^(?:I|We) (?:wanted|planned|hoped|considered|would|could|needed)\b", text, re.I):
                 continue
-            metrics = record.get("metrics") or []
-            unresolved = [m for m in metrics if isinstance(m, dict) and m.get("verification") != "verified"]
-            metric_metadata = record.get("metricMetadata") or {}
-            unresolved.extend(m for m in metric_metadata.values() if isinstance(m, dict) and m.get("verification") != "verified")
-            approved = record.get("resumeApproved") is not False and not unresolved
-            # Narrative extraction always requires a review of the selected sentence.
+            if _DISCLAIMER.search(text):
+                continue
+            if not has_bullet_substance(text):
+                continue
+            unresolved = has_unverified_metrics(record)
+            # One approval policy for every source — see
+            # `story_index.resume_approval_state`. It used to differ by source
+            # and be applied twice: narrative sentences needed an explicit
+            # `resumeApproved is True` that nothing in the app ever set, while a
+            # record's own bullet needed only the absence of a `false`. The
+            # first was impossible to satisfy and the second was too loose to
+            # protect the approved resume.
+            approved = resume_approved(record)
+            if field.startswith("resumeVariants"):
+                # A variant only became an entry above because it was itself
+                # marked approved or published, so that decision stands; it
+                # still has to have no unchecked numbers behind it.
+                approved = approved or not unresolved
             if story is not None:
-                approved = story.get("resumeApproved") is True and not unresolved
+                approved = resume_approved({**record, **story})
             tier = (story or {}).get("evidence") or record.get("evidenceTier") or "unclassified"
             if tier == "personal-project" and re.match(r"^(?:At |When |Before )", text):
                 continue  # Background about employer work is not a personal-project achievement.
@@ -239,11 +362,12 @@ def compose(records: list[dict], description: str, title: str = "", max_pages: i
     semantic_vectors: dict[str, tuple[float, ...]] = {}
     semantic_ready = False
     if use_semantic and candidates and reqs:
-        items = [(c["source"]["revision"], c["optimizedBullet"]) for c in candidates]
-        items += [("req", req["text"]) for req in reqs]
-        embedded = semantic.embed_many(items)
-        if embedded is not None:
-            semantic_vectors = embedded
+        # Bullets are passages and requirements are queries - see semantic.py
+        # for why the distinction is not cosmetic.
+        passages = semantic.embed_many([(c["source"]["revision"], c["optimizedBullet"]) for c in candidates])
+        queries = semantic.embed_queries([("req", req["text"]) for req in reqs])
+        if passages is not None and queries is not None:
+            semantic_vectors = {**passages, **queries}
             semantic_ready = True
 
     def candidate_vector(index: int) -> tuple[float, ...] | None:
@@ -260,7 +384,7 @@ def compose(records: list[dict], description: str, title: str = "", max_pages: i
         ranked_lists = [bm25_rank]
         semantic_rank: list[int] = []
         if semantic_ready:
-            req_vector = semantic_vectors.get(semantic.cache_key("req", req["text"]))
+            req_vector = semantic_vectors.get(semantic.cache_key("req", req["text"], semantic.QUERY))
             if req_vector is not None:
                 sims = [semantic.cosine(req_vector, candidate_vector(i) or (0.0,) * len(req_vector)) for i in range(len(candidates))]
                 semantic_rank = sorted(range(len(candidates)), key=lambda i: (-sims[i], i))

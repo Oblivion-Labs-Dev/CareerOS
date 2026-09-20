@@ -1,9 +1,14 @@
 "use client";
 
+import { getClientApiBaseUrl } from "@/lib/api";
 import { useCallback, useEffect, useState } from "react";
 
 const REPAIR_BASE = process.env.NEXT_PUBLIC_REPAIR_ORCHESTRATOR_URL || "http://127.0.0.1:8090";
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
+// Same-origin through the Next proxy, so the login session cookie travels
+// with the request. Resolved at call time, not module scope: at module
+// scope this evaluates during SSR, where it would freeze to the server-side
+// origin and defeat the point.
+const resolveApiBase = () => getClientApiBaseUrl();
 
 type Incident = {
   fingerprint: string;
@@ -69,7 +74,7 @@ export default function RepairDashboardPage() {
 
   async function triggerDemoIncident() {
     setMessage("Triggering demo scraper error...");
-    const res = await fetch(`${API_BASE}/dev/demo/unhandled-scraper-error`, { cache: "no-store" });
+    const res = await fetch(`${resolveApiBase()}/dev/demo/unhandled-scraper-error`, { cache: "no-store" });
     const body = await res.json().catch(() => ({}));
     setMessage(`Demo triggered (${res.status}): ${JSON.stringify(body.detail ?? body)}`);
     await refresh();

@@ -1,7 +1,73 @@
+/** One answer the profile cannot supply. Shaped like a pending question so the
+ *  same row component renders a profile gap and a per-application question. */
+export interface ReadinessGap {
+  question: string;
+  rawLabel: string;
+  category: string;
+  fieldType: string;
+  options: string[];
+  profileKey: string;
+  fixAt: string;
+}
+
+export interface ProfileReadiness {
+  ready: boolean;
+  blocking: ReadinessGap[];
+  soft: ReadinessGap[];
+  blockingCount: number;
+  softCount: number;
+}
+
+/** One distinct question and every application waiting on it. */
+export interface PendingQuestionGroup {
+  question: string;
+  fieldType: string;
+  options: string[];
+  jobIds: string[];
+  jobCount: number;
+  /** Applications this finishes by itself. Always <= jobCount, and the only
+   *  number safe to promise: the median blocked application waits on two
+   *  questions, so "asked by N" is not "unblocks N". */
+  unblocksAlone: number;
+  companies: { company: string; count: number }[];
+  companyCount: number;
+  headline: string;
+}
+
+export interface AutopilotReadiness {
+  success: boolean;
+  profile: ProfileReadiness;
+  questions: {
+    groups: PendingQuestionGroup[];
+    questionCount: number;
+    blockedJobCount: number;
+    singleAnswerJobCount: number;
+    headline: string;
+  };
+}
+
 function aaBaseUrl(): string {
   // Keep application-assistant traffic on the dashboard origin. The route handler
   // forwards it to the local API, avoiding browser CORS and localhost/IP mismatches.
   return "/api/backend";
+}
+
+/** A refusal that carries structure, not just a sentence.
+ *
+ * The pre-flight gate answers "this run cannot start" with the list of answers
+ * that are missing. Flattening that to a string would throw away the part the
+ * user needs — which fields, and where to fix them.
+ */
+export class AutopilotRefusedError extends Error {
+  readonly reason: string;
+  readonly readiness: ProfileReadiness | null;
+
+  constructor(message: string, reason: string, readiness: ProfileReadiness | null) {
+    super(message);
+    this.name = "AutopilotRefusedError";
+    this.reason = reason;
+    this.readiness = readiness;
+  }
 }
 
 function parseApiError(text: string): string {
@@ -9,10 +75,32 @@ function parseApiError(text: string): string {
     const data = JSON.parse(text);
     if (typeof data.detail === "string") return data.detail;
     if (Array.isArray(data.detail)) return data.detail.map((d: { msg?: string }) => d.msg).join(", ");
+    // FastAPI passes an object `detail` through untouched. The gate uses that
+    // to carry its structured refusal; without this branch it stringified to
+    // "[object Object]" and the user saw nothing useful.
+    if (data.detail && typeof data.detail === "object") {
+      return String(data.detail.message || "This run cannot start yet.");
+    }
   } catch {
     /* plain text */
   }
   return text || "Request failed";
+}
+
+function parseRefusal(text: string): AutopilotRefusedError | null {
+  try {
+    const detail = JSON.parse(text)?.detail;
+    if (detail && typeof detail === "object" && !Array.isArray(detail)) {
+      return new AutopilotRefusedError(
+        String(detail.message || "This run cannot start yet."),
+        String(detail.reason || "not_ready"),
+        (detail.readiness as ProfileReadiness) ?? null,
+      );
+    }
+  } catch {
+    /* not a structured refusal */
+  }
+  return null;
 }
 
 async function aaFetch<T>(path: string, init?: RequestInit, timeoutMs = 45000): Promise<T> {
@@ -30,6 +118,12 @@ async function aaFetch<T>(path: string, init?: RequestInit, timeoutMs = 45000): 
     });
     if (!res.ok) {
       const text = await res.text();
+      // 409 is the gate refusing to start a run. Keep it typed so the caller
+      // can render the missing answers rather than a bare sentence.
+      if (res.status === 409) {
+        const refusal = parseRefusal(text);
+        if (refusal) throw refusal;
+      }
       throw new Error(parseApiError(text));
     }
     return res.json();
@@ -161,6 +255,41 @@ export async function startAutopilot(options?: Record<string, any>) {
   });
 }
 
+/** What the profile cannot answer, and which questions hold the most work.
+ *
+ *  Read-only, so the dashboard can show both *before* Start is pressed rather
+ *  than only after a refusal — the same idea as the match-floor preview, which
+ *  tells you a run will do nothing while you can still change it.
+ */
+export async function fetchAutopilotReadiness() {
+  return aaFetch<AutopilotReadiness>("/autopilot/readiness", { method: "GET" }, 20000);
+}
+
+/** Answer one grouped question and release every application it finishes.
+ *
+ *  Applications still waiting on other questions are deliberately left where
+ *  they are and reported back in `stillBlocked` — requeueing one would spend a
+ *  browser run rediscovering the blocker that is still there.
+ */
+export async function answerQuestionGroup(params: {
+  question: string;
+  answer: string;
+  variants?: string[];
+  jobIds?: string[];
+}) {
+  return aaFetch<{
+    success: boolean;
+    requeued: string[];
+    requeuedCount: number;
+    stillBlocked: string[];
+    stillBlockedCount: number;
+    message: string;
+  }>("/autopilot/question-groups/answer", {
+    method: "POST",
+    body: JSON.stringify(params),
+  });
+}
+
 export async function pauseAutopilot() {
   return aaFetch<{ success: boolean; run: any }>("/autopilot/pause", {
     method: "POST",
@@ -240,6 +369,7 @@ export interface AutopilotJobsPageParams {
   search?: string;
   status?: string; // comma-separated, e.g. "QUEUED,NEEDS_REVIEW,STAGED"
   role?: string;
+  title?: string;
   location?: string;
   company?: string;
   sortBy?: "matchScore" | "submittedAt" | "updatedAt" | "priority" | "company";
@@ -254,6 +384,9 @@ export async function getAutopilotStats() {
     statusCounts: Record<string, number>;
     uiCounts: Record<string, number>;
     companyCountsByStatus: Record<string, Record<string, number>>;
+    titleCountsByStatus?: Record<string, Record<string, number>>;
+    submittedToday: number;
+    submitted24h: number;
   }>("/autopilot/stats");
 }
 
@@ -262,6 +395,7 @@ export async function getAutopilotJobsPage(params: AutopilotJobsPageParams) {
   if (params.search) qs.set("search", params.search);
   if (params.status) qs.set("status", params.status);
   if (params.role) qs.set("role", params.role);
+  if (params.title) qs.set("title", params.title);
   if (params.location) qs.set("location", params.location);
   if (params.company) qs.set("company", params.company);
   if (params.sortBy) qs.set("sortBy", params.sortBy);
@@ -276,6 +410,7 @@ export async function getAutopilotJobsPage(params: AutopilotJobsPageParams) {
     hasMore: boolean;
     statusCounts: Record<string, number>;
     companyCounts: Record<string, number>;
+    titleCounts?: Record<string, number>;
   }>(`/autopilot/jobs?${qs.toString()}`);
 }
 

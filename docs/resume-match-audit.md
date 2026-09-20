@@ -89,3 +89,16 @@ matching and tailoring, reuse revision-keyed vectors, and make idle unloading
 configurable. Avoid separate model copies per request or per matching surface.
 Production changes are recommendations from this audit, not silently applied
 changes to the current job/application scoring behavior.
+
+
+## Implemented follow-up and final validation
+
+The shared document-support scorer now evaluates the actual rendered PDF against extracted JD criteria, with exact evidence quotations, content-keyed caching, short-skill boundaries, negation handling, unknown/partial states and optional local semantic retrieval. It is a document evidence diagnostic, not an ATS or hiring-probability estimate. Submission eligibility remains separate.
+
+Resume Studio exposes OFF, HONEST and AGGRESSIVE plus a per-request Fast local option that loads no model and preserves saved configuration. AGGRESSIVE broadens source-backed selection; it does not invent numbers or skills. Safe reordering now compares every compatible slot within a role, including non-adjacent bullets, rather than only neighbours. An approval checkbox in each accomplishment's Resume variants section enables reviewed current bullets as replacement candidates; editing the current bullet clears that approval. Metric verification and claim restrictions still apply.
+
+`tools/audit_resume_modes.py` reproduces a read-only comparison of 12 saved JDs across all three modes. The final 36 PDFs were all one page: OFF changed 0/12, HONEST reordered 5/12, AGGRESSIVE reordered 12/12 (2–9 bullets each). Content-support scores did not increase, as expected for reordering identical claims. None of the 52 stored accomplishments had explicit replacement approval during this audit, so no real-corpus replacements were made. Controlled reviewed-evidence regressions verify that materially stronger evidence replaces a weak slot and weaker or unapproved evidence does not.
+
+The local browser integration check used isolated read-only test services, because the regular dashboard/API were not running. All three modes returned one-page output: OFF 278 ms, HONEST 459 ms, AGGRESSIVE 898 ms in Fast local mode for the checked descriptions. PDF download, stale-input protection and mobile overflow checks passed. The non-adjacent reorder regression checks unchanged pixels outside allocated changed slots. Web typecheck passed.
+
+The required Autopilot runner regression set now passes 18/18 checks. Its outdated fixtures were updated for continuous batch rollover and the current NEEDS_REVIEW outcome. Successful-render fixtures write only to pytest temporary storage; added failure cases assert that render failures, low scores without override, and stopped jobs cannot reach an employer. No production submission guard was changed.

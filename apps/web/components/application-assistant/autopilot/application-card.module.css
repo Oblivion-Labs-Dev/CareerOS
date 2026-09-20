@@ -1,100 +1,328 @@
-.card { --state:#728198; position:relative; display:flex; flex-direction:column; min-width:0; overflow:hidden; border:1px solid var(--border); border-radius:20px; background:var(--card); box-shadow:0 4px 7px #102b3310,0 14px 34px #102b3306; transition:transform .25s,box-shadow .25s,border-color .25s; }
-.card:hover { transform:translateY(-5px); border-color:color-mix(in srgb,var(--state) 50%,var(--border)); box-shadow:0 18px 38px #102b3318; }
-.card[data-status=submitted] { --state:#11846d; }
-.card[data-status=review] { --state:#b97b24; }
-/* Apply-by-hand: a live posting the automation cannot finish. Violet keeps
-   it visually distinct from the amber "answer a question" review state. */
-.card[data-status=manual] { --state:#7c5cd6; }
-.card[data-status=failed] { --state:#c16b67; }
-.card[data-status=applying] { --state:#6873cb; }
-.identity { display:flex; align-items:center; gap:10px; padding:22px 20px 16px; background:radial-gradient(ellipse at 0 0,color-mix(in srgb,var(--state) 9%,transparent),transparent 75%); }
-.monogram { flex-shrink:0; width:42px; height:42px; display:grid; place-items:center; border:1px solid var(--border); border-radius:13px; color:var(--text); background:var(--card); font-size:14px; font-weight:750; box-shadow:0 3px 5px #102b3308; }
-.company { min-width:0; font-size:13px; font-weight:700; overflow-wrap:anywhere; color:var(--text); }
-.company span { display:block; font-size:8px; letter-spacing:.1em; color:var(--muted); margin-top:4px; }
-.status { margin-left:auto; display:flex; align-items:center; gap:5px; white-space:nowrap; font-size:10px; font-weight:650; color:var(--state); border:1px solid color-mix(in srgb,var(--state) 22%,transparent); background:color-mix(in srgb,var(--state) 7%,var(--card)); padding:5px 7px; border-radius:20px; }
-.status i { width:5px; height:5px; background:currentColor; border-radius:50%; }
-.title { display:flex; justify-content:space-between; align-items:flex-start; gap:10px; padding:0 20px; border:0; background:none; text-align:left; color:var(--text); font-family:var(--font-outfit),sans-serif; font-size:20px; line-height:1.3; font-weight:600; cursor:pointer; min-height:52px; }
-.title span { font-size:20px; color:var(--muted); transition:transform .2s; }
-.title:hover span { transform:translate(2px,-2px); color:var(--accent); }
-.location,.salary { margin:10px 20px 0; font-size:11px; line-height:1.6; color:var(--muted); }
-.location span { font-size:16px; }
-.salary { color:var(--text); }
-.dossier { margin:20px 20px 16px; padding:14px; border-radius:13px; border:1px solid var(--border); background:color-mix(in srgb,var(--accent) 3%,var(--card)); display:grid; gap:12px; }
-.fit { display:flex; align-items:center; gap:12px; }
-.dial { position:relative; width:65px; height:65px; flex-shrink:0; }
-.dial svg { width:100%; transform:rotate(-90deg); fill:none; stroke:var(--border); stroke-width:3.5; }
-.dial circle+circle { stroke:var(--accent); stroke-linecap:round; }
-.dial>strong { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; font-size:20px; font-weight:600; color:var(--text); font-variant-numeric:tabular-nums; }
-.dial small { font-size:11px; margin-left:1px; }
-.micro { display:block; color:var(--muted); font-size:8px; font-weight:650; letter-spacing:.12em; margin-bottom:5px; }
-.fit>div:last-child>strong,.document strong { display:block; font-size:11px; color:var(--text); font-weight:600; }
-.document { display:flex; gap:12px; align-items:center; border-top:1px dashed var(--border); padding-top:12px; }
-.document>span { width:54px; text-align:center; font-size:23px; color:var(--muted); }
-.reason { margin:0 20px 14px; font-size:11px; color:var(--muted); }
-.footer { margin-top:auto; display:flex; align-items:center; justify-content:space-between; gap:8px; padding:14px 20px; border-top:1px solid var(--border); }
-.footer>span { font-size:10px; color:var(--muted); }
-.footer button { border:1px solid var(--border); border-radius:9px; background:var(--text); color:var(--card); padding:9px 14px; font-size:11px; font-weight:650; cursor:pointer; transition:background .2s,transform .2s; }
-.footer button:hover { background:var(--accent); color:white; transform:translateX(2px); }
-.footer button:disabled { opacity:.5; cursor:wait; }
-.actions { display:flex; align-items:center; gap:8px; flex-wrap:wrap; justify-content:flex-end; }
-.footer .secondaryBtn { background:transparent; color:var(--text); border:1px solid var(--border); font-weight:600; }
-.footer .secondaryBtn:hover { background:var(--accent); color:white; transform:none; border-color:var(--accent); }
-.title:focus-visible,.footer button:focus-visible { outline:2px solid var(--accent); outline-offset:3px; }
-.card[data-status=applying] .status i { animation:pulse 1.8s ease-in-out infinite; }
-@keyframes pulse { 50% { opacity:.55; transform:scale(1.18); } }
-@media(prefers-reduced-motion:reduce) { .card,.card * { animation:none!important; transition:none!important; } .card:hover { transform:none; } }
-:global([data-motion=paused]) .card,:global([data-motion=paused]) .card * { animation:none!important; transition:none!important; }
+/* Compact application card: company + role + status + match score + one
+   action. Everything decorative (the big score dial, the resume/journey
+   status rows, the "CAREER OPPORTUNITY" eyebrow) was cut — those cards were
+   roughly 2x the size this one is for the same information. */
+.card {
+  /* Card scale. Every length in this file is a multiple of it, so the whole
+     card resizes from here rather than from forty separate edits. 1 is the
+     original compact size; the user asked for 30% larger. */
+  --card-scale: 1.3;
+  --state: var(--muted);
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  cursor: pointer;
+  overflow: hidden;
+  /* Lighter surface + hairline edge + lift. Dropping the border entirely was a
+     mistake: on the near-black canvas the card measured 1.07x against the page
+     and had no boundary at all. The edge is --card-edge rather than --border
+     because it has to be a light hairline on dark and a dark one on light. */
+  border: 1px solid var(--card-edge, var(--border));
+  border-top: 3px solid var(--state);
+  border-radius: var(--radius-md);
+  background:
+    radial-gradient(ellipse at 0 0, color-mix(in srgb, var(--state) 7%, transparent), transparent 65%),
+    var(--surface-1, var(--card));
+  box-shadow: var(--elev-1);
+  transition: transform .15s ease, box-shadow .15s ease, background-color .2s ease, border-color .2s ease;
+}
 
-/* Compact landscape cards: status edge, identity, role, and one action row. */
-.card { border-radius:16px; border-top:5px solid var(--state); background:radial-gradient(ellipse at 100% 0,color-mix(in srgb,var(--state) 12%,transparent),transparent 65%),var(--card); }
-.card[data-status=review] { --state:#d5a218; }
-.card[data-status=manual] { --state:#9b7bf0; }
-.card[data-status=failed] { --state:#d45360; }
-.card[data-status=submitted] { --state:#249d7a; }
-.card[data-status=skipped] { --state:#4c82d6; }
-.identity { padding:13px 16px 8px; background:none; }
-.monogram { width:30px; height:30px; border-radius:9px; font-size:11px; }
-.company span { display:none; }
-.title { padding:0 16px; font-size:17px; line-height:1.25; min-height:43px; }
-.location { margin:5px 16px 0; font-size:10px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-.salary { display:none; }
-.dossier { margin:9px 16px; padding:0; border:0; border-radius:0; background:none; display:flex; align-items:center; justify-content:space-between; gap:8px; }
-.dial { width:41px; height:41px; }
-.dial>strong { font-size:13px; font-weight:600; }
-.dial small { font-size:9px; }
-.fit { gap:7px; }
-.micro { font-size:7px; margin-bottom:3px; }
-.fit>div:last-child>strong,.document strong { font-size:9px; }
-.document { border:0; padding:0; gap:5px; }
-.document>span { width:auto; font-size:18px; }
-.footer { padding:9px 16px; background:color-mix(in srgb,var(--state) 4%,transparent); }
-.footer button { padding:7px 12px; }
-.reason { margin:0 16px 8px; font-size:10px; }
-.card { transition:transform .2s,box-shadow .2s,border-color .45s,background-color .45s; }
-.card .document { display:none; }.card .micro { display:none; }.card .dossier { margin-top:7px; margin-bottom:9px; }.card .dial { width:36px; height:36px; }
-/* The reason used to be display:none until hover, so hovering changed the
-   card height and shoved every neighbouring card in the grid — read as a
-   flicker rather than an effect. It is always laid out now, clamped to two
-   lines, and hover only changes its colour. No reflow, nothing jumps. */
-.card .reason { display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden;
-  color:var(--muted); opacity:.75; transition:opacity .25s ease, color .25s ease; }
-.card:hover .reason,.card:focus-within .reason { opacity:1; color:var(--text); }
-.card .title { font-size:16px; }.card .footer { padding-top:8px; padding-bottom:8px; }
+.card:hover {
+  transform: translateY(-2px);
+  border-color: color-mix(in srgb, var(--state) 40%, var(--card-edge, var(--border)));
+  background:
+    radial-gradient(ellipse at 0 0, color-mix(in srgb, var(--state) 11%, transparent), transparent 65%),
+    var(--surface-2, var(--card));
+  box-shadow: var(--elev-2);
+}
 
+.card:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
-/* The card itself is the control now, so it needs the affordances a button has. */
-.card { cursor: pointer; }
-.card:focus-visible { outline: 2px solid var(--accent, var(--state)); outline-offset: 3px; }
-/* .title was a <button>; it is a <p> now that the whole card is clickable. */
-.title { text-align: left; }
+/* Status colours, drawn from the shared role tokens rather than re-picked
+   here. One colour per meaning, defined once in design-language.css:
+   teal is reserved for action and deliberately never appears as a status. */
+.card[data-status=queued],
+.card[data-status=discovered],
+.card[data-status=scored] { --state: var(--muted); }
+.card[data-status=applying] { --state: var(--ai); }
+.card[data-status=review],
+.card[data-status=manual] { --state: var(--warning); }
+.card[data-status=rejected],
+.card[data-status=failed] { --state: var(--danger); }
+.card[data-status=submitted] { --state: var(--success); }
+.card[data-status=skipped],
+.card[data-status=ineligible] { --state: var(--muted); }
 
-.card {background-image:linear-gradient(125deg,rgba(255,255,255,.055),transparent 50%);box-shadow:inset 0 1px 0 rgba(255,255,255,.07),0 6px 18px rgba(0,0,0,.08);transform-origin:center;transition:transform .18s ease-out,box-shadow .2s,border-color .35s}
-.card:hover {box-shadow:inset 0 1px 0 rgba(255,255,255,.12),0 12px 28px rgba(0,0,0,.13)}
-@media(prefers-reduced-motion:reduce){.card{transform:none!important;transition:none}}
+/* Status gets its own row (flex-basis 100%) rather than fighting the company
+   name for space on one line — a long label like "Answer needed" was
+   squeezing company names down to one letter and an ellipsis. */
+.identity { display: flex; flex-wrap: wrap; align-items: center; gap: calc(2px * var(--card-scale)) calc(6px * var(--card-scale)); padding: calc(8px * var(--card-scale)) calc(9px * var(--card-scale)) calc(6px * var(--card-scale)); }
+.monogram {
+  flex-shrink: 0; width: calc(20px * var(--card-scale)); height: calc(20px * var(--card-scale)); display: grid; place-items: center;
+  border: 1px solid color-mix(in srgb, var(--state) 22%, var(--border)); border-radius: 6px;
+  background: linear-gradient(145deg, color-mix(in srgb, var(--state) 10%, var(--card)), var(--card));
+  color: var(--state); font-size: calc(9px * var(--card-scale)); font-weight: 750;
+}
+.company { min-width: 0; flex: 1; font-size: calc(11px * var(--card-scale)); font-weight: 650; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.company span { display: none; }
+.status {
+  flex: 0 0 100%; display: flex; align-items: center; gap: calc(4px * var(--card-scale));
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  margin-left: calc(26px * var(--card-scale)); width: fit-content; max-width: calc(100% - calc(26px * var(--card-scale)));
+  font-size: calc(9px * var(--card-scale)); font-weight: 650; color: var(--state);
+  border: 1px solid color-mix(in srgb, var(--state) 25%, transparent);
+  background: color-mix(in srgb, var(--state) 10%, var(--card));
+  padding: calc(2px * var(--card-scale)) calc(6px * var(--card-scale)); border-radius: calc(20px * var(--card-scale));
+}
+.status i { width: calc(4px * var(--card-scale)); height: calc(4px * var(--card-scale)); background: currentColor; border-radius: 50%; }
+.card[data-status=applying] .status i { animation: pulse 1.8s ease-in-out infinite; }
+@keyframes pulse { 50% { opacity: .55; transform: scale(1.18); } }
 
-.journeyRail{display:flex;gap:10px;padding:9px 16px 12px;border-top:1px solid var(--border);background:linear-gradient(100deg,rgba(255,255,255,.02),transparent)}
-.journeyRail span{flex:1;min-width:0;font-size:8px;letter-spacing:.03em;color:var(--muted);display:flex;flex-direction:column;gap:6px}
-.journeyRail i{display:block;height:2px;background:var(--border);border-radius:4px;transition:background-color .5s,box-shadow .5s}
-.journeyRail span[data-done="true"] i{background:var(--accent,#00b99b)}
-.card[data-status="submitted"] .journeyRail span:last-child[data-done="true"] i{background:#00b99b;box-shadow:0 0 6px #00b99b30}
-@media(prefers-reduced-motion:reduce){.journeyRail i{transition:none}}
+.title {
+  margin: 0; padding: 0 calc(9px * var(--card-scale)); border: 0; background: none; text-align: left;
+  color: var(--text); font-family: var(--font-outfit), sans-serif;
+  font-size: calc(12.5px * var(--card-scale)); line-height: 1.3; font-weight: 600;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+
+.location { margin: calc(4px * var(--card-scale)) calc(9px * var(--card-scale)) 0; font-size: calc(9.5px * var(--card-scale)); line-height: 1.4; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Match score: one small pill instead of an animated SVG dial. */
+.dossier { margin: calc(6px * var(--card-scale)) calc(9px * var(--card-scale)) 0; }
+.fit { display: flex; align-items: center; gap: calc(5px * var(--card-scale)); }
+/* The match score is model output, so it carries the AI role colour rather
+   than the action colour. It was teal, which made a score look clickable. */
+.matchScore {
+  font-family: var(--font-figure);
+  font-variant-numeric: tabular-nums;
+  font-size: calc(10px * var(--card-scale)); font-weight: 600; color: var(--ai);
+  background: color-mix(in srgb, var(--ai) 10%, var(--card));
+  border: 1px solid color-mix(in srgb, var(--ai) 22%, transparent);
+  border-radius: var(--radius-full); padding: calc(1px * var(--card-scale)) calc(6px * var(--card-scale));
+}
+
+.reason {
+  margin: calc(5px * var(--card-scale)) calc(9px * var(--card-scale)) 0; font-size: calc(9.5px * var(--card-scale)); line-height: 1.4; color: var(--muted);
+  display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; overflow: hidden;
+}
+
+/* Per-employer pacing countdown.
+   Amber rather than the card's --state colour: a paced job is queued and
+   wanted, so it must not read as an error, but it does need to explain why a
+   queued job is not moving. */
+.paced {
+  margin: calc(5px * var(--card-scale)) calc(9px * var(--card-scale)) 0;
+  display: inline-flex; align-items: center; gap: calc(4px * var(--card-scale));
+  align-self: flex-start;
+  padding: calc(2px * var(--card-scale)) calc(6px * var(--card-scale));
+  border: 1px solid color-mix(in srgb, var(--warning) 30%, var(--border));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--warning) 10%, var(--card));
+  color: color-mix(in srgb, var(--warning) 70%, var(--text));
+  font-size: calc(9px * var(--card-scale)); font-weight: 650; white-space: nowrap;
+}
+
+.footer { margin-top: auto; display: flex; align-items: center; justify-content: space-between; gap: calc(6px * var(--card-scale)); padding: calc(6px * var(--card-scale)) calc(9px * var(--card-scale)); border-top: calc(1px * var(--card-scale)) solid color-mix(in srgb, var(--border) 65%, transparent); }
+.footer > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: calc(9px * var(--card-scale)); color: var(--muted); }
+.actions { flex-shrink: 0; display: flex; align-items: center; gap: calc(5px * var(--card-scale)); }
+.footer button {
+  border: calc(1px * var(--card-scale)) solid color-mix(in srgb, var(--accent) 25%, var(--border)); border-radius: calc(6px * var(--card-scale));
+  background: color-mix(in srgb, var(--accent) 10%, var(--card)); color: var(--accent);
+  padding: calc(4px * var(--card-scale)) calc(8px * var(--card-scale)); font-size: calc(9.5px * var(--card-scale)); font-weight: 650; cursor: pointer;
+  transition: background .15s;
+}
+.footer button:hover { background: color-mix(in srgb, var(--accent) 18%, var(--card)); }
+.footer button:disabled { opacity: .5; cursor: wait; }
+.footer button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.footer .secondaryBtn { background: var(--card); color: var(--text); border-color: var(--border); }
+.footer .secondaryBtn:hover { background: color-mix(in srgb, var(--text) 6%, var(--card)); }
+
+@media (pointer: coarse) { .footer button { min-height: calc(30px * var(--card-scale)); } }
+@media (prefers-reduced-motion: reduce) { .card, .card *, .status i { animation: none !important; transition: none !important; } .card:hover { transform: none; } }
+:global([data-motion=paused]) .card, :global([data-motion=paused]) .card * { animation: none !important; transition: none !important; }
+
+/* ── Clay treatment ───────────────────────────────────────────────────────
+   The Settings "Application card style" choice is published on <html> as
+   data-card-style, and this is the card that the Applications workspace
+   actually renders — so the clay treatment has to live here as well as on the
+   queue card, or picking Clay changes the Settings preview and nothing else.
+
+   Claymorphism is three things together: a soft arch instead of a rectangle,
+   lighting from two sides (an inset highlight high-left, a diffuse shadow
+   low-right), and no border at all — a clay edge is described by light, never
+   by an outline. The per-status --state colour still drives the accent, so a
+   queued card is blue clay and a submitted one green clay.
+
+   Everything is expressed through the --clay-* tokens below so the treatment
+   works in both themes. Dark clay is not light clay dimmed: the highlight
+   drops to a few percent white and the drop shadow deepens, because on a dark
+   ground a bright inset edge reads as a glowing outline rather than as light
+   falling on a surface. Nothing is painted behind the cards — the page's own
+   background stays visible between them. */
+
+:global([data-card-style="clay"]) .card {
+  --clay-surface: linear-gradient(170deg, #ffffff 0%, #fbfaff 55%, #f1effa 100%);
+  --clay-ink: #2a2d55;
+  --clay-body: #6a6d8c;
+  --clay-faint: #9295ae;
+  --clay-hi-strong: rgba(255, 255, 255, .95);
+  --clay-hi-soft: rgba(255, 255, 255, .7);
+  --clay-edge: rgba(129, 129, 176, .16);
+  --clay-cast-near: rgba(88, 88, 148, .1);
+  --clay-cast-far: rgba(88, 88, 148, .14);
+  --clay-cast-far-hover: rgba(88, 88, 148, .2);
+  --clay-press-bg: linear-gradient(160deg, #f4f2fd, #ffffff);
+  --clay-press-shadow: inset 0 3px 7px rgba(120, 120, 170, .2), inset 0 -2px 4px rgba(255, 255, 255, .95);
+  --clay-tile: linear-gradient(160deg, #ffffff, color-mix(in srgb, var(--state) 9%, #f6f4ff));
+  --clay-seam: rgba(133, 133, 178, .14);
+  --clay-seam-hi: rgba(255, 255, 255, .9);
+  --clay-cta-ink: #ffffff;
+  --clay-cta-deep: #2a2d55;
+  --clay-secondary: linear-gradient(160deg, #ffffff, #efedfa);
+
+  border: 0;
+  border-radius: calc(34px * var(--card-scale)) calc(34px * var(--card-scale)) calc(20px * var(--card-scale)) calc(20px * var(--card-scale));
+  text-align: center;
+  background:
+    radial-gradient(120% 70% at 50% -10%, color-mix(in srgb, var(--state) 13%, transparent), transparent 62%),
+    var(--clay-surface);
+  box-shadow:
+    inset 0 3px 6px var(--clay-hi-strong),
+    inset 3px 0 6px var(--clay-hi-soft),
+    inset -2px -4px 10px var(--clay-edge),
+    0 14px 28px var(--clay-cast-far),
+    0 3px 9px var(--clay-cast-near);
+}
+
+/* Dark clay. The surface is a moulded charcoal rather than a tinted white, and
+   the light on it is a few percent rather than near-opaque. */
+:global([data-theme="dark"][data-card-style="clay"]) .card {
+  --clay-surface: linear-gradient(170deg, #262738 0%, #1f2030 55%, #191a27 100%);
+  --clay-ink: #eceefb;
+  --clay-body: #a7aac6;
+  --clay-faint: #767991;
+  --clay-hi-strong: rgba(255, 255, 255, .075);
+  --clay-hi-soft: rgba(255, 255, 255, .045);
+  --clay-edge: rgba(0, 0, 0, .42);
+  --clay-cast-near: rgba(0, 0, 0, .32);
+  --clay-cast-far: rgba(0, 0, 0, .46);
+  --clay-cast-far-hover: rgba(0, 0, 0, .58);
+  --clay-press-bg: linear-gradient(160deg, #191a27, #23243a);
+  --clay-press-shadow: inset 0 3px 8px rgba(0, 0, 0, .55), inset 0 -2px 4px rgba(255, 255, 255, .05);
+  --clay-tile: linear-gradient(160deg, #2c2d42, color-mix(in srgb, var(--state) 16%, #222334));
+  --clay-seam: rgba(0, 0, 0, .45);
+  --clay-seam-hi: rgba(255, 255, 255, .05);
+  --clay-cta-ink: #10111c;
+  --clay-cta-deep: #000000;
+  --clay-secondary: linear-gradient(160deg, #2b2c40, #212232);
+}
+
+:global([data-card-style="clay"]) .card:hover {
+  transform: translateY(-3px);
+  border-color: transparent;
+  box-shadow:
+    inset 0 3px 6px var(--clay-hi-strong),
+    inset 3px 0 6px var(--clay-hi-soft),
+    inset -2px -4px 10px var(--clay-edge),
+    0 22px 40px var(--clay-cast-far-hover),
+    0 4px 12px var(--clay-cast-near);
+}
+:global([data-card-style="clay"]) .card:focus-visible {
+  outline: 0;
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--state) 34%, transparent), 0 14px 28px var(--clay-cast-far);
+}
+
+/* Identity stacks and centres: the mark sits proud of the surface, and status
+   becomes the small coloured line under it rather than a pill. */
+:global([data-card-style="clay"]) .identity {
+  flex-direction: column;
+  align-items: center;
+  gap: .5rem;
+  padding: calc(18px * var(--card-scale)) calc(14px * var(--card-scale)) calc(4px * var(--card-scale));
+}
+:global([data-card-style="clay"]) .monogram {
+  width: calc(46px * var(--card-scale)); height: calc(46px * var(--card-scale));
+  border: 0; border-radius: calc(16px * var(--card-scale));
+  font-size: calc(15px * var(--card-scale));
+  color: var(--state);
+  background: var(--clay-tile);
+  box-shadow:
+    inset 0 2px 4px var(--clay-hi-strong),
+    inset 0 -3px 7px color-mix(in srgb, var(--state) 14%, transparent),
+    0 8px 16px color-mix(in srgb, var(--state) 18%, transparent);
+}
+:global([data-card-style="clay"]) .company {
+  flex: 0 0 auto;
+  max-width: 100%;
+  color: var(--clay-body);
+  font-size: calc(11px * var(--card-scale));
+  font-weight: 500;
+}
+:global([data-card-style="clay"]) .status {
+  flex: 0 0 auto;
+  margin-left: 0;
+  max-width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--state);
+  font-size: calc(9.5px * var(--card-scale));
+  font-weight: 700;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+}
+
+:global([data-card-style="clay"]) .title {
+  padding: calc(4px * var(--card-scale)) calc(16px * var(--card-scale)) 0;
+  color: var(--clay-ink);
+  font-size: calc(12.5px * var(--card-scale));
+  font-weight: 750;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+}
+:global([data-card-style="clay"]) .location,
+:global([data-card-style="clay"]) .reason {
+  margin-left: calc(16px * var(--card-scale)); margin-right: calc(16px * var(--card-scale));
+  color: var(--clay-body);
+}
+
+/* Score becomes a pressed clay tile rather than a pill — moulded, not printed. */
+:global([data-card-style="clay"]) .dossier { margin: calc(12px * var(--card-scale)) auto calc(4px * var(--card-scale)); }
+:global([data-card-style="clay"]) .fit { justify-content: center; }
+:global([data-card-style="clay"]) .matchScore {
+  display: grid;
+  place-items: center;
+  width: calc(52px * var(--card-scale)); height: calc(52px * var(--card-scale));
+  padding: 0;
+  border: 0; border-radius: calc(17px * var(--card-scale));
+  color: var(--state);
+  font-size: calc(13px * var(--card-scale)); font-weight: 750;
+  background: var(--clay-press-bg);
+  box-shadow: var(--clay-press-shadow);
+}
+
+:global([data-card-style="clay"]) .footer {
+  justify-content: center;
+  padding: calc(10px * var(--card-scale)) calc(14px * var(--card-scale)) calc(14px * var(--card-scale));
+  border-top: 0;
+  box-shadow: inset 0 1px 0 var(--clay-seam), inset 0 2px 0 var(--clay-seam-hi);
+}
+:global([data-card-style="clay"]) .footer > span { color: var(--clay-faint); }
+:global([data-card-style="clay"]) .footer button {
+  border: 0; border-radius: calc(13px * var(--card-scale));
+  color: var(--clay-cta-ink);
+  background: linear-gradient(160deg, color-mix(in srgb, var(--state) 78%, #ffffff), var(--state));
+  box-shadow:
+    inset 0 2px 3px rgba(255, 255, 255, .5),
+    inset 0 -2px 4px color-mix(in srgb, var(--state) 55%, var(--clay-cta-deep)),
+    0 6px 13px color-mix(in srgb, var(--state) 32%, transparent);
+}
+:global([data-card-style="clay"]) .footer button:hover {
+  background: linear-gradient(160deg, color-mix(in srgb, var(--state) 88%, #ffffff), var(--state));
+}
+:global([data-card-style="clay"]) .footer .secondaryBtn {
+  color: var(--clay-ink);
+  background: var(--clay-secondary);
+  box-shadow: inset 0 2px 4px var(--clay-hi-strong), 0 5px 11px var(--clay-cast-near);
+}

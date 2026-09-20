@@ -1,5 +1,6 @@
 "use client";
 
+import { getClientApiBaseUrl } from "@/lib/api";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   BROWSER_INSTALL_TARGETS,
@@ -26,7 +27,11 @@ import {
 import { StoreInstallButton } from "@/components/store-install-button";
 import { copyTextToClipboard } from "@/lib/clipboard";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || DEFAULT_API_BASE;
+// Same-origin through the Next proxy, so the login session cookie travels
+// with the request. Resolved at call time, not module scope: at module
+// scope this evaluates during SSR, where it would freeze to the server-side
+// origin and defeat the point.
+const resolveApiBase = () => getClientApiBaseUrl();
 
 const ENV_EXTENSION_DIST_PATH = process.env.NEXT_PUBLIC_EXTENSION_DIST_PATH?.trim() || "";
 
@@ -69,7 +74,7 @@ export function ApplyPilotInstaller({
   );
   const [localDistReady, setLocalDistReady] = useState(initialDistReady);
 
-  const apiBase = info?.apiBaseUrl ?? API_BASE;
+  const apiBase = info?.apiBaseUrl ?? resolveApiBase();
   const storeUrls = useMemo(
     () => resolveStoreUrls(info?.storeUrls, ENV_STORE_URLS),
     [info?.storeUrls],
@@ -102,7 +107,7 @@ export function ApplyPilotInstaller({
       })
       .catch(() => undefined);
 
-    fetch(`${API_BASE}/extension/info`)
+    fetch(`${resolveApiBase()}/extension/info`)
       .then((res) => res.json())
       .then((data: ExtensionInfo) => setInfo(data))
       .catch(() => setError("CareerOS API is offline. Start the backend for download — local path still works."));

@@ -11,7 +11,7 @@
     "build": "pnpm -r --filter @career-os/* run build",
     "dev:web": "pnpm --filter @career-os/web dev",
     "dev:api": "pnpm --filter @career-os/api dev",
-    "dev": "pnpm --filter @career-os/api --filter @career-os/web --parallel run dev",
+    "dev": "pnpm --filter @career-os/api --filter @career-os/web --parallel --no-bail run dev",
     "lint": "eslint --no-error-on-unmatched-pattern \"apps/**/*.{js,mjs,cjs,ts,tsx}\" \"packages/**/*.{js,mjs,cjs,ts,tsx}\" \"scripts/**/*.{js,mjs,cjs}\" \"tools/**/*.{js,mjs,cjs,ts,tsx}\"",
     "lint:strict": "pnpm lint -- --max-warnings 0",
     "lint:python": "cd apps/api && python -m ruff check app tests scripts",

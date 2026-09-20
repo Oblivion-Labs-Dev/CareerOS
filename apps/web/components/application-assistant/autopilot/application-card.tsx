@@ -2,7 +2,7 @@ import { identityTransition } from "@/lib/surface-transition";
 import { useSurfaceDepth } from "@/hooks/use-surface-depth";
 import type { AutopilotJobRow } from "./job-types";
 import { useCountUp } from "./use-count-up";
-import { INELIGIBILITY_LABELS, matchBand, relativeTime, statusView } from "./job-presentation";
+import { INELIGIBILITY_LABELS, capCountdown, relativeTime, statusView } from "./job-presentation";
 import styles from "./application-card.module.css";
 
 export function ApplicationCard({ job, busy, onDetails, onApply, onAssistedFill, onRetry, detailed = false }: {
@@ -31,7 +31,15 @@ export function ApplicationCard({ job, busy, onDetails, onApply, onAssistedFill,
   // card is a dead end: the only other action is claiming a submission that
   // never happened. Retry puts the job back in the queue and applies again.
   const canRetry = job.status === "FAILED";
-  const reason = job.status === "INELIGIBLE" ? INELIGIBILITY_LABELS[String(job.ineligibilityReason)] || job.ineligibilityDetail || "Cannot be applied to" : job.skipReason || job.lastError || null;
+  // Held by the per-employer rate limit. Recomputed from the stored expiry on
+  // each render rather than trusted as a flag, so the badge clears itself when
+  // the window rolls even if the row has not been rewritten yet.
+  const paced = capCountdown(job);
+  const reason = job.status === "INELIGIBLE"
+    ? INELIGIBILITY_LABELS[String(job.ineligibilityReason)] || job.ineligibilityDetail || "Cannot be applied to"
+    : job.status === "REJECTED"
+      ? (job.rejectionEvidence?.subject ? `From: "${job.rejectionEvidence.subject}"` : "Marked rejected")
+      : job.skipReason || job.lastError || null;
   return (
     // The whole card opens the dossier — there is no separate View button to
     // aim for. Inner controls stop propagation so Apply and Autofill still do
@@ -57,22 +65,28 @@ export function ApplicationCard({ job, busy, onDetails, onApply, onAssistedFill,
     >
       <div className={styles.identity}>
         <span className={styles.monogram} style={{viewTransitionName: detailed ? "none" : identityTransition(job.id)}} aria-hidden="true">{initials}</span>
-        <div className={styles.company}>{job.company || "Unknown company"}<span>CAREER OPPORTUNITY</span></div>
+        <div className={styles.company}>{job.company || "Unknown company"}</div>
         <span className={styles.status}><i />{status.label}</span>
       </div>
-      <p className={styles.title}>{job.title || "Unknown role"}<span aria-hidden="true">↗</span></p>
-      <p className={styles.location}><span aria-hidden="true">⌖</span> {job.location || "Location not listed"}</p>
-      {job.salary && <p className={styles.salary}>{job.salary}</p>}
-      <div className={styles.dossier}>
-        <div className={styles.fit}>
-          <div className={styles.dial} aria-label={score === null ? "Match not scored" : `${score}% match`}>
-            <svg viewBox="0 0 60 60" aria-hidden="true"><circle cx="30" cy="30" r="25" /><circle cx="30" cy="30" r="25" pathLength="100" strokeDasharray={`${shownScore ?? 0} 100`} /></svg>
-            <strong>{shownScore ?? "—"}<small>{score === null ? "" : "%"}</small></strong>
+      {paced && (
+        // A paced job is queued and wanted, not stuck — so this is a countdown
+        // next to the status rather than a second status. Apply still works and
+        // overrides the limit, which the tooltip says so the button does not
+        // look like it will be refused.
+        <p className={styles.paced} title={paced.detail}>
+          <span aria-hidden="true">⏳</span>
+          <span>{paced.label}</span>
+        </p>
+      )}
+      <p className={styles.title}>{job.title || "Unknown role"}</p>
+      <p className={styles.location}>{job.location || "Location not listed"}</p>
+      {score !== null && (
+        <div className={styles.dossier}>
+          <div className={styles.fit}>
+            <span className={styles.matchScore} aria-label={`${score}% match`}>{shownScore ?? score}%</span>
           </div>
-          <div><span className={styles.micro}>PROFILE FIT</span><strong>{score === null ? "Awaiting score" : matchBand(score).label}</strong></div>
         </div>
-        <div className={styles.document}><span aria-hidden="true">▤</span><div><span className={styles.micro}>YOUR RESUME</span><strong>{job.resumeFileUsed ? "Attached to application" : "Not attached yet"}</strong></div></div>
-      </div>
+      )}
       {reason && <p className={styles.reason}>{reason}</p>}
       <footer className={styles.footer}>
         <span>{job.status === "SUBMITTED" && job.submittedAt ? `Submitted ${relativeTime(job.submittedAt)}` : job.updatedAt ? `Updated ${relativeTime(job.updatedAt)}` : "Application workspace"}</span>
@@ -103,15 +117,17 @@ export function ApplicationCard({ job, busy, onDetails, onApply, onAssistedFill,
               type="button"
               disabled={busy !== null}
               onClick={(event) => { event.stopPropagation(); onApply(); }}
+              title={
+                paced
+                  ? "Send this now, ignoring the per-company limit"
+                  : "Start an Autopilot application for this role"
+              }
             >
-              {busy === job.id ? "Applying…" : "Apply →"}
+              {busy === job.id ? "Applying…" : paced ? "Apply anyway →" : "Apply →"}
             </button>
           )}
         </span>
       </footer>
-      <div className={styles.journeyRail} aria-label={`Application journey: saved${job.resumeFileUsed ? ", resume recorded" : ""}${job.submissionConfirmed ? ", ATS confirmation recorded" : job.status === "SUBMITTED" ? ", submitted status awaiting confirmation" : ""}`}>
-        <span data-done="true"><i/>Saved</span><span data-done={Boolean(job.resumeFileUsed)}><i/>Prepared</span><span data-done={Boolean(job.submissionConfirmed)}><i/>{job.submissionConfirmed ? "Confirmed" : job.status === "SUBMITTED" ? "Awaiting proof" : "Confirmation"}</span>
-      </div>
     </article>
   );
 }

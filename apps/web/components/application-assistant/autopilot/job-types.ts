@@ -39,5 +39,14 @@ export type AutopilotJobRow = {
    * kept visible in history but excluded from submitted/success-rate counts. */
   duplicateSubmission?: boolean;
   duplicateOfJobId?: string;
+  /** Per-employer pacing. A job at its company's rate limit stays QUEUED and
+   * carries these, so it is a countdown rather than a terminal bucket.
+   * `companyCapTier` is "day" | "week" | "month" — whichever limit bound. */
+  companyCapHoldUntil?: string;
+  companyCapReason?: string;
+  companyCapTier?: string;
+  /** Set only on REJECTED rows: when and from what evidence. */
+  rejectedAt?: string;
+  rejectionEvidence?: { uid?: string; subject?: string; matchedOn?: string; source?: string };
 };
 

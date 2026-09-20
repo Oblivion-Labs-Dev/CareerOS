@@ -98,7 +98,7 @@ test("autopilot e2e — submit 10 real applications", async ({ page, request, co
 
   // ── Navigate to Autopilot page ──
   await page.goto("/applications", { waitUntil: "domcontentloaded" });
-  await expect(page.getByRole("heading", { name: /your job search agent/i, level: 1 })).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByRole("heading", { name: /^Autopilot$/i, level: 1 })).toBeVisible({ timeout: 20_000 });
   await expect(page.locator(".backend-offline-alert")).not.toBeVisible();
 
   // Switch to Applications tab
