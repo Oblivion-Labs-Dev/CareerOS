@@ -6,6 +6,24 @@ const SNAPSHOT_KEY = "career-os:workspace:snapshot";
 export const DEFAULT_TARGET_SEARCH = "senior software developer";
 export const DEFAULT_ROLE_FILTER = "";
 
+/**
+ * Query params for the dashboard's "top job matches" panel before the user's
+ * saved prefs (localStorage, client-only) are known — used for both the
+ * client's pre-hydration cache lookup and the server-rendered initial fetch,
+ * so the two agree on what "first paint" shows.
+ */
+export function defaultTopMatchesQuery(): URLSearchParams {
+  return new URLSearchParams({
+    q: DEFAULT_TARGET_SEARCH,
+    location: "",
+    role: DEFAULT_ROLE_FILTER,
+    freshness: "168",
+    sort: "relevancy",
+    page: "1",
+    per_page: "5",
+  });
+}
+
 export type CareerWorkspacePrefs = {
   searchQuery: string;
   location: string;

@@ -14,10 +14,10 @@ import { useCareerWorkspace } from "@/hooks/use-career-workspace";
 import { getApiOriginForDisplay, getClientApiBaseUrl } from "@/lib/api";
 import { discoverHref } from "@/lib/career-workspace";
 import { fetchCachedJson, getCachedStale } from "@/lib/client-fetch-cache";
-import { DEFAULT_ROLE_FILTER, DEFAULT_TARGET_SEARCH } from "@/lib/career-workspace";
+import { DEFAULT_ROLE_FILTER, DEFAULT_TARGET_SEARCH, defaultTopMatchesQuery } from "@/lib/career-workspace";
 import styles from "./minimal-dashboard.module.css";
 
-type DiscoverJob = {
+export type DiscoverJob = {
   id: string;
   companyName: string;
   title: string;
@@ -28,8 +28,7 @@ type DiscoverJob = {
   freshness?: { label: string };
 };
 
-
-type DiscoverPayload = { jobs?: DiscoverJob[] };
+export type DiscoverPayload = { jobs?: DiscoverJob[] };
 
 function companyInitial(name: string) {
   return (name.trim()[0] || "?").toUpperCase();
@@ -41,33 +40,24 @@ function scoreTone(score: number) {
   return styles.matchRingLow;
 }
 
-export function MinimalDashboard() {
+type MinimalDashboardProps = {
+  /**
+   * Server-rendered first page of top matches (dashboard/page.tsx), fetched
+   * with the same default query this component used to only reach client-side
+   * after mount. Having it already means first paint shows real content
+   * instead of a skeleton, on a cold cache.
+   */
+  initialTopJobs: DiscoverJob[];
+};
+
+export function MinimalDashboard({ initialTopJobs }: MinimalDashboardProps) {
   const { prefs } = useCareerWorkspace();
   const [topJobs, setTopJobs] = useState<DiscoverJob[]>(() => {
     const api = getClientApiBaseUrl();
-    const params = new URLSearchParams({
-      q: DEFAULT_TARGET_SEARCH,
-      location: "",
-      role: DEFAULT_ROLE_FILTER,
-      freshness: "168",
-      sort: "relevancy",
-      page: "1",
-      per_page: "5",
-    });
-    return getCachedStale<DiscoverPayload>(`${api}/jobs/discover?${params.toString()}`)?.jobs || [];
+    const params = defaultTopMatchesQuery();
+    return getCachedStale<DiscoverPayload>(`${api}/jobs/discover?${params.toString()}`)?.jobs || initialTopJobs;
   });
-  const [loading, setLoading] = useState(() => {
-    const api = getClientApiBaseUrl();
-    const params = new URLSearchParams({
-      q: DEFAULT_TARGET_SEARCH,
-      role: DEFAULT_ROLE_FILTER,
-      freshness: "168",
-      sort: "relevancy",
-      page: "1",
-      per_page: "5",
-    });
-    return !getCachedStale(`${api}/jobs/discover?${params}`);
-  });
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
 
