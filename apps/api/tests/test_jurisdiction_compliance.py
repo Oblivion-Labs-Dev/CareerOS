@@ -5,10 +5,22 @@ claim. Warn-only: none of these ever block or auto-answer anything.
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field
+
 from app.services.application_assistant.jurisdiction_compliance import (
     check_immigration_status_screening,
     check_salary_history_request,
+    collect_job_compliance_warnings,
 )
+
+
+@dataclass
+class _FakeResolution:
+    """Stands in for AnswerResolution — collect_job_compliance_warnings only
+    duck-types on these three attributes."""
+    question: str = ""
+    field_id: str = ""
+    compliance_warnings: list[str] = field(default_factory=list)
 
 
 # ── Immigration-status screening ─────────────────────────────────────────────
@@ -92,3 +104,51 @@ def test_compensation_history_phrasing_is_detected():
 
 def test_empty_question_never_warns_regardless_of_state():
     assert check_salary_history_request("", {"state": "California"}) is None
+
+
+# ── collect_job_compliance_warnings ──────────────────────────────────────────
+
+
+def test_collect_returns_empty_for_resolutions_with_no_warnings():
+    resolutions = [_FakeResolution(question="Are you authorized to work in the US?")]
+    assert collect_job_compliance_warnings(resolutions) == []
+
+
+def test_collect_flattens_one_warning_per_resolution():
+    resolutions = [
+        _FakeResolution(question="Are you a US citizen?", field_id="f1", compliance_warnings=["status warning"]),
+        _FakeResolution(question="What was your prior salary?", field_id="f2", compliance_warnings=["salary warning"]),
+    ]
+    result = collect_job_compliance_warnings(resolutions)
+    assert result == [
+        {"question": "Are you a US citizen?", "message": "status warning", "fieldId": "f1"},
+        {"question": "What was your prior salary?", "message": "salary warning", "fieldId": "f2"},
+    ]
+
+
+def test_collect_dedupes_the_same_question_and_message_across_resolutions():
+    """The live executor calls resolve_answer twice for the same field in some
+    paths (fill-time, then again for classification) — the same warning must
+    not appear twice in the job record."""
+    resolutions = [
+        _FakeResolution(question="Are you a US citizen?", field_id="f1", compliance_warnings=["status warning"]),
+        _FakeResolution(question="Are you a US citizen?", field_id="f1", compliance_warnings=["status warning"]),
+    ]
+    assert len(collect_job_compliance_warnings(resolutions)) == 1
+
+
+def test_collect_keeps_distinct_messages_for_the_same_question():
+    resolutions = [
+        _FakeResolution(question="Are you a US citizen?", field_id="f1", compliance_warnings=["warning A", "warning B"]),
+    ]
+    result = collect_job_compliance_warnings(resolutions)
+    assert len(result) == 2
+
+
+def test_collect_ignores_resolutions_missing_expected_attributes():
+    """Duck-typed on question/field_id/compliance_warnings — an object
+    missing them contributes nothing rather than raising."""
+    class _Empty:
+        pass
+
+    assert collect_job_compliance_warnings([_Empty()]) == []

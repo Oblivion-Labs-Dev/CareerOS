@@ -36,6 +36,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from typing import Any, Iterable
 
 
 @dataclass(frozen=True)
@@ -132,3 +133,26 @@ def check_salary_history_request(question_text: str, profile: dict) -> Complianc
             "answering."
         ),
     )
+
+
+def collect_job_compliance_warnings(resolutions: Iterable[Any]) -> list[dict[str, str]]:
+    """De-duplicated `{question, message, fieldId}` rows for one run's
+    `AnswerResolution`s, in the shape a job record stores under
+    `complianceWarnings`. Duck-typed on `.question`, `.field_id` and
+    `.compliance_warnings` rather than importing `AnswerResolution`, so this
+    stays a leaf module callers can import from either direction."""
+    warnings: list[dict[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+    for res in resolutions:
+        question = getattr(res, "question", "") or ""
+        for message in getattr(res, "compliance_warnings", None) or []:
+            key = (question, message)
+            if key in seen:
+                continue
+            seen.add(key)
+            warnings.append({
+                "question": question,
+                "message": message,
+                "fieldId": getattr(res, "field_id", "") or "",
+            })
+    return warnings

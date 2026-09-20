@@ -178,6 +178,27 @@ export function ApplicationDetails({
       </section>
       <div className={styles.facts}><div><span>LAST UPDATED</span><strong>{date(job.updatedAt)}</strong></div><div><span>{job.status === "SUBMITTED" ? "SUBMITTED" : "ADDED TO QUEUE"}</span><strong>{date(job.status === "SUBMITTED" ? job.submittedAt : job.queuedAt)}</strong></div></div>
       {reason && <section className={styles.reason}><span className={styles.eyebrow}>{job.status === "SUBMITTED" ? "RECORDED NOTE" : "WHY IT STOPPED"}</span><p>{reason}</p>{job.lastErrorType && <small>{job.lastErrorType}</small>}</section>}
+      {Boolean(job.complianceWarnings?.length) && (
+        <section className={styles.complianceNotice} aria-label="Jurisdiction compliance notes">
+          <div className={styles.sectionTitle}>
+            <span aria-hidden="true">⚑</span>
+            <h3>Worth a second look</h3>
+          </div>
+          <p className={styles.prose}>
+            The employer&rsquo;s own screening questions below raised a jurisdiction concern.
+            This is informational only, not legal advice &mdash; review before answering.
+          </p>
+          <ul className={styles.complianceList}>
+            {job.complianceWarnings!.map((warning) => (
+              <li key={`${warning.fieldId || warning.question}:${warning.message}`}>
+                <p className={styles.eyebrow}>QUESTION</p>
+                <p className={styles.prose}>{warning.question}</p>
+                <p className={styles.prose}>{warning.message}</p>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
       {awaitingAnswer && (
         <section className={styles.section} aria-label="Questions waiting on you">
           <div className={styles.sectionTitle}>

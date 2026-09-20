@@ -3681,6 +3681,20 @@ async def _execute_live_playwright_submission_impl(
                     len(existing_contradictions), job_id,
                 )
 
+            # 2c. Surface this attempt's jurisdiction compliance warnings (the
+            # employer's own question, not CareerOS's answer — see
+            # jurisdiction_compliance.py). Non-blocking and never persisted
+            # across retries: it reflects the current attempt's form, not a
+            # standing flag the user must clear.
+            from app.services.application_assistant.jurisdiction_compliance import (
+                collect_job_compliance_warnings,
+            )
+            compliance_warnings = collect_job_compliance_warnings(form_resolutions)
+            if compliance_warnings:
+                job_item["complianceWarnings"] = compliance_warnings
+            else:
+                job_item.pop("complianceWarnings", None)
+
             # 3. Read back live browser DOM state
             dom_verification = await verify_browser_dom_state(target_frame, form_resolutions, profile)
 

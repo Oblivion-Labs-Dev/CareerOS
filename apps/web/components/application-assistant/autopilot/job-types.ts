@@ -48,5 +48,10 @@ export type AutopilotJobRow = {
   /** Set only on REJECTED rows: when and from what evidence. */
   rejectedAt?: string;
   rejectionEvidence?: { uid?: string; subject?: string; matchedOn?: string; source?: string };
+  /** The employer's own screening question raised a jurisdiction concern
+   * (immigration-status framing, a salary-history ask in a restricted state)
+   * — informational only, never blocks or auto-answers. Reflects the most
+   * recent attempt's form, not a standing flag to clear. */
+  complianceWarnings?: { question: string; message: string; fieldId?: string }[];
 };
 
