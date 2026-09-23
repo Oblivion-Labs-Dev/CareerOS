@@ -58,7 +58,6 @@ export function AutopilotApplicationsView({
   const linkedJob = params.get("job");
   const [filter, setFilter] = useSessionState<StatusFilter>("applications-filter", FILTERS.some(item => item.id === linkedFilter) ? linkedFilter as StatusFilter : "all");
   const [sortMode, setSortMode] = useSessionState<SortMode>("applications-sort", "priority");
-  const [query, setQuery] = useSessionState("applications-query", "");
   const [companyFilter, setCompanyFilter] = useSessionState<string>("applications-company-filter", "");
   const [titleFilter, setTitleFilter] = useSessionState<string>("applications-title-filter", "");
   // Which ATS the application goes through, e.g. "workday" to work those by hand.
@@ -66,7 +65,6 @@ export function AutopilotApplicationsView({
   // Which bulk requeue is awaiting confirmation, if any. Held as state rather
   // than using window.confirm so the warning can say exactly what is about to
   // happen and how many rows it touches.
-  const [filtersOpen, setFiltersOpen] = useState(false);
   // "Submitted" is the umbrella (open + rejected); its two children are shown
   // as a drill-down row once it (or one of them) is the active filter.
   const showSubmittedDrilldown = filter === "submitted" || filter === "open" || filter === "rejected";
@@ -90,7 +88,7 @@ export function AutopilotApplicationsView({
     if (FILTERS.some(item => item.id === linkedFilter)) setFilter(linkedFilter as StatusFilter);
   }, [linkedFilter]);
 
-  const pages = useApplicationPages(filter, sortMode, query, companyFilter, titleFilter, atsFilter);
+  const pages = useApplicationPages(filter, sortMode, "", companyFilter, titleFilter, atsFilter);
   const { jobs, counts, companyCounts: serverCompanyCounts, titleCounts: serverTitleCounts } = pages;
 
   // Use precomputed server company counts for the current status (covers all companies, e.g. all 152 on manual)
@@ -182,7 +180,7 @@ export function AutopilotApplicationsView({
     }
   }, [pages.atsCounts, atsFilter, setAtsFilter]);
 
-  useApplicationScroll(`${filter}:${sortMode}:${query}:${companyFilter}:${titleFilter}:${atsFilter}`, pages.loading, pages.hasMore, jobs.length, pages.loadMore);
+  useApplicationScroll(`${filter}:${sortMode}:${companyFilter}:${titleFilter}:${atsFilter}`, pages.loading, pages.hasMore, jobs.length, pages.loadMore);
 
   const visible = React.useMemo(() => {
     let result = jobs;
@@ -375,11 +373,10 @@ export function AutopilotApplicationsView({
             })}
           </nav>
         )}
-        <div className={gridStyles.toolbar}>
-          <input className={gridStyles.search} type="search" aria-label="Search applications" placeholder="Search company, role or location…" value={query} onChange={event => setQuery(event.target.value)} />
-          <button className={gridStyles.filterToggle} type="button" aria-expanded={filtersOpen} aria-controls="application-extra-filters" onClick={() => setFiltersOpen(!filtersOpen)}>Filters{companyFilter || titleFilter || atsFilter ? " •" : ""}</button>
-        </div>
-      <div id="application-extra-filters" className={gridStyles.extraFilters} hidden={!filtersOpen}>
+      {/* Always visible: the filters are how these lists get worked through, so
+          they are not tucked behind a toggle. Free-text search was removed as
+          unused (repo owner, 2026-09-23); add it back if a need shows up. */}
+      <div id="application-extra-filters" className={gridStyles.extraFilters}>
         <CompanyFilterDropdown
           value={companyFilter}
           onChange={setCompanyFilter}
