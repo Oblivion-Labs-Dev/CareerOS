@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-test("inbox request is valid and message previews work", async ({ page }) => {
+test("inbox request is valid and message previews work @local", async ({ page }) => {
   test.setTimeout(90000);
   const responsePromise = page.waitForResponse(response => response.url().includes("/email/recruiter-threads/classified"), { timeout: 70000 });
   await page.goto("/applications?tab=inbox");

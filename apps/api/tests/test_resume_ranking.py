@@ -8,6 +8,7 @@ from app.services.resume_intelligence import semantic
 from app.services.resume_intelligence.bm25 import BM25Index
 from app.services.resume_intelligence.fusion import reciprocal_rank_fusion
 from app.services.resume_intelligence.local_composer import compose, requirements, validate_sources
+from tests.resume_baseline_fixture import baseline  # noqa: F401  (pytest fixture)
 
 
 def evidence(**updates):
@@ -151,7 +152,7 @@ def test_validate_sources_ignores_new_debug_fields():
 
 # --- One-page fitting (resume_studio, real ReportLab render) ---------------
 
-def test_resume_studio_generates_a_single_page_pdf():
+def test_resume_studio_generates_a_single_page_pdf(baseline):
     from app.services.resume_intelligence.resume_studio import generate_studio
     records = [evidence(id=f"acc-{i}", company="Example",
         currentBullet=f"Delivered feature {i} that improved Kubernetes deployment reliability and reduced production outages by automating rollout checks.")

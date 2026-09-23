@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-test("journey opens the selected application's backend evidence", async ({ page }) => {
+test("journey opens the selected application's backend evidence @local", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto("/applications?tab=submitted");
   const card = page.locator('article[data-job-id][data-status="submitted"]').first();

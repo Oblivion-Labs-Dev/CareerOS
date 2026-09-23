@@ -19,7 +19,7 @@ const PAIRS = (process.env.MARK_JOBS || "")
     return { id: id.trim(), state: state.trim(), hint: (hint || "").trim() };
   });
 
-test("set application states by id", async ({ page }) => {
+test("set application states by id @local", async ({ page }) => {
   test.setTimeout(600_000);
   expect(PAIRS.length, "set MARK_JOBS").toBeGreaterThan(0);
 

@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-test("application filters fetch twenty records and append on scroll", async ({ page }) => {
+test("application filters fetch twenty records and append on scroll @local", async ({ page }) => {
   const requests: URL[] = [];
   page.on("request", request => {
     const url = new URL(request.url());

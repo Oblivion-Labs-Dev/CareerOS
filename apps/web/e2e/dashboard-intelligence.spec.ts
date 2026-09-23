@@ -24,7 +24,7 @@ test("dashboard metrics agree with backend records", async ({ page }) => {
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
 });
 
-test("application cards are landscape and details remain accessible", async ({ page }) => {
+test("application cards are landscape and details remain accessible @local", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto("/applications?tab=submitted");
   const card = page.locator("article[data-job-id]").first();

@@ -14,7 +14,7 @@ import { expect, test } from "@playwright/test";
 
 const MAX_ROUND_TRIP_MS = 600;
 
-test("search queries the server and answers from cache", async ({ page }) => {
+test("search queries the server and answers from cache @local", async ({ page }) => {
   test.setTimeout(240_000);
 
   const queries: string[] = [];
