@@ -211,6 +211,62 @@ def group_pending_questions(
     return groups
 
 
+def _clean_wording(text: str) -> str:
+    # The trailing "*" is the form's required-field marker, not part of the question.
+    return str(text or "").strip().rstrip("*").strip()
+
+
+def remember_answer_on_profile(
+    db: Any, *, question: str, answer: str, variants: list[str] | None = None
+) -> None:
+    """Save an answer given in Review to the candidate's Profile.
+
+    It goes into ``profile.screeningAnswers`` - what the Profile page lists as
+    "Screening answers" and what ``resolve_answer`` consults before any other
+    source - so the user can see and edit what they told CareerOS, and the next
+    form asking the same question is answered from it. The answer is stored
+    verbatim. Matching stays exact: the entry matches its own normalised
+    question, or a label that contains one of the wordings it was asked in.
+    Answering the same question again updates the entry rather than adding one.
+    """
+    import hashlib
+    import re
+
+    from app.db.store import get_kv, set_kv
+    from app.services.application_assistant.answer_classification import normalize_field_key
+
+    wordings: list[str] = []
+    for text in [question, *(variants or [])]:
+        cleaned = _clean_wording(text)
+        if cleaned and cleaned.lower() not in {w.lower() for w in wordings}:
+            wordings.append(cleaned)
+    answer = str(answer or "").strip()
+    if not wordings or not answer:
+        return
+    keys = {normalize_field_key(w) for w in wordings}
+    patterns = [re.escape(w.lower()) for w in wordings]
+
+    profile = dict(get_kv(db, "profile") or {})
+    entries = [dict(e) for e in profile.get("screeningAnswers") or [] if isinstance(e, dict)]
+    for entry in entries:
+        if normalize_field_key(_clean_wording(entry.get("question") or "")) in keys:
+            entry["answer"] = answer
+            known = list(entry.get("matchPatterns") or [])
+            entry["matchPatterns"] = known + [p for p in patterns if p not in known]
+            break
+    else:
+        primary = wordings[0]
+        entries.append({
+            "id": "review_" + hashlib.sha1(normalize_field_key(primary).encode("utf-8")).hexdigest()[:12],
+            "question": primary,
+            "answer": answer,
+            "matchPatterns": patterns,
+            "source": "review",
+        })
+    profile["screeningAnswers"] = entries
+    set_kv(db, "profile", profile)
+
+
 def answer_question_group(
     db: Any,
     *,
@@ -265,6 +321,7 @@ def answer_question_group(
         "createdAt": now_iso(),
         "updatedAt": now_iso(),
     })
+    remember_answer_on_profile(db, question=question, answer=answer, variants=unique_wordings)
 
     target_words = _significant_words(question)
     requeued: list[str] = []
