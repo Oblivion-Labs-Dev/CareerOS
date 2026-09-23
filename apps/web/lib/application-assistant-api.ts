@@ -372,6 +372,8 @@ export interface AutopilotJobsPageParams {
   title?: string;
   location?: string;
   company?: string;
+  /** ATS id from the application URL, e.g. "workday". */
+  ats?: string;
   sortBy?: "matchScore" | "submittedAt" | "updatedAt" | "priority" | "company";
   sortDir?: "asc" | "desc";
   limit?: number;
@@ -398,6 +400,7 @@ export async function getAutopilotJobsPage(params: AutopilotJobsPageParams) {
   if (params.title) qs.set("title", params.title);
   if (params.location) qs.set("location", params.location);
   if (params.company) qs.set("company", params.company);
+  if (params.ats) qs.set("ats", params.ats);
   if (params.sortBy) qs.set("sortBy", params.sortBy);
   if (params.sortDir) qs.set("sortDir", params.sortDir);
   qs.set("limit", String(params.limit ?? 24));
@@ -411,6 +414,8 @@ export async function getAutopilotJobsPage(params: AutopilotJobsPageParams) {
     statusCounts: Record<string, number>;
     companyCounts: Record<string, number>;
     titleCounts?: Record<string, number>;
+    atsCounts?: Record<string, number>;
+    atsLabels?: Record<string, string>;
   }>(`/autopilot/jobs?${qs.toString()}`);
 }
 

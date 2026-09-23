@@ -14,6 +14,8 @@ interface PageCacheEntry {
   counts: Record<string, number>;
   companyCounts: Record<string, number>;
   titleCounts?: Record<string, number>;
+  atsCounts?: Record<string, number>;
+  atsLabels?: Record<string, string>;
   timestamp: number;
 }
 
@@ -62,9 +64,10 @@ export function useApplicationPages(
   sort: SortMode,
   query: string,
   company?: string,
-  title?: string
+  title?: string,
+  ats?: string
 ) {
-  const cacheKey = `${filter}:${sort}:${query.trim()}:${company?.trim() || ""}:${title?.trim() || ""}`;
+  const cacheKey = `${filter}:${sort}:${query.trim()}:${company?.trim() || ""}:${title?.trim() || ""}:${ats || ""}`;
   const initialEntry = pageCache.get(cacheKey);
 
   const [jobs, setJobs] = useState<AutopilotJobRow[]>(initialEntry ? initialEntry.jobs : []);
@@ -89,6 +92,8 @@ export function useApplicationPages(
     }
     return {};
   });
+  const [atsCounts, setAtsCounts] = useState<Record<string, number>>(initialEntry?.atsCounts || {});
+  const [atsLabels, setAtsLabels] = useState<Record<string, string>>(initialEntry?.atsLabels || {});
   const [loading, setLoading] = useState(!initialEntry);
   const [hasMore, setHasMore] = useState(initialEntry ? initialEntry.hasMore : false);
   const [error, setError] = useState("");
@@ -128,7 +133,7 @@ export function useApplicationPages(
       if (busy.current && !reset) return;
       const version = reset ? ++generation.current : generation.current;
 
-      const currentKey = `${filter}:${sort}:${search.trim()}:${company?.trim() || ""}:${title?.trim() || ""}`;
+      const currentKey = `${filter}:${sort}:${search.trim()}:${company?.trim() || ""}:${title?.trim() || ""}:${ats || ""}`;
       const cached = pageCache.get(currentKey);
 
       if (reset) {
@@ -140,6 +145,8 @@ export function useApplicationPages(
           setCounts(cached.counts);
           setCompanyCounts(cached.companyCounts);
           setTitleCounts(cached.titleCounts || {});
+          setAtsCounts(cached.atsCounts || {});
+          setAtsLabels(cached.atsLabels || {});
           setLoading(false);
           // If recent enough, skip re-fetch
           if (Date.now() - cached.timestamp < 15_000) { busy.current = false; return; }
@@ -162,6 +169,7 @@ export function useApplicationPages(
           search,
           company: company?.trim() || undefined,
           title: title?.trim() || undefined,
+          ats: ats || undefined,
           sortBy: sort === "match" ? "matchScore" : sort === "recent" ? "submittedAt" : sort,
           sortDir: sort === "company" ? "asc" : "desc",
           limit: 24,
@@ -195,6 +203,8 @@ export function useApplicationPages(
               ? result.titleCounts
               : (globalStats?.titleCountsByStatus && globalStats.titleCountsByStatus[filter]) || {};
           setTitleCounts(serverTitleCounts);
+          setAtsCounts(result.atsCounts || {});
+          setAtsLabels(result.atsLabels || {});
 
           pageCache.set(currentKey, {
             jobs: merged,
@@ -204,6 +214,8 @@ export function useApplicationPages(
             counts: newCounts,
             companyCounts: serverCompCounts,
             titleCounts: serverTitleCounts,
+            atsCounts: result.atsCounts || {},
+            atsLabels: result.atsLabels || {},
             timestamp: Date.now(),
           });
 
@@ -220,7 +232,7 @@ export function useApplicationPages(
         }
       }
     },
-    [filter, sort, search, company, title]
+    [filter, sort, search, company, title, ats]
   );
 
   const invalidate = useCallback(() => {
@@ -231,7 +243,7 @@ export function useApplicationPages(
   useEffect(() => {
     void load(true);
     return invalidate;
-  }, [filter, sort, search, company, title, revision, invalidate, load]);
+  }, [filter, sort, search, company, title, ats, revision, invalidate, load]);
 
   useEffect(() => {
     if (!hasMore || loading || error || !sentinel.current) return;
@@ -256,6 +268,8 @@ export function useApplicationPages(
     counts,
     companyCounts,
     titleCounts,
+    atsCounts,
+    atsLabels,
     loading,
     hasMore,
     error,

@@ -61,6 +61,8 @@ export function AutopilotApplicationsView({
   const [query, setQuery] = useSessionState("applications-query", "");
   const [companyFilter, setCompanyFilter] = useSessionState<string>("applications-company-filter", "");
   const [titleFilter, setTitleFilter] = useSessionState<string>("applications-title-filter", "");
+  // Which ATS the application goes through, e.g. "workday" to work those by hand.
+  const [atsFilter, setAtsFilter] = useSessionState<string>("applications-ats-filter", "");
   // Which bulk requeue is awaiting confirmation, if any. Held as state rather
   // than using window.confirm so the warning can say exactly what is about to
   // happen and how many rows it touches.
@@ -88,7 +90,7 @@ export function AutopilotApplicationsView({
     if (FILTERS.some(item => item.id === linkedFilter)) setFilter(linkedFilter as StatusFilter);
   }, [linkedFilter]);
 
-  const pages = useApplicationPages(filter, sortMode, query, companyFilter, titleFilter);
+  const pages = useApplicationPages(filter, sortMode, query, companyFilter, titleFilter, atsFilter);
   const { jobs, counts, companyCounts: serverCompanyCounts, titleCounts: serverTitleCounts } = pages;
 
   // Use precomputed server company counts for the current status (covers all companies, e.g. all 152 on manual)
@@ -168,7 +170,19 @@ export function AutopilotApplicationsView({
     }
   }, [titleCounts, titleFilter, setTitleFilter]);
 
-  useApplicationScroll(`${filter}:${sortMode}:${query}:${companyFilter}:${titleFilter}`, pages.loading, pages.hasMore, jobs.length, pages.loadMore);
+  // Most common ATS first; "other" (no recognised ATS) always last.
+  const sortedAts = React.useMemo(
+    () => Object.entries(pages.atsCounts).sort(([a, x], [b, y]) => Number(a === "other") - Number(b === "other") || y - x),
+    [pages.atsCounts],
+  );
+
+  useEffect(() => {
+    if (atsFilter && Object.keys(pages.atsCounts).length > 0 && !pages.atsCounts[atsFilter]) {
+      setAtsFilter("");
+    }
+  }, [pages.atsCounts, atsFilter, setAtsFilter]);
+
+  useApplicationScroll(`${filter}:${sortMode}:${query}:${companyFilter}:${titleFilter}:${atsFilter}`, pages.loading, pages.hasMore, jobs.length, pages.loadMore);
 
   const visible = React.useMemo(() => {
     let result = jobs;
@@ -363,7 +377,7 @@ export function AutopilotApplicationsView({
         )}
         <div className={gridStyles.toolbar}>
           <input className={gridStyles.search} type="search" aria-label="Search applications" placeholder="Search company, role or location…" value={query} onChange={event => setQuery(event.target.value)} />
-          <button className={gridStyles.filterToggle} type="button" aria-expanded={filtersOpen} aria-controls="application-extra-filters" onClick={() => setFiltersOpen(!filtersOpen)}>Filters{companyFilter || titleFilter ? " •" : ""}</button>
+          <button className={gridStyles.filterToggle} type="button" aria-expanded={filtersOpen} aria-controls="application-extra-filters" onClick={() => setFiltersOpen(!filtersOpen)}>Filters{companyFilter || titleFilter || atsFilter ? " •" : ""}</button>
         </div>
       <div id="application-extra-filters" className={gridStyles.extraFilters} hidden={!filtersOpen}>
         <CompanyFilterDropdown
@@ -379,6 +393,19 @@ export function AutopilotApplicationsView({
           titles={sortedTitles}
           totalCount={totalStatusJobs}
         />
+
+        <select
+          className={styles.searchInput}
+          style={{ maxWidth: "13rem", cursor: "pointer" }}
+          value={atsFilter}
+          onChange={(e) => setAtsFilter(e.target.value)}
+          aria-label="Filter by application system"
+        >
+          <option value="">All application systems</option>
+          {sortedAts.map(([id, count]) => (
+            <option key={id} value={id}>{pages.atsLabels[id] || id} ({count.toLocaleString()})</option>
+          ))}
+        </select>
 
         <select
           className={styles.searchInput}

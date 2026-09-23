@@ -369,6 +369,7 @@ def get_autopilot_jobs_list(
     title: str | None = Query(default=None, description="Exact or substring match against job title"),
     location: str | None = Query(default=None, description="Case-insensitive substring match against job location"),
     company: str | None = Query(default=None, description="Case-insensitive substring match against company name"),
+    ats: str | None = Query(default=None, description="ATS id from the application URL (e.g. workday, greenhouse, other)"),
     sortBy: str = Query(default="matchScore", description="Field to sort by: matchScore, submittedAt, or updatedAt"),
     sortDir: str = Query(default="desc", description="asc or desc"),
     limit: int = Query(default=24, ge=1, le=1000),
@@ -432,6 +433,15 @@ def get_autopilot_jobs_list(
     all_jobs = read_cache.get(AUTOPILOT_JOBS_CACHE_KEY, AUTOPILOT_JOBS_TTL_SECONDS, _load_all_jobs)
     jobs = [job for job in all_jobs if not statuses or (job.get("status") or "").upper() in statuses]
 
+    # Which ATS each job applies through, counted over the status selection the
+    # same way company and title counts are, so the filter can show "Workday (37)".
+    from app.services.application_assistant.ats_plugin_reference import ATS_CONFIGS, ats_from_url
+
+    job_ats = {id(job): ats_from_url(job.get("applicationUrl") or job.get("url")) for job in jobs}
+    ats_counts: dict[str, int] = {}
+    for name in job_ats.values():
+        ats_counts[name] = ats_counts.get(name, 0) + 1
+
     if not company_counts:
         for job in jobs:
             c_name = (job.get("company") or "").strip()
@@ -459,6 +469,9 @@ def get_autopilot_jobs_list(
             jobs = [j for j in jobs if title_q in str(j.get("title") or "").lower()]
     if location_q:
         jobs = [j for j in jobs if location_q in str(j.get("location") or "").lower()]
+    ats_q = ats.strip().lower() if isinstance(ats, str) else ""
+    if ats_q:
+        jobs = [j for j in jobs if job_ats.get(id(j)) == ats_q]
     if company_q:
         exact_matches = [j for j in jobs if str(j.get("company") or "").strip().lower() == company_q]
         if exact_matches:
@@ -500,6 +513,12 @@ def get_autopilot_jobs_list(
         "statusCounts": status_counts,
         "companyCounts": company_counts,
         "titleCounts": title_counts,
+        "atsCounts": ats_counts,
+        # Display names from the same table the ids come from, so the UI keeps no copy.
+        "atsLabels": {
+            name: (ATS_CONFIGS[name]["name"] if name in ATS_CONFIGS else "Other")
+            for name in ats_counts
+        },
         "hasMore": offset_int + limit_int < total,
     }
 

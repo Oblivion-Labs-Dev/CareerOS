@@ -781,3 +781,23 @@ ATS_CONFIGS: dict[str, dict[str, Any]] = {
         ],
     },
 }
+
+
+_ATS_HOST_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
+    (ats_id, re.compile("|".join(config["hostPatterns"]), re.I))
+    for ats_id, config in ATS_CONFIGS.items()
+    if config.get("hostPatterns")
+]
+
+
+def ats_from_url(url: str | None) -> str:
+    """The ATS an application URL belongs to (an ``ATS_CONFIGS`` id), or ``"other"``.
+
+    Uses the same host patterns the autofill pipeline is keyed on, so a posting
+    filtered as "Workday" in the UI is one the executor would treat as Workday.
+    """
+    text = str(url or "")
+    for ats_id, pattern in _ATS_HOST_PATTERNS:
+        if pattern.search(text):
+            return ats_id
+    return "other"
