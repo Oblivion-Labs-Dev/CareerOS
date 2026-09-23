@@ -7,6 +7,7 @@ from pypdf import PdfReader
 
 from app.services.resume_intelligence.local_composer import compose, requirements, validate_sources
 from app.services.resume_intelligence.local_document import render
+from tests.resume_baseline_fixture import baseline  # noqa: F401  (pytest fixture)
 
 
 def evidence(**updates):
@@ -63,7 +64,7 @@ def test_requirement_categories():
     assert [r["category"] for r in reqs] == ["required", "preferred", "responsibility"]
 
 
-def test_both_entrypoints_make_no_model_calls(monkeypatch):
+def test_both_entrypoints_make_no_model_calls(monkeypatch, baseline):
     from app.services import llm
     from app.services.application_assistant import resume_diff_service as service
     async def forbidden(*args, **kwargs):

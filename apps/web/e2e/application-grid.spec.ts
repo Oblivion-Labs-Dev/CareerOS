@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-test("card grid filters the server, pages, searches and preserves review actions", async ({ page, baseURL }) => {
+test("card grid filters the server, pages, searches and preserves review actions @local", async ({ page, baseURL }) => {
   // Page middleware checks presence only; every API call below is a local fixture.
   await page.context().addCookies([{name:"co_session",value:"isolated-ui-fixture",url:baseURL!}]);
   const statuses = ["NEEDS_REVIEW", "STAGED", "MANUAL_REVIEW", "FAILED", "DISCOVERED", "SCORED", "QUEUED", "APPLYING", "SUBMITTED", "REJECTED", "SKIPPED", "INELIGIBLE"];

@@ -1,6 +1,6 @@
 import {test,expect} from "@playwright/test";
-const pages=[{path:"/applications",name:"autopilot"},{path:"/applications?tab=applications",name:"applications"},{path:"/applications?tab=inbox",name:"inbox"},{path:"/applications?tab=pipeline",name:"pipeline"},{path:"/dashboard",name:"dashboard"},{path:"/jobs/discover",name:"browse"},{path:"/profile",name:"profile"},{path:"/settings",name:"settings"},{path:"/diagnostic",name:"diagnostic"}];
-for(const route of pages)test(`compact ${route.name} workspace`,async({page})=>{
+const pages=[{path:"/applications",name:"autopilot",local:true},{path:"/applications?tab=applications",name:"applications"},{path:"/applications?tab=inbox",name:"inbox"},{path:"/applications?tab=pipeline",name:"pipeline"},{path:"/dashboard",name:"dashboard"},{path:"/jobs/discover",name:"browse"},{path:"/profile",name:"profile",local:true},{path:"/settings",name:"settings"},{path:"/diagnostic",name:"diagnostic"}];
+for(const route of pages)test(`compact ${route.name} workspace${route.local?" @local":""}`,async({page})=>{
  const failures:string[]=[];page.on("pageerror",error=>failures.push(error.message));
  await page.route("**/api/backend/**",r=>r.fulfill({status:503,json:{detail:"Layout test: service unavailable"}}));
  await page.route("**/api/backend/tracker/pipeline",r=>r.fulfill({json:{total:2,ghostThresholdDays:21,funnel:[],columns:[{key:"applied",label:"Applied",items:[{id:"one",companyName:"Acme",roleTitle:"Engineer",daysSinceActivity:2}]},{key:"interviewing",label:"Interviewing",items:[{id:"two",companyName:"Orbit",roleTitle:"Designer",daysSinceActivity:1}]}]}}));
