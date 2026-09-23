@@ -23,7 +23,6 @@ $WebDir = Join-Path $RepoRoot "apps\web"
 $ExtDir = Join-Path $RepoRoot "apps\extension"
 $VenvDir = Join-Path $ApiDir ".venv"
 $VenvPython = Join-Path $VenvDir "Scripts\python.exe"
-$ArsenalDir = Join-Path (Split-Path $RepoRoot -Parent) "Arsenal"
 
 function Write-Step([string]$Message) {
     Write-Host ("==> " + $Message) -ForegroundColor Cyan
@@ -225,19 +224,6 @@ function Ensure-Ollama {
     Write-Ok ("Model ready: " + $Model)
 }
 
-function Ensure-Arsenal {
-    Write-Step "Arsenal workspace dependency"
-    if (Test-Path $ArsenalDir) {
-        Write-Ok ("Found " + $ArsenalDir)
-        return
-    }
-    Write-Warn "Arsenal not found at $ArsenalDir"
-    Write-Host "  CareerOS expects Arsenal as a sibling folder for shared packages."
-    Write-Host "  Clone it next to CareerOS, then rerun: pnpm install"
-    Write-Host "    cd $(Split-Path $RepoRoot -Parent)"
-    Write-Host "    git clone YOUR-ARSENAL-REPO-URL Arsenal"
-}
-
 Write-Host ""
 Write-Host "CareerOS first-time setup" -ForegroundColor Green
 Write-Host ("Repo: " + $RepoRoot)
@@ -251,7 +237,6 @@ if ($nodeMajor -lt 20) {
 Write-Ok ("Node " + (node -v))
 
 Ensure-Pnpm
-Ensure-Arsenal
 Write-DefaultEnvFiles
 
 Write-Step "Installing JavaScript dependencies"

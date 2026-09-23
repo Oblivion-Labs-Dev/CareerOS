@@ -39,7 +39,6 @@ API_DIR="$REPO_ROOT/apps/api"
 WEB_DIR="$REPO_ROOT/apps/web"
 EXT_DIR="$REPO_ROOT/apps/extension"
 VENV_DIR="$API_DIR/.venv"
-ARSENAL_DIR="$(cd "$REPO_ROOT/.." && pwd)/Arsenal"
 
 step() { printf '\033[36m==> %s\033[0m\n' "$1"; }
 ok() { printf '\033[32m  OK  %s\033[0m\n' "$1"; }
@@ -188,18 +187,6 @@ ensure_ollama() {
   ok "Model ready: $MODEL"
 }
 
-ensure_arsenal() {
-  step "Arsenal workspace dependency"
-  if [[ -d "$ARSENAL_DIR" ]]; then
-    ok "Found $ARSENAL_DIR"
-    return
-  fi
-  warn "Arsenal not found at $ARSENAL_DIR"
-  echo "  Clone it as a sibling folder, then rerun: pnpm install"
-  echo "    cd $(dirname "$REPO_ROOT")"
-  echo "    git clone YOUR-ARSENAL-REPO-URL Arsenal"
-}
-
 printf '\n\033[32mCareerOS first-time setup\033[0m\n'
 echo "Repo: $REPO_ROOT"
 echo ""
@@ -211,7 +198,6 @@ NODE_MAJOR="$(node -v | sed 's/^v//' | cut -d. -f1)"
 ok "Node $(node -v)"
 
 ensure_pnpm
-ensure_arsenal
 write_default_env_files
 
 step "Installing JavaScript dependencies"
