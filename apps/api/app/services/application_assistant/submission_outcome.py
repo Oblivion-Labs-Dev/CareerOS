@@ -96,12 +96,34 @@ def classify_unproven_outcome(
 
     Returns ``(status, error_type)``. ``error_type`` is ``None`` when the caller
     should keep whatever it had already classified.
+
+    A proven-unsent attempt is retryable, so it goes to NEEDS_REVIEW tagged
+    ``technicalFailure``. FAILED is reserved for dead ends that can never be
+    retried (repo owner, 2026-09-23), so nothing here produces it any more.
     """
     if outcome_is_proven_unsubmitted(job, result):
-        return AutopilotJobStatus.FAILED.value, None
+        job["technicalFailure"] = True
+        return AutopilotJobStatus.NEEDS_REVIEW.value, None
+    job.pop("technicalFailure", None)
     return (
         AutopilotJobStatus.SUBMISSION_UNKNOWN.value,
         ApplicationErrorType.SUBMISSION_UNCERTAIN.value,
+    )
+
+
+def is_retryable_technical_failure(job: dict[str, Any]) -> bool:
+    """A job parked in review only because an attempt broke before submitting.
+
+    These are what "retry failed" and the self-healer act on: the automation
+    can simply try again, nothing is waiting on the user, and the submit click
+    was never issued, so a retry cannot apply twice.
+    """
+    return (
+        job.get("status") == AutopilotJobStatus.NEEDS_REVIEW.value
+        and bool(job.get("technicalFailure"))
+        and not submit_was_attempted(job)
+        and not job.get("pendingQuestions")
+        and not job.get("ineligibilityReason")
     )
 
 

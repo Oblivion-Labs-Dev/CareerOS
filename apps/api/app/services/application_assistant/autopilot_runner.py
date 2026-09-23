@@ -778,7 +778,10 @@ class AutopilotRunner:
             )
         ]
         skipped_jobs = [j for j in jobs if j.get("status") == AutopilotJobStatus.SKIPPED.value]
-        failed_jobs = [j for j in jobs if j.get("status") in (AutopilotJobStatus.FAILED.value, "ERROR")]
+        failed_jobs = [
+            j for j in jobs
+            if j.get("status") in (AutopilotJobStatus.FAILED.value, "ERROR") or j.get("technicalFailure")
+        ]
         queued_jobs = [j for j in jobs if j.get("status") in (AutopilotJobStatus.QUEUED.value, AutopilotJobStatus.APPLYING.value)]
         processed_total = len(submitted_jobs) + len(staged_jobs) + len(skipped_jobs) + len(failed_jobs)
 
@@ -1441,7 +1444,13 @@ class AutopilotRunner:
         failed_jobs: list[dict[str, Any]] = []
         with session_scope() as db:
             all_jobs = list_autopilot_jobs(db)
-            failed_jobs = [j for j in all_jobs if j.get("status") in (AutopilotJobStatus.FAILED.value, "ERROR") and j.get("lastAttemptRunId") == run_id]
+            from app.services.application_assistant.submission_outcome import is_retryable_technical_failure
+
+            failed_jobs = [
+                j for j in all_jobs
+                if (is_retryable_technical_failure(j) or j.get("status") == "ERROR")
+                and j.get("lastAttemptRunId") == run_id
+            ]
 
         if not failed_jobs:
             self.log_event("Post-batch check: No failures detected — self-healing not needed.", level="info")
@@ -1763,6 +1772,7 @@ class AutopilotRunner:
         # like a possible submission and park a job that is genuinely safe to
         # retry. The checkpoint history keeps the older attempt's trail.
         job_item.pop("submitAttemptedAt", None)
+        job_item.pop("technicalFailure", None)
         self._record_checkpoint(job_item, CheckpointStep.JOB_CLAIMED, f"Attempt {attempt}/{MAX_JOB_ATTEMPTS}")
         with session_scope() as db:
             save_autopilot_job(db, job_item)

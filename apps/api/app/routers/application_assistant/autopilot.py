@@ -292,7 +292,11 @@ async def trigger_self_heal() -> dict[str, Any]:
     failed_jobs: list[dict[str, Any]] = []
     with session_scope() as db:
         all_jobs = list_autopilot_jobs(db)
-        failed_jobs = [j for j in all_jobs if j.get("status") in ("FAILED", "ERROR")]
+        # FAILED is a dead end now; what the healer can act on is an attempt
+        # that broke before submitting, parked in review as retryable.
+        from app.services.application_assistant.submission_outcome import is_retryable_technical_failure
+
+        failed_jobs = [j for j in all_jobs if is_retryable_technical_failure(j) or j.get("status") == "ERROR"]
 
     if not failed_jobs:
         return {"success": True, "message": "No failed jobs to heal", "patchesApplied": 0}
@@ -1269,14 +1273,14 @@ def reset_submitted_autopilot_jobs(
     # three: a submitted application already reached a real employer, and
     # skipped/ineligible jobs are the list the user works through by hand.
     # Excluded whether the caller asks for "ALL" or names the status directly.
-    BULK_RESET_EXCLUDED = ("SUBMITTED", "SKIPPED", "INELIGIBLE")
+    BULK_RESET_EXCLUDED = ("SUBMITTED", "SKIPPED", "INELIGIBLE", "FAILED")
 
     reset_count = 0
     for job in all_jobs:
         job_status = job.get("status", "")
         should_reset = False
         if not status_filter or status_filter == "ALL":
-            should_reset = job_status in ("STAGED", "FAILED", "PROCESSED", "APPLYING")
+            should_reset = job_status in ("STAGED", "PROCESSED", "APPLYING")
         elif status_filter in BULK_RESET_EXCLUDED:
             should_reset = False
         elif job_status == status_filter:
@@ -1289,7 +1293,9 @@ def reset_submitted_autopilot_jobs(
     return {"success": True, "resetCount": reset_count, "message": f"Successfully reset {reset_count} job(s) to unapplied"}
 
 
-def _requeue_autopilot_jobs_by_status(statuses: tuple[str, ...]) -> dict[str, Any]:
+def _requeue_autopilot_jobs_by_status(
+    statuses: tuple[str, ...], *, retryable_failures: bool = False
+) -> dict[str, Any]:
     from app.services.application_assistant.persistence import (
         is_strict_duplicate_processed,
         list_autopilot_jobs,
@@ -1311,9 +1317,15 @@ def _requeue_autopilot_jobs_by_status(statuses: tuple[str, ...]) -> dict[str, An
             # requeue is an automatic action, and neither may be retried
             # automatically. The user can still put one back deliberately with
             # the state selector, which is an explicit human decision.
-            if j.get("status") in ("SUBMITTED", "SUBMISSION_UNKNOWN"):
+            if j.get("status") in ("SUBMITTED", "SUBMISSION_UNKNOWN", "FAILED"):
                 continue
-            if j.get("status") in statuses:
+            if retryable_failures:
+                from app.services.application_assistant.submission_outcome import is_retryable_technical_failure
+
+                wanted = j.get("status") in statuses or is_retryable_technical_failure(j)
+            else:
+                wanted = j.get("status") in statuses
+            if wanted:
                 is_dup, dup_job, _reason = is_strict_duplicate_processed(
                     db,
                     j.get("company") or "",
@@ -1394,8 +1406,13 @@ def reclassify_ineligible_jobs(dry_run: bool = Query(default=False)) -> dict[str
 
 @router.post("/autopilot/reprocess-failed")
 async def reprocess_failed_autopilot_jobs() -> dict[str, Any]:
-    """Return only FAILED/ERROR applications to the queue without starting Autopilot."""
-    return _requeue_autopilot_jobs_by_status(("FAILED", "ERROR", "VALIDATION_FAILED"))
+    """Return attempts that broke before submitting to the queue, without starting Autopilot.
+
+    FAILED is a dead end and is never requeued. What "retry failed" means now is
+    the retryable technical failures parked in review (see
+    ``is_retryable_technical_failure``), plus legacy ERROR/VALIDATION_FAILED rows.
+    """
+    return _requeue_autopilot_jobs_by_status(("ERROR", "VALIDATION_FAILED"), retryable_failures=True)
 
 
 @router.post("/autopilot/reprocess-staged")
@@ -1677,11 +1694,13 @@ USER_SETTABLE_STATES: dict[str, dict[str, Any]] = {
     "QUEUED": {"label": "Queue it again - Autopilot should retry this"},
     "MANUAL_REVIEW": {"label": "Manual review - I need to finish this by hand"},
     "NEEDS_REVIEW": {"label": "Needs review - a question still needs answering"},
-    "FAILED": {"label": "Failed - the attempt broke"},
-    "INELIGIBLE": {
-        "label": "Expired or broken link - nothing to apply to",
+    # FAILED is a dead end, never retried; INELIGIBLE is only "I am barred"
+    # (repo owner, 2026-09-23).
+    "FAILED": {
+        "label": "Failed - expired or broken link, nothing to apply to",
         "ineligibilityReason": "POSTING_EXPIRED",
     },
+    "INELIGIBLE": {"label": "Ineligible - I'm barred (sponsorship, citizenship)"},
     "SKIPPED": {"label": "Skipped - not worth applying to"},
     # A manual fallback for the automatic Gmail rejection reconciler
     # (rejection_reconciler.py) — lets the user record a rejection that

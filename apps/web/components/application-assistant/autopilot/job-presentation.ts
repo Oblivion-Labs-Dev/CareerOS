@@ -26,8 +26,11 @@ export const FILTERS: { id: StatusFilter; label: string; match: (j: AutopilotJob
   // Live postings the automation can never finish (a CAPTCHA guards the board,
   // or its form cannot be driven) but the user can submit by hand. Kept apart
   // from Review, where answering a question lets Autopilot carry on, and from
-  // Ineligible, which means there is nothing left to apply to.
+  // Failed, which means there is nothing left to apply to.
   { id: "manual", label: "Manual Review", match: (j) => j.status === "MANUAL_REVIEW" },
+  // Dead ends that are never retried: expired or removed postings, broken
+  // links, duplicates of an application already sent. Anything retryable lives
+  // in Review or Manual Review instead (repo owner, 2026-09-23).
   { id: "failed", label: "Failed", match: (j) => j.status === "FAILED" },
   // The submit button was clicked and no confirmation could be read, so the
   // employer may or may not have the application. Its own bucket because it is
@@ -35,10 +38,9 @@ export const FILTERS: { id: StatusFilter; label: string; match: (j: AutopilotJob
   // treating these as Failed is what caused Autopilot to apply a second time.
   { id: "unverified", label: "Unverified", match: (j) => j.status === "SUBMISSION_UNKNOWN" },
   { id: "skipped", label: "Skipped", match: (j) => j.status === "SKIPPED" },
-  // Ineligible is deliberately its own bucket, not folded into Skipped:
-  // these can never be applied to (citizenship, sponsorship, non-US, dead
-  // posting), so mixing them into a queue the user is meant to work through
-  // is what made that queue useless to review.
+  // Ineligible means only that the candidate is barred from the role (visa
+  // sponsorship, US citizenship, an excluded role or company). Kept apart from
+  // Skipped and Failed so the lists the user works through stay actionable.
   { id: "ineligible", label: "Ineligible", match: (j) => j.status === "INELIGIBLE" },
   { id: "submitted", label: "Submitted", match: (j) => j.status === "SUBMITTED" || j.status === "REJECTED" },
   { id: "open", label: "Open", match: (j) => j.status === "SUBMITTED" },
