@@ -173,9 +173,15 @@ applies them when it reaches the job and SKIPs/INELIGIBLE's it there instead.
 Critically, `_application_in_flight()` makes it **back off while a submission is running** —
 scoring loads a local model and would otherwise contend with the live browser.
 
-Scoring goes through `mistral_resume_match.py` / `job_matching.py` and is gated by
-`CAREEROS_LOCAL_LLM`. **An unscored job has no `matchScore` and is filtered out by the
-run's minimum-match floor**, so turning the local model off stops new jobs entering the queue.
+Model scoring goes through `mistral_resume_match.py` and is gated by `CAREEROS_LOCAL_LLM`.
+Every posting the model has not scored gets a deterministic **role-shape** score instead
+(`role_shape_match.py`, #50): role family, seniority, IDF-weighted requirement coverage and
+BM25, no model. The queue scorer caches its context (IDF over every active posting), scores
+each posting once, and does at most 500 new postings per call off the event loop; with the
+model off, `_role_shape_rescore_queue` also rescores waiting rows that are unscored or carry
+the old keyword heuristic. A model score is never overwritten. `scripts/matchlab` imports the
+same module, so the benchmark measures what the queue runs. **A score only orders the queue**
+(`queue_priority_score`); nothing is dropped for a low or missing score.
 
 ### 5.3 Autopilot run engine — `services/application_assistant/autopilot_runner.py` (124 KB)
 `AutopilotRunner` is a singleton (`get_instance()`). Public surface: `start`, `pause`,
@@ -432,7 +438,8 @@ High-signal regression tests: `test_autopilot_run_handoff.py`,
 | A specific ATS form breaks | `playwright_autopilot_executor.py` (per-ATS `_fill_*`), `ats_plugin_reference.py` |
 | Job stuck in the wrong bucket | `domain.py` enums, `ineligibility.py`, `job_filter_ranker.evaluate_hard_filters` |
 | Run won't start / stalls | `autopilot_runner.py` (`start`, `_process_batch_loop`), then job lock fields |
-| Queue is empty | `queue_preprocessor.py`, and check `CAREEROS_LOCAL_LLM` — unscored jobs are filtered out |
+| Queue is empty | `queue_preprocessor.py` (`_enqueue_scored_jobs`, the queue watermarks) |
+| Queue order looks wrong | `role_shape_match.py` (score), `job_filter_ranker.queue_priority_score` (tiers) — benchmark with `scripts/matchlab/run.py` before changing weights |
 | Resume content is wrong | `minimal_tailoring.py`, `story_index.py`, `local_composer.py` |
 | Resume PDF layout is wrong | `baseline_document.py`, `resume_diff_service.py` |
 | Retrieval quality | `scripts/matchlab/evidence_retrieval.py` — **measure before changing** `semantic.py` |

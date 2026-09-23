@@ -4,8 +4,11 @@ Nine approaches measured on the same labelled postings to answer one question:
 **what is the cheapest architecture that decides "should CareerOS apply to this
 job?" reliably enough to gate automatic submission?**
 
-Bench lives in `apps/api/scripts/matchlab/` and is isolated from the production
-matcher. Nothing here is wired into Autopilot.
+Bench lives in `apps/api/scripts/matchlab/`. The winning scorer, role-shape, now
+lives in `apps/api/app/services/application_assistant/role_shape_match.py` and
+orders the Autopilot queue whenever a posting has no model score (#50); matchlab
+imports it from there, so this benchmark measures exactly what the queue runs.
+See "Promoted into the queue" at the end.
 
 ## Constraints this was measured under
 
@@ -165,3 +168,35 @@ cd apps/api
 
 Raw results: `data/matchlab_final.json`, `matchlab_ablation.json`,
 `matchlab_hybrid.json`.
+
+## Promoted into the queue (#50, 2026-09-23)
+
+**The move was checked to be exact.** Run against the database backup from 11 September
+(the closest to the original run), `run.py --jobs 140` with the promoted module reproduces
+the leaderboard above: role-shape ROC-AUC **0.950**, PR-AUC 0.944, gate precision 1.000 and
+recall 0.650, adversarial 3/3; bm25-whole 0.707, bm25-sectioned 0.690 and tfidf 0.747 are
+unchanged too. On today's data the old and new code agree on all 140 per-job scores to within
+2e-14.
+
+**One fix went in with the move.** The scorer summed floats while iterating a `set` of
+strings. String hashing is randomised per process, so the same posting could score
+differently after an API restart (a test shows the old code failing across `PYTHONHASHSEED`
+values). Terms are now iterated in sorted order.
+
+**Today's data reads differently, and the reasons are data, not code.** On the 23 September
+database the same run gives role-shape **0.900** (95% bootstrap interval 0.79–0.98), with
+only 44 of 140 jobs labelled, since the labels come from job titles. `naive-coverage` now scores
+0.887: it calls the live `story_index`, which has improved since. The two are statistically
+tied on this set; role-shape was chosen because it is about 25× cheaper (no database session per
+job, which is what froze the API before) and deterministic. The "side-project Kubernetes"
+adversarial case now ties, because the approved resume states professional Kubernetes work
+("15+ containerized services using Kubernetes and AWS ECS/ECR"), which removes that case's
+premise for this candidate. Its highest-scored SKIPs are non-engineering titles containing
+"Platform" (product manager, designer), which the runner's title filter excludes anyway.
+
+**Cost in the API process.** IDF is fitted once over every active posting (about 9,600,
+3 s) and cached, each posting is scored once (p50 2.6 ms, max 11 ms), and a call scores
+at most 500 new postings in a worker thread, yielding the GIL between them. Measured
+event-loop lag during such a call: median 7 ms (idle 6 ms), p99 48 ms. Memoised calls are
+indistinguishable from idle.
+

@@ -221,3 +221,14 @@ def test_only_a_duplicate_is_kept_out_of_the_queue(client):
     assert result["status"] == "created"
     assert result["queued"] is True
     assert [row["status"] for row in _autopilot_rows(result["jobId"])] == ["QUEUED"]
+
+
+def test_an_imported_job_is_queued_with_a_role_shape_score(client):
+    # Imports skip the model and are queued at once; they still get a real,
+    # deterministic score to order the queue by, not the "unscored" placeholder (#50).
+    result = _post(client, [_job(53, title="Senior Backend Engineer")]).json()["results"][0]
+
+    [row] = _autopilot_rows(result["jobId"])
+    assert row["matchMethod"] == "role-shape"
+    assert row["matchScore"] > 0
+    assert row["matchReason"].startswith("Role-shape match:")
