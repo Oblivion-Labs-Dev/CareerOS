@@ -25,6 +25,7 @@ jobs:
           cache-dependency-path: CareerOS/pnpm-lock.yaml
       - run: pnpm install --no-frozen-lockfile
       - run: pnpm --filter @career-os/core build
+      - run: pnpm --filter @career-os/ui build
       - run: pnpm typecheck
 
   extension-unit:
@@ -83,6 +84,7 @@ jobs:
           python-version: "3.12"
       - run: pnpm install --no-frozen-lockfile
       - run: pnpm --filter @career-os/core build
+      - run: pnpm --filter @career-os/ui build
       - run: pnpm --filter @career-os/web build
       - run: pnpm --filter @career-os/web exec playwright install chromium --with-deps
       - run: pip install -r requirements.txt
