@@ -1619,6 +1619,7 @@ class AutopilotRunner:
         from app.services.application_assistant.persistence import (
             is_strict_duplicate_processed,
             list_autopilot_jobs,
+            list_submitted_duplicate_candidates,
         )
 
         title_raw = str(job_item.get("title") or "").strip()
@@ -1707,8 +1708,14 @@ class AutopilotRunner:
             )
             return
 
-        # 4. Standard already-submitted duplicate protection
-        already_submitted = [j for j in all_db_jobs if j.get("status") == AutopilotJobStatus.SUBMITTED.value]
+        # 4. Standard already-submitted duplicate protection.
+        #
+        # Reads only the submitted rows that could match this job, rather than
+        # reusing the company-cap step's full table load: that load is skipped
+        # when the user clicked Apply, which left this check reading a variable
+        # that was never assigned for exactly those jobs.
+        with session_scope() as db:
+            already_submitted = list_submitted_duplicate_candidates(db, job_item)
         duplicate = find_duplicate_submission(job_item, already_submitted)
         if duplicate is not None:
             when = str(duplicate.get("submittedAt") or "")[:10] or "earlier"
