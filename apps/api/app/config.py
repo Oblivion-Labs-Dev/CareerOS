@@ -7,6 +7,9 @@ class Settings(BaseSettings):
     career_os_database_url: str = "sqlite:///./data/career_os.db"
     career_os_dev_mode: bool = True
     career_os_api_key: str = ""
+    # Bearer token for POST /api/jobs/import/batch (external job ingestion). Empty
+    # disables the endpoint. Set via CAREEROS_IMPORT_API_TOKEN, never in code.
+    careeros_import_api_token: str = ""
     career_os_cors_origins: str = "http://localhost:3000,chrome-extension://*"
     openrouter_api_key: str = ""
     openrouter_base_url: str = "https://openrouter.ai/api/v1"

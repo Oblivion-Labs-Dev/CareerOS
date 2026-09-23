@@ -277,7 +277,8 @@ class DedupeIndex:
         """Surviving records, in the order they were first seen."""
         return [self.by_id[key] for key in self.order if key in self.by_id]
 
-    def add(self, job: dict[str, Any]) -> None:
+    def add(self, job: dict[str, Any]) -> str:
+        """Merge `job` into the index; returns the id of the record it now lives in."""
         by_id = self.by_id
         url_to_id = self.url_to_id
         req_to_id = self.req_to_id
@@ -353,6 +354,7 @@ class DedupeIndex:
             bucket = coarse_to_ids.setdefault(coarse_key, [])
             if matched_id not in bucket:
                 bucket.append(matched_id)
+        return matched_id
 
 
 def cross_source_deduplicate(jobs: list[dict[str, Any]]) -> list[dict[str, Any]]:

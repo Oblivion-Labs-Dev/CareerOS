@@ -145,6 +145,19 @@ redirects to real ATS URLs, and scores relevance.
 | `h1b_sponsorship.py` | Sponsorship signals. |
 | `job_verification_engine.py`, `freshness.py` | Is the posting real and still live? |
 
+**External ingestion** — `POST /api/jobs/import/batch` (`routers/job_import.py`) lets another
+system (e.g. SUTRA Manthan) push discovered jobs. It is not a second pipeline:
+`store.import_jobs_batch` runs the scraper's own steps — `_normalize_scraped_job` →
+`_score_jobs` → `DedupeIndex` (whose `add()` returns the id a job merged into) →
+`_prune_stale_jobs` → `_persist_snapshot` — under the scraper's `_save_lock`, and the queue
+preprocessor then ingests the snapshot like any scrape. Per job it reports `created` /
+`existing` / `updated` / `invalid` / `failed` with the CareerOS job id; duplicates follow
+`merge_job_records` (the stored record keeps its fields unless the newcomer is a
+higher-priority source), so resending a batch is a no-op. Auth is a bearer token from
+`CAREEROS_IMPORT_API_TOKEN` (constant-time compare; unset → 503). The path is on the
+session gate's allowlist because the caller is a system, not a browser — the token is its only
+credential and grants only this import.
+
 ### 5.2 Queue preprocessing — `services/application_assistant/queue_preprocessor.py`
 A singleton background loop that keeps the Autopilot queue full. Each `_cycle`:
 scrape if due → ingest the snapshot → find eligible unscored jobs → score them →
