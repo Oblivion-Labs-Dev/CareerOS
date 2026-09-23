@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 
 /** Stop the running batch using the card's own Stop control. */
-test("stop the running night batch @local", async ({ page }) => {
+test("stop the running night batch", async ({ page }) => {
   test.setTimeout(180_000);
   await page.goto("/applications", { waitUntil: "domcontentloaded" });
   const stop = page.getByRole("button", { name: /^Stop/i }).first();
