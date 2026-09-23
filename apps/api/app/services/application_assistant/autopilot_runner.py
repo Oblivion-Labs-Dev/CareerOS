@@ -2030,6 +2030,27 @@ class AutopilotRunner:
                         save_autopilot_run(db, r)
             return
 
+        if not passed:
+            # The soft SKIP: a rejection the classifier does not recognise (not a
+            # Senior/Staff/Principal software role, an aggregator URL, ...). The
+            # queue keeps every non-duplicate posting (#59), so this is the gate
+            # that keeps them from being applied to.
+            job_item["status"] = AutopilotJobStatus.SKIPPED.value
+            self.log_event(
+                f"{w_prefix}Skipped {company} — {title}: {skip_reason}",
+                level="info",
+                metadata={"slot": slot_idx, "company": company, "title": title, "reason": skip_reason},
+            )
+            self._record_checkpoint(job_item, CheckpointStep.SKIPPED, skip_reason)
+            with self._run_update_lock:
+                with session_scope() as db:
+                    save_autopilot_job(db, job_item)
+                    r = get_autopilot_run(db, run_id)
+                    if r:
+                        r["skippedCount"] = (r.get("skippedCount") or 0) + 1
+                        save_autopilot_run(db, r)
+            return
+
         self.log_event(
             f"{w_prefix}Processing: {company} — {title} (Match Score: {job_item.get('matchScore', 85)}%)",
             level="info",

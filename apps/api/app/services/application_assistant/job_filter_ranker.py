@@ -376,31 +376,7 @@ def role_location_priority_bonus(job: dict[str, Any]) -> float:
         "united states", "usa", "u.s.", "remote", "us", "remote - us", "remote, us",
     ))
 
-    # Role level classification for individual contributor software engineers
-    above_senior_markers = (
-        "staff", "principal", "distinguished", "fellow", "architect", "lead",
-    )
-    is_above_senior = any(re.search(rf"\b{re.escape(k)}\b", title_l) for k in above_senior_markers)
-
-    is_senior = (
-        any(k in title_l for k in ("senior", "sr.", "sr ", "sr-", "senior swe", "sde iii", "sde 3", "swe iii", "swe 3"))
-        and any(k in title_l for k in (
-            "software", "backend", "full stack", "frontend", "platform",
-            "infrastructure", "systems", "cloud", "security", "data",
-            "engineer", "developer", "sde", "swe", *AI_ML_TITLE_KEYWORDS,
-        ))
-        and not is_above_senior
-    )
-
-    is_staff_or_principal = (
-        is_above_senior
-        and any(re.search(rf"\b{re.escape(k)}\b", title_l) for k in ("staff", "principal", "lead", "distinguished", "fellow"))
-        and any(k in title_l for k in (
-            "software", "backend", "full stack", "frontend", "platform",
-            "infrastructure", "systems", "cloud", "security", "data",
-            "engineer", "developer", "sde", "swe", *AI_ML_TITLE_KEYWORDS,
-        ))
-    )
+    is_senior, is_staff_or_principal = role_level_flags(title_l)
 
     is_other_swe = (
         any(k in title_l for k in (
@@ -434,6 +410,52 @@ def role_location_priority_bonus(job: dict[str, Any]) -> float:
     return 0.0
 
 
+def role_level_flags(title_l: str) -> tuple[bool, bool]:
+    """(is_senior, is_staff_or_principal) for an individual-contributor engineering title."""
+    above_senior_markers = (
+        "staff", "principal", "distinguished", "fellow", "architect", "lead",
+    )
+    is_above_senior = any(re.search(rf"\b{re.escape(k)}\b", title_l) for k in above_senior_markers)
+    engineering = any(k in title_l for k in (
+        "software", "backend", "full stack", "frontend", "platform",
+        "infrastructure", "systems", "cloud", "security", "data",
+        "engineer", "developer", "sde", "swe", *AI_ML_TITLE_KEYWORDS,
+    ))
+
+    is_senior = (
+        any(k in title_l for k in ("senior", "sr.", "sr ", "sr-", "senior swe", "sde iii", "sde 3", "swe iii", "swe 3"))
+        and engineering
+        and not is_above_senior
+    )
+    is_staff_or_principal = (
+        is_above_senior
+        and any(re.search(rf"\b{re.escape(k)}\b", title_l) for k in ("staff", "principal", "lead", "distinguished", "fellow"))
+        and engineering
+    )
+    return is_senior, is_staff_or_principal
+
+
+def duplicate_block_reason(job: dict[str, Any], existing_key_index: dict[str, set[str]]) -> str | None:
+    """Why ``job`` duplicates a posting already queued, in flight or applied to, else None."""
+    job_key = generate_composite_job_key(
+        job.get("company") or "",
+        job.get("title") or "",
+        job.get("applicationUrl") or job.get("listingUrl") or "",
+        job.get("externalJobId") or "",
+        job.get("location") or "",
+    )
+    for ex_status in existing_key_index.get(job_key) or set():
+        if ex_status in (
+            AutopilotJobStatus.SUBMITTED.value,
+            AutopilotJobStatus.APPLYING.value,
+            AutopilotJobStatus.STAGED.value,
+            "NEEDS_REVIEW",
+            AutopilotJobStatus.QUEUED.value,
+        ):
+            return f"Duplicate application already in state: {ex_status}"
+    return None
+
+
 def evaluate_hard_filters(
     job: dict[str, Any],
     profile: dict[str, Any],
@@ -455,7 +477,6 @@ def evaluate_hard_filters(
     company = job.get("company") or ""
     title = job.get("title") or ""
     app_url = job.get("applicationUrl") or job.get("listingUrl") or ""
-    external_id = job.get("externalJobId") or ""
 
     if not company or not title:
         return False, "Missing company or job title"
@@ -495,18 +516,9 @@ def evaluate_hard_filters(
     # 1. Duplicate Application Protection
     if not opts.get("allowDuplicates", False):
         existing_key_index = existing_jobs if isinstance(existing_jobs, dict) else build_existing_key_index(existing_jobs)
-        location = job.get("location") or ""
-        job_key = generate_composite_job_key(company, title, app_url, external_id, location)
-        blocking_statuses = existing_key_index.get(job_key) or set()
-        for ex_status in blocking_statuses:
-            if ex_status in (
-                AutopilotJobStatus.SUBMITTED.value,
-                AutopilotJobStatus.APPLYING.value,
-                AutopilotJobStatus.STAGED.value,
-                "NEEDS_REVIEW",
-                AutopilotJobStatus.QUEUED.value,
-            ):
-                return False, f"Duplicate application already in state: {ex_status}"
+        duplicate = duplicate_block_reason(job, existing_key_index)
+        if duplicate:
+            return False, duplicate
 
     # 1b. Company Application Cap (Max 50 applications per company)
     company_norm = re.sub(r"[^\w]", "", company.lower())
@@ -590,6 +602,10 @@ def evaluate_hard_filters(
     intern_keywords = ("intern", "internship", "co-op", "apprentice", "working student", "fellowship")
     if any(re.search(rf"\b{kw}\b", title_lower) for kw in intern_keywords):
         return False, f"Role '{title}' is an internship or apprentice position"
+
+    # Only Senior, or Staff / Principal software roles are applied to (#59).
+    if not any(role_level_flags(title_lower)):
+        return False, f"Role '{title}' is not a Senior, Staff or Principal software role"
 
     # 4. Location Filter (United States Positions Only)
     job_loc = (job.get("location") or "").lower()
@@ -945,7 +961,7 @@ def filter_and_rank_jobs(
 ) -> list[dict[str, Any]]:
     """Process a list of discovered jobs:
 
-    1. Run hard filters (deterministic)
+    1. Drop duplicates only (every other hard filter runs at apply time, #59)
     2. Attach the Mistral/Ollama resume-vs-JD match (precomputed by the queue
        preprocessor, or scored inline here when the caller has none)
     3. Filter by min match score threshold (with fallback so batch queue never starves)
@@ -973,14 +989,6 @@ def filter_and_rank_jobs(
     # posting get queued and submitted twice.
     existing_key_index = build_existing_key_index(existing_jobs)
 
-    company_submitted_counts: dict[str, int] = {}
-    for ex in existing_jobs:
-        if ex.get("status") == AutopilotJobStatus.SUBMITTED.value:
-            c = re.sub(r"[^\w]", "", (ex.get("company") or "").lower())
-            if c:
-                company_submitted_counts[c] = company_submitted_counts.get(c, 0) + 1
-    opts.setdefault("companySubmittedCounts", company_submitted_counts)
-
     # Load resume text / accomplishments for the heuristic-fallback path
     # below (only reached when a posting has no Mistral score) when the
     # caller didn't already supply them and a real DB session is on hand to
@@ -997,28 +1005,12 @@ def filter_and_rank_jobs(
             documents, accomplishments = {}, []
 
     for job in raw_jobs:
-        passed, skip_reason = evaluate_hard_filters(job, profile, existing_key_index, opts)
-        manual_reason: tuple[Any, str] | None = None
-        if not passed:
-            # A hard-filter rejection is not always a dead end. A board behind a
-            # CAPTCHA is live and perfectly submittable by hand - the challenge
-            # exists to stop automation, and must never be defeated, but the
-            # user works these by hand and wants to see them.
-            #
-            # The runner already routes these to MANUAL_REVIEW once they are in
-            # the queue. They were never getting there: selection dropped them
-            # first, so the classifier downstream never saw them. 188 real
-            # postings were excluded this way.
-            from app.services.application_assistant.ineligibility import (
-                MANUAL_REASONS,
-                classify_ineligibility,
-            )
-
-            classified = classify_ineligibility({**job, "skipReason": skip_reason})
-            if classified and classified[0] in MANUAL_REASONS:
-                manual_reason = classified
-            else:
-                continue
+        # Only a duplicate is kept out of the queue (#59). Every other hard
+        # filter - role, level, location, age, aggregator URL, CAPTCHA board -
+        # is applied by the runner when it reaches the job, which SKIPs it (or
+        # files it as INELIGIBLE / MANUAL_REVIEW) with the reason visible.
+        if not opts.get("allowDuplicates", False) and duplicate_block_reason(job, existing_key_index):
+            continue
 
         match = matches.get(str(job.get("id") or "")) or job.get("mistralMatch")
         if isinstance(match, dict) and match.get("matchScore") is not None:
@@ -1062,13 +1054,6 @@ def filter_and_rank_jobs(
                 "status": AutopilotJobStatus.SCORED.value,
             }
 
-        if manual_reason is not None:
-            # Carried in as a real opportunity, flagged so the automation never
-            # spends a browser session trying to drive a board it cannot.
-            from app.services.application_assistant.ineligibility import apply_ineligibility
-
-            apply_ineligibility(ranked_job, manual_reason[0], manual_reason[1])
-
         ranked_job["queuePriority"] = queue_priority_score(ranked_job)
         all_passing.append(ranked_job)
 
@@ -1085,10 +1070,6 @@ def filter_and_rank_jobs(
                 job.get("location") or "",
             )
             existing_key_index.setdefault(dup_key, set()).add(AutopilotJobStatus.QUEUED.value)
-
-        comp_key = re.sub(r"[^\w]", "", (job.get("company") or "").lower())
-        if comp_key:
-            company_submitted_counts[comp_key] = company_submitted_counts.get(comp_key, 0) + 1
 
     # Sort descending by queue priority (tier bonus + match score), then datePosted
     all_passing.sort(key=lambda j: (j.get("queuePriority", 0.0), j.get("datePosted") or ""), reverse=True)
