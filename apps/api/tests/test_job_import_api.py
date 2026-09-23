@@ -210,10 +210,14 @@ def test_reimporting_does_not_queue_a_job_twice(client):
     assert len(_autopilot_rows(first["jobId"])) == 1
 
 
-def test_an_import_that_fails_the_hard_filters_is_not_queued(client):
-    body = _post(client, [_job(52, title="Director of Engineering", location="Berlin, Germany",
-                               description="Must be a US citizen with an active security clearance.")]).json()
+def test_only_a_duplicate_is_kept_out_of_the_queue(client):
+    # Old, below Senior and outside the US: every one of these used to keep a
+    # posting out of the queue. Now only a duplicate does (#59); the runner
+    # applies the other filters when it reaches the job.
+    body = _post(client, [_job(52, title="Software Engineer II", location="Berlin, Germany",
+                               posted_at="2025-10-01T10:00:00Z")]).json()
 
     result = body["results"][0]
     assert result["status"] == "created"
-    assert result["queued"] is False
+    assert result["queued"] is True
+    assert [row["status"] for row in _autopilot_rows(result["jobId"])] == ["QUEUED"]

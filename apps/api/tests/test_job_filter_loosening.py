@@ -10,7 +10,7 @@ import pytest
 from app.services.application_assistant.job_filter_ranker import evaluate_hard_filters
 
 
-def _job(title="Software Engineer", location="Seattle, WA", company="Acme"):
+def _job(title="Senior Software Engineer", location="Seattle, WA", company="Acme"):
     return {
         "company": company,
         "title": title,
@@ -24,17 +24,37 @@ def _passes(job, profile=None):
 
 
 @pytest.mark.parametrize("title", [
-    "Software Development Engineer",
-    "Software Development Engineer II – Back-End (Mission-Focused)",
     "Staff Software Development Engineer",
     "Sr. Software Development Engineer - Python Automation / Kubernetes",
     "SDE III - Data Engineering",
     "Senior Software Development Engineer Test (SDET)",
-    "Software Development Engineer in Test - Buyer Experience",
     "Senior Full-Stack Engineer",
-    "Product Engineer II – Web Services",
 ])
 def test_real_software_titles_now_pass(title):
+    ok, reason = _passes(_job(title=title))
+    assert ok, reason
+
+
+# Only Senior, or Staff / Principal software roles are applied to (#59).
+@pytest.mark.parametrize("title", [
+    "Software Development Engineer",
+    "Software Development Engineer II – Back-End (Mission-Focused)",
+    "Software Development Engineer in Test - Buyer Experience",
+    "Product Engineer II – Web Services",
+    "Software Engineer",
+])
+def test_software_titles_below_senior_are_rejected(title):
+    ok, reason = _passes(_job(title=title))
+    assert not ok
+    assert "not a Senior, Staff or Principal software role" in reason
+
+
+@pytest.mark.parametrize("title", [
+    "Principal Software Engineer",
+    "Staff Backend Engineer",
+    "Senior Machine Learning Engineer",
+])
+def test_senior_staff_and_principal_software_titles_pass(title):
     ok, reason = _passes(_job(title=title))
     assert ok, reason
 
@@ -104,7 +124,7 @@ def test_non_us_locations_pass_when_profile_allows_international(location):
 
 
 def test_uk_inside_a_word_is_not_a_country():
-    ok, reason = _passes(_job(title="Software Engineer - Duke Energy Platform", location="Charlotte, NC"))
+    ok, reason = _passes(_job(title="Senior Software Engineer - Duke Energy Platform", location="Charlotte, NC"))
     assert ok, reason
 
 

@@ -692,19 +692,9 @@ class QueuePreprocessor:
                 self.stats.get("aggregatorsResolved", 0) + resolved_aggregators
             )
 
-        # Aggregator listings that resolve_aggregator_url could not match to
-        # the employer's own board (most of them - only a small minority
-        # resolve) would otherwise get queued with the original aggregator
-        # URL and fail identically once actually attempted: "No application
-        # form on the posting page". That is correct behavior at attempt
-        # time, but queuing them at all just delays a known-dead-end to a
-        # live batch slot instead of skipping it here where the same
-        # resolution attempt already just ran. Mirrors how duplicates are
-        # skipped below rather than queued and failed later.
-        unresolved_aggregator_ids = {
-            id(r) for r in aggregator_rows if not r.get("aggregatorUrl")
-        } if aggregator_rows else set()
-        unresolved_skipped = 0
+        # An aggregator listing that did not resolve is still queued: only a
+        # duplicate is kept out of the queue (#59). The runner's hard-filter
+        # check SKIPs it with the aggregator reason before opening a browser.
 
         # is_duplicate_application() re-queries and full-scans every autopilot
         # job on each call - cheap for the small number of candidates this
@@ -735,9 +725,6 @@ class QueuePreprocessor:
 
         with session_scope() as db:
             for r in ranked:
-                if id(r) in unresolved_aggregator_ids:
-                    unresolved_skipped += 1
-                    continue
                 company = r.get("company") or ""
                 title = r.get("title") or ""
                 url = r.get("applicationUrl") or r.get("listingUrl") or ""
@@ -781,15 +768,6 @@ class QueuePreprocessor:
 
         if deduped:
             self.stats["jobsDeduped"] = int(self.stats.get("jobsDeduped", 0)) + deduped
-        if unresolved_skipped:
-            self.stats["jobsUnresolvedAggregatorSkipped"] = (
-                int(self.stats.get("jobsUnresolvedAggregatorSkipped", 0)) + unresolved_skipped
-            )
-            logger.info(
-                "Queue preprocessor skipped %d unresolvable aggregator listing(s) "
-                "(no employer board match) instead of queuing them to fail later",
-                unresolved_skipped,
-            )
         if enqueued:
             self.stats["jobsEnqueued"] = int(self.stats.get("jobsEnqueued", 0)) + enqueued
             logger.info("Queue preprocessor enqueued %d new posting(s)", enqueued)

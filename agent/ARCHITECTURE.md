@@ -153,8 +153,8 @@ system (e.g. SUTRA Manthan) push discovered jobs. It is not a second pipeline:
 fresh, the route then runs the preprocessor's own `_ingest_scraper_snapshot` and
 `_enqueue_scored_jobs(only_scraper_ids=...)` for just those postings, so they reach `QUEUED`
 immediately (the loop only runs during an Autopilot run and pauses intake at the queue-depth
-watermark). Priority intake skips the watermark and the model score, never the hard filters,
-duplicate checks or ranking; `_ENQUEUE_LOCK` serialises it with the loop. No run is started. Per job it reports `created` /
+watermark). Priority intake skips the watermark and the model score; like ordinary enqueue
+(5.2), it drops only duplicates, never ranking; `_ENQUEUE_LOCK` serialises it with the loop. No run is started. Per job it reports `created` /
 `existing` / `updated` / `invalid` / `failed` with the CareerOS job id; duplicates follow
 `merge_job_records` (the stored record keeps its fields unless the newcomer is a
 higher-priority source), so resending a batch is a no-op. Auth is a bearer token from
@@ -165,7 +165,10 @@ credential and grants only this import.
 ### 5.2 Queue preprocessing — `services/application_assistant/queue_preprocessor.py`
 A singleton background loop that keeps the Autopilot queue full. Each `_cycle`:
 scrape if due → ingest the snapshot → find eligible unscored jobs → score them →
-enqueue those that pass → re-rank the pending queue → periodically reconcile rejections.
+enqueue everything that isn't a duplicate → re-rank the pending queue → periodically
+reconcile rejections. Role, level, age, location and aggregator-URL hard filters are not
+applied at enqueue time — every non-duplicate posting reaches `QUEUED`; the runner (5.3)
+applies them when it reaches the job and SKIPs/INELIGIBLE's it there instead.
 
 Critically, `_application_in_flight()` makes it **back off while a submission is running** —
 scoring loads a local model and would otherwise contend with the live browser.
@@ -190,10 +193,11 @@ Internals, in the order work flows:
 `_execute_application_pipeline` order (this is the sequence to reason about):
 1. **Tier-1 guardrail** — dream companies are held for a hand-written application →
    `MANUAL_REVIEW` (reversible: `hasPersistentBlock` deliberately stays `False`).
-2. **Hard filters** (`job_filter_ranker.evaluate_hard_filters`) against the profile.
+2. **Hard filters** (`job_filter_ranker.evaluate_hard_filters`) against the profile —
+   including role level: only Senior, or Staff/Principal, software roles pass.
    A rejection is passed to `ineligibility.classify_ineligibility`; a recognised permanent
    blocker becomes `INELIGIBLE` (candidate barred) or `FAILED` (dead posting) with a reason,
-   anything unrecognised stays a soft `SKIPPED`.
+   anything unrecognised (including the level gate) is a soft `SKIPPED`.
 3. Mark `APPLYING`, record `PAGE_OPENED`.
 4. Load submission context (profile, answer library, master resume) — **on a worker thread**,
    because synchronous DB reads on the event loop were blocking the entire server.
