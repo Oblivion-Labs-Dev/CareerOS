@@ -12,7 +12,8 @@ from zipfile import ZipFile
 
 ROOT = Path(__file__).resolve().parents[5]
 DEFAULT_DOCX = Path(r"C:\Users\amsbo\Downloads\company_outreach_emails_humanized.docx")
-DEFAULT_RECRUITERS = ROOT / "Arsenal" / "scripts" / "email" / "recruiters.json"
+# Recruiter contacts are personal data: kept under the git-ignored data dir, never committed.
+DEFAULT_RECRUITERS = ROOT / "CareerOS" / "apps" / "api" / "data" / "email" / "recruiters.json"
 DEFAULT_OUTPUT = ROOT / "CareerOS" / "apps" / "api" / "scripts" / "email" / "personalized_recruiter_emails.json"
 
 WORD_NS = {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}

@@ -23,6 +23,7 @@ show_error_codes = true
 pretty = true
 
 [tool.pytest.ini_options]
+testpaths = ["tests"]
 markers = [
     "network: reaches a real external API; skip with -m \"not network\" when offline",
 ]
