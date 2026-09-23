@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 
 for (const width of [390, 1440]) {
-  test(`workspace illustrations remain readable at ${width}px`, async ({ page }, testInfo) => {
+  test(`workspace illustrations remain readable at ${width}px @local`, async ({ page }, testInfo) => {
     await page.setViewportSize({ width, height: 1000 });
     for (const route of ["/applications", "/jobs/discover", "/profile", "/settings"]) {
       await page.goto(route);
@@ -13,7 +13,7 @@ for (const width of [390, 1440]) {
   });
 }
 
-test("motion can be paused across navigation without hiding content", async ({ page }) => {
+test("motion can be paused across navigation without hiding content @local", async ({ page }) => {
   await page.goto("/settings");
   await page.getByRole("button", { name: "Pause page animations", exact: true }).click();
   await expect(page.locator("html")).toHaveAttribute("data-motion", "paused");
@@ -26,7 +26,7 @@ test("motion can be paused across navigation without hiding content", async ({ p
   await expect(page.locator("html")).toHaveAttribute("data-motion", "on");
 });
 
-test("page illustrations respect reduced motion", async ({ page }) => {
+test("page illustrations respect reduced motion @local", async ({ page }) => {
   await page.emulateMedia({ reducedMotion: "reduce" });
   await page.goto("/settings");
   await expect(page.locator("main [data-kind] svg")).toBeVisible();

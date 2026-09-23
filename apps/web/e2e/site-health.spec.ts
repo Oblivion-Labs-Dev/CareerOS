@@ -80,7 +80,7 @@ test.describe("CareerOS web health", () => {
     await expect(page.getByText(/saved answers|No answers saved yet/i)).toBeVisible();
   });
 
-  test("hydrates the connected workspace from cached data without a mismatch", async ({ page }) => {
+  test("hydrates the connected workspace from cached data without a mismatch @local", async ({ page }) => {
     const consoleErrors: string[] = [];
     page.on("console", (message) => {
       if (message.type() === "error") consoleErrors.push(message.text());

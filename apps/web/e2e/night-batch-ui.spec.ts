@@ -17,7 +17,7 @@ import { expect, test } from "@playwright/test";
 const BATCH_SIZE = process.env.NIGHT_BATCH_SIZE || "10";
 const MIN_SCORE = process.env.NIGHT_BATCH_MIN_SCORE || "60";
 
-test("Night Batch 10-job execution via CareerOS Website UI with Qwen", async ({ page }) => {
+test("Night Batch 10-job execution via CareerOS Website UI with Qwen @local", async ({ page }) => {
   // Allow ample time for processing 10 jobs sequentially via Playwright
   test.setTimeout(900_000); // 15 minutes
 

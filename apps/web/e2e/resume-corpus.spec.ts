@@ -80,7 +80,7 @@ test.describe("Resume Corpus redesign", () => {
     await expect(accomplishments).toBeFocused();
   });
 
-  test("searches across the corpus and opens the source record", async ({ page }) => {
+  test("searches across the corpus and opens the source record @local", async ({ page }) => {
     await openPreview(page);
 
     await page.getByRole("button", { name: /Search accomplishments, metrics, evidence/i }).click();

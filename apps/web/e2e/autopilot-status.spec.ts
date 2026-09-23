@@ -15,7 +15,7 @@ import { expect, test } from "@playwright/test";
 
 const KNOWN_STATES = /Running|Recovering|Paused|Idle|Stopped|Offline|Unknown/;
 
-test.describe("Autopilot control center", () => {
+test.describe("Autopilot control center @local", () => {
   test("renders live operational state and all four sections", async ({ page }) => {
     const failedRequests: string[] = [];
     page.on("requestfailed", (req) => {

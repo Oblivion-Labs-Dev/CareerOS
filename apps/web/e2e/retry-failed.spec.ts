@@ -17,7 +17,7 @@ const COMPANIES = (process.env.RETRY_COMPANIES || "")
   .map((c) => c.trim())
   .filter(Boolean);
 
-test("retry specific failed applications from the UI", async ({ page }) => {
+test("retry specific failed applications from the UI @local", async ({ page }) => {
   test.setTimeout(240_000);
   expect(COMPANIES.length, "set RETRY_COMPANIES").toBeGreaterThan(0);
 
