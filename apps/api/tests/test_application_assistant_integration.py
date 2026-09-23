@@ -27,7 +27,7 @@ def _no_local_llm(monkeypatch):
     monkeypatch.setattr(llm_client, "LOCAL_LLM_ENABLED", False)
 
 
-@pytest.fixture
+@pytest.fixture(scope="class")
 def fixture_site():
     """Simple HTTP server serving Greenhouse fixtures, recording each path requested."""
     import threading
@@ -52,116 +52,88 @@ def fixture_site():
     server.shutdown()
 
 
-@pytest.fixture
-def fixture_server(fixture_site):
-    return fixture_site.url
+MINIMAL_PDF = b"%PDF-1.4\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF"
+
+
+@pytest.fixture(scope="class")
+def filled(fixture_site):
+    """One real fill of the fixture form, shared by the assertions below.
+
+    Each assertion used to launch its own browser and fill the same form with a
+    subset of this context, about 12 s apiece. One fill with the full context
+    exercises everything each of them checked.
+    """
+    import asyncio
+    import base64
+
+    pytest.importorskip("playwright")
+    from app.services.application_assistant import llm_client
+    from app.services.application_assistant.browser_runner import prepare_application
+    from app.services.application_assistant.providers.greenhouse import GreenhouseAdapter
+
+    # See _no_local_llm: that fixture is function-scoped, so this class-scoped
+    # run switches the model off itself.
+    previous, llm_client.LOCAL_LLM_ENABLED = llm_client.LOCAL_LLM_ENABLED, False
+    try:
+        result = asyncio.run(prepare_application(
+            application_url=fixture_site.url,
+            adapter=GreenhouseAdapter(),
+            context={
+                "profile": {
+                    "firstName": "Jane",
+                    "lastName": "Doe",
+                    "email": "jane@example.com",
+                    "phone": "+1 555-123-4567",
+                    "linkedin": "https://linkedin.com/in/jane",
+                },
+                "answerLibrary": [],
+                "allowInferred": False,
+                "documents": {
+                    "defaultResume": {
+                        "name": "Jane_Resume.pdf",
+                        "type": "application/pdf",
+                        "base64": base64.b64encode(MINIMAL_PDF).decode(),
+                    }
+                },
+            },
+            app_id="test_integration",
+            headed=False,
+        ))
+    finally:
+        llm_client.LOCAL_LLM_ENABLED = previous
+    return result
 
 
 @pytest.mark.skipif(not FORM_FIXTURE.exists(), reason="Fixtures not available")
 class TestApplicationAssistantIntegration:
-    def test_submission_never_clicked(self, fixture_site):
+    def test_submission_never_clicked(self, filled, fixture_site):
         """Prove that automation never clicks the final submit button.
 
         The fixture form reports a submit to the serving harness, so a click
         during the fill is recorded here even after that browser has closed.
         """
-        import asyncio
-
-        pytest.importorskip("playwright")
-        from app.services.application_assistant.browser_runner import prepare_application
-        from app.services.application_assistant.providers.greenhouse import GreenhouseAdapter
-
-        adapter = GreenhouseAdapter()
-        profile = {
-            "firstName": "Jane",
-            "lastName": "Doe",
-            "email": "jane@example.com",
-            "phone": "+1 555-123-4567",
-            "linkedin": "https://linkedin.com/in/jane",
-        }
-
-        async def _run():
-            return await prepare_application(
-                application_url=fixture_site.url,
-                adapter=adapter,
-                context={"profile": profile, "answerLibrary": [], "allowInferred": False},
-                app_id="test_integration",
-                headed=False,
-            )
-
-        result = asyncio.run(_run())
-        assert result.get("success") is True or result.get("fields")
+        assert filled.get("success") is True or filled.get("fields")
         assert "/application_form.html" in fixture_site.requested, "fill never loaded the form"
         assert "/__submit_clicked" not in fixture_site.requested, (
             "Submit button must never be clicked by automation"
         )
 
-    def test_verified_fields_filled(self, fixture_server):
+    def test_verified_fields_filled(self, filled):
         """Verify that verified profile fields are mapped."""
-        import asyncio
-
-        pytest.importorskip("playwright")
-        from app.services.application_assistant.browser_runner import prepare_application
-        from app.services.application_assistant.providers.greenhouse import GreenhouseAdapter
-
-        adapter = GreenhouseAdapter()
-        profile = {"firstName": "Jane", "lastName": "Doe", "email": "jane@example.com"}
-
-        async def _run():
-            return await prepare_application(
-                application_url=fixture_server,
-                adapter=adapter,
-                context={"profile": profile, "answerLibrary": []},
-                app_id="test_fill",
-                headed=False,
-            )
-
-        result = asyncio.run(_run())
-        fields = result.get("fields", [])
-        verified_fields = [f for f in fields if f.get("classification") == "verified"]
+        verified_fields = [f for f in filled.get("fields", []) if f.get("classification") == "verified"]
         assert len(verified_fields) > 0, "Should have verified fields mapped"
 
-    def test_resume_upload_filled(self, fixture_server):
+    def test_resume_upload_filled(self, filled):
         """Resume file input should receive the stored default resume."""
-        import asyncio
-        import base64
-
-        pytest.importorskip("playwright")
-        from app.services.application_assistant.browser_runner import prepare_application
-        from app.services.application_assistant.providers.greenhouse import GreenhouseAdapter
-
-        minimal_pdf = b"%PDF-1.4\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF"
-        adapter = GreenhouseAdapter()
-
-        async def _run():
-            return await prepare_application(
-                application_url=fixture_server,
-                adapter=adapter,
-                context={
-                    "profile": {"firstName": "Jane", "email": "jane@example.com"},
-                    "answerLibrary": [],
-                    "documents": {
-                        "defaultResume": {
-                            "name": "Jane_Resume.pdf",
-                            "type": "application/pdf",
-                            "base64": base64.b64encode(minimal_pdf).decode(),
-                        }
-                    },
-                },
-                app_id="test_resume_upload",
-                headed=False,
-            )
-
-        result = asyncio.run(_run())
-        assert result.get("success") is True, result
+        assert filled.get("success") is True, filled
         resume_field = next(
-            (f for f in result.get("fields", []) if f.get("fieldType") == "file" and "resume" in f.get("label", "").lower()),
+            (f for f in filled.get("fields", []) if f.get("fieldType") == "file" and "resume" in f.get("label", "").lower()),
             None,
         )
         assert resume_field is not None
         assert resume_field.get("classification") == "verified"
         assert resume_field.get("filled") is True, resume_field
-        upload_actions = [a for a in result.get("filled", []) if a.get("type") == "upload_document"]
+        upload_actions = [a for a in filled.get("filled", []) if a.get("type") == "upload_document"]
         assert upload_actions, "Expected upload_document action in filled results"
 
     def test_persistence_roundtrip(self):

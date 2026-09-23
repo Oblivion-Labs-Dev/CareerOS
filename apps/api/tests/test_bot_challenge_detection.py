@@ -38,6 +38,10 @@ def _detect(html: str) -> str:
             browser = await p.chromium.launch(headless=True)
             try:
                 page = await browser.new_page(viewport={"width": 1280, "height": 900})
+                # The samples reference Google's and Cloudflare's real scripts.
+                # The detector reads only the DOM, so nothing is fetched: one
+                # test otherwise spent 5 s loading reCAPTCHA from the internet.
+                await page.route("**/*", lambda route: route.abort())
                 await page.set_content(html)
                 return await page.evaluate(_VISIBLE_BOT_CHALLENGE_JS)
             finally:

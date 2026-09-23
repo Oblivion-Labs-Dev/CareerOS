@@ -5,7 +5,22 @@ from __future__ import annotations
 import httpx
 import pytest
 
+from app.services.job_discover import scraper_service
 from app.services.job_discover.scraper_service import build_verified_ssl_context, fetch_with_retry
+
+
+@pytest.fixture(autouse=True)
+def _no_backoff_wait(monkeypatch):
+    """Keep the retries, skip the real backoff (0.6 s, 1.2 s, ... per test).
+
+    These tests assert what is retried and how often, not how long it waits.
+    """
+    real_sleep = scraper_service.asyncio.sleep
+
+    async def no_wait(_delay, *args, **kwargs):
+        await real_sleep(0)
+
+    monkeypatch.setattr(scraper_service.asyncio, "sleep", no_wait)
 
 
 class _Recorder:
