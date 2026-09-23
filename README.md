@@ -16,7 +16,7 @@ CareerOS/
   docs/
 ```
 
-CareerOS depends on **[Arsenal](../Arsenal)** for reusable, domain-agnostic utilities (shared types, logging, LLM client patterns). All career/job/application logic lives in this repository.
+CareerOS is self-contained: it builds and runs without any other repository. Some of its code was migrated from the older Arsenal repo (see [docs/migration-from-arsenal.md](./docs/migration-from-arsenal.md)), but nothing depends on Arsenal any more.
 
 ## Current priority: ApplyPilot MVP
 
@@ -28,7 +28,6 @@ Phase 1 focuses on profile sync, resume storage, job extraction, autofill detect
 - pnpm 9+ (setup enables via Corepack)
 - Python 3.11+
 - [Ollama](https://ollama.com/) with **qwen3:8b** (setup installs and pulls this)
-- Arsenal cloned as a sibling directory: `../Arsenal`
 
 ## First-time setup
 
@@ -52,13 +51,12 @@ chmod +x setup.sh scripts/setup.sh
 The setup script will:
 
 1. Check Node 20+, Python 3.11+, and pnpm
-2. Warn if the Arsenal sibling repo is missing
-3. Create `.env`, `apps/api/.env`, and `apps/web/.env.local`
-4. Run `pnpm install`
-5. Create `apps/api/.venv`, install Python deps, and install Playwright Chromium
-6. Install Ollama (if missing), start it, and pull **qwen3:8b**
-7. Build the Chrome extension
-8. Run API smoke tests
+2. Create `.env`, `apps/api/.env`, and `apps/web/.env.local`
+3. Run `pnpm install`
+4. Create `apps/api/.venv`, install Python deps, and install Playwright Chromium
+5. Install Ollama (if missing), start it, and pull **qwen3:8b**
+6. Build the Chrome extension
+7. Run API smoke tests
 
 Options (PowerShell): `.\scripts\setup.ps1 -SkipOllama`, `-SkipModels`, `-SkipExtension`, `-SkipTests`, `-Model qwen2.5:7b`
 
@@ -76,7 +74,7 @@ Or: `pnpm dev`
 # From CareerOS/
 cp .env.example .env
 
-# Install JS dependencies (links Arsenal workspace packages)
+# Install JS dependencies
 pnpm install
 
 # Terminal 1 — API (port 8000)
@@ -113,19 +111,9 @@ pnpm --filter @career-os/extension build
 | `@career-os/core` | Shared schemas, types, roadmap definitions |
 | `@career-os/ui` | Reusable career UI components |
 
-## Relationship to Arsenal
+## History: Arsenal
 
-| Stays in Arsenal | Lives in CareerOS |
-|------------------|-------------------|
-| LLM/OpenRouter client | ApplyPilot extension |
-| Logging, tracing, retry | Job parsing & extraction |
-| Auth helpers | Resume profile & upload |
-| Generic UI primitives | Cover letter generation |
-| Common API client | Application autofill & ATS mapping |
-| Generic storage/workflow | Application tracker, recruiter CRM |
-| | Career dashboard & roadmap |
-
-See [docs/migration-from-arsenal.md](./docs/migration-from-arsenal.md) for the full migration log.
+CareerOS started out alongside the Arsenal repository and has since absorbed everything it used from it; it no longer depends on Arsenal in code, build, CI or setup. See [docs/migration-from-arsenal.md](./docs/migration-from-arsenal.md) for the migration log.
 
 ## Documentation
 

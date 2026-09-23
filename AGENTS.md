@@ -230,7 +230,7 @@ Keep architecture documentation concise and verify it against the actual code.
 * ⚙️ API: `apps/api` (FastAPI), port 4000.
 * 🐍 Use the existing API virtual environment: `apps/api/.venv/Scripts/python.exe`.
 * 🏗️ Wider system architecture: `docs/architecture.md`.
-* 📦 Arsenal is a sibling repository; keep career logic in CareerOS.
+* 📦 CareerOS is self-contained. Do not add dependencies on the Arsenal repository (no `@arsenal/*` packages, `../Arsenal` paths or CI checkouts); code that once came from Arsenal now lives here.
 * ⚠️ Local diagnostic scripts and application evidence may be untracked user work. Never overwrite or delete them without understanding them first.
 
 ### 🔄 Application Flow
