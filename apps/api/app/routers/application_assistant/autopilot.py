@@ -631,6 +631,10 @@ def approve_staged_answer(
         }
         upsert_answer(db, entry)
 
+        from app.services.application_assistant.pending_question_groups import remember_answer_on_profile
+
+        remember_answer_on_profile(db, question=question, answer=answer)
+
     # When user approves in Review Center, clear any persistent contradiction blocks
     # so the job can be safely retried with the verified answer.
     custom_answers = payload.get("customAnswers") or {}

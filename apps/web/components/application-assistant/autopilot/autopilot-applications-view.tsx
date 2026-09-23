@@ -459,7 +459,15 @@ export function AutopilotApplicationsView({
           underneath it. Only under this filter — it is not relevant to
           submitted or ineligible work. */}
       {filter === "review" && questionGroups.length > 0 && (
-        <PendingQuestionAnswers groups={questionGroups} onAnswered={onAnswered} />
+        <PendingQuestionAnswers
+          groups={questionGroups}
+          onAnswered={() => {
+            // Answering requeues applications; this list keeps its own page
+            // cache, so without this they stayed on screen under Review.
+            pages.refresh();
+            onAnswered?.();
+          }}
+        />
       )}
 
       {confirmRequeue && (
