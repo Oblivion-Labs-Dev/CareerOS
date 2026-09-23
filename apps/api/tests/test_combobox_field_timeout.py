@@ -41,14 +41,20 @@ class _FakePage:
         return _HangingLocator()
 
 
-def test_hung_combobox_field_does_not_hang_the_whole_function() -> None:
+def test_hung_combobox_field_does_not_hang_the_whole_function(monkeypatch) -> None:
+    # The production ceiling is 15 s per field. What this proves is that the
+    # ceiling fires at all, so a short one does it without a 15 s wait.
+    from app.services.application_assistant import playwright_autopilot_executor as executor
+
+    monkeypatch.setattr(executor, "COMBOBOX_FIELD_TIMEOUT_SEC", 0.5)
+
     async def run() -> tuple[dict[str, str], dict[str, str]]:
-        # Outer bound is a safety net for the TEST itself, well above the function's own
-        # ~15s per-field timeout — if the fix regresses, this fires and fails the test
-        # loudly instead of hanging the suite for an hour.
+        # Outer bound is a safety net for the TEST itself, well above the per-field
+        # timeout - if the fix regresses, this fires and fails the test loudly
+        # instead of hanging the suite for an hour.
         return await asyncio.wait_for(
             _fill_all_greenhouse_comboboxes(_FakePage(), profile={}, answer_lib=[]),
-            timeout=20.0,
+            timeout=5.0,
         )
 
     start = time.monotonic()
@@ -57,5 +63,5 @@ def test_hung_combobox_field_does_not_hang_the_whole_function() -> None:
 
     assert filled == {}
     assert filled_ids == {}
-    # Must recover via its own per-field timeout (~15s), not the test's 20s outer bound.
-    assert elapsed < 18.0, f"took {elapsed:.1f}s — the per-field timeout may not be firing"
+    # Must recover via its own per-field timeout, not the test's outer bound.
+    assert elapsed < 3.0, f"took {elapsed:.1f}s - the per-field timeout may not be firing"

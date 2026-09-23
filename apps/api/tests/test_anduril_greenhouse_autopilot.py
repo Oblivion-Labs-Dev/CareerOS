@@ -6,6 +6,18 @@ from playwright.async_api import async_playwright
 from app.services.application_assistant.playwright_autopilot_executor import _fill_standard_and_react_fields, _extract_dom_form_state
 from app.services.application_assistant.field_fill_engine import fill_field
 
+
+@pytest.fixture(autouse=True)
+def _no_combobox_waits(monkeypatch):
+    """The sample form is static HTML, so its React-Select menus never open and
+    every combobox sat through the full open-retry polling (about 5 s each,
+    most of this test's minute). All three open attempts still run."""
+    from app.services.application_assistant import playwright_autopilot_executor as executor
+
+    monkeypatch.setattr(executor, "COMBOBOX_OPEN_POLLS", 1)
+    monkeypatch.setattr(executor, "COMBOBOX_OPEN_POLL_SEC", 0)
+    monkeypatch.setattr(executor, "COMBOBOX_RETRY_SETTLE_SEC", 0)
+
 # Exact DOM snapshot replicating Greenhouse / Anduril forms with custom questions and file uploads
 GREENHOUSE_SAMPLE_HTML = """
 <!DOCTYPE html>

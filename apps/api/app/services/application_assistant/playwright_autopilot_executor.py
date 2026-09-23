@@ -965,6 +965,41 @@ VOLUNTEER_ONLY_TYPES = frozenset({
 })
 
 
+# Per-field ceiling, not the page's own default. `page.set_default_timeout()`
+# is set to the job's whole ~9-minute inner budget so a genuinely slow ATS
+# page transition elsewhere isn't killed prematurely - but that also means a
+# single Playwright RPC call here (checking aria-expanded, counting a
+# locator) inherits that same multi-minute ceiling if the browser's IPC
+# connection goes unresponsive, instead of failing fast. Confirmed live via
+# py-spy three times on 2026-09-15 (see NIGHT_BATCH_DECISIONS.md): the
+# "aa-playwright" thread sat idle inside exactly this function's `.count()`/
+# `.evaluate()` calls for minutes, starving the whole job until the ~600s
+# outer watchdog (autopilot_runner.PLAYWRIGHT_WATCHDOG_TIMEOUT) finally fired.
+#
+# 15s is not derived from a measured p99 - this codebase doesn't log
+# per-field timing - but from the two real anchors available: Playwright's
+# own well-established action-timeout default is 30s for a full action
+# (click/fill, with retrying); a plain attribute-check or count on an
+# element already expected to exist is far lighter than that, and the
+# open/close retry loop in the function below already tolerates several
+# seconds of legitimate React-Select mount delay on its own (12 * 0.1s,
+# times up to 3 attempts). 15s gives real slow-mount cases roughly 5x their
+# already-observed worst case while still cutting failure-detection for a
+# genuine hang from ~600s down to 15s per field - a single unresponsive
+# field then costs one skipped field (same as the existing "unresolved,
+# skipping" path below), not the rest of the job's time budget.
+COMBOBOX_FIELD_TIMEOUT_SEC = 15.0
+
+# How many times and how often the open check polls per attempt, and how long
+# the third attempt waits for a control that is still mounting (see the retry
+# loop in the function below).
+# Module constants so tests against static HTML, where a menu never opens, need
+# not sit through them; the production values are unchanged.
+COMBOBOX_OPEN_POLLS = 12
+COMBOBOX_OPEN_POLL_SEC = 0.1
+COMBOBOX_RETRY_SETTLE_SEC = 0.6
+
+
 async def _fill_all_greenhouse_comboboxes(
     page: Any,
     profile: dict[str, Any],
@@ -977,31 +1012,6 @@ async def _fill_all_greenhouse_comboboxes(
     field_id set - without it, DOM verification has to pair an answer back to
     its element by fuzzy label matching, which can pair the wrong two fields.
     """
-    # Per-field ceiling, not the page's own default. `page.set_default_timeout()`
-    # is set to the job's whole ~9-minute inner budget so a genuinely slow ATS
-    # page transition elsewhere isn't killed prematurely - but that also means a
-    # single Playwright RPC call here (checking aria-expanded, counting a
-    # locator) inherits that same multi-minute ceiling if the browser's IPC
-    # connection goes unresponsive, instead of failing fast. Confirmed live via
-    # py-spy three times on 2026-09-15 (see NIGHT_BATCH_DECISIONS.md): the
-    # "aa-playwright" thread sat idle inside exactly this function's `.count()`/
-    # `.evaluate()` calls for minutes, starving the whole job until the ~600s
-    # outer watchdog (autopilot_runner.PLAYWRIGHT_WATCHDOG_TIMEOUT) finally fired.
-    #
-    # 15s is not derived from a measured p99 - this codebase doesn't log
-    # per-field timing - but from the two real anchors available: Playwright's
-    # own well-established action-timeout default is 30s for a full action
-    # (click/fill, with retrying); a plain attribute-check or count on an
-    # element already expected to exist is far lighter than that, and the
-    # existing open/close retry loop just above already tolerates several
-    # seconds of legitimate React-Select mount delay on its own (12 * 0.1s,
-    # times up to 3 attempts). 15s gives real slow-mount cases roughly 5x their
-    # already-observed worst case while still cutting failure-detection for a
-    # genuine hang from ~600s down to 15s per field - a single unresponsive
-    # field then costs one skipped field (same as the existing "unresolved,
-    # skipping" path below), not the rest of the job's time budget.
-    COMBOBOX_FIELD_TIMEOUT_SEC = 15.0
-
     filled: dict[str, str] = {}
     filled_ids: dict[str, str] = {}
     all_resolutions: list[AnswerResolution] = []
@@ -1113,15 +1123,15 @@ async def _fill_all_greenhouse_comboboxes(
                             await _keyboard(page).press("ArrowDown")
                         else:
                             if attempt == 2:
-                                await asyncio.sleep(0.6)
+                                await asyncio.sleep(COMBOBOX_RETRY_SETTLE_SEC)
                                 await target_to_open.scroll_into_view_if_needed()
                             await target_to_open.click(force=True)
                     except Exception:
                         pass
-                    for _ in range(12):
+                    for _ in range(COMBOBOX_OPEN_POLLS):
                         if await _is_open():
                             break
-                        await asyncio.sleep(0.1)
+                        await asyncio.sleep(COMBOBOX_OPEN_POLL_SEC)
                     if await _is_open():
                         break
 

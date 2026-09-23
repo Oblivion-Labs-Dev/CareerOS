@@ -241,10 +241,15 @@ class TestJobMatching:
 
 
 class TestQwenJobMatch:
-    def test_qwen_score_used_when_llm_available(self):
+    def test_qwen_score_used_when_llm_available(self, monkeypatch):
         import asyncio
 
+        from app.services.application_assistant import llm_client
         from app.services.application_assistant.llm_client import LLMClient
+
+        # The suite runs with the local model off; this test is about the
+        # model being available, so it says so. FakeClient never calls out.
+        monkeypatch.setattr(llm_client, "LOCAL_LLM_ENABLED", True)
         from app.services.application_assistant.qwen_job_match import score_job_fit_with_qwen
 
         class FakeClient(LLMClient):

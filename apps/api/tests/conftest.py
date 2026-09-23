@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import shutil
+import sys
 import tempfile
 from pathlib import Path
 
@@ -44,9 +45,23 @@ _TEST_ENV = {
     # it at a file that does not exist: a test that needs a baseline uses the
     # synthetic one in tests/resume_baseline_fixture.py, which sets its own path.
     "CAREEROS_APPROVED_RESUME_PATH": str(_TEST_STATE_DIR / "no-approved-resume.pdf"),
+    # No test may reach a local model. With the developer's Ollama configured,
+    # scraper-import tests made a real qwen call and then hung on a SQLite lock;
+    # a test that wants model behaviour fakes it, as with Gemini above.
+    "CAREEROS_LOCAL_LLM": "off",
 }
 _PREVIOUS_ENV = {key: os.environ.get(key) for key in _TEST_ENV}
 os.environ.update(_TEST_ENV)
+
+# The embedding model is optional at runtime: semantic.py falls back to BM25
+# when it cannot load. CI has the package but no cached weights, so it always
+# takes the fallback, and the two tests that need real embeddings skip there.
+# Locally the weights are cached, and importing the package pulls in torch:
+# one resume test spent 11-15 s on a path CI never takes. Blocking the import
+# keeps the default run on CI's path. Set CAREEROS_TEST_EMBEDDINGS=1 to run the
+# real-embedding tests (tests/test_resume_ranking.py) on a machine with the model.
+if os.environ.get("CAREEROS_TEST_EMBEDDINGS") != "1":
+    sys.modules.setdefault("sentence_transformers", None)  # type: ignore[arg-type]
 
 
 @pytest.fixture(scope="session", autouse=True)
