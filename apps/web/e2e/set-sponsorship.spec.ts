@@ -9,7 +9,7 @@ import { expect, test } from "@playwright/test";
  * toggle: write the opposite value, save, then write the true value and save.
  * Nothing may be running a batch while this executes.
  */
-test("state that sponsorship is required, via the Profile page", async ({ page }) => {
+test("state that sponsorship is required, via the Profile page @local", async ({ page }) => {
   test.setTimeout(240_000);
 
   await page.goto("/profile", { waitUntil: "domcontentloaded" });

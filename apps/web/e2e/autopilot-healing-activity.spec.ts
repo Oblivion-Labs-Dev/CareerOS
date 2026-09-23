@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-test("healing remains visible without an active job across Autopilot tabs", async ({ page }) => {
+test("healing remains visible without an active job across Autopilot tabs @local", async ({ page }) => {
   await page.route("**/api/backend/application-assistant/autopilot/events", route => route.abort());
   await page.route("**/api/backend/application-assistant/autopilot/status", route => route.fulfill({ json: {
     status: "COMPLETED", running: false, run: null, activeJob: null, workers: [], queueSize: 0,

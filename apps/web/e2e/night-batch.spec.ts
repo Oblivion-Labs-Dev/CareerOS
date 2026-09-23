@@ -18,7 +18,7 @@ const BATCH_SIZE = process.env.NIGHT_BATCH_SIZE || "10";
 const MIN_SCORE = process.env.NIGHT_BATCH_MIN_SCORE || "60";
 const MODEL = process.env.NIGHT_BATCH_MODEL || "qwen3:4b-instruct";
 
-test("night batch card configures and starts a run", async ({ page }) => {
+test("night batch card configures and starts a run @local", async ({ page }) => {
   test.setTimeout(180_000);
 
   await page.goto("/applications");

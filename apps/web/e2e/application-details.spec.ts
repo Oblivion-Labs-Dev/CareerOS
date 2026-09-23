@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-test("application dossier renders and closes across statuses", async ({ page }) => {
+test("application dossier renders and closes across statuses @local", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 1000 });
   for (const status of ["submitted", "skipped", "ineligible"]) {
     await page.goto("/applications?tab=applications");
