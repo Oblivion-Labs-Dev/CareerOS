@@ -312,8 +312,13 @@ def find_duplicate_submission(
     applicationUrl), and company+title misses a posting the employer re-listed
     under a new title. Either match is enough.
     """
+    from app.services.application_assistant.persistence import ats_posting_identity
+
     url = duplicate_url_key(job.get("applicationUrl"))
     company, title = _identity(job)
+    # The ATS posting id catches the same posting under another URL shape and
+    # title wording, which neither of the above does (#37).
+    posting = ats_posting_identity(job)
     for other in submitted_jobs:
         if other.get("id") == job.get("id"):
             continue
@@ -321,5 +326,7 @@ def find_duplicate_submission(
         if url and other_url and url == other_url:
             return other
         if company and title and _identity(other) == (company, title):
+            return other
+        if posting and ats_posting_identity(other) == posting:
             return other
     return None
