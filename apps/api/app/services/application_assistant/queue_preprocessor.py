@@ -27,6 +27,7 @@ Design notes
 from __future__ import annotations
 
 import asyncio
+import threading
 import logging
 import os
 import time
@@ -171,6 +172,9 @@ def get_stats() -> dict[str, Any]:
     with session_scope() as db:
         return {**_empty_stats(), **(get_kv(db, STATS_KV_KEY) or {})}
 
+
+#: Serialises queue intake between the background loop and import-triggered intake.
+_ENQUEUE_LOCK = threading.Lock()
 
 class QueuePreprocessor:
     """Singleton background worker preparing future Autopilot jobs."""
@@ -536,12 +540,25 @@ class QueuePreprocessor:
         logger.info("Queue preprocessor scored %d posting(s) with %s", len(matches), client.model)
         return len(matches)
 
-    def _enqueue_scored_jobs(self) -> int:
+    def _enqueue_scored_jobs(self, only_scraper_ids: set[str] | None = None) -> int:
+        # The loop and an import's priority intake can both land here; one at a
+        # time, or the same posting could be queued twice.
+        with _ENQUEUE_LOCK:
+            return self._enqueue_scored_jobs_locked(only_scraper_ids)
+
+    def _enqueue_scored_jobs_locked(self, only_scraper_ids: set[str] | None = None) -> int:
         """Move Mistral-scored, filter-passing postings into the QUEUED state.
 
         No size limit is applied — ``filter_and_rank_jobs`` is called without a
         ``maxApplicationsPerRun``, so the queue grows to hold every eligible
         posting the pipeline has prepared.
+
+        ``only_scraper_ids`` is the priority-intake mode used right after an
+        external import (POST /api/jobs/import/batch): only those postings are
+        considered, they skip the queue-depth watermark (they are fresh, and the
+        batch is bounded by the import's own size limit) and they do not wait
+        for a model score. Hard filters, duplicate checks and ranking are
+        exactly the normal ones.
         """
         with session_scope() as db:
             profile = get_kv(db, "profile") or {}
@@ -570,6 +587,8 @@ class QueuePreprocessor:
         self.stats["queueBelowLowWatermark"] = queued_now <= LOW_QUEUE_WATERMARK
 
         headroom = (HIGH_QUEUE_WATERMARK - queued_now) if replenishing else 0
+        if only_scraper_ids is not None:
+            headroom = len(only_scraper_ids)
         if headroom <= 0:
             # Topped up to the high watermark. Existing rows stay untouched —
             # the watermark throttles intake, it does not evict work that is
@@ -595,7 +614,12 @@ class QueuePreprocessor:
         # match the proven-stable behavior and not reopen that investigation
         # while it's unresolved.)
         already_queued_job_ids = {j.get("jobId") for j in existing_autopilot}
-        if LOCAL_LLM_ENABLED:
+        if only_scraper_ids is not None:
+            candidates = [
+                j for j in discovered
+                if j.get("scraperJobId") in only_scraper_ids and j.get("id") not in already_queued_job_ids
+            ]
+        elif LOCAL_LLM_ENABLED:
             scored = [j for j in discovered if isinstance(j.get("mistralMatch"), dict)]
             candidates = [j for j in scored if j.get("id") not in already_queued_job_ids]
         else:

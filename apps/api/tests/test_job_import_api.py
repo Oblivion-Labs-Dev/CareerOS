@@ -135,7 +135,9 @@ def test_one_malformed_job_does_not_fail_the_batch(client):
     assert statuses == ["created", "invalid", "invalid", "invalid", "invalid"]
     assert "company" in body["results"][1]["reason"]
     assert "url" in body["results"][2]["reason"]
-    assert body["summary"] == {"created": 1, "existing": 0, "updated": 0, "invalid": 4, "failed": 0, "total": 5}
+    summary = dict(body["summary"])
+    summary.pop("queued")
+    assert summary == {"created": 1, "existing": 0, "updated": 0, "invalid": 4, "failed": 0, "total": 5}
 
 
 def test_a_job_that_breaks_normalization_fails_alone(client, monkeypatch):
@@ -172,3 +174,46 @@ def test_imported_jobs_enter_the_normal_preprocessor_path(client):
         discovered = list_discovered_jobs(db, active_only=False, exclude_demo=False)
     # scraper_job_to_aa_job links each discovered row to its snapshot job.
     assert any(d.get("scraperJobId") == job_id for d in discovered)
+
+
+# ── straight into the Autopilot queue ───────────────────────────────────────
+
+def _autopilot_rows(job_id):
+    from app.services.application_assistant.persistence import list_autopilot_jobs
+    from app.services.application_assistant.scraper_import import aa_job_id_for_scraper
+
+    with session_scope() as db:
+        return [j for j in list_autopilot_jobs(db) if j.get("jobId") == aa_job_id_for_scraper(job_id)]
+
+
+def test_imported_jobs_are_queued_immediately_even_when_the_queue_is_full(client, monkeypatch):
+    from app.services.application_assistant import queue_preprocessor
+
+    # As if the queue were already past its intake watermark.
+    monkeypatch.setattr(queue_preprocessor, "HIGH_QUEUE_WATERMARK", 0)
+    monkeypatch.setattr(queue_preprocessor, "LOW_QUEUE_WATERMARK", -1)
+    body = _post(client, [_job(50)]).json()
+
+    result = body["results"][0]
+    assert result["queued"] is True
+    assert result["autopilotStatus"] == "QUEUED"
+    assert body["summary"]["queued"] == 1
+    assert [row["status"] for row in _autopilot_rows(result["jobId"])] == ["QUEUED"]
+
+
+def test_reimporting_does_not_queue_a_job_twice(client):
+    first = _post(client, [_job(51)]).json()["results"][0]
+    second = _post(client, [_job(51)]).json()["results"][0]
+
+    assert second["status"] == "existing"
+    assert second["autopilotJobId"] == first["autopilotJobId"]
+    assert len(_autopilot_rows(first["jobId"])) == 1
+
+
+def test_an_import_that_fails_the_hard_filters_is_not_queued(client):
+    body = _post(client, [_job(52, title="Director of Engineering", location="Berlin, Germany",
+                               description="Must be a US citizen with an active security clearance.")]).json()
+
+    result = body["results"][0]
+    assert result["status"] == "created"
+    assert result["queued"] is False
