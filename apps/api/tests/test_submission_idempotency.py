@@ -391,6 +391,43 @@ def test_submitting_a_record_still_retires_its_siblings():
         _drop(sibling["id"], winner["id"])
 
 
+def test_exact_and_tracking_variant_siblings_are_both_retired():
+    """Every open sibling of the posting goes, however its URL is spelled.
+
+    The sweep used to look up exact-URL siblings first and only compare
+    canonical URLs when that found none, so an exact twin shielded a
+    `?utm_source=` twin (and a case/trailing-slash variant) from retirement.
+    A terminal sibling is still left alone.
+    """
+    base = {"company": "Acme", "title": "Senior Software Engineer"}
+    exact = {**base, "id": "apjob_idem_exact_twin", "status": AutopilotJobStatus.QUEUED.value,
+             "applicationUrl": GREENHOUSE_URL}
+    tracked = {**base, "id": "apjob_idem_tracked_twin", "status": AutopilotJobStatus.NEEDS_REVIEW.value,
+               "applicationUrl": GREENHOUSE_URL + "?utm_source=linkedin"}
+    respelled = {**base, "id": "apjob_idem_respelled_twin", "status": AutopilotJobStatus.MANUAL_REVIEW.value,
+                 "applicationUrl": GREENHOUSE_URL.upper() + "/"}
+    skipped = {**base, "id": "apjob_idem_skipped_twin", "status": AutopilotJobStatus.SKIPPED.value,
+               "applicationUrl": GREENHOUSE_URL}
+    unrelated = {**base, "id": "apjob_idem_other_posting", "status": AutopilotJobStatus.QUEUED.value,
+                 "applicationUrl": GREENHOUSE_URL + "9"}
+    winner = {**base, "id": "apjob_idem_multi_winner", "status": AutopilotJobStatus.SUBMITTED.value,
+              "applicationUrl": GREENHOUSE_URL}
+    others = (exact, tracked, respelled, skipped, unrelated)
+    for job in others:
+        _save(job)
+    try:
+        _save(winner)
+        for twin in (exact, tracked, respelled):
+            row = _read(twin["id"])
+            assert row["status"] == AutopilotJobStatus.INELIGIBLE.value, twin["id"]
+            assert row["ineligibilityReason"] == "DUPLICATE_APPLICATION"
+        assert _read(skipped["id"])["status"] == AutopilotJobStatus.SKIPPED.value
+        assert _read(unrelated["id"])["status"] == AutopilotJobStatus.QUEUED.value
+        assert _read(winner["id"])["status"] == AutopilotJobStatus.SUBMITTED.value
+    finally:
+        _drop(*(job["id"] for job in others), winner["id"])
+
+
 def test_a_maybe_submitted_sibling_is_retired_by_a_real_submission():
     """Once one record is proven sent, an unknown sibling is just a duplicate."""
     unknown = {

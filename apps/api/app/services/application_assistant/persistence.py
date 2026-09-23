@@ -773,6 +773,35 @@ def most_recent_submit_attempt(db: Session, *, exclude_id: str | None = None) ->
     return str(result) if result else None
 
 
+def _jobs_with_canonical_url(db: Session, target: str) -> list[dict[str, Any]]:
+    """Every autopilot job whose application URL canonicalises to `target`.
+
+    Runs on every SUBMITTED save. It used to try an exact-URL index lookup and,
+    when that found no sibling (most submissions), load and decode every job row
+    in Python to compare canonical URLs. The comparison now runs inside SQLite
+    with the same Python function registered as a SQL function, so only the
+    matching rows' payloads leave the database - identical matches, about a
+    third of the cost. The exact-lookup shortcut is gone too: an exact twin
+    used to stop the canonical comparison from ever running, so a sibling that
+    differed only by a tracking query string was never retired.
+    """
+    from sqlalchemy import func
+
+    driver_connection = db.connection().connection.driver_connection
+    driver_connection.create_function(
+        "careeros_canonical_url", 1, canonical_application_url, deterministic=True
+    )
+    canonical = func.careeros_canonical_url(
+        func.json_extract(EntityStore.payload, "$.applicationUrl")
+    )
+    rows = (
+        db.query(EntityStore.payload)
+        .filter(EntityStore.entity_type == ENTITY_AUTOPILOT_JOB, canonical == target)
+        .all()
+    )
+    return [dict(payload) for (payload,) in rows]
+
+
 def close_duplicate_applications(db: Session, submitted_job: dict[str, Any]) -> list[str]:
     """Retire other records for a posting that has now been applied to.
 
@@ -794,23 +823,10 @@ def close_duplicate_applications(db: Session, submitted_job: dict[str, Any]) -> 
     submitted_id = submitted_job.get("id")
     retired: list[str] = []
 
-    # Candidates come from the applicationUrl index where the stored URL matches
-    # exactly, which covers the common case of the same posting re-imported. The
-    # canonical comparison below still runs, because two records can differ only
-    # by a tracking query string and those must still collapse - so when the
-    # exact lookup finds nothing, fall back to scanning rather than miss them.
-    candidates = list_entities_by_json_equals(
-        db, ENTITY_AUTOPILOT_JOB, "$.applicationUrl", raw_url
-    )
-    if not any(c.get("id") != submitted_id for c in candidates):
-        candidates = list_entities(db, ENTITY_AUTOPILOT_JOB)
-
-    for other in candidates:
+    for other in _jobs_with_canonical_url(db, target):
         if other.get("id") == submitted_id:
             continue
         if other.get("status") not in _OPEN_AUTOPILOT_STATUSES:
-            continue
-        if canonical_application_url(other.get("applicationUrl")) != target:
             continue
         other["previousStatus"] = other.get("status")
         other["status"] = "INELIGIBLE"
