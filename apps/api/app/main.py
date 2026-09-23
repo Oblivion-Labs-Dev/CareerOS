@@ -84,6 +84,7 @@ from app.routers.api import router
 from app.routers.application_assistant import router as application_assistant_router
 from app.routers.auth import router as auth_router
 from app.routers.intelligence import router as intelligence_router
+from app.routers.job_import import router as job_import_router
 from app.routers.job_search import router as job_search_router
 from app.routers.networking import router as networking_router
 from app.routers.repair_demo import router as repair_demo_router
@@ -395,6 +396,7 @@ app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 
 app.include_router(auth_router)
 app.include_router(router)
+app.include_router(job_import_router)
 app.include_router(intelligence_router)
 app.include_router(repair_demo_router)
 app.include_router(repair_manual_router)

@@ -6,7 +6,10 @@ from app.services.auth import SESSION_COOKIE_NAME, is_auth_configured, verify_se
 
 # Paths reachable without a session — the login flow itself, health checks used
 # by the dev tooling, and static assets that carry no data.
-_ALLOWLIST_PREFIXES = ("/auth/", "/health", "/favicon.ico", "/static/")
+# /api/jobs/import/ is called by another system, not a browser, so it carries
+# no session cookie. It authenticates itself with its own bearer token
+# (routers/job_import.py) and is disabled while that token is unset.
+_ALLOWLIST_PREFIXES = ("/auth/", "/health", "/favicon.ico", "/static/", "/api/jobs/import/")
 
 # KNOWN LIMITATION: only /application-assistant/* and /diagnostic/* are
 # enforced. Everything else — profile, job discovery, settings, email,

@@ -465,6 +465,119 @@ async def _append_scraped_batch(
         _scrape_status["lastResult"] = f"Indexed {len(merged_jobs)} roles so far"
 
 
+#: Fields whose change makes a re-imported posting an "update" rather than
+#: an unchanged duplicate.
+_IMPORT_UPDATE_FIELDS = ("title", "location", "description", "url", "postingDate")
+
+
+def _dedupe_import(
+    existing: list[dict[str, Any]], incoming: list[dict[str, Any]]
+) -> tuple[list[dict[str, Any]], list[tuple[str, str | None, str | None]]]:
+    """Merge imported jobs into the corpus with the scraper's own DedupeIndex.
+
+    Pure computation (run off the event loop). Returns the merged corpus and,
+    per incoming job, ``(status, job_id, reason)`` where status is created,
+    existing, updated, invalid or failed. Matching is exactly what a scrape
+    does - this only records which record each job landed in.
+    """
+    from app.services.job_discover.dedup import DedupeIndex
+
+    index = DedupeIndex()
+    index.extend(existing)
+    before = {
+        job_id: {field: job.get(field) for field in _IMPORT_UPDATE_FIELDS}
+        for job_id, job in index.by_id.items()
+    }
+    created: set[str] = set()
+    outcomes: list[tuple[str, str | None, str | None]] = []
+    for job in incoming:
+        try:
+            job_id = index.add(job)
+        except Exception as exc:  # one bad record must not sink the batch
+            logger.exception("Import: could not merge %s", job.get("url"))
+            outcomes.append(("failed", None, f"merge failed: {exc}"))
+            continue
+        if job_id in before:
+            after = {field: index.by_id[job_id].get(field) for field in _IMPORT_UPDATE_FIELDS}
+            if after != before[job_id]:
+                before[job_id] = after  # a repeat later in this batch is then unchanged
+                outcomes.append(("updated", job_id, None))
+            else:
+                outcomes.append(("existing", job_id, None))
+        elif job_id in created:
+            outcomes.append(("existing", job_id, "duplicate of an earlier job in this batch"))
+        else:
+            created.add(job_id)
+            outcomes.append(("created", job_id, None))
+
+    merged = _prune_stale_jobs(index.values())
+    kept = {job.get("id") for job in merged}
+    outcomes = [
+        ("invalid", job_id, "older than the discovery retention window")
+        if status == "created" and job_id not in kept else (status, job_id, reason)
+        for status, job_id, reason in outcomes
+    ]
+    return merged, outcomes
+
+
+async def import_jobs_batch(db: Session, raw_jobs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Add externally discovered jobs through the same path a scrape uses.
+
+    normalize (_normalize_scraped_job) -> score (_score_jobs) -> dedupe
+    (DedupeIndex) -> prune -> persist the snapshot, under the scraper's own save
+    lock. The queue preprocessor then picks them up from the snapshot exactly
+    like scraped jobs. Idempotent: resending a batch reports every job as
+    ``existing`` and writes nothing new. Returns one result per input job.
+    """
+    results: list[dict[str, Any] | None] = [None] * len(raw_jobs)
+    positions: list[int] = []
+    normalized: list[dict[str, Any]] = []
+    for position, raw in enumerate(raw_jobs):
+        try:
+            normalized.append(_normalize_scraped_job(raw))
+            positions.append(position)
+        except Exception as exc:
+            logger.exception("Import: could not normalize job %s", raw.get("url"))
+            results[position] = {"status": "failed", "jobId": None, "reason": f"normalization failed: {exc}"}
+
+    if normalized:
+        async with _save_lock:
+            from app.db.store import list_entities
+
+            profile = get_kv(db, "profile") or {}
+            try:
+                scored = await asyncio.to_thread(
+                    _score_jobs,
+                    normalized,
+                    profile,
+                    documents=get_kv(db, "documents") or {},
+                    accomplishments=list_entities(db, "accomplishment"),
+                )
+            except Exception:
+                # Relevancy is re-derived downstream; an unscored job still imports.
+                logger.exception("Import: relevancy scoring failed; importing unscored")
+                scored = normalized
+            snapshot = _load_snapshot(db)
+            merged, outcomes = await asyncio.to_thread(
+                _dedupe_import, snapshot.get("jobs") or [], scored
+            )
+            if any(status in ("created", "updated") for status, _, _ in outcomes):
+                updated_snapshot = {**snapshot, "jobs": merged}
+
+                def _persist_in_thread() -> None:
+                    # Own session, as in _append_scraped_batch: a Session is not
+                    # safe to share across threads.
+                    with session_scope() as fresh_db:
+                        _persist_snapshot(fresh_db, updated_snapshot)
+
+                await asyncio.to_thread(_persist_in_thread)
+                _apply_snapshot_stats(merged)
+            for position, (status, job_id, reason) in zip(positions, outcomes):
+                results[position] = {"status": status, "jobId": job_id, "reason": reason}
+
+    return [result or {"status": "failed", "jobId": None, "reason": "not processed"} for result in results]
+
+
 def _touch_scrape_progress(message: str | None = None) -> None:
     _scrape_status["lastProgressAt"] = _utc_now()
     if message:
