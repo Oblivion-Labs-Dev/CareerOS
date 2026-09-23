@@ -16,6 +16,7 @@ interface PageCacheEntry {
   titleCounts?: Record<string, number>;
   atsCounts?: Record<string, number>;
   atsLabels?: Record<string, string>;
+  reasonCounts?: Record<string, number>;
   timestamp: number;
 }
 
@@ -65,9 +66,10 @@ export function useApplicationPages(
   query: string,
   company?: string,
   title?: string,
-  ats?: string
+  ats?: string,
+  reason?: string
 ) {
-  const cacheKey = `${filter}:${sort}:${query.trim()}:${company?.trim() || ""}:${title?.trim() || ""}:${ats || ""}`;
+  const cacheKey = `${filter}:${sort}:${query.trim()}:${company?.trim() || ""}:${title?.trim() || ""}:${ats || ""}:${reason || ""}`;
   const initialEntry = pageCache.get(cacheKey);
 
   const [jobs, setJobs] = useState<AutopilotJobRow[]>(initialEntry ? initialEntry.jobs : []);
@@ -94,6 +96,7 @@ export function useApplicationPages(
   });
   const [atsCounts, setAtsCounts] = useState<Record<string, number>>(initialEntry?.atsCounts || {});
   const [atsLabels, setAtsLabels] = useState<Record<string, string>>(initialEntry?.atsLabels || {});
+  const [reasonCounts, setReasonCounts] = useState<Record<string, number>>(initialEntry?.reasonCounts || {});
   const [loading, setLoading] = useState(!initialEntry);
   const [hasMore, setHasMore] = useState(initialEntry ? initialEntry.hasMore : false);
   const [error, setError] = useState("");
@@ -133,7 +136,7 @@ export function useApplicationPages(
       if (busy.current && !reset) return;
       const version = reset ? ++generation.current : generation.current;
 
-      const currentKey = `${filter}:${sort}:${search.trim()}:${company?.trim() || ""}:${title?.trim() || ""}:${ats || ""}`;
+      const currentKey = `${filter}:${sort}:${search.trim()}:${company?.trim() || ""}:${title?.trim() || ""}:${ats || ""}:${reason || ""}`;
       const cached = pageCache.get(currentKey);
 
       if (reset) {
@@ -147,6 +150,7 @@ export function useApplicationPages(
           setTitleCounts(cached.titleCounts || {});
           setAtsCounts(cached.atsCounts || {});
           setAtsLabels(cached.atsLabels || {});
+          setReasonCounts(cached.reasonCounts || {});
           setLoading(false);
           // If recent enough, skip re-fetch
           if (Date.now() - cached.timestamp < 15_000) { busy.current = false; return; }
@@ -170,6 +174,7 @@ export function useApplicationPages(
           company: company?.trim() || undefined,
           title: title?.trim() || undefined,
           ats: ats || undefined,
+          reason: reason || undefined,
           sortBy: sort === "match" ? "matchScore" : sort === "recent" ? "submittedAt" : sort,
           sortDir: sort === "company" ? "asc" : "desc",
           limit: 24,
@@ -205,6 +210,7 @@ export function useApplicationPages(
           setTitleCounts(serverTitleCounts);
           setAtsCounts(result.atsCounts || {});
           setAtsLabels(result.atsLabels || {});
+          setReasonCounts(result.reasonCounts || {});
 
           pageCache.set(currentKey, {
             jobs: merged,
@@ -216,6 +222,7 @@ export function useApplicationPages(
             titleCounts: serverTitleCounts,
             atsCounts: result.atsCounts || {},
             atsLabels: result.atsLabels || {},
+            reasonCounts: result.reasonCounts || {},
             timestamp: Date.now(),
           });
 
@@ -232,7 +239,7 @@ export function useApplicationPages(
         }
       }
     },
-    [filter, sort, search, company, title, ats]
+    [filter, sort, search, company, title, ats, reason]
   );
 
   const invalidate = useCallback(() => {
@@ -243,7 +250,7 @@ export function useApplicationPages(
   useEffect(() => {
     void load(true);
     return invalidate;
-  }, [filter, sort, search, company, title, ats, revision, invalidate, load]);
+  }, [filter, sort, search, company, title, ats, reason, revision, invalidate, load]);
 
   useEffect(() => {
     if (!hasMore || loading || error || !sentinel.current) return;
@@ -270,6 +277,7 @@ export function useApplicationPages(
     titleCounts,
     atsCounts,
     atsLabels,
+    reasonCounts,
     loading,
     hasMore,
     error,

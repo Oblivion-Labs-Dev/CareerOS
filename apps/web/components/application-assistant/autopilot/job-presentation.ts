@@ -132,7 +132,11 @@ export const INELIGIBILITY_LABELS: Record<string, string> = {
   REQUIRES_UNAVAILABLE_INFORMATION: "Needs a detail your profile doesn’t have",
   ROLE_EXCLUDED: "Management/director role — excluded",
   COMPANY_CAP_REACHED: "Company application cap reached",
+  MANUAL_APPLICATION_REQUIRED: "Must be applied to by hand",
 };
+
+/** Tabs whose jobs carry a reason worth filtering by (repo owner, 2026-09-23). */
+export const REASON_FILTER_TABS: readonly StatusFilter[] = ["review", "manual", "failed", "ineligible"];
 
 export function statusView(status: string | undefined): { key: string; label: string } {
   switch (status) {
