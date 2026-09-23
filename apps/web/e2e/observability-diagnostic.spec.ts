@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 
 test.describe("CareerOS Observability & Diagnostic Suite", () => {
-  test("1. Autopilot Live Activity reflects real runtime state", async ({ page }) => {
+  test("1. Autopilot Live Activity reflects real runtime state @local", async ({ page }) => {
     await page.goto("/applications");
 
     await expect(page.getByRole("heading", { name: /Autopilot|Your job search agent/i, level: 1 })).toBeVisible({
@@ -192,7 +192,7 @@ test.describe("CareerOS Observability & Diagnostic Suite", () => {
     expect(overflow, "page should not overflow horizontally on mobile").toBeLessThanOrEqual(2);
   });
 
-  test("8. Capture UI screenshots for Autopilot and Diagnostic dashboard", async ({ page }) => {
+  test("8. Capture UI screenshots for Autopilot and Diagnostic dashboard @local", async ({ page }) => {
     // 1. Capture Autopilot page with upgraded Live Autopilot Activity
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto("/applications");

@@ -646,6 +646,18 @@ def application_identity(job: dict[str, Any]) -> str:
     return f"url:{canonical}" if canonical else ""
 
 
+def ats_posting_identity(job: dict[str, Any]) -> str:
+    """`application_identity`, but only when it is the ATS's own posting id.
+
+    The `url:` fallback drops the query string, so on a board that keeps the
+    posting id only in the query two different postings share it. Fine for a
+    short in-flight claim; not for permanently refusing or retiring a record,
+    which must only ever happen for genuinely the same posting (#37).
+    """
+    identity = application_identity(job)
+    return "" if identity.startswith("url:") else identity
+
+
 def _identity_claim_id(identity: str) -> str:
     """Row id for an identity's claim. Hashed to fit the 64-char primary key."""
     import hashlib
@@ -802,6 +814,27 @@ def _jobs_with_canonical_url(db: Session, target: str) -> list[dict[str, Any]]:
     return [dict(payload) for (payload,) in rows]
 
 
+def _url_identity(url: Any) -> str:
+    """`application_identity` of a bare URL, for use as a SQL function."""
+    return application_identity({"applicationUrl": url})
+
+
+def _identity_expression(db: Session):
+    """SQL for a job row's posting identity: the persisted field, else derived.
+
+    Rows saved before `applicationIdentity` was persisted derive it on read from
+    the URL (it is a pure function of it), so no migration is needed.
+    """
+    from sqlalchemy import func
+
+    driver_connection = db.connection().connection.driver_connection
+    driver_connection.create_function("careeros_identity", 1, _url_identity, deterministic=True)
+    return func.coalesce(
+        func.json_extract(EntityStore.payload, "$.applicationIdentity"),
+        func.careeros_identity(func.json_extract(EntityStore.payload, "$.applicationUrl")),
+    )
+
+
 def list_submitted_duplicate_candidates(db: Session, job: dict[str, Any]) -> list[dict[str, Any]]:
     """SUBMITTED jobs that `find_duplicate_submission` could match `job` against.
 
@@ -839,15 +872,24 @@ def list_submitted_duplicate_candidates(db: Session, job: dict[str, Any]) -> lis
                 func.careeros_field_key(field("$.title")) == title,
             )
         )
-    if not matches:
+    conditions = [and_(field("$.status") == "SUBMITTED", or_(*matches))] if matches else []
+    # The same ATS posting under another URL shape or title wording (#37). A
+    # maybe-submitted record counts too: until it is resolved the employer may
+    # already hold the application, and a late or missing Gmail confirmation is
+    # never permission to send another.
+    identity = ats_posting_identity(job)
+    if identity:
+        conditions.append(
+            and_(
+                field("$.status").in_(("SUBMITTED", "SUBMISSION_UNKNOWN")),
+                _identity_expression(db) == identity,
+            )
+        )
+    if not conditions:
         return []
     rows = (
         db.query(EntityStore.payload)
-        .filter(
-            EntityStore.entity_type == ENTITY_AUTOPILOT_JOB,
-            field("$.status") == "SUBMITTED",
-            or_(*matches),
-        )
+        .filter(EntityStore.entity_type == ENTITY_AUTOPILOT_JOB, or_(*conditions))
         .all()
     )
     return [dict(payload) for (payload,) in rows]
@@ -867,6 +909,8 @@ def close_duplicate_applications(db: Session, submitted_job: dict[str, Any]) -> 
     Only open statuses are touched; an already-terminal sibling is left alone.
     Returns the ids that were retired.
     """
+    from sqlalchemy import func
+
     raw_url = submitted_job.get("applicationUrl")
     target = canonical_application_url(raw_url)
     if not target:
@@ -874,7 +918,24 @@ def close_duplicate_applications(db: Session, submitted_job: dict[str, Any]) -> 
     submitted_id = submitted_job.get("id")
     retired: list[str] = []
 
-    for other in _jobs_with_canonical_url(db, target):
+    siblings = {str(other.get("id")): other for other in _jobs_with_canonical_url(db, target)}
+    # The same ATS posting under another URL shape (a `?gh_jid=` employer
+    # mirror of a boards.greenhouse.io URL) is the same posting too (#37).
+    # Identity equality only, never fuzzy matching.
+    identity = ats_posting_identity(submitted_job)
+    if identity:
+        for (payload,) in (
+            db.query(EntityStore.payload)
+            .filter(
+                EntityStore.entity_type == ENTITY_AUTOPILOT_JOB,
+                func.json_extract(EntityStore.payload, "$.status").in_(_OPEN_AUTOPILOT_STATUSES),
+                _identity_expression(db) == identity,
+            )
+            .all()
+        ):
+            siblings.setdefault(str(payload.get("id")), dict(payload))
+
+    for other in siblings.values():
         if other.get("id") == submitted_id:
             continue
         if other.get("status") not in _OPEN_AUTOPILOT_STATUSES:
@@ -905,6 +966,12 @@ def save_autopilot_job(db: Session, payload: dict[str, Any]) -> dict[str, Any]:
         payload["id"] = new_id("apjob_")
     if "discoveredAt" not in payload:
         payload["discoveredAt"] = now_iso()
+    # Persisted so post-submission duplicate checks can match the same posting
+    # under another URL shape (#37). Set only at the claim step before, so a
+    # record that was never attempted did not carry it.
+    identity = application_identity(payload)
+    if identity:
+        payload["applicationIdentity"] = identity
 
     # A submitted application must not keep carrying the verdict of the attempt
     # that failed before it. Observed live: a DoorDash posting was blocked, then

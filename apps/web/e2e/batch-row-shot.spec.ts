@@ -1,5 +1,5 @@
 import { test } from "@playwright/test";
-test("screenshot the night batch row", async ({ page }) => {
+test("screenshot the night batch row @local", async ({ page }) => {
   test.setTimeout(180_000);
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto("/applications", { waitUntil: "domcontentloaded" });

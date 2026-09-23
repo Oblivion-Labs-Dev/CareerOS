@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-test("compact dock and detail sections preserve access to evidence", async ({ page }) => {
+test("compact dock and detail sections preserve access to evidence @local", async ({ page }) => {
   await page.goto("/applications?tab=submitted");
   await expect(page.getByRole("region", { name: "Live activity dock" })).toBeVisible();
   await page.getByRole("button", { name: "Expand activity", exact: true }).click();

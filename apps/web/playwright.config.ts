@@ -12,6 +12,10 @@ export default defineConfig({
   retries: 0,
   timeout: 60_000,
   reporter: [["list"]],
+  // Specs tagged @local need the developer's own database (real applications,
+  // a running batch) or drive live boards; CI starts empty, so it skips them.
+  // Giving them fixture data instead is tracked in #68.
+  grepInvert: process.env.CI ? /@local/ : undefined,
   use: {
     baseURL: BASE_URL,
     trace: "on-first-retry",
