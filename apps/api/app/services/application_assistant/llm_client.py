@@ -167,10 +167,20 @@ class LLMClient:
 
     @property
     def enabled(self) -> bool:
+        # CAREEROS_LOCAL_LLM=off is enforced here, on every client, rather than
+        # only in the factories: several paths build a local client directly or
+        # through a factory that never consulted the flag, and one of them loaded
+        # a 24B model with the flag off. Every caller already treats a disabled
+        # client as "use the deterministic path", so this is the one place that
+        # makes the flag mean "no local model calls at all".
+        if not LOCAL_LLM_ENABLED and _is_local(self.base_url):
+            return False
         return bool(self.base_url and self.model)
 
     async def test_connection(self) -> dict[str, Any]:
         """Test LLM connection."""
+        if not self.enabled:
+            return {"success": False, "error": "LLM disabled", "provider": self.provider}
         try:
             async with httpx.AsyncClient(timeout=self.timeout) as client:
                 headers = self._headers()

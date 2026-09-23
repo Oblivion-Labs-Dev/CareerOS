@@ -269,7 +269,12 @@ Write-Host ('  API:  ' + $apiUrl)
 Write-Host ('  Web:  ' + $webUrl)
 Write-Host ('  LLM:  ' + $env:APPLICATION_ASSISTANT_LLM_BASE_URL + ' (' + $env:APPLICATION_ASSISTANT_LLM_MODEL + ')')
 
-if (-not $SkipOllamaCheck) {
+# Same switch the API reads: with the local model off, nothing may call it,
+# so Ollama is not started either.
+$localLlmOff = @('off', '0', 'false', 'no') -contains ("$env:CAREEROS_LOCAL_LLM".Trim().ToLower())
+if ($localLlmOff) {
+    Write-Host '  Ollama: not started (CAREEROS_LOCAL_LLM=off)' -ForegroundColor DarkGray
+} elseif (-not $SkipOllamaCheck) {
     Start-OllamaIfNeeded $env:APPLICATION_ASSISTANT_LLM_BASE_URL | Out-Null
 }
 
