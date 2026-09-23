@@ -374,6 +374,7 @@ def get_autopilot_jobs_list(
     location: str | None = Query(default=None, description="Case-insensitive substring match against job location"),
     company: str | None = Query(default=None, description="Case-insensitive substring match against company name"),
     ats: str | None = Query(default=None, description="ATS id from the application URL (e.g. workday, greenhouse, other)"),
+    reason: str | None = Query(default=None, description="Reason category from reasonCounts (e.g. POSTING_EXPIRED, Blocked by reCAPTCHA, Other)"),
     sortBy: str = Query(default="matchScore", description="Field to sort by: matchScore, submittedAt, or updatedAt"),
     sortDir: str = Query(default="desc", description="asc or desc"),
     limit: int = Query(default=24, ge=1, le=1000),
@@ -446,6 +447,16 @@ def get_autopilot_jobs_list(
     for name in job_ats.values():
         ats_counts[name] = ats_counts.get(name, 0) + 1
 
+    # Why each job is in its bucket, grouped by the Diagnostic page's classifier,
+    # so the Failed/Ineligible/Review/Manual Review tabs can show "Blocked by
+    # reCAPTCHA (12)".
+    from app.services.diagnostic_outcomes import reason_category
+
+    job_reason = {id(job): reason_category(job) for job in jobs}
+    reason_counts: dict[str, int] = {}
+    for name in job_reason.values():
+        reason_counts[name] = reason_counts.get(name, 0) + 1
+
     if not company_counts:
         for job in jobs:
             c_name = (job.get("company") or "").strip()
@@ -476,6 +487,9 @@ def get_autopilot_jobs_list(
     ats_q = ats.strip().lower() if isinstance(ats, str) else ""
     if ats_q:
         jobs = [j for j in jobs if job_ats.get(id(j)) == ats_q]
+    reason_q = reason.strip() if isinstance(reason, str) else ""
+    if reason_q:
+        jobs = [j for j in jobs if job_reason.get(id(j)) == reason_q]
     if company_q:
         exact_matches = [j for j in jobs if str(j.get("company") or "").strip().lower() == company_q]
         if exact_matches:
@@ -523,6 +537,7 @@ def get_autopilot_jobs_list(
             name: (ATS_CONFIGS[name]["name"] if name in ATS_CONFIGS else "Other")
             for name in ats_counts
         },
+        "reasonCounts": reason_counts,
         "hasMore": offset_int + limit_int < total,
     }
 

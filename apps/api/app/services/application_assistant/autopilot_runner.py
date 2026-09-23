@@ -1781,6 +1781,21 @@ class AutopilotRunner:
         # retry. The checkpoint history keeps the older attempt's trail.
         job_item.pop("submitAttemptedAt", None)
         job_item.pop("technicalFailure", None)
+        # Same reasoning for the diagnostic-text fields classify_ineligibility()
+        # reads (skipReason/lastError/aiExplanation/lastErrorType, plus a prior
+        # verdict's ineligibilityReason/-Detail). A failure path in this attempt
+        # doesn't always set every one of these - e.g. the reCAPTCHA/DataDome
+        # path only sets lastError/aiExplanation - so a stale skipReason left
+        # over from a past, unrelated rejection (found live: OUTSIDE_UNITED_STATES
+        # from days ago) could still match one of classify_ineligibility's fixed-
+        # priority text rules and misclassify *this* attempt's real failure,
+        # e.g. filing a bot-blocked-but-still-live posting as INELIGIBLE (a dead
+        # end nobody reviews) instead of MANUAL_REVIEW.
+        for stale_field in (
+            "skipReason", "lastError", "aiExplanation", "lastErrorType",
+            "ineligibilityReason", "ineligibilityDetail",
+        ):
+            job_item.pop(stale_field, None)
         self._record_checkpoint(job_item, CheckpointStep.JOB_CLAIMED, f"Attempt {attempt}/{MAX_JOB_ATTEMPTS}")
         with session_scope() as db:
             save_autopilot_job(db, job_item)

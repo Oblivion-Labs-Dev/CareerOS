@@ -18,7 +18,7 @@ import {
   skipStagedApplication,
 } from "@/lib/application-assistant-api";
 import type { AutopilotJobRow } from "./job-types";
-import { FILTERS, SORTS, STATUS_VIEWS, SUBMITTED_DRILLDOWN, type StatusFilter, type SortMode } from "./job-presentation";
+import { FILTERS, INELIGIBILITY_LABELS, REASON_FILTER_TABS, SORTS, STATUS_VIEWS, SUBMITTED_DRILLDOWN, type StatusFilter, type SortMode } from "./job-presentation";
 import { useApplicationPages } from "./use-application-pages";
 import { ApplicationDetails } from "./application-details";
 import detailStyles from "./application-details.module.css";
@@ -62,6 +62,11 @@ export function AutopilotApplicationsView({
   const [titleFilter, setTitleFilter] = useSessionState<string>("applications-title-filter", "");
   // Which ATS the application goes through, e.g. "workday" to work those by hand.
   const [atsFilter, setAtsFilter] = useSessionState<string>("applications-ats-filter", "");
+  // Why the jobs in Review, Manual Review, Failed or Ineligible are there, e.g.
+  // "Blocked by reCAPTCHA", so the user can see at a glance what is wrong.
+  const [reasonFilter, setReasonFilter] = useSessionState<string>("applications-reason-filter", "");
+  const showReasonFilter = REASON_FILTER_TABS.includes(filter);
+  const activeReason = showReasonFilter ? reasonFilter : "";
   // Which bulk requeue is awaiting confirmation, if any. Held as state rather
   // than using window.confirm so the warning can say exactly what is about to
   // happen and how many rows it touches.
@@ -88,7 +93,7 @@ export function AutopilotApplicationsView({
     if (FILTERS.some(item => item.id === linkedFilter)) setFilter(linkedFilter as StatusFilter);
   }, [linkedFilter]);
 
-  const pages = useApplicationPages(filter, sortMode, "", companyFilter, titleFilter, atsFilter);
+  const pages = useApplicationPages(filter, sortMode, "", companyFilter, titleFilter, atsFilter, activeReason);
   const { jobs, counts, companyCounts: serverCompanyCounts, titleCounts: serverTitleCounts } = pages;
 
   // Use precomputed server company counts for the current status (covers all companies, e.g. all 152 on manual)
@@ -180,7 +185,19 @@ export function AutopilotApplicationsView({
     }
   }, [pages.atsCounts, atsFilter, setAtsFilter]);
 
-  useApplicationScroll(`${filter}:${sortMode}:${companyFilter}:${titleFilter}:${atsFilter}`, pages.loading, pages.hasMore, jobs.length, pages.loadMore);
+  // Most common reason first; "Other" (unrecognised) always last.
+  const sortedReasons = React.useMemo(
+    () => Object.entries(pages.reasonCounts || {}).sort(([a, x], [b, y]) => Number(a === "Other") - Number(b === "Other") || y - x),
+    [pages.reasonCounts],
+  );
+
+  useEffect(() => {
+    if (reasonFilter && Object.keys(pages.reasonCounts || {}).length > 0 && !pages.reasonCounts[reasonFilter]) {
+      setReasonFilter("");
+    }
+  }, [pages.reasonCounts, reasonFilter, setReasonFilter]);
+
+  useApplicationScroll(`${filter}:${sortMode}:${companyFilter}:${titleFilter}:${atsFilter}:${activeReason}`, pages.loading, pages.hasMore, jobs.length, pages.loadMore);
 
   const visible = React.useMemo(() => {
     let result = jobs;
@@ -403,6 +420,21 @@ export function AutopilotApplicationsView({
             <option key={id} value={id}>{pages.atsLabels[id] || id} ({count.toLocaleString()})</option>
           ))}
         </select>
+
+        {showReasonFilter && (
+          <select
+            className={styles.searchInput}
+            style={{ maxWidth: "16rem", cursor: "pointer" }}
+            value={reasonFilter}
+            onChange={(e) => setReasonFilter(e.target.value)}
+            aria-label="Filter by reason"
+          >
+            <option value="">All reasons</option>
+            {sortedReasons.map(([id, count]) => (
+              <option key={id} value={id}>{INELIGIBILITY_LABELS[id] || id} ({count.toLocaleString()})</option>
+            ))}
+          </select>
+        )}
 
         <select
           className={styles.searchInput}

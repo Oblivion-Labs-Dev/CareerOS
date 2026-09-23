@@ -100,7 +100,8 @@ _GENERIC_DETAIL_RE = re.compile(
 _DETAIL_PREFIX_RE = re.compile(r"^(Failed:\s*|Staged for (Review|human review):\s*)", re.I)
 
 
-def _categorize(raw: str) -> str:
+def _known_category(raw: str) -> str | None:
+    """The bucket for a reason text, or None when no pattern recognises it."""
     if not raw:
         return "No reason recorded"
     watchdog = _WATCHDOG_RE.search(raw)
@@ -109,7 +110,29 @@ def _categorize(raw: str) -> str:
     for pattern, label in _REASON_PATTERNS:
         if pattern.search(raw):
             return label
-    return raw[:70] + ("…" if len(raw) > 70 else "")
+    return None
+
+
+def _categorize(raw: str) -> str:
+    return _known_category(raw) or raw[:70] + ("…" if len(raw) > 70 else "")
+
+
+OTHER_REASON = "Other"
+
+
+def reason_category(job: dict[str, Any]) -> str:
+    """A short, groupable key for why a job sits in its current bucket.
+
+    Backs the per-tab reason filter on the Applications view. The job's
+    classified `ineligibilityReason` wins when present, since it is the
+    decision that put the job in its bucket; otherwise the same patterns this
+    report uses. Unlike the report, unrecognised text collapses into "Other":
+    raw error strings are mostly unique per job, so they cannot be filter keys.
+    """
+    classified = str(job.get("ineligibilityReason") or "").strip()
+    if classified:
+        return classified
+    return _known_category(_job_reason_text(job)) or OTHER_REASON
 
 
 def _timestamp(value: Any) -> datetime | None:
