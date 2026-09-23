@@ -263,12 +263,19 @@ def apply_ineligibility(job: dict[str, Any], reason: IneligibilityReason, detail
     return job
 
 
+def duplicate_url_key(url: Any) -> str:
+    """The form of an application URL that `find_duplicate_submission` compares."""
+    return str(url or "").strip().rstrip("/").casefold()
+
+
+def duplicate_field_key(value: Any) -> str:
+    """The form of a company or title that `find_duplicate_submission` compares."""
+    return str(value or "").strip().casefold()
+
+
 def _identity(job: dict[str, Any]) -> tuple[str, str]:
     """The (company, title) pair that identifies one posting to a human."""
-    return (
-        str(job.get("company") or "").strip().casefold(),
-        str(job.get("title") or "").strip().casefold(),
-    )
+    return duplicate_field_key(job.get("company")), duplicate_field_key(job.get("title"))
 
 
 def find_duplicate_submission(
@@ -287,12 +294,12 @@ def find_duplicate_submission(
     applicationUrl), and company+title misses a posting the employer re-listed
     under a new title. Either match is enough.
     """
-    url = str(job.get("applicationUrl") or "").strip().rstrip("/").casefold()
+    url = duplicate_url_key(job.get("applicationUrl"))
     company, title = _identity(job)
     for other in submitted_jobs:
         if other.get("id") == job.get("id"):
             continue
-        other_url = str(other.get("applicationUrl") or "").strip().rstrip("/").casefold()
+        other_url = duplicate_url_key(other.get("applicationUrl"))
         if url and other_url and url == other_url:
             return other
         if company and title and _identity(other) == (company, title):
