@@ -964,6 +964,28 @@ def list_autopilot_jobs(db: Session, status: str | None = None) -> list[dict[str
     return jobs
 
 
+def _display_names(rows: Any) -> dict[str, str]:
+    """Map every spelling of a name to one display spelling, ignoring case.
+
+    The same employer is stored as "Openai" and "openai" (or a title in two
+    casings) depending on which source discovered it, and each spelling became
+    its own entry in the company filter. The filter itself already matches case-
+    insensitively, so the counts are merged under the most common spelling;
+    on a tie, one with capitals beats all-lowercase.
+    """
+    spellings: dict[str, dict[str, int]] = {}
+    for _status, name, count in rows:
+        if name:
+            variants = spellings.setdefault(name.casefold(), {})
+            variants[name] = variants.get(name, 0) + count
+    display: dict[str, str] = {}
+    for variants in spellings.values():
+        chosen = max(variants, key=lambda s: (variants[s], s != s.lower(), s))
+        for spelling in variants:
+            display[spelling] = chosen
+    return display
+
+
 def get_autopilot_status_company_stats(db: Session) -> dict[str, Any]:
     """Precomputed aggregated counts by status and company.
 
@@ -982,6 +1004,7 @@ def get_autopilot_status_company_stats(db: Session) -> dict[str, Any]:
         GROUP BY status, company
     """)
     rows = db.execute(query).fetchall()
+    company_display = _display_names(rows)
 
     status_counts: dict[str, int] = {}
     company_counts_by_status: dict[str, dict[str, int]] = {
@@ -1011,7 +1034,7 @@ def get_autopilot_status_company_stats(db: Session) -> dict[str, Any]:
 
     for st, comp, cnt in rows:
         st = st or "QUEUED"
-        comp = comp or "Unknown"
+        comp = company_display.get(comp, comp) if comp else "Unknown"
         status_counts[st] = status_counts.get(st, 0) + cnt
 
         # All
@@ -1037,6 +1060,7 @@ def get_autopilot_status_company_stats(db: Session) -> dict[str, Any]:
         GROUP BY status, title
     """)
     title_rows = db.execute(title_query).fetchall()
+    title_display = _display_names(title_rows)
 
     title_counts_by_status: dict[str, dict[str, int]] = {
         "all": {},
@@ -1052,7 +1076,7 @@ def get_autopilot_status_company_stats(db: Session) -> dict[str, Any]:
 
     for st, title_val, cnt in title_rows:
         st = st or "QUEUED"
-        title_val = title_val or "Unknown Role"
+        title_val = title_display.get(title_val, title_val) if title_val else "Unknown Role"
 
         title_counts_by_status["all"][title_val] = title_counts_by_status["all"].get(title_val, 0) + cnt
         bucket = STATUS_MAP.get(st)
