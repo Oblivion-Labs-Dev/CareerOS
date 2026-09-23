@@ -28,44 +28,18 @@ from matchlab.dataset import (  # noqa: E402
     load_pairs,
 )
 from matchlab.metrics import Report, determinism_check  # noqa: E402
-from matchlab.structure import build_resume_shape, detect_role_family  # noqa: E402
 
 
 def build_context(pairs) -> A.Context:
     from app.db.store import get_kv, session_scope
-    from app.services.application_assistant.candidate_match_context import extract_resume_text
+    from app.services.application_assistant.role_shape_match import build_context as build
     from app.services.story_index import load_corpus
 
     with session_scope() as db:
         profile = get_kv(db, "profile") or {}
         documents = get_kv(db, "documents") or {}
 
-    corpus_records = load_corpus()
-    resume = build_resume_shape(corpus_records, headline=str(profile.get("headline") or ""))
-
-    professional = " ".join(e.text for e in resume.professional)
-    project = " ".join(e.text for e in resume.projects)
-    resume_text = extract_resume_text(documents) or ""
-    skills = " ".join(
-        str(s) for s in (profile.get("skills") or [])
-    ) if isinstance(profile.get("skills"), list) else str(profile.get("skills") or "")
-
-    combined = f"{resume_text}\n{professional}\n{project}\n{skills}"
-
-    # IDF is fitted over the postings, which is what makes common hiring
-    # vocabulary cheap and specific technology expensive.
-    corpus = A.fit_corpus([p.description for p in pairs] + [combined])
-
-    family, _ = detect_role_family(
-        str(profile.get("headline") or "Senior Software Engineer"), combined
-    )
-    return A.Context(
-        corpus=corpus, resume=resume, resume_text=combined,
-        resume_tokens=A.tokenize(combined),
-        professional_text=professional + "\n" + resume_text,
-        project_text=project, skills_text=skills,
-        resume_family=family or "backend", resume_seniority=3,
-    )
+    return build(profile, documents, load_corpus(), [p.description for p in pairs])
 
 
 def run_approach(name: str, scorer, pairs, ctx, repeats: int = 2) -> Report:

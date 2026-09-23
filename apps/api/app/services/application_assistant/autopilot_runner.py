@@ -996,6 +996,14 @@ class AutopilotRunner:
                 for j in raw_jobs
                 if isinstance(j.get("mistralMatch"), dict)
             }
+            # Everything else gets the deterministic role-shape score (#50),
+            # the same one the background preprocessor uses.
+            from app.services.application_assistant.role_shape_match import role_shape_matches
+
+            precomputed.update(role_shape_matches(
+                [j for j in raw_jobs if str(j.get("id")) not in precomputed],
+                profile, documents, raw_jobs,
+            ))
             ranked = filter_and_rank_jobs(
                 existing_autopilot_jobs,
                 raw_jobs,

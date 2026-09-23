@@ -47,6 +47,11 @@ from app.services.application_assistant.mistral_resume_match import (
     build_mistral_match_client,
     score_jobs_against_resume,
 )
+from app.services.application_assistant.role_shape_match import (
+    MATCH_METHOD as ROLE_SHAPE_METHOD,
+    MODEL_MATCH_METHODS,
+    role_shape_matches,
+)
 from app.services.application_assistant.persistence import (
     _canonical_url_key,
     _composite_job_key,
@@ -328,6 +333,7 @@ class QueuePreprocessor:
                     set_kv(_kv_db, REJECTION_RECONCILE_LAST_RUN_KV_KEY, now_iso())
 
         did_work |= await asyncio.to_thread(self._sync_queue_match_scores) > 0
+        did_work |= await asyncio.to_thread(self._role_shape_rescore_queue) > 0
         await asyncio.to_thread(self._rerank_pending_queue)
 
         self.stats["lastCycleAt"] = now_iso()
@@ -633,6 +639,13 @@ class QueuePreprocessor:
         precomputed = {
             str(j["id"]): j["mistralMatch"] for j in candidates if isinstance(j.get("mistralMatch"), dict)
         }
+        # Everything the model has not scored gets a deterministic role-shape
+        # score instead of the "unscored" placeholder (#50). It only orders the
+        # queue. Bounded per call; the rest are scored on later cycles.
+        precomputed.update(role_shape_matches(
+            [j for j in candidates if str(j.get("id")) not in precomputed],
+            profile, documents, discovered,
+        ))
         ranked = filter_and_rank_jobs(
             existing_autopilot, candidates, profile, {}, precomputed_matches=precomputed,
             documents=documents, accomplishments=accomplishments,
@@ -817,6 +830,62 @@ class QueuePreprocessor:
 
         if updated:
             logger.info("Queue preprocessor re-scored %d queued row(s) with Mistral", updated)
+        return updated
+
+    def _role_shape_rescore_queue(self) -> int:
+        """Give waiting jobs without a real score a role-shape one (#50).
+
+        Covers rows queued as "unscored" while the local model was off, rows
+        with no match method at all, and rows still carrying the old keyword
+        heuristic, which the matcher benchmark measured as worse than chance.
+        A model score is never overwritten, and only ``QUEUED`` rows are
+        touched: a job that was already applied to keeps the score it had.
+        Bounded per call by the scorer's budget.
+        """
+        if LOCAL_LLM_ENABLED:
+            return 0
+        with session_scope() as db:
+            queued = [
+                j for j in list_autopilot_jobs(db)
+                if j.get("status") == AutopilotJobStatus.QUEUED.value
+                and j.get("matchMethod") not in MODEL_MATCH_METHODS
+                and j.get("matchMethod") != ROLE_SHAPE_METHOD
+            ]
+            if not queued:
+                return 0
+            profile = get_kv(db, "profile") or {}
+            documents = get_kv(db, "documents") or {}
+            discovered = list_discovered_jobs(db, active_only=True, exclude_demo=True)
+            by_id = {
+                j.get("id"): j
+                for j in list_discovered_jobs(db, active_only=False, exclude_demo=False)
+            }
+
+        # Score the posting each row points at; a row whose posting is gone is
+        # scored from its own title.
+        sources = [
+            {**(by_id.get(row.get("jobId")) or {}), "id": row.get("jobId") or row.get("id"),
+             "title": row.get("title") or (by_id.get(row.get("jobId")) or {}).get("title"),
+             "company": row.get("company")}
+            for row in queued
+        ]
+        matches = role_shape_matches(sources, profile, documents, discovered)
+        if not matches:
+            return 0
+
+        updated = 0
+        with session_scope() as db:
+            for row in queued:
+                match = matches.get(str(row.get("jobId") or row.get("id")))
+                if not match:
+                    continue
+                row.update(match)
+                row["matchReasons"] = []
+                row["queuePriority"] = queue_priority_score(row)
+                save_autopilot_job(db, row)
+                updated += 1
+        if updated:
+            logger.info("Queue preprocessor gave %d queued row(s) a role-shape score", updated)
         return updated
 
     def _rerank_pending_queue(self) -> int:
