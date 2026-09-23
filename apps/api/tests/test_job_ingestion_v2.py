@@ -69,7 +69,9 @@ from app.services.job_discover.sources.workday import WorkdaySource
 # run — the Lever one first, the Greenhouse one a day later, each looking like a
 # regression in ingestion when nothing about ingestion had changed. A fixture
 # that asks "is this recent?" has to be dated relative to the same clock the
-# code under test reads.
+# code under test reads. Every fixture below that is fed to an adapter with a
+# `now - 30 days` cutoff takes its timestamps from here; the Ashby and
+# SmartRecruiters ones were missed by the first pass and aged out the same way.
 _RECENT = datetime.now(UTC) - timedelta(days=3)
 
 GREENHOUSE_FIXTURE = {
@@ -125,7 +127,7 @@ ASHBY_FIXTURE = {
             "location": "San Francisco, CA",
             "secondaryLocations": ["Remote, US"],
             "isRemote": True,
-            "publishedAt": "2026-08-22T08:00:00Z",
+            "publishedAt": _RECENT.strftime("%Y-%m-%dT%H:%M:%SZ"),
             "jobUrl": "https://jobs.ashbyhq.com/openai/ashby-job-001",
             "descriptionHtml": "<p>Develop GPU cluster scheduling runtimes.</p>",
             "compensation": {
@@ -144,7 +146,7 @@ SMARTRECRUITERS_FIXTURE = {
         {
             "id": "sr-post-777",
             "name": "Lead Cloud Infrastructure Engineer",
-            "releasedDate": "2026-08-21T12:00:00Z",
+            "releasedDate": _RECENT.strftime("%Y-%m-%dT%H:%M:%SZ"),
             "location": {"city": "Austin", "region": "TX", "country": "us"},
             "department": {"label": "Cloud Platforms"},
             "typeOfEmployment": {"label": "Permanent"},
@@ -178,7 +180,7 @@ JOBICY_FIXTURE = {
             "jobGeo": "USA",
             "jobLevel": "Senior",
             "jobType": "full-time",
-            "pubDate": "2026-08-24T10:00:00Z",
+            "pubDate": _RECENT.strftime("%Y-%m-%dT%H:%M:%SZ"),
             "jobDescription": "<p>Build real-time Go microservices.</p>",
             "annualSalaryMin": "180000",
             "annualSalaryMax": "240000",
@@ -204,16 +206,16 @@ RECRUITEE_FIXTURE = {
             "description": "<p>Own core payment services.</p>",
             "requirements": "<p>5+ years backend experience.</p>",
             "employment_type_code": "fulltime",
-            "created_at": "2026-08-01 10:00:00 UTC",
-            "published_at": "2026-08-01 12:00:00 UTC",
-            "updated_at": "2026-08-02 09:00:00 UTC",
+            "created_at": (_RECENT - timedelta(hours=2)).strftime("%Y-%m-%d %H:%M:%S UTC"),
+            "published_at": _RECENT.strftime("%Y-%m-%d %H:%M:%S UTC"),
+            "updated_at": (_RECENT + timedelta(hours=21)).strftime("%Y-%m-%d %H:%M:%S UTC"),
             "careers_url": "https://careers.bunq.com/o/senior-backend-engineer",
             "careers_apply_url": "https://careers.bunq.com/o/senior-backend-engineer/c/new",
         }
     ]
 }
 
-PERSONIO_XML_FIXTURE = """<?xml version="1.0" encoding="UTF-8"?>
+PERSONIO_XML_FIXTURE = f"""<?xml version="1.0" encoding="UTF-8"?>
 <workzag-jobs>
 <position>
     <id>998877</id>
@@ -231,7 +233,7 @@ PERSONIO_XML_FIXTURE = """<?xml version="1.0" encoding="UTF-8"?>
     <employmentType>permanent</employmentType>
     <seniority>experienced</seniority>
     <schedule>full-time</schedule>
-    <createdAt>2026-09-10T09:00:00+00:00</createdAt>
+    <createdAt>{_RECENT.strftime("%Y-%m-%dT%H:%M:%S+00:00")}</createdAt>
 </position>
 </workzag-jobs>
 """.encode("utf-8")
@@ -245,7 +247,7 @@ REMOTEOK_FIXTURE = [
         "position": "Senior Backend Engineer",
         "tags": ["python", "backend", "remote"],
         "location": "",
-        "date": "2026-09-12T00:00:12+00:00",
+        "date": _RECENT.strftime("%Y-%m-%dT%H:%M:%S+00:00"),
         "description": "<p>Own our core API platform.</p>",
         "url": "https://remoteok.com/remote-jobs/remote-senior-backend-engineer-acme-778899",
         "apply_url": "https://remoteok.com/remote-jobs/remote-senior-backend-engineer-acme-778899",
@@ -262,7 +264,7 @@ THEMUSE_FIXTURE = {
             "id": 5566778,
             "name": "Senior Software Engineer, Platform",
             "contents": "<div><p>Build our platform primitives.</p></div>",
-            "publication_date": "2026-09-11T10:00:00Z",
+            "publication_date": _RECENT.strftime("%Y-%m-%dT%H:%M:%SZ"),
             "locations": [{"name": "New York, NY"}, {"name": "Flexible / Remote"}],
             "company": {"id": 9001, "short_name": "acme", "name": "Acme Corp"},
             "levels": [{"name": "Senior Level", "short_name": "senior"}],
