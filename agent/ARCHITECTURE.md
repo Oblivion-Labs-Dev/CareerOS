@@ -149,8 +149,12 @@ redirects to real ATS URLs, and scores relevance.
 system (e.g. SUTRA Manthan) push discovered jobs. It is not a second pipeline:
 `store.import_jobs_batch` runs the scraper's own steps — `_normalize_scraped_job` →
 `_score_jobs` → `DedupeIndex` (whose `add()` returns the id a job merged into) →
-`_prune_stale_jobs` → `_persist_snapshot` — under the scraper's `_save_lock`, and the queue
-preprocessor then ingests the snapshot like any scrape. Per job it reports `created` /
+`_prune_stale_jobs` → `_persist_snapshot` — under the scraper's `_save_lock`. Because imports are
+fresh, the route then runs the preprocessor's own `_ingest_scraper_snapshot` and
+`_enqueue_scored_jobs(only_scraper_ids=...)` for just those postings, so they reach `QUEUED`
+immediately (the loop only runs during an Autopilot run and pauses intake at the queue-depth
+watermark). Priority intake skips the watermark and the model score, never the hard filters,
+duplicate checks or ranking; `_ENQUEUE_LOCK` serialises it with the loop. No run is started. Per job it reports `created` /
 `existing` / `updated` / `invalid` / `failed` with the CareerOS job id; duplicates follow
 `merge_job_records` (the stored record keeps its fields unless the newcomer is a
 higher-priority source), so resending a batch is a no-op. Auth is a bearer token from
