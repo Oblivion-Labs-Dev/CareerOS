@@ -79,7 +79,7 @@ def test_an_already_submitted_posting_is_not_attempted_again(
 
         with session_scope() as db:
             stored = get_autopilot_job(db, job["id"])
-        assert stored["status"] == AutopilotJobStatus.INELIGIBLE.value
+        assert stored["status"] == AutopilotJobStatus.FAILED.value
         assert stored["ineligibilityReason"] == "DUPLICATE_APPLICATION"
         assert "Already applied to this posting" in stored["lastError"]
     finally:

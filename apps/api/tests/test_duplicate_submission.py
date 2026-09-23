@@ -92,7 +92,9 @@ def test_an_expired_posting_is_still_terminal():
 
     job = {"id": "apjob_y"}
     apply_ineligibility(job, IneligibilityReason.POSTING_EXPIRED, "Posting removed")
-    assert job["status"] == AutopilotJobStatus.INELIGIBLE.value
+    # Still terminal: a dead end is FAILED now, which nothing retries.
+    assert job["status"] == AutopilotJobStatus.FAILED.value
+    assert job["hasPersistentBlock"] is True
 
 
 def test_recaptcha_wording_also_classifies_as_bot_protected():

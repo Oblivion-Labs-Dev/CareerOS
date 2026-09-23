@@ -334,7 +334,9 @@ def test_proven_unsubmitted_attempts_stay_retryable(result):
 
     assert outcome_is_proven_unsubmitted(job, result) is True
     status, _ = classify_unproven_outcome(job, result)
-    assert status == AutopilotJobStatus.FAILED.value
+    # Retryable work lives in review now; FAILED is reserved for dead ends.
+    assert status == AutopilotJobStatus.NEEDS_REVIEW.value
+    assert job["technicalFailure"] is True
 
 
 def test_an_attempt_that_never_clicked_submit_is_retryable():
@@ -342,7 +344,8 @@ def test_an_attempt_that_never_clicked_submit_is_retryable():
 
     assert submit_was_attempted(job) is False
     status, _ = classify_unproven_outcome(job, {"submitted": False, "error": "Navigation timeout"})
-    assert status == AutopilotJobStatus.FAILED.value
+    assert status == AutopilotJobStatus.NEEDS_REVIEW.value
+    assert job["technicalFailure"] is True
 
 
 def test_the_submit_marker_overrides_pre_submit_evidence(attempted_job):
@@ -385,7 +388,7 @@ def test_submitting_a_record_still_retires_its_siblings():
     try:
         _save(winner)
         retired = _read(sibling["id"])
-        assert retired["status"] == AutopilotJobStatus.INELIGIBLE.value
+        assert retired["status"] == AutopilotJobStatus.FAILED.value
         assert retired["ineligibilityReason"] == "DUPLICATE_APPLICATION"
     finally:
         _drop(sibling["id"], winner["id"])
@@ -419,7 +422,7 @@ def test_exact_and_tracking_variant_siblings_are_both_retired():
         _save(winner)
         for twin in (exact, tracked, respelled):
             row = _read(twin["id"])
-            assert row["status"] == AutopilotJobStatus.INELIGIBLE.value, twin["id"]
+            assert row["status"] == AutopilotJobStatus.FAILED.value, twin["id"]
             assert row["ineligibilityReason"] == "DUPLICATE_APPLICATION"
         assert _read(skipped["id"])["status"] == AutopilotJobStatus.SKIPPED.value
         assert _read(unrelated["id"])["status"] == AutopilotJobStatus.QUEUED.value
@@ -448,7 +451,7 @@ def test_a_maybe_submitted_sibling_is_retired_by_a_real_submission():
     _save(unknown)
     try:
         _save(winner)
-        assert _read(unknown["id"])["status"] == AutopilotJobStatus.INELIGIBLE.value
+        assert _read(unknown["id"])["status"] == AutopilotJobStatus.FAILED.value
     finally:
         _drop(unknown["id"], winner["id"])
 
@@ -475,7 +478,8 @@ def test_a_stale_marker_does_not_park_a_genuinely_retryable_attempt():
     status, _ = classify_unproven_outcome(
         job, {"submitted": False, "error": "Submit button not found on application page"}
     )
-    assert status == AutopilotJobStatus.FAILED.value
+    assert status == AutopilotJobStatus.NEEDS_REVIEW.value
+    assert job["technicalFailure"] is True
 
 
 def test_the_user_may_still_resolve_a_maybe_submitted_job_by_hand(attempted_job):

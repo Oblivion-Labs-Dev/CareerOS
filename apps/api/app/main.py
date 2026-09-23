@@ -319,6 +319,18 @@ def _warm_autopilot_caches() -> None:
 
 
 @asynccontextmanager
+def _apply_bucket_model() -> None:
+    """Move jobs written under the old bucket model onto the current one (runs once)."""
+    try:
+        from app.db.store import session_scope
+        from app.services.application_assistant.bucket_migration import migrate_bucket_model
+
+        with session_scope() as db:
+            migrate_bucket_model(db)
+    except Exception:
+        logger.exception("Could not apply the Autopilot bucket model")
+
+
 async def lifespan(_app: FastAPI):
     _warn_if_multi_worker()
     init_db()
@@ -332,6 +344,7 @@ async def lifespan(_app: FastAPI):
     # whose submit was already issued becomes SUBMISSION_UNKNOWN instead of
     # being retried. It starts nothing.
     _recover_stranded_applications()
+    _apply_bucket_model()
     _restore_diagnostic_errors()
     asyncio.create_task(asyncio.to_thread(_warm_autopilot_caches))
     retention_task = asyncio.create_task(_retention_loop())

@@ -175,7 +175,8 @@ Internals, in the order work flows:
    `MANUAL_REVIEW` (reversible: `hasPersistentBlock` deliberately stays `False`).
 2. **Hard filters** (`job_filter_ranker.evaluate_hard_filters`) against the profile.
    A rejection is passed to `ineligibility.classify_ineligibility`; a recognised permanent
-   blocker becomes `INELIGIBLE` with a reason, anything unrecognised stays a soft `SKIPPED`.
+   blocker becomes `INELIGIBLE` (candidate barred) or `FAILED` (dead posting) with a reason,
+   anything unrecognised stays a soft `SKIPPED`.
 3. Mark `APPLYING`, record `PAGE_OPENED`.
 4. Load submission context (profile, answer library, master resume) — **on a worker thread**,
    because synchronous DB reads on the event loop were blocking the entire server.
@@ -236,7 +237,8 @@ request can never block on a download.
   and confirmation screenshots, timestamps, submission hashes.
 - `application_journey.py` — the per-job timeline the UI renders.
 - `submission_outcome.py` — decides whether an unconfirmed attempt proved nothing was sent
-  (`FAILED`, retryable) or left it unknown (`SUBMISSION_UNKNOWN`, never auto-retried). See
+  (`NEEDS_REVIEW` tagged `technicalFailure`, retryable) or left it unknown
+  (`SUBMISSION_UNKNOWN`, never auto-retried). See
   the idempotency rules in §8.
 - `manual_submission_reconciler.py` — marks a job `SUBMITTED` when its confirmation email
   arrives, so hand-completed applications do not depend on the user's memory. Reconciles
@@ -309,18 +311,20 @@ The status lattice is the thing most likely to be got wrong:
 | `DISCOVERED` → `SCORED` → `QUEUED` | Pre-application pipeline | automation |
 | `APPLYING` | In flight, holds a lease | automation |
 | `STAGED` | Filled, awaiting approval | user approves |
-| `NEEDS_REVIEW` | Open posting, automation can finish **once it has an answer** | user answers, automation continues |
+| `NEEDS_REVIEW` | Retryable; automation can finish it once something is resolved — an answer, or (tagged `technicalFailure`) simply another attempt after breakage **proven** not to have sent anything | user answers / "retry failed", automation continues |
 | `MANUAL_REVIEW` | Open posting, automation will **never** finish it (CAPTCHA, undriveable form) | user, by hand |
 | `SUBMITTED` / `REJECTED` | Sent / declined | — |
 | `SUBMISSION_UNKNOWN` | Submit was clicked, no confirmation could be read — may or may not have been sent | **user only**; never retried automatically |
 | `SKIPPED` | Soft filter; may pass later | automation, on retry |
-| `INELIGIBLE` | Genuine dead end; always paired with an `IneligibilityReason` | nobody |
-| `FAILED` | **Proven** not submitted — technical breakage before anything was sent | automation, on retry |
+| `INELIGIBLE` | **Only** when the candidate is barred: no visa sponsorship, US citizenship, outside the US (unless `allowInternationalLocations`), an excluded role or company | nobody |
+| `FAILED` | Dead end, **never retried**: expired/removed posting, broken link, not a real posting, duplicate of a submitted application | nobody |
 
-The organising question is **"can a human still land this application?"** If yes, it must not
-sit in a terminal bucket. `IneligibilityReason` distinguishes real dead ends (expired,
-not-a-real-posting, duplicate, citizenship-barred, outside the US) from operator policy
-(`MANUAL_APPLICATION_REQUIRED` for Tier-1 companies, which is reversible).
+Redefined by the repo owner on 2026-09-23: FAILED means "failed, cannot retry"; anything
+retryable lives in `NEEDS_REVIEW` / `MANUAL_REVIEW`; INELIGIBLE is only "candidate barred".
+`ineligibility.FAILED_REASONS` / `TERMINAL_REASONS` encode the split, and
+`bucket_migration.py` moved the rows written under the old model (once, recorded in KV
+`autopilot_bucket_model`). The organising question is still **"can this still be landed, and
+by whom?"** — a live posting must not sit in a terminal bucket.
 
 ---
 
@@ -340,8 +344,10 @@ not-a-real-posting, duplicate, citizenship-barred, outside the US) from operator
 
 **Submission idempotency** (`submission_outcome.py`) — the rule that keeps one application
 per posting:
-- `FAILED` means *proven* not submitted, and is the only unconfirmed outcome that may be
-  retried. Anything unproven is `SUBMISSION_UNKNOWN` and is never retried automatically.
+- Only an attempt *proven* not to have submitted may be retried: it is parked in
+  `NEEDS_REVIEW` with `technicalFailure`, and `is_retryable_technical_failure` is what
+  "retry failed" and the self-healer act on. Anything unproven is `SUBMISSION_UNKNOWN` and
+  is never retried automatically. `FAILED` is never retried at all.
 - The deciding evidence is `submitAttemptedAt`, written durably by the executor's
   `on_submit_attempt` callback **immediately before the final click**. After that point
   nothing can prove the employer did not receive the form. The executor refuses to click if

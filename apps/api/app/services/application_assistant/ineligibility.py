@@ -208,9 +208,21 @@ def classify_ineligibility(job: dict[str, Any]) -> tuple[IneligibilityReason, st
 # dead end instead — either the posting no longer exists, or the candidate is
 # barred from it outright — so it goes to a terminal bucket rather than
 # cluttering the list the user works through by hand.
+# INELIGIBLE means one thing only: the candidate is barred from the role
+# (repo owner, 2026-09-23 - "ineligible is like no visa sponsorship or US
+# citizen"). Their own standing exclusions (a blacklisted company, an excluded
+# kind of role) are the same kind of "not for me".
 TERMINAL_REASONS = frozenset({
     IneligibilityReason.REQUIRES_US_CITIZENSHIP,
+    IneligibilityReason.NO_VISA_SPONSORSHIP,
     IneligibilityReason.OUTSIDE_UNITED_STATES,
+    IneligibilityReason.COMPANY_BLACKLISTED,
+    IneligibilityReason.ROLE_EXCLUDED,
+})
+
+# Dead ends that can never be retried: there is no posting left to apply to, or
+# the candidate already applied. These are FAILED - "failed, cannot retry".
+FAILED_REASONS = frozenset({
     IneligibilityReason.POSTING_EXPIRED,
     IneligibilityReason.NOT_A_REAL_POSTING,
     IneligibilityReason.DUPLICATE_APPLICATION,
@@ -233,8 +245,8 @@ def apply_ineligibility(job: dict[str, Any], reason: IneligibilityReason, detail
     filling could not complete — a board the automation cannot drive, or a form
     demanding a fact the profile does not hold. Those stay visible so the user can
     open the posting and finish it by hand. A posting that is closed, expired or
-    fake, or one the candidate is barred from outright, is a dead end with nothing
-    to finish, so it goes to INELIGIBLE instead of cluttering that list.
+    fake (or a duplicate of one already applied to) is FAILED - a dead end that is
+    never retried. Only a role the candidate is barred from outright is INELIGIBLE.
     """
     from app.services.application_assistant.domain import AutopilotJobStatus
 
@@ -245,6 +257,12 @@ def apply_ineligibility(job: dict[str, Any], reason: IneligibilityReason, detail
         # Still a persistent block for the automation: no retry will get past a
         # CAPTCHA, so the runner must not keep picking it up.
         job["hasPersistentBlock"] = True
+        return job
+    if reason in FAILED_REASONS:
+        job["status"] = AutopilotJobStatus.FAILED.value
+        # Never retried: every retry path skips FAILED and persistent blocks.
+        job["hasPersistentBlock"] = True
+        job.pop("technicalFailure", None)
         return job
     if reason in TERMINAL_REASONS:
         job["status"] = AutopilotJobStatus.INELIGIBLE.value
