@@ -1688,7 +1688,11 @@ async def get_benchmarks_route() -> dict[str, Any]:
 @router.post("/benchmarks/run")
 async def run_benchmarks_route() -> dict[str, Any]:
     """Execute full sequential benchmark comparing Ollama local models and Gemini API."""
+    from app.services.application_assistant import llm_client
     from app.services.application_assistant.benchmark_suite import run_full_sequential_benchmark
+
+    if not llm_client.LOCAL_LLM_ENABLED:
+        raise HTTPException(status_code=409, detail="Local LLMs are switched off (CAREEROS_LOCAL_LLM=off).")
     gemini_key = os.environ.get("GEMINI_API_KEY", settings.gemini_api_key)
     results = await run_full_sequential_benchmark(
         gemini_api_key=gemini_key,
