@@ -97,7 +97,7 @@ jobs:
         run: |
           cd apps/api && python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 &
           cd apps/web && pnpm start --port 3000 &
-          npx --yes wait-on --timeout 180000 http://127.0.0.1:8000/health http://127.0.0.1:3000
+          npx --yes wait-on --timeout 180000 http-get://127.0.0.1:8000/health http-get://127.0.0.1:3000
       - run: pnpm --filter @career-os/web exec playwright test
         env:
           CI: "1"
