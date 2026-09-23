@@ -39,6 +39,11 @@ _TEST_ENV = {
     # the behaviour under test is stated in the test rather than inherited from
     # whatever happens to be in the environment.
     "CAREER_OS_ADMIN_PASSWORD": "",
+    # The approved baseline resume came from .env too, so resume tests read the
+    # candidate's real PDF locally and failed on any clean machine (CI). Point
+    # it at a file that does not exist: a test that needs a baseline uses the
+    # synthetic one in tests/resume_baseline_fixture.py, which sets its own path.
+    "CAREEROS_APPROVED_RESUME_PATH": str(_TEST_STATE_DIR / "no-approved-resume.pdf"),
 }
 _PREVIOUS_ENV = {key: os.environ.get(key) for key in _TEST_ENV}
 os.environ.update(_TEST_ENV)
