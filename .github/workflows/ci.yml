@@ -95,9 +95,13 @@ jobs:
         working-directory: CareerOS/apps/api
       - name: Start API and web for e2e
         run: |
-          cd apps/api && python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 &
-          cd apps/web && pnpm start --port 3000 &
-          npx --yes wait-on --timeout 180000 http-get://127.0.0.1:8000/health http-get://127.0.0.1:3000
+          # The same ports the app defaults to: the web's /api/backend proxy
+          # targets 127.0.0.1:4000 and playwright.config.ts targets :5000.
+          cd apps/api && python -m uvicorn app.main:app --host 127.0.0.1 --port 4000 &
+          cd apps/web && pnpm start --port 5000 &
+          npx --yes wait-on --timeout 180000 http-get://127.0.0.1:4000/health http-get://127.0.0.1:5000
       - run: pnpm --filter @career-os/web exec playwright test
         env:
           CI: "1"
+          # Only Chromium is installed above; the config defaults to Firefox.
+          PLAYWRIGHT_BROWSER: chromium
