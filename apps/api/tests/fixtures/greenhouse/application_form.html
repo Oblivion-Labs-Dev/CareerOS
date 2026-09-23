@@ -283,6 +283,9 @@
     document.getElementById("application_form").addEventListener("submit", function (event) {
       event.preventDefault();
       window.__submitClicked = true;
+      // Tell the serving test harness too: the in-page flag dies with the
+      // browser, so a test checking it from a fresh page could never see it.
+      fetch("/__submit_clicked", { keepalive: true }).catch(function () {});
     });
   </script>
 </body>

@@ -802,6 +802,57 @@ def _jobs_with_canonical_url(db: Session, target: str) -> list[dict[str, Any]]:
     return [dict(payload) for (payload,) in rows]
 
 
+def list_submitted_duplicate_candidates(db: Session, job: dict[str, Any]) -> list[dict[str, Any]]:
+    """SUBMITTED jobs that `find_duplicate_submission` could match `job` against.
+
+    The runner checks every attempt against earlier submissions, which used to
+    mean loading the whole job table and keeping the SUBMITTED rows - a cost
+    that grew with every application ever sent. This narrows that in SQLite to
+    the rows sharing the job's URL key or its (company, title) key, computed by
+    the very functions `find_duplicate_submission` compares with, so any row it
+    would match is returned and it still makes the final decision.
+    """
+    from sqlalchemy import and_, func, or_
+
+    from app.services.application_assistant.ineligibility import (
+        duplicate_field_key,
+        duplicate_url_key,
+    )
+
+    driver_connection = db.connection().connection.driver_connection
+    driver_connection.create_function("careeros_url_key", 1, duplicate_url_key, deterministic=True)
+    driver_connection.create_function("careeros_field_key", 1, duplicate_field_key, deterministic=True)
+
+    def field(path: str):
+        return func.json_extract(EntityStore.payload, path)
+
+    url = duplicate_url_key(job.get("applicationUrl"))
+    company = duplicate_field_key(job.get("company"))
+    title = duplicate_field_key(job.get("title"))
+    matches = []
+    if url:
+        matches.append(func.careeros_url_key(field("$.applicationUrl")) == url)
+    if company and title:
+        matches.append(
+            and_(
+                func.careeros_field_key(field("$.company")) == company,
+                func.careeros_field_key(field("$.title")) == title,
+            )
+        )
+    if not matches:
+        return []
+    rows = (
+        db.query(EntityStore.payload)
+        .filter(
+            EntityStore.entity_type == ENTITY_AUTOPILOT_JOB,
+            field("$.status") == "SUBMITTED",
+            or_(*matches),
+        )
+        .all()
+    )
+    return [dict(payload) for (payload,) in rows]
+
+
 def close_duplicate_applications(db: Session, submitted_job: dict[str, Any]) -> list[str]:
     """Retire other records for a posting that has now been applied to.
 

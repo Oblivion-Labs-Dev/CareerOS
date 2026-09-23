@@ -417,6 +417,13 @@ def favicon() -> Response:
 
 def _ensure_ollama_started_background() -> None:
     """Check if Ollama is running and start it in background if not already alive."""
+    from app.services.application_assistant.llm_client import LOCAL_LLM_ENABLED
+
+    # With the local model switched off nothing may call it, so there is no
+    # reason to have its server running and holding memory either.
+    if not LOCAL_LLM_ENABLED:
+        logger.info("CAREEROS_LOCAL_LLM=off: not starting Ollama.")
+        return
     import shutil
     import subprocess
     import urllib.request
