@@ -7,7 +7,7 @@ import { expect, test } from "@playwright/test";
  * clicks the card carrying the exact data-job-id and reads back what the panel
  * reports afterwards.
  *
- *   MARK_JOBS="apjob_x=QUEUED,apjob_y=INELIGIBLE" npx playwright test e2e/set-job-state.spec.ts
+ *   MARK_JOBS="apjob_x=QUEUED,apjob_y=INELIGIBLE" npx playwright test -c playwright.actions.config.ts set-job-state
  */
 const PAIRS = (process.env.MARK_JOBS || "")
   .split(",")
@@ -19,7 +19,7 @@ const PAIRS = (process.env.MARK_JOBS || "")
     return { id: id.trim(), state: state.trim(), hint: (hint || "").trim() };
   });
 
-test("set application states by id @local", async ({ page }) => {
+test("set application states by id", async ({ page }) => {
   test.setTimeout(600_000);
   expect(PAIRS.length, "set MARK_JOBS").toBeGreaterThan(0);
 

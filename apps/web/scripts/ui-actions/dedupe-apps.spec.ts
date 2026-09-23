@@ -1,7 +1,7 @@
 import { test } from "@playwright/test";
 
 /** Run "Remove duplicate applications" from the Applications overflow menu. */
-test("remove duplicate applications from the UI @local", async ({ page }) => {
+test("remove duplicate applications from the UI", async ({ page }) => {
   test.setTimeout(400_000);
   page.on("response", (r) => {
     if (r.url().includes("dedupe-applications")) console.log("NET", r.status());

@@ -6,7 +6,7 @@ import { expect, test } from "@playwright/test";
 const COMPANY = process.env.MARK_COMPANY || "";
 const STATE = process.env.MARK_STATE || "SUBMITTED";
 
-test("record an application's state from the side panel @local", async ({ page }) => {
+test("record an application's state from the side panel", async ({ page }) => {
   test.setTimeout(240_000);
   expect(COMPANY, "set MARK_COMPANY").not.toEqual("");
 

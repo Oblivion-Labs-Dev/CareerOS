@@ -5,7 +5,7 @@ import { expect, test } from "@playwright/test";
  * would click, so a classification or form-filling fix can be verified against
  * the exact jobs that exposed it.
  *
- *   RETRY_COMPANIES="Hiya,Whatnot" npx playwright test e2e/retry-failed.spec.ts
+ *   RETRY_COMPANIES="Hiya,Whatnot" npx playwright test -c playwright.actions.config.ts retry-failed
  *
  * Note: never wait for networkidle on this page. The Autopilot view holds an
  * SSE stream open and polls on a timer, so it is never network-idle and the
@@ -17,7 +17,7 @@ const COMPANIES = (process.env.RETRY_COMPANIES || "")
   .map((c) => c.trim())
   .filter(Boolean);
 
-test("retry specific failed applications from the UI @local", async ({ page }) => {
+test("retry specific failed applications from the UI", async ({ page }) => {
   test.setTimeout(240_000);
   expect(COMPANIES.length, "set RETRY_COMPANIES").toBeGreaterThan(0);
 

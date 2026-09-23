@@ -2,7 +2,7 @@ import { expect, test } from "@playwright/test";
 
 /** The Review and Failed lists each offer a bulk requeue, and it must warn
  *  before it acts because the reason each job was parked is cleared. */
-test("bulk requeue warns before moving a bucket to the queue @local", async ({ page }) => {
+test("bulk requeue warns before moving a bucket to the queue", async ({ page }) => {
   test.setTimeout(240_000);
   await page.goto("/applications?tab=applications", { waitUntil: "domcontentloaded" });
 

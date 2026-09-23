@@ -8,7 +8,7 @@ import { expect, test } from "@playwright/test";
  * scrape) rather than by posting to the API, so this covers the real path a
  * user takes.
  */
-test("full scrape from the Discover page pulls from every working source @local", async ({ page, request }) => {
+test("full scrape from the Discover page pulls from every working source", async ({ page, request }) => {
   test.setTimeout(25 * 60 * 1000);
 
   await page.goto("/jobs/discover");
