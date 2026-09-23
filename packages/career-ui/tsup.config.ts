@@ -9,5 +9,5 @@ export default defineConfig({
   banner: {
     js: "'use client';",
   },
-  external: ["react", "react-dom", "@arsenal/ui", "framer-motion"],
+  external: ["react", "react-dom", "framer-motion"],
 });
