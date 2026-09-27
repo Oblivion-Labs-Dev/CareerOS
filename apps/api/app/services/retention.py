@@ -35,7 +35,7 @@ from typing import Any
 from sqlalchemy import func, text
 from sqlalchemy.orm import Session
 
-from app.db.store import EntityStore, session_scope
+from app.db.store import EntityStore, json_field, session_scope
 
 logger = logging.getLogger("career_os.retention")
 
@@ -89,7 +89,7 @@ def _cutoff_iso(days: int) -> str:
 
 
 def _json(path: str):
-    return func.json_extract(EntityStore.payload, path)
+    return json_field(path)
 
 
 def _aged_out(cutoff: str, *paths: str):

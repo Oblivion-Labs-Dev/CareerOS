@@ -37,7 +37,26 @@ class EntityStore(Base):
     payload = Column(JSON, nullable=False)
 
 
-DATA_DIR = Path(__file__).resolve().parents[2] / "data"
+_JSON_PATH = re.compile(r"^\$(\.[A-Za-z_][A-Za-z0-9_]*)+$")
+
+
+def json_field(path: str):
+    """``json_extract(payload, '<path>')`` with the path written into the SQL.
+
+    SQLite only uses an expression index when the query repeats the indexed
+    expression exactly. SQLAlchemy sent the path as a bound ``?``, which never
+    matches ``json_extract(payload, '$.status')``, so every JSON index below was
+    dead and each status/URL/lock lookup scanned its whole entity type. The
+    path is validated, so inlining it cannot inject anything.
+    """
+    from sqlalchemy import func, literal_column
+
+    if not _JSON_PATH.match(path):
+        raise ValueError(f"not a plain JSON path: {path!r}")
+    return func.json_extract(EntityStore.payload, literal_column(f"'{path}'"))
+
+
+DATA_DIR =Path(__file__).resolve().parents[2] / "data"
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 DB_PATH = DATA_DIR / "career_os.db"
 PROFILE_SEED_PATH = DATA_DIR / "applypilot-profile.json"
@@ -90,6 +109,14 @@ _JSON_INDEXES: tuple[tuple[str, str], ...] = (
         "ix_entities_application_url",
         "CREATE INDEX IF NOT EXISTS ix_entities_application_url "
         "ON entities (entity_type, json_extract(payload, '$.applicationUrl'))",
+    ),
+    (
+        # The discover page asks "which postings were added to the assistant"
+        # on nearly every request: 51 of ~11k discovered rows, found by a full
+        # scan that parsed every payload.
+        "ix_entities_added_to_assistant",
+        "CREATE INDEX IF NOT EXISTS ix_entities_added_to_assistant "
+        "ON entities (entity_type, json_extract(payload, '$.addedToAssistant'))",
     ),
 )
 
@@ -284,13 +311,14 @@ def list_entities_where_json(
     """
     from sqlalchemy import func
 
-    extracted = func.json_extract(EntityStore.payload, json_path)
+    extracted = json_field(json_path)
     query = db.query(EntityStore).filter(EntityStore.entity_type == entity_type)
-    query = query.filter(extracted.isnot(None)) if truthy else query
     if truthy:
         # SQLite json_extract yields 1/0 for booleans and the raw value
-        # otherwise; both "false" spellings must be excluded.
-        query = query.filter(extracted != 0).filter(extracted != "false")
+        # otherwise; both "false" spellings must be excluded. `> 0` (not
+        # `IS NOT NULL AND != 0`) so SQLite can range-scan the expression index;
+        # NULL fails it, and text sorts above numbers so "true" still passes.
+        query = query.filter(extracted > 0).filter(extracted != "false")
     return [row.payload for row in query.all()]
 
 
@@ -306,7 +334,7 @@ def list_entities_by_json_equals(
     """
     from sqlalchemy import func
 
-    extracted = func.json_extract(EntityStore.payload, json_path)
+    extracted = json_field(json_path)
     rows = (
         db.query(EntityStore)
         .filter(EntityStore.entity_type == entity_type)

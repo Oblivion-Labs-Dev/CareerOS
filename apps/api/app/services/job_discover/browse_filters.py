@@ -1,6 +1,7 @@
 """Browse-only facets. Never change application answers or resume selection."""
 import json
 import re
+from functools import lru_cache
 
 from app.services.job_discover.role_classifier import ROLE_LABELS, ROLE_PATTERNS
 
@@ -52,7 +53,15 @@ def minimum_experience(job):
     value = job.get("minYearsExperience")
     if isinstance(value, (int, float)) and not isinstance(value, bool) and 0 <= value <= 60:
         return value
-    text = re.sub(r"<[^>]+>", " ", str(job.get("description") or ""))
+    return _years_in_description(str(job.get("description") or ""))
+
+
+# Every filter request re-ran this over all ~7k descriptions. The snapshot is now
+# held in memory, so the same description strings come back on each request and
+# memoising on the text makes repeat calls a hash lookup.
+@lru_cache(maxsize=32768)
+def _years_in_description(description):
+    text = re.sub(r"<[^>]+>", " ", description)
     match = re.search(r"\b(\d{1,2})(?:\s*[-–]\s*\d{1,2})?\s*\+?\s+years?(?:\s+of)?\s+(?:(?:relevant|professional|work)\s+)?experience\b", text, re.I)
     return int(match[1]) if match else None
 

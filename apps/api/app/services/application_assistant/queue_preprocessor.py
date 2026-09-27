@@ -370,7 +370,7 @@ class QueuePreprocessor:
     def _queued_count(self) -> int:
         from sqlalchemy import func
 
-        from app.db.store import EntityStore
+        from app.db.store import EntityStore, json_field
         from app.services.application_assistant.persistence import ENTITY_AUTOPILOT_JOB
 
         with session_scope() as db:
@@ -378,7 +378,7 @@ class QueuePreprocessor:
                 db.query(func.count(EntityStore.id))
                 .filter(
                     EntityStore.entity_type == ENTITY_AUTOPILOT_JOB,
-                    func.json_extract(EntityStore.payload, "$.status") == AutopilotJobStatus.QUEUED.value,
+                    json_field("$.status") == AutopilotJobStatus.QUEUED.value,
                 )
                 .scalar()
                 or 0

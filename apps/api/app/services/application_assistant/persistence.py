@@ -14,6 +14,7 @@ from app.db.store import (
     delete_entity,
     get_entity,
     get_kv,
+    json_field,
     list_entities,
     list_entities_by_json_equals,
     new_id,
@@ -716,8 +717,8 @@ def claim_application_identity(
         "expiresAt": (datetime.now(UTC) + timedelta(seconds=lease_seconds)).isoformat(),
     }
 
-    holder = func.json_extract(EntityStore.payload, "$.jobId")
-    expires_at = func.json_extract(EntityStore.payload, "$.expiresAt")
+    holder = json_field("$.jobId")
+    expires_at = json_field("$.expiresAt")
 
     statement = (
         sqlite_insert(EntityStore)
@@ -756,7 +757,7 @@ def release_application_identity(db: Session, identity: str, job_app_id: str) ->
         delete(EntityStore)
         .where(EntityStore.id == _identity_claim_id(identity))
         .where(EntityStore.entity_type == ENTITY_APPLICATION_CLAIM)
-        .where(func.json_extract(EntityStore.payload, "$.jobId") == job_app_id)
+        .where(json_field("$.jobId") == job_app_id)
         .execution_options(synchronize_session=False)
     )
     result = db.execute(statement)
@@ -785,7 +786,7 @@ def most_recent_submit_attempt(db: Session, *, exclude_id: str | None = None) ->
     """
     from sqlalchemy import func
 
-    stamp = func.json_extract(EntityStore.payload, "$.submitAttemptedAt")
+    stamp = json_field("$.submitAttemptedAt")
     query = db.query(func.max(stamp)).filter(
         EntityStore.entity_type == ENTITY_AUTOPILOT_JOB,
         stamp.isnot(None),
@@ -815,7 +816,7 @@ def _jobs_with_canonical_url(db: Session, target: str) -> list[dict[str, Any]]:
         "careeros_canonical_url", 1, canonical_application_url, deterministic=True
     )
     canonical = func.careeros_canonical_url(
-        func.json_extract(EntityStore.payload, "$.applicationUrl")
+        json_field("$.applicationUrl")
     )
     rows = (
         db.query(EntityStore.payload)
@@ -841,8 +842,8 @@ def _identity_expression(db: Session):
     driver_connection = db.connection().connection.driver_connection
     driver_connection.create_function("careeros_identity", 1, _url_identity, deterministic=True)
     return func.coalesce(
-        func.json_extract(EntityStore.payload, "$.applicationIdentity"),
-        func.careeros_identity(func.json_extract(EntityStore.payload, "$.applicationUrl")),
+        json_field("$.applicationIdentity"),
+        func.careeros_identity(json_field("$.applicationUrl")),
     )
 
 
@@ -868,7 +869,7 @@ def list_submitted_duplicate_candidates(db: Session, job: dict[str, Any]) -> lis
     driver_connection.create_function("careeros_field_key", 1, duplicate_field_key, deterministic=True)
 
     def field(path: str):
-        return func.json_extract(EntityStore.payload, path)
+        return json_field(path)
 
     url = duplicate_url_key(job.get("applicationUrl"))
     company = duplicate_field_key(job.get("company"))
@@ -939,7 +940,7 @@ def close_duplicate_applications(db: Session, submitted_job: dict[str, Any]) -> 
             db.query(EntityStore.payload)
             .filter(
                 EntityStore.entity_type == ENTITY_AUTOPILOT_JOB,
-                func.json_extract(EntityStore.payload, "$.status").in_(_OPEN_AUTOPILOT_STATUSES),
+                json_field("$.status").in_(_OPEN_AUTOPILOT_STATUSES),
                 _identity_expression(db) == identity,
             )
             .all()
@@ -1242,8 +1243,8 @@ def claim_job_lock(db: Session, job_app_id: str, worker_id: str, lease_seconds: 
     now = now_iso()
     expires_at = (datetime.now(UTC) + timedelta(seconds=lease_seconds)).isoformat()
 
-    locked_by = func.json_extract(EntityStore.payload, "$.lockedBy")
-    lock_expires = func.json_extract(EntityStore.payload, "$.lockExpiresAt")
+    locked_by = json_field("$.lockedBy")
+    lock_expires = json_field("$.lockExpiresAt")
 
     statement = (
         update(EntityStore)
