@@ -114,3 +114,23 @@ def test_query_string_postings_on_one_page_are_not_confused():
         assert _refused_by_precheck(other) is None
     finally:
         _drop("apjob_id37_j")
+
+
+def test_submitting_one_indeed_job_leaves_a_different_indeed_job_alone():
+    """#77: Indeed keeps the posting id in `?jk=`. Dropping the query made every
+    Indeed job one "posting", and one submission retired 663 unrelated jobs."""
+    other = _save(_record("apjob_id77_b", "https://www.indeed.com/viewjob?jk=bbb222", "Senior SWE", "Globex", "QUEUED"))
+    try:
+        _save(_record("apjob_id77_a", "https://www.indeed.com/viewjob?jk=aaa111", "Founding Engineer", "Initech", "SUBMITTED"))
+        assert _read(other["id"])["status"] == "QUEUED"
+    finally:
+        _drop("apjob_id77_a", "apjob_id77_b")
+
+
+def test_the_same_indeed_posting_with_a_tracking_param_is_still_retired():
+    twin = _save(_record("apjob_id77_d", "https://www.indeed.com/viewjob?jk=ccc333&from=serp", "Senior SWE", "Globex", "QUEUED"))
+    try:
+        _save(_record("apjob_id77_c", "https://www.indeed.com/viewjob?jk=ccc333", "Senior SWE", "Globex", "SUBMITTED"))
+        assert _read(twin["id"])["ineligibilityReason"] == "DUPLICATE_APPLICATION"
+    finally:
+        _drop("apjob_id77_c", "apjob_id77_d")

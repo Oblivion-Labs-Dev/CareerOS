@@ -614,11 +614,22 @@ _OPEN_AUTOPILOT_STATUSES = (
 )
 
 
+#: Query parameters that *are* the posting on boards that keep its id in the
+#: query (Indeed ``viewjob?jk=``, HN ``item?id=``, Greenhouse embeds and
+#: ``gh_jid`` mirrors, Taleo/JFrog ``job=``). Dropping them made every Indeed
+#: job one "posting", and one Indeed submission retired 663 others (#77).
+_POSTING_ID_PARAMS = ("jk", "id", "for", "token", "gh_jid", "job", "jobid", "currentjobid")
+
+
 def canonical_application_url(url: str | None) -> str:
     """Comparable form of an application URL, ignoring tracking query strings."""
     if not url:
         return ""
-    return str(url).split("?")[0].split("#")[0].rstrip("/").strip().lower()
+    raw = str(url).strip()
+    base = raw.split("?")[0].split("#")[0].rstrip("/").strip().lower()
+    query = {k.lower(): v for k, v in parse_qs(urlparse(raw).query).items()}
+    kept = [f"{k}={query[k][0]}" for k in _POSTING_ID_PARAMS if query.get(k)]
+    return f"{base}?{'&'.join(kept)}".lower() if kept else base
 
 
 #: One in-flight attempt per posting, enforced in the database.
