@@ -19,12 +19,15 @@ def _iso(offset_minutes: int) -> str:
     return (datetime.now(timezone.utc) + timedelta(minutes=offset_minutes)).isoformat()
 
 
-def _thread(uid: str, subject: str, minutes_ago: int = -30) -> dict:
-    return {"uid": uid, "subject": subject, "fromName": "Greenhouse", "date": _iso(minutes_ago)}
+ROLE = "Senior Backend Engineer"
+
+
+def _thread(uid: str, subject: str, minutes_ago: int = -30, body: str = f"Thanks for applying for the {ROLE} role.") -> dict:
+    return {"uid": uid, "subject": subject, "fromName": "Greenhouse", "date": _iso(minutes_ago), "snippet": body}
 
 
 def _job(job_id: str, company: str, status: str = "MANUAL_REVIEW") -> dict:
-    return {"id": job_id, "company": company, "status": status, "queuedAt": _iso(-600)}
+    return {"id": job_id, "company": company, "title": ROLE, "status": status, "queuedAt": _iso(-600)}
 
 
 @pytest.fixture
@@ -208,13 +211,16 @@ class TestOneEmailOneJobAcrossRuns:
         named = _job("a", "Coinbase")
         named["title"] = "Senior Backend Engineer"
         other = _job("b", "Coinbase")
+        other["title"] = "Staff Platform Engineer"
         harness["jobs"] = [named, other]
         harness["threads"] = [
             _thread("1", "We've received your application for Senior Backend Engineer at Coinbase")
         ]
         assert _run(harness)["marked"] == 1
 
-        harness["threads"].append(_thread("2", "Thank you for applying to Coinbase"))
+        harness["threads"].append(
+            _thread("2", "Thank you for applying to Coinbase", body="Thanks for applying for the Staff Platform Engineer role.")
+        )
         assert _run(harness)["marked"] == 1
         assert sum(1 for j in harness["jobs"] if j["status"] == "SUBMITTED") == 2
 
@@ -242,6 +248,22 @@ class TestTitleBearingSubjects:
         job = _job("a", "Affirm")
         job["title"] = "Senior CIAM Software Engineer"
         harness["jobs"] = [job]
-        harness["threads"] = [_thread("1", "Thank you for applying to Affirm")]
+        harness["threads"] = [
+            _thread("1", "Thank you for applying to Affirm", body="Your application for Senior CIAM Software Engineer is in.")
+        ]
 
         assert _run(harness)["marked"] == 1
+
+    def test_a_company_only_email_naming_another_role_marks_nothing(self, harness):
+        """#79: an Adobe confirmation for "Senior Software Engineer - Developer
+        Experience" marked the only open Adobe job, a different role, submitted."""
+        job = _job("a", "Adobe")
+        job["title"] = "Founding Full Stack Engineer, Creator Services"
+        harness["jobs"] = [job]
+        harness["threads"] = [
+            _thread("1", "Thank you for applying to Adobe",
+                    body="Thank you for applying for the Senior Software Engineer - Developer Experience role.")
+        ]
+
+        assert _run(harness)["marked"] == 0
+        assert job["status"] == "MANUAL_REVIEW"

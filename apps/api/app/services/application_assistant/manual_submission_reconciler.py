@@ -236,7 +236,9 @@ def _fetch_confirmations(limit: int) -> list[dict[str, Any]]:
 
     if not ordered:
         return []
-    return client._fetch_uids(ordered, include_body=False)  # noqa: SLF001
+    # The body is needed for the company pass: the subject rarely names the role,
+    # the body almost always does (#79).
+    return client._fetch_uids(ordered, include_body=True)  # noqa: SLF001
 
 
 def reconcile_manual_submissions(
@@ -336,7 +338,7 @@ def reconcile_manual_submissions(
         # one may be spent at most once. Title-bearing subjects are resolved
         # first, because they name the single application they belong to; only
         # what is left over is matched on the employer alone.
-        usable: list[tuple[str, str, datetime, str]] = []
+        usable: list[tuple[str, str, datetime, str, str]] = []
         for thread in threads:
             uid = str(thread.get("uid") or "")
             if uid and uid in consumed:
@@ -348,10 +350,10 @@ def reconcile_manual_submissions(
             if sent_at is None or sent_at < cutoff:
                 continue
             haystack = _normalise(f"{subject} {thread.get('fromName') or ''}")
-            usable.append((subject, haystack, sent_at, uid))
+            usable.append((subject, haystack, sent_at, uid, str(thread.get("snippet") or "")))
 
         for pass_name in ("title", "company"):
-            for subject, haystack, sent_at, uid in usable:
+            for subject, haystack, sent_at, uid, snippet in usable:
                 if uid and uid in consumed:
                     continue
                 matches = [job for job in candidates if _eligible(job, haystack, sent_at)]
@@ -391,6 +393,13 @@ def reconcile_manual_submissions(
                     if len(matches) != 1:
                         continue
                     if _has_recent_genuine_submission(matches[0].get("company"), sent_at, all_jobs):
+                        continue
+                    # Being the only open job at that employer does not make the
+                    # email about it: the candidate also applies to roles
+                    # CareerOS never tracked. An Adobe confirmation for another
+                    # role marked an unrelated Adobe posting submitted, and 40
+                    # more like it were found (#79). The body must name the role.
+                    if not _title_in_subject(matches[0].get("title"), snippet):
                         continue
                 _mark(matches[0], subject, sent_at, uid, pass_name)
 

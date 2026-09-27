@@ -367,6 +367,23 @@ class QueuePreprocessor:
         except Exception:
             return False
 
+    def _queued_count(self) -> int:
+        from sqlalchemy import func
+
+        from app.db.store import EntityStore
+        from app.services.application_assistant.persistence import ENTITY_AUTOPILOT_JOB
+
+        with session_scope() as db:
+            return int(
+                db.query(func.count(EntityStore.id))
+                .filter(
+                    EntityStore.entity_type == ENTITY_AUTOPILOT_JOB,
+                    func.json_extract(EntityStore.payload, "$.status") == AutopilotJobStatus.QUEUED.value,
+                )
+                .scalar()
+                or 0
+            )
+
     async def _maybe_start_scrape(self) -> None:
         """Kick the job scraper when its last run is stale.
 
@@ -377,6 +394,11 @@ class QueuePreprocessor:
         if time.monotonic() - self._last_scrape_at < SCRAPE_INTERVAL_SECONDS:
             return
         self._last_scrape_at = time.monotonic()
+        # A scrape rewrites the whole snapshot on every batch and slows the API
+        # for its duration; with the queue already over its cap it would find
+        # work nobody can reach yet (#78). Resume discovery once it drains.
+        if self._queued_count() >= HIGH_QUEUE_WATERMARK:
+            return
         try:
             from app.services.job_discover import store as jd_store
 
