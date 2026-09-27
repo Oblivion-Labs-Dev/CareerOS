@@ -2164,7 +2164,13 @@ class AutopilotRunner:
             worker_state.current_step = "QUESTIONS_COMPLETED"
         self._record_checkpoint(job_item, CheckpointStep.QUESTIONS_COMPLETED, "Resolving form fields")
 
+        # The executor's last words, so a watchdog timeout can say what it was
+        # doing, not only which coarse checkpoint it had reached (#81).
+        last_activity: dict[str, str] = {}
+
         def _granular_log(msg: str, lvl: str = "info") -> None:
+            if msg:
+                last_activity.update(message=msg[:160], at=now_iso())
             if worker_state and msg:
                 worker_state.current_step = msg[:40]
             self.log_event(
@@ -2581,17 +2587,25 @@ class AutopilotRunner:
             # submit".
             history = job_item.get("checkpointHistory") or []
             last_step = str(history[-1].get("step")) if history else "UNKNOWN"
+            last_msg = last_activity.get("message") or "no activity logged"
+            last_at = (last_activity.get("at") or "")[11:19]
             logger.error(
-                "Playwright execution hard watchdog timed out for job %s at step %s",
-                job_item.get("id"), last_step,
+                "Playwright execution hard watchdog timed out for job %s at step %s; last activity %r at %s",
+                job_item.get("id"), last_step, last_msg, last_at,
             )
+            error = (
+                f"Timed out after {PLAYWRIGHT_WATCHDOG_TIMEOUT:.0f}s while at {last_step} — "
+                f"last activity: \"{last_msg}\"" + (f" at {last_at} UTC" if last_at else "")
+            )
+            self.log_event(f"{w_prefix}{error}", level="error", metadata={"slot": slot_idx, "company": company})
             result = {
                 "submitted": False,
-                "error": (
-                    f"Timed out after {PLAYWRIGHT_WATCHDOG_TIMEOUT:.0f}s while at "
-                    f"{last_step} — the board did not finish this step in time"
-                ),
-                "evidence": {"timedOutAtStep": last_step},
+                "error": error,
+                "evidence": {
+                    "timedOutAtStep": last_step,
+                    "lastActivity": last_msg,
+                    "lastActivityAt": last_activity.get("at"),
+                },
             }
 
         if result.get("submitted"):

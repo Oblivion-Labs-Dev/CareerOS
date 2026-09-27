@@ -6,6 +6,7 @@ import asyncio
 import logging
 import os
 import re
+import time
 from urllib.parse import urlparse
 from pathlib import Path
 from typing import Any
@@ -989,6 +990,20 @@ VOLUNTEER_ONLY_TYPES = frozenset({
 # field then costs one skipped field (same as the existing "unresolved,
 # skipping" path below), not the rest of the job's time budget.
 COMBOBOX_FIELD_TIMEOUT_SEC = 15.0
+
+# Default for every other element action while the form is filled and healed
+# (#81). The page default used to be the job's whole ~540s inner budget, so any
+# evaluate/select_option/check/fill against a field the form had re-rendered
+# away waited up to nine minutes, silently - 46 jobs died at the 600s watchdog
+# with nothing in the log. 30s is Playwright's own default action timeout.
+# Navigation keeps the long budget (set_default_navigation_timeout), and the
+# long default is restored before the submit click so a slow confirmation page
+# is not cut short.
+FIELD_ACTION_TIMEOUT_SEC = float(os.environ.get("AUTOPILOT_FIELD_ACTION_TIMEOUT_SEC", "30"))
+
+# Wall-clock budget for one self-healing round. Past it, the remaining fields
+# are left for review, named in the log, instead of spending the job's budget.
+HEAL_ROUND_BUDGET_SEC = float(os.environ.get("AUTOPILOT_HEAL_ROUND_BUDGET_SEC", "90"))
 
 # How many times and how often the open check polls per attempt, and how long
 # the third attempt waits for a control that is still mounting (see the retry
@@ -2806,7 +2821,8 @@ async def _execute_live_playwright_submission_impl(
         # A persistent context opens with a page already in it; reusing that one
         # keeps the window count at one instead of leaving a blank tab behind.
         page: Page = context.pages[0] if context.pages else await context.new_page()
-        page.set_default_timeout(timeout_sec * 1000)
+        page.set_default_timeout(FIELD_ACTION_TIMEOUT_SEC * 1000)
+        page.set_default_navigation_timeout(timeout_sec * 1000)
         # Set once the assisted hand-off loop has actually run, so the teardown
         # below can tell "the person has had their turn with this window" from
         # "we bailed out before they ever saw it".
@@ -3368,9 +3384,21 @@ async def _execute_live_playwright_submission_impl(
 
                 dom_fields_by_id = {f.get("id"): f for f in dom_fields if f.get("id")}
 
-                for item in missing_fields:
+                heal_started = time.monotonic()
+                for heal_index, item in enumerate(missing_fields):
                     f_id = item.get("fieldId")
                     f_label = item.get("label", "")
+                    if time.monotonic() - heal_started > HEAL_ROUND_BUDGET_SEC:
+                        left = [str(i.get("label") or i.get("fieldId") or "?")[:50] for i in missing_fields[heal_index:]]
+                        logger.warning("Healing round %d over its %.0fs budget; leaving %d field(s): %s",
+                                       round_num, HEAL_ROUND_BUDGET_SEC, len(left), left)
+                        if log_callback:
+                            log_callback(
+                                f"Healing stopped after {HEAL_ROUND_BUDGET_SEC:.0f}s; {len(left)} field(s) left for review: "
+                                + "; ".join(left[:5]),
+                                lvl="warning",
+                            )
+                        break
                     f_label_lower = f_label.lower()
                     fix_val = item.get("suggestedFixValue")
 
@@ -3623,6 +3651,15 @@ async def _execute_live_playwright_submission_impl(
                                             log_callback(f"Self-healed [{f_label or f_id}] -> '{fix_val}'")
                             except Exception as fill_err:
                                 logger.warning("Fill error on %s: %s", f_id, fill_err)
+                                # Surfaced, not swallowed: a field that times out or
+                                # vanished is the first thing to look at in a stalled
+                                # run (#81).
+                                if log_callback:
+                                    log_callback(
+                                        f"Could not heal [{(f_label or f_id)[:60]}]: "
+                                        f"{type(fill_err).__name__}: {str(fill_err).splitlines()[0][:120] if str(fill_err) else ''}",
+                                        lvl="warning",
+                                    )
 
 
 
@@ -4027,6 +4064,9 @@ async def _execute_live_playwright_submission_impl(
                     "fieldsFilled": filled_fields,
                 }
 
+            # From the click on, a slow ATS is legitimate (confirmation pages,
+            # verification redirects): give it the whole budget again (#81).
+            page.set_default_timeout(timeout_sec * 1000)
             logger.info("Executing final submission click via Playwright...")
             if log_callback:
                 log_callback(f"Clicking final Submit button on {company}...")
