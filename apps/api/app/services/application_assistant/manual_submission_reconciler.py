@@ -81,6 +81,26 @@ def _normalise(name: str) -> str:
     return re.sub(r"[^a-z0-9]+", "", (name or "").lower())
 
 
+def _names_company(company_key: str, text: str) -> bool:
+    """Whether `text` names the employer, on whole-word boundaries.
+
+    A plain substring test on the squashed text matched "Oura" inside
+    "y-our a-pplication", so every "Your Application" email from any employer
+    was an Oura confirmation (#79). The key must equal one word or a run of
+    adjacent words ("DoorDash USA" still matches "Doordashusa").
+    """
+    tokens = re.findall(r"[a-z0-9]+", (text or "").lower())
+    for start in range(len(tokens)):
+        joined = ""
+        for token in tokens[start:]:
+            joined += token
+            if joined == company_key:
+                return True
+            if len(joined) >= len(company_key):
+                break
+    return False
+
+
 def _legacy_key(company: Any, sent_at: Any) -> str:
     """Identifies a confirmation email without its UID.
 
@@ -287,7 +307,7 @@ def reconcile_manual_submissions(
             company_key = _normalise(job.get("company"))
             if not company_key:
                 return False
-            if company_key not in haystack:
+            if not _names_company(company_key, haystack):
                 return False
             # Anchor on when the job entered the queue, not on updatedAt.
             # updatedAt moves for any bookkeeping write — a status correction, a
@@ -349,7 +369,7 @@ def reconcile_manual_submissions(
             sent_at = _parse_date(thread.get("date"))
             if sent_at is None or sent_at < cutoff:
                 continue
-            haystack = _normalise(f"{subject} {thread.get('fromName') or ''}")
+            haystack = f"{subject} {thread.get('fromName') or ''}"
             usable.append((subject, haystack, sent_at, uid, str(thread.get("snippet") or "")))
 
         for pass_name in ("title", "company"):

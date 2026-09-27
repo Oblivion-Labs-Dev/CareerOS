@@ -267,3 +267,23 @@ class TestTitleBearingSubjects:
 
         assert _run(harness)["marked"] == 0
         assert job["status"] == "MANUAL_REVIEW"
+
+
+def test_a_short_company_name_inside_another_word_is_not_a_match(harness):
+    """#79: "Oura" hides inside "y-our a-pplication"; a Salesforce "We've Received
+    Your Application for the Senior Backend Engineer Position" marked an Oura job."""
+    job = _job("a", "Oura")
+    harness["jobs"] = [job]
+    harness["threads"] = [
+        _thread("1", "Great News! We've Received Your Application for the Senior Backend Engineer Position")
+    ]
+
+    assert _run(harness)["marked"] == 0
+
+
+def test_a_company_split_across_words_still_matches(harness):
+    job = _job("a", "Doordashusa")
+    harness["jobs"] = [job]
+    harness["threads"] = [_thread("1", "Thank you for applying to DoorDash USA")]
+
+    assert _run(harness)["marked"] == 1
