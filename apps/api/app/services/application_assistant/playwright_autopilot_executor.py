@@ -211,6 +211,40 @@ def sanitize_field_label(raw: str) -> str:
     return text
 
 
+#: Each visible validation message paired with the label of the field it sits in.
+#: `_extract_dom_form_state` de-duplicates messages by text, so three empty
+#: required fields come back as one "This field is required." with no hint of
+#: which - seven Braze jobs went to review that way on 2026-09-27.
+_LABELLED_ERRORS_JS = """
+() => {
+  const out = [];
+  const seen = new Set();
+  const isMsg = /this field is required|please (enter|select|upload|answer)|must select an option|is required\\./i;
+  for (const node of document.querySelectorAll('p, span, div, [role="alert"]')) {
+    if (node.offsetParent === null || node.children.length > 2) continue;
+    const text = (node.innerText || '').trim();
+    if (!text || text.length > 150 || !isMsg.test(text)) continue;
+    if (node.closest('label, legend')) continue;
+    const box = node.closest('.field, .form-group, fieldset, [class*="field" i], [class*="question" i], li') || node.parentElement;
+    const lab = box && box.querySelector('label, legend, .label, .field__label, .question-label, [class*="label" i]');
+    const label = ((lab && lab.innerText) || '').trim().replace(/\\s+/g, ' ').slice(0, 160);
+    const key = label + '|' + text;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({label: label, message: text});
+  }
+  return out;
+}
+"""
+
+
+async def _labelled_validation_errors(frame: Any) -> list[dict[str, str]]:
+    try:
+        return await frame.evaluate(_LABELLED_ERRORS_JS)
+    except Exception:  # noqa: BLE001 - diagnostics only; never fail a job over it
+        return []
+
+
 async def _extract_dom_form_state(page: Page, expand_comboboxes: bool = False) -> tuple[list[dict[str, Any]], list[str]]:
     """Extract full DOM state of all form inputs, comboboxes, and validation errors."""
     js_code = """
@@ -4290,6 +4324,19 @@ async def _execute_live_playwright_submission_impl(
                     )
                 is_staged = bool(active_errors) or "missing entry for required field" in err_msg.lower() or "active validation errors" in err_msg.lower()
                 logger.error("Submission unconfirmed by Qwen verification: %s", err_msg)
+                # "This field is required." alone does not say which field. Name
+                # them in the log and evidence - deliberately not in err_msg:
+                # it becomes lastError, which classify_ineligibility scans, and a
+                # label like "Do you require visa sponsorship?" would misfile the
+                # job as ineligible.
+                error_fields = await _labelled_validation_errors(target_frame) if active_errors else []
+                if error_fields and log_callback:
+                    log_callback(
+                        "Form still flags: " + "; ".join(
+                            f"[{(f.get('label') or '?')[:70]}] {f.get('message', '')}" for f in error_fields[:5]
+                        ),
+                        lvl="warning",
+                    )
                 return {
                     "submitted": False,
                     "stagedForReview": is_staged,
@@ -4300,6 +4347,7 @@ async def _execute_live_playwright_submission_impl(
                         "screenshotPath": str(post_screenshot_path.resolve()),
                         "preScreenshotPath": str(pre_screenshot_path.resolve()),
                         "errorsFound": active_errors,
+                        "errorFields": error_fields,
                         "qwenReview": qwen_confirmation,
                     },
                     "fieldsFilled": filled_fields,
