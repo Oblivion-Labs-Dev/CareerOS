@@ -7,6 +7,7 @@ import hashlib
 import json
 import logging
 import os
+import time
 from collections import Counter
 from datetime import UTC, datetime
 from pathlib import Path
@@ -350,15 +351,55 @@ def get_snapshot_summary(db: Session) -> dict[str, Any]:
     return _build_summary(_load_snapshot(db))
 
 
+#: The parsed snapshot, keyed by the snapshot file's (mtime, size) and held for
+#: at most SNAPSHOT_CACHE_TTL_SEC. The snapshot is ~50 MB of JSON; every discover
+#: endpoint, the preprocessor and the scraper used to parse it (twice from KV,
+#: once from the file) per call, holding the GIL for seconds each, so a page
+#: firing seven such requests took ~24 s. Every write goes through
+#: `_persist_snapshot`, which also writes the file, so the file key is its version.
+#: Callers must not mutate the returned snapshot without persisting it.
+SNAPSHOT_CACHE_TTL_SEC = 600.0
+_snapshot_cache: tuple[tuple[int, int], float, dict[str, Any]] | None = None
+
+
+def _snapshot_file_key() -> tuple[int, int] | None:
+    try:
+        stat = SNAPSHOT_FILE.stat()
+    except OSError:
+        return None
+    return (stat.st_mtime_ns, stat.st_size)
+
+
+def _cache_snapshot(snapshot: dict[str, Any]) -> None:
+    global _snapshot_cache
+    key = _snapshot_file_key()
+    # ponytail: process-local cache; a second API process would keep its own copy.
+    _snapshot_cache = (key, time.monotonic(), snapshot) if key else None
+
+
 def _persist_snapshot(db: Session, snapshot: dict[str, Any]) -> None:
     set_kv(db, KV_KEY, snapshot)
     set_kv(db, SUMMARY_KV_KEY, _build_summary(snapshot))
     _write_snapshot_file(snapshot)
     db.commit()
+    _cache_snapshot(snapshot)
 
 
 def _load_snapshot(db: Session) -> dict[str, Any]:
-    kv_snapshot = get_kv(db, KV_KEY) if get_kv(db, KV_KEY) is not None else {}
+    cached = _snapshot_cache
+    if (
+        cached is not None
+        and cached[0] == _snapshot_file_key()
+        and time.monotonic() - cached[1] < SNAPSHOT_CACHE_TTL_SEC
+    ):
+        return cached[2]
+    snapshot = _load_snapshot_uncached(db)
+    _cache_snapshot(snapshot)
+    return snapshot
+
+
+def _load_snapshot_uncached(db: Session) -> dict[str, Any]:
+    kv_snapshot = get_kv(db, KV_KEY) or {}
     file_snapshot = _read_snapshot_file() or {}
     kv_jobs = kv_snapshot.get("jobs") or []
     file_jobs = file_snapshot.get("jobs") or []
