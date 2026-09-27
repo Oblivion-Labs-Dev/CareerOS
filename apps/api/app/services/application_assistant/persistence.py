@@ -941,9 +941,9 @@ def close_duplicate_applications(db: Session, submitted_job: dict[str, Any]) -> 
         if other.get("status") not in _OPEN_AUTOPILOT_STATUSES:
             continue
         other["previousStatus"] = other.get("status")
-        # A duplicate of an application already sent is a dead end: FAILED,
-        # which nothing retries (bucket model of 2026-09-23).
-        other["status"] = "FAILED"
+        # A duplicate of an application already sent is SKIPPED (#75); the
+        # persistent block and ineligibilityReason keep every retry path off it.
+        other["status"] = "SKIPPED"
         other["hasPersistentBlock"] = True
         other["ineligibilityReason"] = "DUPLICATE_APPLICATION"
         other["lastError"] = (

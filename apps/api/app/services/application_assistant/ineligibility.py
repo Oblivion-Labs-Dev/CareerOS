@@ -220,11 +220,17 @@ TERMINAL_REASONS = frozenset({
     IneligibilityReason.ROLE_EXCLUDED,
 })
 
-# Dead ends that can never be retried: there is no posting left to apply to, or
-# the candidate already applied. These are FAILED - "failed, cannot retry".
+# Dead ends that can never be retried: there is no posting left to apply to.
+# These are FAILED - "failed, cannot retry".
 FAILED_REASONS = frozenset({
     IneligibilityReason.POSTING_EXPIRED,
     IneligibilityReason.NOT_A_REAL_POSTING,
+})
+
+# The candidate already applied to this posting: nothing went wrong, so SKIPPED
+# rather than FAILED (repo owner, 2026-09-27, #75). Still never retried - the
+# persistent block and ineligibilityReason keep it out of every requeue path.
+SKIPPED_REASONS = frozenset({
     IneligibilityReason.DUPLICATE_APPLICATION,
 })
 
@@ -245,8 +251,9 @@ def apply_ineligibility(job: dict[str, Any], reason: IneligibilityReason, detail
     filling could not complete — a board the automation cannot drive, or a form
     demanding a fact the profile does not hold. Those stay visible so the user can
     open the posting and finish it by hand. A posting that is closed, expired or
-    fake (or a duplicate of one already applied to) is FAILED - a dead end that is
-    never retried. Only a role the candidate is barred from outright is INELIGIBLE.
+    fake is FAILED - a dead end that is never retried; a duplicate of one already
+    applied to is SKIPPED, equally never retried. Only a role the candidate is
+    barred from outright is INELIGIBLE.
     """
     from app.services.application_assistant.domain import AutopilotJobStatus
 
@@ -258,8 +265,10 @@ def apply_ineligibility(job: dict[str, Any], reason: IneligibilityReason, detail
         # CAPTCHA, so the runner must not keep picking it up.
         job["hasPersistentBlock"] = True
         return job
-    if reason in FAILED_REASONS:
-        job["status"] = AutopilotJobStatus.FAILED.value
+    if reason in FAILED_REASONS or reason in SKIPPED_REASONS:
+        job["status"] = (
+            AutopilotJobStatus.SKIPPED.value if reason in SKIPPED_REASONS else AutopilotJobStatus.FAILED.value
+        )
         # Never retried: every retry path skips FAILED and persistent blocks.
         job["hasPersistentBlock"] = True
         job.pop("technicalFailure", None)

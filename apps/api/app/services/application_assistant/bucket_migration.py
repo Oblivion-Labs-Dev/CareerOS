@@ -12,7 +12,9 @@ example, read "US-WA-Bellevue" as foreign; nothing ever re-evaluated them after
 the check was fixed. Each is run through today's hard filters and returned to
 the queue if it passes.
 
-Idempotent: the version is recorded in KV and the pass runs at most once.
+v3 (2026-09-27, #75) moves already-applied duplicates from FAILED to SKIPPED.
+
+Idempotent: the version is recorded in KV and each step runs at most once.
 """
 
 from __future__ import annotations
@@ -25,7 +27,7 @@ from app.db.store import get_kv, list_entities, now_iso, set_kv, upsert_entity
 
 logger = logging.getLogger("career_os.application_assistant.bucket_migration")
 
-BUCKET_MODEL_VERSION = 2
+BUCKET_MODEL_VERSION = 3
 KV_BUCKET_MODEL = "autopilot_bucket_model"
 
 
@@ -40,7 +42,8 @@ def migrate_bucket_model(db: Any) -> dict[str, Any]:
     from app.services.application_assistant.submission_outcome import submit_was_attempted
 
     state = get_kv(db, KV_BUCKET_MODEL) or {}
-    if state.get("version") == BUCKET_MODEL_VERSION:
+    version = int(state.get("version") or 0)
+    if version >= BUCKET_MODEL_VERSION:
         return {"skipped": True, **state}
 
     failed_reasons = {reason.value for reason in FAILED_REASONS}
@@ -52,7 +55,14 @@ def migrate_bucket_model(db: Any) -> dict[str, Any]:
         reason = job.get("ineligibilityReason")
         previous = status
 
-        if status == "FAILED":
+        # v3 (#75): an already-applied duplicate is SKIPPED, not FAILED.
+        if reason == "DUPLICATE_APPLICATION" and status in ("FAILED", "INELIGIBLE"):
+            job["status"] = "SKIPPED"
+            job["hasPersistentBlock"] = True
+            counts["duplicate_to_skipped"] += 1
+        elif version >= 2:
+            continue  # the v2 moves below already ran on this database
+        elif status == "FAILED":
             if reason in failed_reasons:
                 continue  # already a dead end in the new sense
             if submit_was_attempted(job):

@@ -1224,6 +1224,9 @@ def requeue_bucket(
             continue
         if company and str(job.get("company") or "").strip().lower() != company_lower:
             continue
+        # Already-applied duplicates sit in SKIPPED (#75) and are never requeued.
+        if job.get("ineligibilityReason") == "DUPLICATE_APPLICATION":
+            continue
         # A job parked here can have since been submitted under a different
         # record (re-discovered posting, manual re-import) — requeuing it
         # would just walk it straight back to "duplicate" after wasting a

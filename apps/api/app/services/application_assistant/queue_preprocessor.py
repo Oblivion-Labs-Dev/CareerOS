@@ -815,6 +815,12 @@ class QueuePreprocessor:
                 match = source.get("mistralMatch") if isinstance(source, dict) else None
                 if not isinstance(match, dict):
                     continue
+                # Already carries this match. The `!= "ollama-local"` filter above
+                # does not exclude a source whose method is anything else, so
+                # without this the same rows were rewritten every cycle and the
+                # loop never idled (#74).
+                if (job.get("matchMethod"), job.get("matchScore")) == (match["matchMethod"], match["matchScore"]):
+                    continue
                 job.update({
                     "matchScore": match["matchScore"],
                     "matchReason": match["matchReason"],

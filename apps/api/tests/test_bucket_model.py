@@ -47,7 +47,7 @@ def test_an_unproven_outcome_is_still_submission_unknown_and_never_retryable():
     [
         (IneligibilityReason.POSTING_EXPIRED, "FAILED"),
         (IneligibilityReason.NOT_A_REAL_POSTING, "FAILED"),
-        (IneligibilityReason.DUPLICATE_APPLICATION, "FAILED"),
+        (IneligibilityReason.DUPLICATE_APPLICATION, "SKIPPED"),
         (IneligibilityReason.REQUIRES_US_CITIZENSHIP, "INELIGIBLE"),
         (IneligibilityReason.NO_VISA_SPONSORSHIP, "INELIGIBLE"),
         (IneligibilityReason.OUTSIDE_UNITED_STATES, "INELIGIBLE"),
@@ -155,3 +155,48 @@ def test_existing_rows_move_onto_the_new_model_once(migration_jobs):
     with session_scope() as db:
         second = migrate_bucket_model(db)
     assert second.get("skipped") is True
+
+
+# ── v3 (#75): already-applied duplicates are SKIPPED ─────────────────────────
+
+V3_JOBS = [
+    {"id": "apjob_v3_dup", "status": "FAILED", "company": "E", "title": "Senior Software Engineer",
+     "ineligibilityReason": "DUPLICATE_APPLICATION", "hasPersistentBlock": True,
+     "applicationUrl": "https://boards.greenhouse.io/e/jobs/1"},
+    {"id": "apjob_v3_old_failed", "status": "FAILED", "company": "F", "title": "Senior Software Engineer",
+     "lastError": "Timed out", "applicationUrl": "https://boards.greenhouse.io/f/jobs/1"},
+]
+
+
+@pytest.fixture
+def v2_database():
+    with session_scope() as db:
+        previous = get_kv(db, KV_BUCKET_MODEL)
+        set_kv(db, KV_BUCKET_MODEL, {"version": 2})
+        for job in V3_JOBS:
+            save_autopilot_job(db, dict(job))
+    yield
+    with session_scope() as db:
+        for job in V3_JOBS:
+            delete_autopilot_job(db, job["id"])
+        set_kv(db, KV_BUCKET_MODEL, previous or {})
+
+
+def test_v3_moves_duplicates_to_skipped_without_rerunning_v2(v2_database):
+    with session_scope() as db:
+        result = migrate_bucket_model(db)
+
+    assert _status("apjob_v3_dup") == "SKIPPED"
+    # v2 already ran on this database: its FAILED -> review move must not repeat.
+    assert _status("apjob_v3_old_failed") == "FAILED"
+    assert result["counts"] == {"duplicate_to_skipped": 1}
+
+
+def test_requeue_bucket_never_requeues_a_duplicate(v2_database):
+    from app.routers.application_assistant.autopilot import requeue_bucket
+
+    with session_scope() as db:
+        migrate_bucket_model(db)
+        requeue_bucket({"bucket": "skipped", "company": "E"}, db)
+
+    assert _status("apjob_v3_dup") == "SKIPPED"

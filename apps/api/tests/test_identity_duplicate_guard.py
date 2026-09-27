@@ -54,7 +54,7 @@ def test_submitting_one_record_retires_its_same_posting_sibling():
     try:
         _save(_record("apjob_id37_a", BOARD_URL, "Senior Backend Engineer", "Acme", "SUBMITTED"))
         retired = _read(sibling["id"])
-        assert retired["status"] == "FAILED"
+        assert retired["status"] == "SKIPPED"
         assert retired["ineligibilityReason"] == "DUPLICATE_APPLICATION"
     finally:
         _drop("apjob_id37_a", "apjob_id37_b")

@@ -388,7 +388,7 @@ def test_submitting_a_record_still_retires_its_siblings():
     try:
         _save(winner)
         retired = _read(sibling["id"])
-        assert retired["status"] == AutopilotJobStatus.FAILED.value
+        assert retired["status"] == AutopilotJobStatus.SKIPPED.value
         assert retired["ineligibilityReason"] == "DUPLICATE_APPLICATION"
     finally:
         _drop(sibling["id"], winner["id"])
@@ -422,7 +422,7 @@ def test_exact_and_tracking_variant_siblings_are_both_retired():
         _save(winner)
         for twin in (exact, tracked, respelled):
             row = _read(twin["id"])
-            assert row["status"] == AutopilotJobStatus.FAILED.value, twin["id"]
+            assert row["status"] == AutopilotJobStatus.SKIPPED.value, twin["id"]
             assert row["ineligibilityReason"] == "DUPLICATE_APPLICATION"
         assert _read(skipped["id"])["status"] == AutopilotJobStatus.SKIPPED.value
         assert _read(unrelated["id"])["status"] == AutopilotJobStatus.QUEUED.value
@@ -451,7 +451,7 @@ def test_a_maybe_submitted_sibling_is_retired_by_a_real_submission():
     _save(unknown)
     try:
         _save(winner)
-        assert _read(unknown["id"])["status"] == AutopilotJobStatus.FAILED.value
+        assert _read(unknown["id"])["status"] == AutopilotJobStatus.SKIPPED.value
     finally:
         _drop(unknown["id"], winner["id"])
 
