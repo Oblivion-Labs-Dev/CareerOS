@@ -491,6 +491,12 @@ class QueuePreprocessor:
                 job, profile, existing_autopilot, {"allowDuplicates": True}
             )
             if not passed:
+                # Let aggregator URLs pass through to the resolver at enqueue
+                # time: scoring, not filtering, is their gatekeeper. The posted
+                # date / role / location checks are still enforced above.
+                if "aggregator listing page" in str(_reason):
+                    pending.append(job)
+                    continue
                 rejected += 1
                 continue
             pending.append(job)

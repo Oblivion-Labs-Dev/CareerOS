@@ -2254,120 +2254,154 @@ class AutopilotRunner:
         try:
             from app.services.application_assistant.tailored_match import describe_gaps
 
-            for attempt in range(1, MAX_TAILORING_ATTEMPTS + 1):
-                # Escalate only on the last attempt, and only upward: an
-                # operator who explicitly chose "off" is not overridden here.
-                candidate_mode = start_mode
-                if (
-                    attempt == MAX_TAILORING_ATTEMPTS
-                    and start_mode == "honest"
-                    and MAX_TAILORING_ATTEMPTS > 1
-                ):
-                    candidate_mode = "aggressive"
-
-                t_start = time.perf_counter()
-                candidate_diff = await generate_role_tailoring_diff(
-                    job_item,
-                    profile,
-                    master_resume,
-                    mode=candidate_mode,
-                    feedback_gaps=gaps or None,
-                    documents=documents,
-                    accomplishments=accomplishments,
-                )
-                t_duration_ms = (time.perf_counter() - t_start) * 1000
-                score = float(candidate_diff.get("matchScore") or 0)
-                rescored = bool(candidate_diff.get("matchRescored"))
-
-                agent_tracker.record_agent_call(
-                    name="generate_role_tailoring_diff",
-                    agent_type="resume_tailor",
-                    stage="TAILOR",
-                    provider="ollama",
-                    model=candidate_diff.get("tailoringModel") or "qwen3:4b-instruct",
-                    duration_ms=t_duration_ms,
-                    status="success" if not candidate_diff.get("tailoringFailed") else "error",
-                    prompt_tokens=450,
-                    completion_tokens=320,
-                    metadata={
-                        "attempt": attempt,
-                        "mode": candidate_mode,
-                        "score": score,
-                        "changedBullets": candidate_diff.get("totalChanges"),
-                    },
-                    error=candidate_diff.get("tailoringError"),
-                )
-
-                attempts_log.append(
-                    {
-                        "attempt": attempt,
-                        "mode": candidate_mode,
-                        "score": score,
-                        "rescored": rescored,
-                        "gapsTargeted": list(gaps),
-                        "changedBullets": candidate_diff.get("totalChanges"),
-                    }
-                )
+            if start_mode == "off":
                 _granular_log(
-                    f"Attempt {attempt}/{MAX_TAILORING_ATTEMPTS} (mode={candidate_mode}): "
-                    f"tailored resume scores {score:.0f}%"
-                    + ("" if rescored else " [NOT re-scored - local model unavailable]")
-                    + (f", changed {candidate_diff.get('totalChanges')} bullets"
-                       if candidate_diff.get("totalChanges") is not None else "")
+                    f"Tailoring off (score {base_match_score:.0f}%); proceeding with master resume untailored"
                 )
+                diff_data = {
+                    "matchScore": base_match_score,
+                    "baseMatchScore": base_match_score,
+                    "baselineMatchScore": base_match_score,
+                    "mode": "off",
+                    "documentMatch": {},
+                    "matchRescored": False,
+                    "matchReason": "Tailoring off; master resume matched preselected.",
+                    "missingSkills": [],
+                    "keyMatchingSkills": [],
+                    "bulletDiffs": [],
+                    "resumeDocument": master_resume,
+                    "resumeText": "",
+                    "quality": {"ok": True, "changed": 0, "total": 0, "problems": []},
+                    "totalChanges": 0,
+                    "selectedAchievements": 0,
+                    "tailoringFailed": False,
+                    "tailoringModel": "",
+                    "tailoringError": "",
+                    "jobDescriptionChars": len(job_item.get("description", "")),
+                    "tailoredCoverLetter": "",
+                    "screeningQAs": [],
+                    "salaryRange": job_item.get("salary") or job_item.get("salaryRange") or "Not provided",
+                    "visaStatus": "",
+                }
+                winning_mode = "off"
+                best_score = base_match_score
+                best_mode = "off"
+                job_item["tailoringAttempts"] = attempts_log
+            else:
+                for attempt in range(1, MAX_TAILORING_ATTEMPTS + 1):
+                    # Escalate only on the last attempt, and only upward: an
+                    # operator who explicitly chose "off" is not overridden here.
+                    candidate_mode = start_mode
+                    if (
+                        attempt == MAX_TAILORING_ATTEMPTS
+                        and start_mode == "honest"
+                        and MAX_TAILORING_ATTEMPTS > 1
+                    ):
+                        candidate_mode = "aggressive"
 
-                # Two independent conditions, both required: the document has
-                # to score well enough AND actually be a tailored document.
-                quality = candidate_diff.get("quality") or {}
-                changed = int(quality.get("changed") or candidate_diff.get("totalChanges") or 0)
+                    t_start = time.perf_counter()
+                    candidate_diff = await generate_role_tailoring_diff(
+                        job_item,
+                        profile,
+                        master_resume,
+                        mode=candidate_mode,
+                        feedback_gaps=gaps or None,
+                        documents=documents,
+                        accomplishments=accomplishments,
+                    )
+                    t_duration_ms = (time.perf_counter() - t_start) * 1000
+                    score = float(candidate_diff.get("matchScore") or 0)
+                    rescored = bool(candidate_diff.get("matchRescored"))
 
-                if score > best_score or best_diff is None:
-                    best_score, best_diff, best_mode = score, candidate_diff, candidate_mode
-                    best_changed = changed
-                resume_is_good = candidate_mode == "off" or (
-                    not candidate_diff.get("tailoringFailed") and bool(quality.get("ok"))
-                )
-                if not resume_is_good:
-                    problems = "; ".join(str(p) for p in (quality.get("problems") or []))
-                    _granular_log(
-                        f"Score {score:.0f}% clears the bar but the resume does not: "
-                        + (problems or "tailoring fell back to the static template")
-                        + ". Not submitting this."
+                    agent_tracker.record_agent_call(
+                        name="generate_role_tailoring_diff",
+                        agent_type="resume_tailor",
+                        stage="TAILOR",
+                        provider="ollama",
+                        model=candidate_diff.get("tailoringModel") or "qwen3:4b-instruct",
+                        duration_ms=t_duration_ms,
+                        status="success" if not candidate_diff.get("tailoringFailed") else "error",
+                        prompt_tokens=450,
+                        completion_tokens=320,
+                        metadata={
+                            "attempt": attempt,
+                            "mode": candidate_mode,
+                            "score": score,
+                            "changedBullets": candidate_diff.get("totalChanges"),
+                        },
+                        error=candidate_diff.get("tailoringError"),
                     )
 
-                if (score >= submit_bar or override or candidate_mode == "off") and resume_is_good:
-                    if score < submit_bar and candidate_mode != "off":
+                    attempts_log.append(
+                        {
+                            "attempt": attempt,
+                            "mode": candidate_mode,
+                            "score": score,
+                            "rescored": rescored,
+                            "gapsTargeted": list(gaps),
+                            "changedBullets": candidate_diff.get("totalChanges"),
+                        }
+                    )
+                    _granular_log(
+                        f"Attempt {attempt}/{MAX_TAILORING_ATTEMPTS} (mode={candidate_mode}): "
+                        f"tailored resume scores {score:.0f}%"
+                        + ("" if rescored else " [NOT re-scored - local model unavailable]")
+                        + (f", changed {candidate_diff.get('totalChanges')} bullets"
+                           if candidate_diff.get("totalChanges") is not None else "")
+                    )
+
+                    # Two independent conditions, both required: the document has
+                    # to score well enough AND actually be a tailored document.
+                    quality = candidate_diff.get("quality") or {}
+                    changed = int(quality.get("changed") or candidate_diff.get("totalChanges") or 0)
+
+                    if score > best_score or best_diff is None:
+                        best_score, best_diff, best_mode = score, candidate_diff, candidate_mode
+                        best_changed = changed
+                    resume_is_good = candidate_mode == "off" or (
+                        not candidate_diff.get("tailoringFailed") and bool(quality.get("ok"))
+                    )
+                    if not resume_is_good:
+                        problems = "; ".join(str(p) for p in (quality.get("problems") or []))
                         _granular_log(
-                            f"Explicit Apply overrides the match cutoff ({score:.0f}%); "
-                            f"keeping {candidate_mode} tailoring and all eligibility checks"
+                            f"Score {score:.0f}% clears the bar but the resume does not: "
+                            + (problems or "tailoring fell back to the static template")
+                            + ". Not submitting this."
                         )
-                    elif candidate_mode == "off":
+
+                    if (score >= submit_bar or override or candidate_mode == "off") and resume_is_good:
+                        if score < submit_bar and candidate_mode != "off":
+                            _granular_log(
+                                f"Explicit Apply overrides the match cutoff ({score:.0f}%); "
+                                f"keeping {candidate_mode} tailoring and all eligibility checks"
+                            )
+                        elif candidate_mode == "off":
+                            _granular_log(
+                                f"Resume tailoring is off; proceeding with master resume (score {score:.0f}%)"
+                            )
+                        diff_data = candidate_diff
+                        winning_mode = candidate_mode
+                        break
+
+                    # A rewrite that could not be scored must not drive a retry:
+                    # the score did not fall short, it never existed, and re-running
+                    # would just burn a second model call on the same blind guess.
+                    if not rescored:
                         _granular_log(
-                            f"Resume tailoring is off; proceeding with master resume (score {score:.0f}%)"
+                            "Tailored resume could not be re-scored, so there is nothing to "
+                            "improve against; stopping after this attempt."
                         )
-                    diff_data = candidate_diff
-                    winning_mode = candidate_mode
-                    break
+                        break
 
-                # A rewrite that could not be scored must not drive a retry:
-                # the score did not fall short, it never existed, and re-running
-                # would just burn a second model call on the same blind guess.
-                if not rescored:
-                    _granular_log(
-                        "Tailored resume could not be re-scored, so there is nothing to "
-                        "improve against; stopping after this attempt."
+                    gaps = describe_gaps(
+                        {"missingSkills": candidate_diff.get("missingSkills") or []}
                     )
-                    break
-
-                gaps = describe_gaps(
-                    {"missingSkills": candidate_diff.get("missingSkills") or []}
-                )
-                if attempt < MAX_TAILORING_ATTEMPTS:
-                    _granular_log(
-                        f"{score:.0f}% is below the {submit_bar:.0f}% bar; "
-                        "retrying against the gaps the scorer found: "
-                        + (", ".join(gaps[:6]) if gaps else "none reported")
-                    )
+                    if attempt < MAX_TAILORING_ATTEMPTS:
+                        _granular_log(
+                            f"{score:.0f}% is below the {submit_bar:.0f}% bar; "
+                            "retrying against the gaps the scorer found: "
+                            + (", ".join(gaps[:6]) if gaps else "none reported")
+                        )
 
             job_item["tailoringAttempts"] = attempts_log
         except Exception as e:

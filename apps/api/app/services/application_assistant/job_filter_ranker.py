@@ -13,7 +13,7 @@ from app.services.application_assistant.persistence import list_autopilot_jobs
 
 
 DEFAULT_MIN_MATCH_SCORE = 75.0
-DEFAULT_MAX_POST_AGE_DAYS = 7
+DEFAULT_MAX_POST_AGE_DAYS = 30  # Only apply to jobs posted within the last 30 days
 DEFAULT_MAX_APPLICATIONS_PER_RUN = 25
 
 # IC-level AI/ML engineering titles to treat as SWE-eligible and prioritize
@@ -423,7 +423,15 @@ def role_level_flags(title_l: str) -> tuple[bool, bool]:
     ))
 
     is_senior = (
-        any(k in title_l for k in ("senior", "sr.", "sr ", "sr-", "senior swe", "sde iii", "sde 3", "swe iii", "swe 3"))
+        any(k in title_l for k in (
+            "senior", "sr.", "sr ", "sr-", "senior swe",
+            "sde iii", "sde 3", "sde ii", "sde 2", "sde i", "sde 1", "sde",
+            "swe iii", "swe 3", "swe ii", "swe 2", "swe i", "swe 1", "swe",
+            "software engineer iii", "software engineer 3", "software engineer ii", "software engineer 2",
+            "software engineer i", "software engineer 1", "software engineer",
+            "software development engineer",
+            "software developer", "full stack", "backend", "frontend",
+        ))
         and engineering
         and not is_above_senior
     )
@@ -529,10 +537,10 @@ def evaluate_hard_filters(
             return False, f"Company '{company}' has reached the {comp_cap} application cap"
 
     # 2. Posting Recency Check
-    date_posted_str = job.get("datePosted")
+    date_posted_str = job.get("datePosted") or job.get("dateDiscovered") or job.get("updatedAt") or job.get("createdAt") or ""
     if date_posted_str:
         try:
-            posted_date = datetime.fromisoformat(date_posted_str.replace("Z", "+00:00"))
+            posted_date = datetime.fromisoformat(str(date_posted_str).replace("Z", "+00:00"))
             if posted_date.tzinfo is None:
                 posted_date = posted_date.replace(tzinfo=timezone.utc)
             cutoff = datetime.now(timezone.utc) - timedelta(days=max_age_days)
@@ -659,7 +667,12 @@ def evaluate_hard_filters(
         "houston", "phoenix", "philadelphia", "san diego", "san jose",
         "palo alto", "mountain view", "menlo park", "portland", "pittsburgh",
         "raleigh", "salt lake city", "minneapolis", "detroit", "nashville",
-        "indianapolis",
+        "indianapolis", "santa clara", "cupertino", "sunnyvale",
+        "redwood city", "foster city", "milpitas", "santa rosa",
+        "hayward", "fremont", "oakland", "berkeley", "richmond",
+        "santa monica", "burbank", "glendale", "long beach",
+        "anaheim", "irvine", "santa barbara", "camarillo",
+        "oxnard", "thousand oaks", "palmdale", "lancaster",
     ]
     # Weak US evidence: state abbreviations and short city codes, matched as
     # whole tokens only ("Budapest, Hungary" contains "ga", "Poland" contains
