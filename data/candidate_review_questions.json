@@ -1,0 +1,1364 @@
+[
+  {
+    "id": "q_014",
+    "question": "How did you perform in mathematics at high school?*",
+    "fieldType": "div",
+    "options": [],
+    "companies": [
+      "Canonical"
+    ],
+    "occurrences": 7
+  },
+  {
+    "id": "q_015",
+    "question": "How did you perform in your native language at high school?*",
+    "fieldType": "div",
+    "options": [],
+    "companies": [
+      "Canonical"
+    ],
+    "occurrences": 7
+  },
+  {
+    "id": "q_019",
+    "question": "In the past ten years, looking only at the time since you graduated your first undergraduate degree, how many companies have you worked for?*",
+    "fieldType": "div",
+    "options": [],
+    "companies": [
+      "Canonical"
+    ],
+    "occurrences": 7
+  },
+  {
+    "id": "q_031",
+    "question": "School*",
+    "fieldType": "div",
+    "options": [],
+    "companies": [
+      "Care Access",
+      "Syllo"
+    ],
+    "occurrences": 6
+  },
+  {
+    "id": "q_008",
+    "question": "Start date month*",
+    "fieldType": "div",
+    "options": [],
+    "companies": [
+      "Care Access",
+      "Natera",
+      "Zuora"
+    ],
+    "occurrences": 3
+  },
+  {
+    "id": "q_009",
+    "question": "Start date year*",
+    "fieldType": "text",
+    "options": [],
+    "companies": [
+      "Care Access",
+      "Natera",
+      "Zuora"
+    ],
+    "occurrences": 3
+  },
+  {
+    "id": "q_010",
+    "question": "End date month*",
+    "fieldType": "div",
+    "options": [],
+    "companies": [
+      "Care Access",
+      "Natera",
+      "Zuora"
+    ],
+    "occurrences": 3
+  },
+  {
+    "id": "q_011",
+    "question": "End date year*",
+    "fieldType": "text",
+    "options": [],
+    "companies": [
+      "Care Access",
+      "Natera",
+      "Zuora"
+    ],
+    "occurrences": 3
+  },
+  {
+    "id": "q_053",
+    "question": "Did a current Praxenter refer you?*",
+    "fieldType": "div",
+    "options": [],
+    "companies": [
+      "Praxent"
+    ],
+    "occurrences": 3
+  },
+  {
+    "id": "q_007",
+    "question": "Title*",
+    "fieldType": "text",
+    "options": [],
+    "companies": [
+      "Natera",
+      "Zuora"
+    ],
+    "occurrences": 2
+  },
+  {
+    "id": "q_013",
+    "question": "Which of the following best describes you?*",
+    "fieldType": "div",
+    "options": [],
+    "companies": [
+      "Chainguard",
+      "Grafana Labs"
+    ],
+    "occurrences": 2
+  },
+  {
+    "id": "q_049",
+    "question": "What area of full-stack web development do you find yourself gravitating towards the most? Why?*",
+    "fieldType": "textarea",
+    "options": [],
+    "companies": [
+      "Fleetio"
+    ],
+    "occurrences": 2
+  },
+  {
+    "id": "q_050",
+    "question": "What project are you most proud of from your recent role? Why?*",
+    "fieldType": "textarea",
+    "options": [],
+    "companies": [
+      "Fleetio"
+    ],
+    "occurrences": 2
+  },
+  {
+    "id": "q_065",
+    "question": "In our pursuit of AI-driven advancements, how would you rate your overall familiarity with artificial intelligence (AI) concepts and tools?*",
+    "fieldType": "div",
+    "options": [],
+    "companies": [
+      "Smartsheet"
+    ],
+    "occurrences": 2
+  },
+  {
+    "id": "q_067",
+    "question": "Are you a sports fan? What sports related digital products do you use?*",
+    "fieldType": "text",
+    "options": [],
+    "companies": [
+      "Penn Interactive"
+    ],
+    "occurrences": 2
+  },
+  {
+    "id": "q_068",
+    "question": "Do you have experience designing and evolving GraphQL schemas?*",
+    "fieldType": "div",
+    "options": [],
+    "companies": [
+      "Penn Interactive"
+    ],
+    "occurrences": 2
+  },
+  {
+    "id": "q_112",
+    "question": "Where are you currently located?*",
+    "fieldType": "div",
+    "options": [],
+    "companies": [
+      "Mozilla",
+      "Openteams"
+    ],
+    "occurrences": 2
+  },
+  {
+    "id": "q_001",
+    "question": "Oklo requires employees to travel twice a quarter annually to either headquarters or another designated location based on team/company needs or events. Are you willing/able to travel twice a quarter annually?*",
+    "fieldType": "div",
+    "options": [],
+    "companies": [
+      "Oklo"
+    ],
+    "occurrences": 1
+  },
+  {
+    "id": "q_002",
+    "question": "Are you open to relocating now or in the near future?*",
+    "fieldType": "div",
+    "options": [],
+    "companies": [
+      "Oklo"
+    ],
+    "occurrences": 1
+  },
+  {
+    "id": "q_003",
+    "question": "If you selected \"Other,\" please specify:*",
+    "fieldType": "text",
+    "options": [],
+    "companies": [
+      "Oklo"
+    ],
+    "occurrences": 1
+  },
+  {
+    "id": "q_004",
+    "question": "If selected for a preliminary interview, you may be asked to work through a Python coding problem. Do you acknowledge this?*",
+    "fieldType": "div",
+    "options": [],
+    "companies": [
+      "Oklo"
+    ],
+    "occurrences": 1
+  },
+  {
+    "id": "q_005",
+    "question": "Are you legally entitled to work in Canada?*",
+    "fieldType": "div",
+    "options": [],
+    "companies": [
+      "Instacart"
+    ],
+    "occurrences": 1
+  },
+  {
+    "id": "q_006",
+    "question": "Do you identify as a member of the LGBT2QIA+ community?*",
+    "fieldType": "div",
+    "options": [],
+    "companies": [
+      "Instacart"
+    ],
+    "occurrences": 1
+  },
+  {
+    "id": "q_012",
+    "question": "Home address*",
+    "fieldType": "text",
+    "options": [],
+    "companies": [
+      "Zuora"
+    ],
+    "occurrences": 1
+  },
+  {
+    "id": "q_016",
+    "question": "Outline your practical Python software engineering experience and level of competence*",
+    "fieldType": "textarea",
+    "options": [],
+    "companies": [
+      "Canonical"
+    ],
+    "occurrences": 1
+  },
+  {
+    "id": "q_017",
+    "question": "Outline your practical knowledge on Linux and virtualization (LXD, KVM) and level of competence*",
+    "fieldType": "textarea",
+    "options": [],
+    "companies": [
+      "Canonical"
+    ],
+    "occurrences": 1
+  },
+  {
+    "id": "q_018",
+    "question": "Outline your practical low-level server experience: BMC, networking, PXE Booting*",
+    "fieldType": "textarea",
+    "options": [],
+    "companies": [
+      "Canonical"
+    ],
+    "occurrences": 1
+  },
+  {
+    "id": "q_020",
+    "question": "Street Address*",
+    "fieldType": "text",
+    "options": [],
+    "companies": [
+      "Netdocuments"
+    ],
+    "occurrences": 1
+  },
+  {
+    "id": "q_021",
+    "question": "Zip Code*",
+    "fieldType": "text",
+    "options": [],
+    "companies": [
+      "Netdocuments"
+    ],
+    "occurrences": 1
+  },
+  {
+    "id": "q_022",
+    "question": "Have you previously been an employee of NetDocuments?*",
+    "fieldType": "div",
+    "options": [],
+    "companies": [
+      "Netdocuments"
+    ],
+    "occurrences": 1
+  },
+  {
+    "id": "q_023",
+    "question": "Describe one backend system you personally built or significantly contributed to that processed usage, events, transactions, or other high-volume data. What did the system do, what technologies did you use, and what was one technical decision you personally made?*",
+    "fieldType": "textarea",
+    "options": [],
+    "companies": [
+      "Netdocuments"
+    ],
+    "occurrences": 1
+  },
+  {
+    "id": "q_024",
+    "question": "Think of the most relevant distributed or event-driven system you\u2019ve worked on. Approximately what scale did it operate at (requests, events, records, customers, or data volume), and what was your specific responsibility for the system?*",
+    "fieldType": "textarea",
+    "options": [],
+    "companies": [
+      "Netdocuments"
+    ],
+    "occurrences": 1
+  },
+  {
+    "id": "q_025",
+    "question": "Choose one project or accomplishment listed on your resume that is most relevant to this role. In 3\u20135 sentences, explain what you personally built, one problem you encountered, and how you solved it. Please reference the company or project as it appears on your resume.*",
+    "fieldType": "textarea",
+    "options": [],
+    "companies": [
+      "Netdocuments"
+    ],
+    "occurrences": 1
+  },
+  {
+    "id": "q_026",
+    "question": "Are you located in or willing to relocate to the United States?*",
+    "fieldType": "div",
+    "options": [],
+    "companies": [
+      "Tailscale"
+    ],
+    "occurrences": 1
+  },
+  {
+    "id": "q_027",
+    "question": "Address Line 1*",
+    "fieldType": "text",
+    "options": [],
+    "companies": [
+      "Tailscale"
+    ],
+    "occurrences": 1
+  },
+  {
+    "id": "q_028",
+    "question": "Postal/Zip Code*",
+    "fieldType": "text",
+    "options": [],
+    "companies": [
+      "Tailscale"
+    ],
+    "occurrences": 1
+  },
+  {
+    "id": "q_029",
+    "question": "What is your highest level of education in Computer Science/Engineering or a related field?*",
+    "fieldType": "div",
+    "options": [],
+    "companies": [
+      "Samsara"
+    ],
+    "occurrences": 1
+  },
+  {
+    "id": "q_030",
+    "question": "What is the zip code of your primary residence?*",
+    "fieldType": "text",
+    "options": [],
+    "companies": [
+      "Samsara"
+    ],
+    "occurrences": 1
+  },
+  {
+    "id": "q_032",
+    "question": "Outline your experience building products or projects running as standalone services/daemons on Linux*",
+    "fieldType": "textarea",
+    "options": [],
+    "companies": [
+      "Canonical"
+    ],
+    "occurrences": 1
+  },
+  {
+    "id": "q_033",
+    "question": "Outline your experience building products or projects involving process confinement mechanisms on Linux, preferably in the context of embedded systems*",
+    "fieldType": "textarea",
+    "options": [],
+    "companies": [
+      "Canonical"
+    ],
+    "occurrences": 1
+  },
+  {
+    "id": "q_034",
+    "question": "Which programming languages have you worked the most with? Describe the contribution you are most proud of in your engineering career with each language.*",
+    "fieldType": "textarea",
+    "options": [],
+    "companies": [
+      "Canonical"
+    ],
+    "occurrences": 1
+  },
+  {
+    "id": "q_035",
+    "question": "Which AI/LLM models have you worked with for development?*",
+    "fieldType": "textarea",
+    "options": [],
+    "companies": [
+      "M3 Usa"
+    ],
+    "occurrences": 1
+  },
+  {
+    "id": "q_036",
+    "question": "question_20042179004",
+    "fieldType": "text",
+    "options": [],
+    "companies": [
+      "Google Fiber"
+    ],
+    "occurrences": 1
+  },
+  {
+    "id": "q_037",
+    "question": "Former Employee",
+    "fieldType": "checkbox",
+    "options": [],
+    "companies": [
+      "Google Fiber"
+    ],
+    "occurrences": 1
+  },
+  {
+    "id": "q_038",
+    "question": "I am authorized to work for any employer in the country in which this position is based.",
+    "fieldType": "radio",
+    "options": [],
+    "companies": [
+      "Google Fiber"
+    ],
+    "occurrences": 1
+  },
+  {
+    "id": "q_039",
+    "question": "Yes",
+    "fieldType": "radio",
+    "options": [],
+    "companies": [
+      "Google Fiber"
+    ],
+    "occurrences": 1
+  },
+  {
+    "id": "q_040",
+    "question": "Standard Process: I consent to the use of AI-assisted screening to expedite my application.",
+    "fieldType": "radio",
+    "options": [],
+    "companies": [
+      "Google Fiber"
+    ],
+    "occurrences": 1
+  },
+  {
+    "id": "q_041",
+    "question": "I acknowledge.",
+    "fieldType": "radio",
+    "options": [],
+    "companies": [
+      "Google Fiber"
+    ],
+    "occurrences": 1
+  },
+  {
+    "id": "q_042",
+    "question": "Male",
+    "fieldType": "radio",
+    "options": [],
+    "companies": [
+      "Google Fiber"
+    ],
+    "occurrences": 1
+  },
+  {
+    "id": "q_043",
+    "question": "Female",
+    "fieldType": "radio",
+    "options": [],
+    "companies": [
+      "Google Fiber"
+    ],
+    "occurrences": 1
+  },
+  {
+    "id": "q_044",
+    "question": "I don't wish to answer",
+    "fieldType": "radio",
+    "options": [],
+    "companies": [
+      "Google Fiber"
+    ],
+    "occurrences": 1
+  },
+  {
+    "id": "q_045",
+    "question": "American-Indian / Alaskan Native",
+    "fieldType": "checkbox",
+    "options": [],
+    "companies": [
+      "Google Fiber"
+    ],
+    "occurrences": 1
+  },
+  {
+    "id": "q_046",
+    "question": "Asian",
+    "fieldType": "checkbox",
+    "options": [],
+    "companies": [
+      "Google Fiber"
+    ],
+    "occurrences": 1
+  },
+  {
+    "id": "q_047",
+    "question": "Black or African American",
+    "fieldType": "checkbox",
+    "options": [],
+    "companies": [
+      "Google Fiber"
+    ],
+    "occurrences": 1
+  },
+  {
+    "id": "q_048",
+    "question": "Native Hawaiian or Other Pacific Islander",
+    "fieldType": "checkbox",
+    "options": [],
+    "companies": [
+      "Google Fiber"
+    ],
+    "occurrences": 1
+  },
+  {
+    "id": "q_051",
+    "question": "Did someone from Fleetio refer you? If so, share their name below. If not, list \"N/A\".*",
+    "fieldType": "text",
+    "options": [],
+    "companies": [
+      "Fleetio"
+    ],
+    "occurrences": 1
+  },
+  {
+    "id": "q_052",
+    "question": "If hired by Care Access, do you intend to maintain any outside employment, consulting, contract work, self-employment, or other work activity?*",
+    "fieldType": "div",
+    "options": [],
+    "companies": [
+      "Care Access"
+    ],
+    "occurrences": 1
+  },
+  {
+    "id": "q_054",
+    "question": "Indeed",
+    "fieldType": "checkbox",
+    "options": [],
+    "companies": [
+      "Knowbe4"
+    ],
+    "occurrences": 1
+  },
+  {
+    "id": "q_055",
+    "question": "Glassdoor",
+    "fieldType": "checkbox",
+    "options": [],
+    "companies": [
+      "Knowbe4"
+    ],
+    "occurrences": 1
+  },
+  {
+    "id": "q_056",
+    "question": "The Muse",
+    "fieldType": "checkbox",
+    "options": [],
+    "companies": [
+      "Knowbe4"
+    ],
+    "occurrences": 1
+  },
+  {
+    "id": "q_057",
+    "question": "Googled \"Top Workplaces Tampa Bay\"",
+    "fieldType": "checkbox",
+    "options": [],
+    "companies": [
+      "Knowbe4"
+    ],
+    "occurrences": 1
+  },
+  {
+    "id": "q_058",
+    "question": "Facebook",
+    "fieldType": "checkbox",
+    "options": [],
+    "companies": [
+      "Knowbe4"
+    ],
+    "occurrences": 1
+  },
+  {
+    "id": "q_059",
+    "question": "Instagram",
+    "fieldType": "checkbox",
+    "options": [],
+    "companies": [
+      "Knowbe4"
+    ],
+    "occurrences": 1
+  },
+  {
+    "id": "q_060",
+    "question": "Twitter",
+    "fieldType": "checkbox",
+    "options": [],
+    "companies": [
+      "Knowbe4"
+    ],
+    "occurrences": 1
+  },
+  {
+    "id": "q_061",
+    "question": "YouTube",
+    "fieldType": "checkbox",
+    "options": [],
+    "companies": [
+      "Knowbe4"
+    ],
+    "occurrences": 1
+  },
+  {
+    "id": "q_062",
+    "question": "KnowBe4 Careers Blog",
+    "fieldType": "checkbox",
+    "options": [],
+    "companies": [
+      "Knowbe4"
+    ],
+    "occurrences": 1
+  },
+  {
+    "id": "q_063",
+    "question": "I am a current employee",
+    "fieldType": "checkbox",
+    "options": [],
+    "companies": [
+      "Knowbe4"
+    ],
+    "occurrences": 1
+  },
+  {
+    "id": "q_064",
+    "question": "Other",
+    "fieldType": "checkbox",
+    "options": [],
+    "companies": [
+      "Knowbe4"
+    ],
+    "occurrences": 1
+  },
+  {
+    "id": "q_066",
+    "question": "Do you have experience launching AI Agents into production?*",
+    "fieldType": "div",
+    "options": [],
+    "companies": [
+      "Honeycomb"
+    ],
+    "occurrences": 1
+  },
+  {
+    "id": "q_069",
+    "question": "Will you be performing the work from the United States of America, Canada, or the United Kingdom?*",
+    "fieldType": "div",
+    "options": [],
+    "companies": [
+      "Chainguard"
+    ],
+    "occurrences": 1
+  },
+  {
+    "id": "q_070",
+    "question": "We do not require a cover letter for this role.\u00a0 If there is anything else you would like to share as we review your application, please do so here.\u00a0 (While we love AI please do not use AI / ChatGPT for your application).\u00a0*",
+    "fieldType": "textarea",
+    "options": [],
+    "companies": [
+      "Chainguard"
+    ],
+    "occurrences": 1
+  },
+  {
+    "id": "q_071",
+    "question": "Do you have plans to relocate within the next 12 months?*",
+    "fieldType": "div",
+    "options": [],
+    "companies": [
+      "May Mobility"
+    ],
+    "occurrences": 1
+  },
+  {
+    "id": "q_072",
+    "question": "What is your primary coding language? *",
+    "fieldType": "div",
+    "options": [],
+    "companies": [
+      "Runzero"
+    ],
+    "occurrences": 1
+  },
+  {
+    "id": "q_073",
+    "question": "Which databases do you have experience using? With which are you most familiar? *",
+    "fieldType": "textarea",
+    "options": [],
+    "companies": [
+      "Runzero"
+    ],
+    "occurrences": 1
+  },
+  {
+    "id": "q_074",
+    "question": "What's one thing about migrations that frustrates you as a service scales and how do you architect around it?*",
+    "fieldType": "textarea",
+    "options": [],
+    "companies": [
+      "Logicgate"
+    ],
+    "occurrences": 1
+  },
+  {
+    "id": "q_075",
+    "question": "Are you able and willing to participate in the position's on-call rotation, including occasional nights and weekends? *",
+    "fieldType": "div",
+    "options": [],
+    "companies": [
+      "Gremlin"
+    ],
+    "occurrences": 1
+  },
+  {
+    "id": "q_076",
+    "question": "Do you have professional (paid) experience writing Java? *",
+    "fieldType": "div",
+    "options": [],
+    "companies": [
+      "Gremlin"
+    ],
+    "occurrences": 1
+  },
+  {
+    "id": "q_077",
+    "question": "Do you have experience working on our platform?*",
+    "fieldType": "div",
+    "options": [],
+    "companies": [
+      "Recorded Future"
+    ],
+    "occurrences": 1
+  },
+  {
+    "id": "q_078",
+    "question": "Do you have a close personal relationship with a current Mastercard or Recorded Future employee? *",
+    "fieldType": "textarea",
+    "options": [],
+    "companies": [
+      "Recorded Future"
+    ],
+    "occurrences": 1
+  },
+  {
+    "id": "q_079",
+    "question": "Are you currently engaged in any outside employment or activity that you would like to continue if you are hired by Recorded Future?*",
+    "fieldType": "textarea",
+    "options": [],
+    "companies": [
+      "Recorded Future"
+    ],
+    "occurrences": 1
+  },
+  {
+    "id": "q_080",
+    "question": "Are you or were you recently (in the last six months) an employee of a government office or agency that has oversight over Mastercard or Recorded Future? *",
+    "fieldType": "textarea",
+    "options": [],
+    "companies": [
+      "Recorded Future"
+    ],
+    "occurrences": 1
+  },
+  {
+    "id": "q_081",
+    "question": "Please outline your experience building and maintaining container images.*",
+    "fieldType": "textarea",
+    "options": [],
+    "companies": [
+      "Canonical"
+    ],
+    "occurrences": 1
+  },
+  {
+    "id": "q_082",
+    "question": "Describe your exposure to CI/CD and GitOps. Which tools have you used?*",
+    "fieldType": "textarea",
+    "options": [],
+    "companies": [
+      "Canonical"
+    ],
+    "occurrences": 1
+  },
+  {
+    "id": "q_083",
+    "question": "Do you have a LinkedIn profile?*",
+    "fieldType": "div",
+    "options": [],
+    "companies": [
+      "Automox"
+    ],
+    "occurrences": 1
+  },
+  {
+    "id": "q_084",
+    "question": "Where is your home office? (Note: We do not hire in California or New York Metro)*",
+    "fieldType": "div",
+    "options": [],
+    "companies": [
+      "Automox"
+    ],
+    "occurrences": 1
+  },
+  {
+    "id": "q_085",
+    "question": "TypeScript",
+    "fieldType": "checkbox",
+    "options": [],
+    "companies": [
+      "Automox"
+    ],
+    "occurrences": 1
+  },
+  {
+    "id": "q_086",
+    "question": "Vue/React",
+    "fieldType": "checkbox",
+    "options": [],
+    "companies": [
+      "Automox"
+    ],
+    "occurrences": 1
+  },
+  {
+    "id": "q_087",
+    "question": "Java",
+    "fieldType": "checkbox",
+    "options": [],
+    "companies": [
+      "Automox"
+    ],
+    "occurrences": 1
+  },
+  {
+    "id": "q_088",
+    "question": "Spring Boot",
+    "fieldType": "checkbox",
+    "options": [],
+    "companies": [
+      "Automox"
+    ],
+    "occurrences": 1
+  },
+  {
+    "id": "q_089",
+    "question": "Node.js",
+    "fieldType": "checkbox",
+    "options": [],
+    "companies": [
+      "Automox"
+    ],
+    "occurrences": 1
+  },
+  {
+    "id": "q_090",
+    "question": "All of the above",
+    "fieldType": "checkbox",
+    "options": [],
+    "companies": [
+      "Automox"
+    ],
+    "occurrences": 1
+  },
+  {
+    "id": "q_091",
+    "question": "None of the above",
+    "fieldType": "checkbox",
+    "options": [],
+    "companies": [
+      "Automox"
+    ],
+    "occurrences": 1
+  },
+  {
+    "id": "q_092",
+    "question": "Do you have working knowledge of relational and non-relational databases, including SQL?*",
+    "fieldType": "div",
+    "options": [],
+    "companies": [
+      "Automox"
+    ],
+    "occurrences": 1
+  },
+  {
+    "id": "q_093",
+    "question": "Do you have experience writing automated tests for the code you ship? *",
+    "fieldType": "div",
+    "options": [],
+    "companies": [
+      "Automox"
+    ],
+    "occurrences": 1
+  },
+  {
+    "id": "q_094",
+    "question": "Please provide your current permanent residence street address? *",
+    "fieldType": "text",
+    "options": [],
+    "companies": [
+      "Natera"
+    ],
+    "occurrences": 1
+  },
+  {
+    "id": "q_095",
+    "question": "Postal Code*",
+    "fieldType": "text",
+    "options": [],
+    "companies": [
+      "Natera"
+    ],
+    "occurrences": 1
+  },
+  {
+    "id": "q_096",
+    "question": "Are you willing to travel up to 25% for this role?*",
+    "fieldType": "div",
+    "options": [],
+    "companies": [
+      "Defcon Ai"
+    ],
+    "occurrences": 1
+  },
+  {
+    "id": "q_097",
+    "question": "Do you have a Bachelor's degree?*",
+    "fieldType": "div",
+    "options": [],
+    "companies": [
+      "Securityscorecard"
+    ],
+    "occurrences": 1
+  },
+  {
+    "id": "q_098",
+    "question": "Have you personally integrated AI/LLM tooling \u2014 such as MCP servers or AI agents \u2014 into engineering or operational workflows?Have you personally integrated AI/LLM tooling \u2014 such as MCP servers or AI agents \u2014 into engineering or operational workflows? If so, do you have a clear understanding of the security and governance risks that come with giving AI access to production systems?*",
+    "fieldType": "div",
+    "options": [],
+    "companies": [
+      "Securityscorecard"
+    ],
+    "occurrences": 1
+  },
+  {
+    "id": "q_099",
+    "question": "Do you have a proven track record of successfully building and maintaining CI/CD pipelines using tools like GitHub Actions, Jenkins, GitLab CI, or similar?*",
+    "fieldType": "div",
+    "options": [],
+    "companies": [
+      "Securityscorecard"
+    ],
+    "occurrences": 1
+  },
+  {
+    "id": "q_100",
+    "question": "AI/LLM Impact: Describe two specific examples where AI improved your work output (speed, quality, clarity, decision-making). Include what you were trying to do, what you asked the tool, and what changed as a result.*",
+    "fieldType": "textarea",
+    "options": [],
+    "companies": [
+      "Securityscorecard"
+    ],
+    "occurrences": 1
+  },
+  {
+    "id": "q_101",
+    "question": "PENN Entertainment participates in a Federal Tax Credit program called the Work Opportunity Tax Credit (WOTC). All US only candidates are encouraged to complete a short online tax credit survey. All information provided will be kept confidential and will be used only for the purpose of determining potential WOTC eligibility. Would you would like to participate? (please click the link in the description below)*",
+    "fieldType": "div",
+    "options": [],
+    "companies": [
+      "Penn Interactive"
+    ],
+    "occurrences": 1
+  },
+  {
+    "id": "q_102",
+    "question": "First Name*",
+    "fieldType": "div",
+    "options": [],
+    "companies": [
+      "Motional"
+    ],
+    "occurrences": 1
+  },
+  {
+    "id": "q_103",
+    "question": "If 'Other', please list.",
+    "fieldType": "text",
+    "options": [],
+    "companies": [
+      "Motional"
+    ],
+    "occurrences": 1
+  },
+  {
+    "id": "q_104",
+    "question": "Have you previously worked within the Motional ecosphere? (ex. Motional, Ottomatika, Aptiv, nuTonomy, or Hyundai Motor Company)*",
+    "fieldType": "div",
+    "options": [],
+    "companies": [
+      "Motional"
+    ],
+    "occurrences": 1
+  },
+  {
+    "id": "q_105",
+    "question": "By selecting YES, I consent to receive recruiting SMS messages from Motional at the phone number provided on my job application.*",
+    "fieldType": "div",
+    "options": [],
+    "companies": [
+      "Motional"
+    ],
+    "occurrences": 1
+  },
+  {
+    "id": "q_106",
+    "question": "After reading the team descriptions, which team are you most interested in?*",
+    "fieldType": "div",
+    "options": [],
+    "companies": [
+      "Flex"
+    ],
+    "occurrences": 1
+  },
+  {
+    "id": "q_107",
+    "question": "If offered this position would you be able to fill the position in one of the countries listed on the job posting without relocation assistance from Mozilla? *",
+    "fieldType": "div",
+    "options": [],
+    "companies": [
+      "Mozilla"
+    ],
+    "occurrences": 1
+  },
+  {
+    "id": "q_108",
+    "question": "What are your strongest, professionally used programming languages? *",
+    "fieldType": "text",
+    "options": [],
+    "companies": [
+      "Mozilla"
+    ],
+    "occurrences": 1
+  },
+  {
+    "id": "q_109",
+    "question": "Which best describes your experience improving software delivery? *",
+    "fieldType": "div",
+    "options": [],
+    "companies": [
+      "Mozilla"
+    ],
+    "occurrences": 1
+  },
+  {
+    "id": "q_110",
+    "question": "Which statement best describes how you have typically owned production features? *",
+    "fieldType": "div",
+    "options": [],
+    "companies": [
+      "Mozilla"
+    ],
+    "occurrences": 1
+  },
+  {
+    "id": "q_111",
+    "question": "Is your experience more backend or frontend leaning? *",
+    "fieldType": "div",
+    "options": [],
+    "companies": [
+      "Mozilla"
+    ],
+    "occurrences": 1
+  },
+  {
+    "id": "q_113",
+    "question": "I understand this is a 6 month contract position through December 31, 2026*",
+    "fieldType": "div",
+    "options": [],
+    "companies": [
+      "Civis Analytics"
+    ],
+    "occurrences": 1
+  },
+  {
+    "id": "q_114",
+    "question": "As this role will be remote, please select where you reside and plan to work from remotely. *",
+    "fieldType": "div",
+    "options": [],
+    "companies": [
+      "Civis Analytics"
+    ],
+    "occurrences": 1
+  },
+  {
+    "id": "q_115",
+    "question": "How'd you hear about us?*",
+    "fieldType": "text",
+    "options": [],
+    "companies": [
+      "Process Street"
+    ],
+    "occurrences": 1
+  },
+  {
+    "id": "q_116",
+    "question": "What's the last thing you learned that changed how you work? (A tool, concept, post, talk, book - anything.)*",
+    "fieldType": "textarea",
+    "options": [],
+    "companies": [
+      "Process Street"
+    ],
+    "occurrences": 1
+  },
+  {
+    "id": "q_117",
+    "question": "Are you an existing employee at Life360, Tile, or Jiobit? *",
+    "fieldType": "div",
+    "options": [],
+    "companies": [
+      "Life360"
+    ],
+    "occurrences": 1
+  },
+  {
+    "id": "q_118",
+    "question": "Have you designed and built REST APIs in Java in a production environment? If yes, briefly describe one you built and the framework you used.*",
+    "fieldType": "text",
+    "options": [],
+    "companies": [
+      "Life360"
+    ],
+    "occurrences": 1
+  },
+  {
+    "id": "q_119",
+    "question": "Are you currently based in or willing to relocate to the Bay Area for this position? *",
+    "fieldType": "div",
+    "options": [],
+    "companies": [
+      "Discord"
+    ],
+    "occurrences": 1
+  },
+  {
+    "id": "q_120",
+    "question": "This position is based onsite at our company headquarters in Kennewick, WA. Are you currently located in the area, or would you be willing to relocate if selected for the role?*",
+    "fieldType": "div",
+    "options": [],
+    "companies": [
+      "Cadwell"
+    ],
+    "occurrences": 1
+  },
+  {
+    "id": "q_121",
+    "question": "What languages are you most comfortable coding in?*",
+    "fieldType": "textarea",
+    "options": [],
+    "companies": [
+      "Kalepa"
+    ],
+    "occurrences": 1
+  },
+  {
+    "id": "q_122",
+    "question": "How quickly are you looking to start a new role? *",
+    "fieldType": "textarea",
+    "options": [],
+    "companies": [
+      "Kalepa"
+    ],
+    "occurrences": 1
+  },
+  {
+    "id": "q_123",
+    "question": "Kalepa is a growth stage startup with ambitious goals. We are willing to do whatever it takes to succeed, don't take \"no\" as an answer and take pride in our sense of ownership and responsibility. As a result, we find ourselves working more than the standard 40 hours a week. Are you interested in being in such environment?*",
+    "fieldType": "div",
+    "options": [],
+    "companies": [
+      "Kalepa"
+    ],
+    "occurrences": 1
+  },
+  {
+    "id": "q_124",
+    "question": "This role requires you to be based in one of the following eligible states prior to your start date. Do you currently reside in, or are you willing and able to relocate to, one of the states listed below before your start date? *",
+    "fieldType": "div",
+    "options": [],
+    "companies": [
+      "Energyhub"
+    ],
+    "occurrences": 1
+  },
+  {
+    "id": "q_125",
+    "question": "Are you able to maintain your current legal eligibility to work in Canada for at least 2 years from when you'd start? *",
+    "fieldType": "div",
+    "options": [],
+    "companies": [
+      "Alphasense"
+    ],
+    "occurrences": 1
+  },
+  {
+    "id": "q_126",
+    "question": "Are you willing to relocate?*",
+    "fieldType": "div",
+    "options": [],
+    "companies": [
+      "Agility Robotics"
+    ],
+    "occurrences": 1
+  },
+  {
+    "id": "q_127",
+    "question": "Are you a previous employee or contractor?*",
+    "fieldType": "div",
+    "options": [],
+    "companies": [
+      "Agility Robotics"
+    ],
+    "occurrences": 1
+  },
+  {
+    "id": "q_128",
+    "question": "In a few words, why are you looking for a new role?*",
+    "fieldType": "textarea",
+    "options": [],
+    "companies": [
+      "Databento"
+    ],
+    "occurrences": 1
+  },
+  {
+    "id": "q_129",
+    "question": "Are you currently located in, or willing to relocate to, one of the following locations for a hybrid work arrangement: Washington, DC; Denver, CO; or Colorado Springs, CO? *",
+    "fieldType": "div",
+    "options": [],
+    "companies": [
+      "Openteams"
+    ],
+    "occurrences": 1
+  },
+  {
+    "id": "q_130",
+    "question": "Which opening would you like to be considered for? *",
+    "fieldType": "div",
+    "options": [],
+    "companies": [
+      "Openteams"
+    ],
+    "occurrences": 1
+  },
+  {
+    "id": "q_131",
+    "question": "Which option best describes your current U.S. security-clearance status?*",
+    "fieldType": "div",
+    "options": [],
+    "companies": [
+      "Openteams"
+    ],
+    "occurrences": 1
+  },
+  {
+    "id": "q_132",
+    "question": "Summarize your background collaborating within technical software groups. Detail the scale of your team, specific responsibilities, and how you navigated peer reviews, architectural consensus, or cross-functional deliverables across server and client layers. *",
+    "fieldType": "textarea",
+    "options": [],
+    "companies": [
+      "Openteams"
+    ],
+    "occurrences": 1
+  },
+  {
+    "id": "q_133",
+    "question": "In Kubernetes, what is the difference between a Pod and a Container?*",
+    "fieldType": "div",
+    "options": [],
+    "companies": [
+      "Legion"
+    ],
+    "occurrences": 1
+  },
+  {
+    "id": "q_134",
+    "question": "In AWS, if you wish to load balance requests to different systems depending on URL path, which load balancer should you choose?*",
+    "fieldType": "div",
+    "options": [],
+    "companies": [
+      "Legion"
+    ],
+    "occurrences": 1
+  },
+  {
+    "id": "q_135",
+    "question": "What are the three core pillars of observability?*",
+    "fieldType": "div",
+    "options": [],
+    "companies": [
+      "Legion"
+    ],
+    "occurrences": 1
+  }
+]

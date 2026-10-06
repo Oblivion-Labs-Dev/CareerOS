@@ -38,6 +38,7 @@ RESUME_FACT = "RESUME_FACT"
 LLM_GENERATED_TEXT = "LLM_GENERATED_TEXT"
 USER_OVERRIDE = "USER_OVERRIDE"
 PROFILE_SCREENING_ANSWER = "PROFILE_SCREENING_ANSWER"
+CANDIDATE_MANIFEST = "CANDIDATE_MANIFEST"
 UNKNOWN_METHOD = "UNKNOWN"
 
 
@@ -228,6 +229,123 @@ def _find_user_approved_answer(question_text: str, answer_lib: list[dict[str, An
     return None
 
 
+# ── Candidate Answers Manifest ───────────────────────────────────────────────
+
+_MANIFEST_CACHE: list[dict[str, Any]] | None = None
+
+
+def _find_candidate_manifest_path():
+    try:
+        from pathlib import Path
+        p = Path(__file__).resolve().parents[5] / "data" / "candidate_answers_manifest.json"
+        if p.is_file():
+            return p
+    except Exception:
+        pass
+    try:
+        from pathlib import Path
+        for root in [Path.cwd(), Path.cwd().parent]:
+            candidate = root / "data" / "candidate_answers_manifest.json"
+            if candidate.is_file():
+                return candidate
+    except Exception:
+        pass
+    return None
+
+
+def _load_candidate_manifest() -> list[dict[str, Any]]:
+    global _MANIFEST_CACHE
+    if _MANIFEST_CACHE is not None:
+        return _MANIFEST_CACHE
+    manifest_file = _find_candidate_manifest_path()
+    if manifest_file and manifest_file.is_file():
+        try:
+            import json
+            with open(manifest_file, "r", encoding="utf-8") as f:
+                _MANIFEST_CACHE = json.load(f)
+                return _MANIFEST_CACHE
+        except Exception:
+            pass
+    _MANIFEST_CACHE = []
+    return _MANIFEST_CACHE
+
+
+def _normalize_manifest_text(text: str) -> str:
+    cleaned = re.sub(r"[\*\:\?\,\.\(\)]", " ", text.lower())
+    return " ".join(cleaned.split())
+
+
+def _map_manifest_value_to_options(answer: str, opts: list[str]) -> str | None:
+    if not opts:
+        return answer
+    matched = _match_option(opts, answer)
+    if matched is None and len(opts) == 1:
+        matched = opts[0]
+    if matched is None and answer.lower() in ("yes", "true", "y"):
+        matched = _match_option(opts, "Yes")
+    if matched is None and answer.lower() in ("no", "false", "n"):
+        matched = _match_option(opts, "No")
+    if matched is None:
+        matched = _match_yes_no_sentence_option(opts, answer)
+    if matched is not None:
+        return matched
+    if answer.lower() in ("yes", "no", "true", "false", "y", "n"):
+        return None
+    return answer
+
+
+def _match_candidate_manifest_answer(question_text: str, options: list[str] | None = None) -> tuple[str, str] | None:
+    manifest = _load_candidate_manifest()
+    if not manifest:
+        return None
+    opts = options or []
+    norm_q = _normalize_manifest_text(question_text)
+    words_q = _significant_words(question_text)
+
+    # 1. Regex match_patterns
+    for item in manifest:
+        for pat in item.get("match_patterns", []):
+            try:
+                if re.search(pat, question_text, re.I):
+                    val = item.get("proposed_answer")
+                    if val is not None and str(val).strip():
+                        matched_val = _map_manifest_value_to_options(str(val), opts)
+                        if matched_val is not None:
+                            return str(item.get("id") or "manifest"), matched_val
+            except Exception:
+                continue
+
+    # 2. Exact normalized text match
+    for item in manifest:
+        if _normalize_manifest_text(str(item.get("question", ""))) == norm_q:
+            val = item.get("proposed_answer")
+            if val is not None and str(val).strip():
+                matched_val = _map_manifest_value_to_options(str(val), opts)
+                if matched_val is not None:
+                    return str(item.get("id") or "manifest"), matched_val
+
+    # 3. Word overlap (Jaccard >= 0.6)
+    best_item = None
+    best_score = 0.0
+    for item in manifest:
+        words_m = _significant_words(str(item.get("question", "")))
+        if not words_m or not words_q:
+            continue
+        overlap = len(words_q & words_m) / max(len(words_q | words_m), 1)
+        if overlap > best_score:
+            best_score = overlap
+            best_item = item
+
+    if best_item and best_score >= 0.6:
+        val = best_item.get("proposed_answer")
+        if val is not None and str(val).strip():
+            matched_val = _map_manifest_value_to_options(str(val), opts)
+            if matched_val is not None:
+                return str(best_item.get("id") or "manifest"), matched_val
+
+    return None
+
+
 # ── Core resolver ────────────────────────────────────────────────────────────
 
 def _match_yes_no_sentence_option(options: list[str], answer: str) -> str | None:
@@ -407,6 +525,16 @@ def _resolve_answer_impl(
             resolution.profile_key = f"screeningAnswers.{_sid}"
             resolution.source_value = saved
             return resolution
+
+    manifest_match = _match_candidate_manifest_answer(question_text, opts)
+    if manifest_match:
+        mid, mval = manifest_match
+        resolution.answer = mval
+        resolution.resolution_method = CANDIDATE_MANIFEST
+        resolution.confidence = 1.0
+        resolution.profile_key = f"manifest.{mid}"
+        resolution.source_value = mval
+        return resolution
 
     # "What is your preferred office location?" is a pick-from-their-list
     # question, so no stored string can answer it — the valid answers differ per
@@ -1446,6 +1574,16 @@ def _resolve_company_familiarity(res: AnswerResolution, profile: dict, opts: lis
             res.resolution_method = DETERMINISTIC_RULE
         res.confidence = 0.9
         return
+    is_event_meet = bool(re.search(r"meet\s+with\s+or\s+see|attending\s+an?\s+event|conference", q_low))
+    if is_event_meet:
+        if opts:
+            res.answer = _match_option(opts, "No") or "No"
+            res.resolution_method = PROFILE_OPTION_MAPPING
+        else:
+            res.answer = "No"
+            res.resolution_method = DETERMINISTIC_RULE
+        res.confidence = 0.95
+        return
     default = "I learned about the company through this job posting"
     if opts:
         posting_opt = next((o for o in opts if re.search(r"job\s*posting|recruiter", o, re.IGNORECASE)), None)
@@ -1894,6 +2032,30 @@ def _resolve_employer_count(res: AnswerResolution, profile: dict, opts: list[str
     res.confidence = 0.9
 
 
+def _resolve_employment_gap(res: AnswerResolution, profile: dict, opts: list[str]) -> None:
+    """Resolve employment/work history gap disclosures deterministically.
+
+    When asked to explain gaps in employment history (e.g. 'Please explain any
+    gaps in your work history. If none, please say N/A.'), answer 'N/A' (or select
+    'N/A' / 'None' / 'No' if options exist).
+    """
+    if opts:
+        for candidate in ["N/A", "None", "No", "No gaps"]:
+            matched = _match_option(opts, candidate)
+            if matched:
+                res.answer = matched
+                res.resolution_method = PROFILE_OPTION_MAPPING
+                res.confidence = 1.0
+                return
+        res.answer = opts[0]
+        res.resolution_method = PROFILE_OPTION_MAPPING
+        res.confidence = 0.8
+    else:
+        res.answer = "N/A"
+        res.resolution_method = DETERMINISTIC_RULE
+        res.confidence = 1.0
+
+
 def _resolve_originality_declaration(res: AnswerResolution, profile: dict, opts: list[str]) -> None:
     """Affirmed, at the candidate's explicit instruction.
 
@@ -1944,7 +2106,13 @@ def _resolve_privacy_consent(res: AnswerResolution, profile: dict, opts: list[st
 
 def _resolve_accuracy_confirmation(res: AnswerResolution, profile: dict, opts: list[str]) -> None:
     if opts:
-        res.answer = _match_option(opts, "Yes") or "Yes"
+        res.answer = (
+            _match_option(opts, "Yes")
+            or _match_option(opts, "I acknowledge")
+            or _match_option(opts, "Acknowledge")
+            or _match_option(opts, "Agree")
+            or "Yes"
+        )
     else:
         res.answer = "Yes"
     res.resolution_method = DETERMINISTIC_RULE
@@ -2499,6 +2667,7 @@ _RESOLVERS: dict[QuestionType, Any] = {
     QuestionType.TIMEZONE_AVAILABILITY: _resolve_timezone_availability,
     QuestionType.TIMEZONE_LOCATION: _resolve_timezone_location,
     QuestionType.EMPLOYER_COUNT: _resolve_employer_count,
+    QuestionType.EMPLOYMENT_GAP: _resolve_employment_gap,
     QuestionType.ORIGINALITY_DECLARATION: _resolve_originality_declaration,
     QuestionType.SALARY: _resolve_salary,
     QuestionType.NOTICE_PERIOD: _resolve_notice_period,
