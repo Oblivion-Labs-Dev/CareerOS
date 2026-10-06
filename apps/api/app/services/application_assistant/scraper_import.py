@@ -56,6 +56,8 @@ def scraper_job_to_aa_job(scraper_job: dict[str, Any]) -> dict[str, Any]:
         "scraperJobId": scraper_job["id"],
         "scraperRelevancyScore": scraper_job.get("relevancyScore"),
         "scraperKeywordsMatched": scraper_job.get("keywordsMatched") or [],
+        "datePosted": scraper_job.get("datePosted") or scraper_job.get("postedDate") or "",
+        "dateDiscovered": scraper_job.get("dateDiscovered") or scraper_job.get("createdAt") or "",
         # Sponsorship signal, carried across the boundary rather than recomputed.
         # `apply_h1b_fields` already derives this from the title + description
         # for every scraped posting, but it was being dropped here: 533 snapshot
@@ -232,19 +234,35 @@ def sync_scraper_jobs(
 
 
 def scraper_sync_status(db: Session) -> dict[str, Any]:
-    # Reads the small summary rather than the full ~23MB discovery snapshot.
-    # This runs on every dashboard load, and parsing the whole snapshot for four
-    # numbers was ~0.7s of the ~1.2s the endpoint took — the visible lag when
-    # switching pages.
     summary = jd_store.get_snapshot_summary(db)
     scraper_total = int(summary.get("jobCount") or 0)
-    scraper_ids = set(summary.get("jobIds") or [])
-    synced_ids = {sid for sid in get_synced_scraper_job_ids(db) if sid in scraper_ids}
+    synced_ids = get_synced_scraper_job_ids(db)
+
+    from app.services.read_cache import read_cache
+
+    def _compute_available_count() -> int:
+        from app.routers.api import _processed_autopilot_identity, _is_unprocessed
+
+        snapshot = jd_store.get_snapshot(db)
+        dismissed_ids = set(snapshot.get("dismissedIds") or [])
+        processed_keys, processed_urls, processed_company_titles = _processed_autopilot_identity(db)
+        count = sum(
+            1
+            for job in (snapshot.get("jobs") or [])
+            if job.get("id") not in synced_ids
+            and job.get("id") not in dismissed_ids
+            and _is_unprocessed(job, processed_keys, processed_urls, processed_company_titles)
+        )
+        return count
+
+    available_count = read_cache.get("browse_jobs_available_count", 15.0, _compute_available_count)
+    synced_total = max(len(synced_ids), scraper_total - available_count)
+
     return {
         "scraperTotal": scraper_total,
-        "syncedTotal": len(synced_ids),
+        "syncedTotal": synced_total,
         "lastScrapedAt": summary.get("scrapedAt"),
-        "pendingSync": max(0, scraper_total - len(synced_ids)),
+        "pendingSync": available_count,
     }
 
 

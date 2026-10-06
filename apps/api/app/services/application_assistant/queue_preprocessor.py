@@ -796,6 +796,7 @@ class QueuePreprocessor:
                     "matchModel": r.get("matchModel", ""),
                     "matchReasons": r.get("matchReasons", []),
                     "queuePriority": r.get("queuePriority", 0.0),
+                    "datePosted": r.get("datePosted") or r.get("postingDate") or r.get("dateDiscovered") or r.get("createdAt") or "",
                     "discoveredAt": now_iso(),
                     "queuedAt": now_iso(),
                 })
@@ -936,10 +937,19 @@ class QueuePreprocessor:
                 j for j in list_autopilot_jobs(db)
                 if j.get("status") == AutopilotJobStatus.QUEUED.value
             ]
+            discovered_by_id = {
+                j.get("id"): j
+                for j in list_discovered_jobs(db, active_only=False, exclude_demo=False)
+            }
+            for job in queued:
+                if not job.get("datePosted"):
+                    source = discovered_by_id.get(job.get("jobId"))
+                    if isinstance(source, dict) and (source.get("datePosted") or source.get("postingDate") or source.get("dateDiscovered")):
+                        job["datePosted"] = source.get("datePosted") or source.get("postingDate") or source.get("dateDiscovered")
             ordered = sorted(queued, key=queue_priority_score, reverse=True)
             for position, job in enumerate(ordered):
                 priority = queue_priority_score(job)
-                if job.get("queuePriority") == priority and job.get("queuePosition") == position:
+                if job.get("queuePriority") == priority and job.get("queuePosition") == position and job.get("datePosted"):
                     continue
                 job["queuePriority"] = priority
                 job["queuePosition"] = position

@@ -26,6 +26,8 @@ export type AutopilotJobRow = {
   lastError?: string;
   skipReason?: string;
   lastErrorType?: string;
+  /** Groupable reason category assigned by backend diagnostic classifier. */
+  reasonCategory?: string;
   resumeFileUsed?: string;
   salary?: string;
   pendingQuestions?: { question: string; rawLabel?: string; options?: string[] }[];

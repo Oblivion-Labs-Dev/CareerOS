@@ -67,6 +67,7 @@ _REASON_PATTERNS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"BOT_PROTECTED_BOARD:\s*Okta|Okta uses reCAPTCHA", re.I), "Okta reCAPTCHA (known bot-protected)"),
     (re.compile(r"DOM Verification mismatch|Required fields? remain unfilled", re.I), "Required field left blank in the browser DOM"),
     (re.compile(r"No application form", re.I), "No application form on the posting page"),
+    (re.compile(r"cover letter", re.I), "Cover letter required by employer"),
     (re.compile(r"reCAPTCHA", re.I), "Blocked by reCAPTCHA"),
     (re.compile(r"DataDome", re.I), "Blocked by DataDome"),
     (re.compile(r"hCaptcha", re.I), "Blocked by hCaptcha"),

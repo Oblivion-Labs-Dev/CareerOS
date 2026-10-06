@@ -175,7 +175,7 @@ export function useApplicationPages(
           title: title?.trim() || undefined,
           ats: ats || undefined,
           reason: reason || undefined,
-          sortBy: sort === "match" ? "matchScore" : sort === "recent" ? "submittedAt" : sort,
+          sortBy: sort === "match" ? "matchScore" : sort === "recent" ? (filter === "submitted" ? "submittedAt" : "recent") : sort,
           sortDir: sort === "company" ? "asc" : "desc",
           limit: 24,
           offset: reset ? 0 : offset.current,

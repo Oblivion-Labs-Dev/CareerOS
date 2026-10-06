@@ -18,11 +18,13 @@ import {
   skipStagedApplication,
 } from "@/lib/application-assistant-api";
 import type { AutopilotJobRow } from "./job-types";
-import { FILTERS, INELIGIBILITY_LABELS, REASON_FILTER_TABS, SORTS, STATUS_VIEWS, SUBMITTED_DRILLDOWN, type StatusFilter, type SortMode } from "./job-presentation";
+import { FILTERS, INELIGIBILITY_LABELS, REASON_FILTER_TABS, SORTS, STATUS_VIEWS, SUBMITTED_DRILLDOWN, getJobReasonMeta, type ReasonMeta, type StatusFilter, type SortMode } from "./job-presentation";
 import { useApplicationPages } from "./use-application-pages";
 import { ApplicationDetails } from "./application-details";
 import detailStyles from "./application-details.module.css";
 import { ApplicationCard } from "./application-card";
+import { StackedApplicationGroup } from "./stacked-application-group";
+import stackStyles from "./stacked-application-group.module.css";
 import { QuickAddJobPanel } from "./quick-add-job-panel";
 import { CompanyFilterDropdown } from "./company-filter-dropdown";
 import { TitleFilterDropdown } from "./title-filter-dropdown";
@@ -60,6 +62,7 @@ export function AutopilotApplicationsView({
   const [sortMode, setSortMode] = useSessionState<SortMode>("applications-sort", "priority");
   const [companyFilter, setCompanyFilter] = useSessionState<string>("applications-company-filter", "");
   const [titleFilter, setTitleFilter] = useSessionState<string>("applications-title-filter", "");
+  const [search, setSearch] = useSessionState<string>("applications-search", "");
   // Which ATS the application goes through, e.g. "workday" to work those by hand.
   const [atsFilter, setAtsFilter] = useSessionState<string>("applications-ats-filter", "");
   // Why the jobs in Review, Manual Review, Failed or Ineligible are there, e.g.
@@ -67,6 +70,8 @@ export function AutopilotApplicationsView({
   const [reasonFilter, setReasonFilter] = useSessionState<string>("applications-reason-filter", "");
   const showReasonFilter = REASON_FILTER_TABS.includes(filter);
   const activeReason = showReasonFilter ? reasonFilter : "";
+  const isPostProcessingTab = REASON_FILTER_TABS.includes(filter) || filter === "manual" || filter === "review" || filter === "ineligible" || filter === "failed" || filter === "skipped" || filter === "unverified";
+  const [viewMode, setViewMode] = useSessionState<"stacked" | "grid">("applications-view-mode", isPostProcessingTab ? "stacked" : "grid");
   // Which bulk requeue is awaiting confirmation, if any. Held as state rather
   // than using window.confirm so the warning can say exactly what is about to
   // happen and how many rows it touches.
@@ -93,7 +98,7 @@ export function AutopilotApplicationsView({
     if (FILTERS.some(item => item.id === linkedFilter)) setFilter(linkedFilter as StatusFilter);
   }, [linkedFilter]);
 
-  const pages = useApplicationPages(filter, sortMode, "", companyFilter, titleFilter, atsFilter, activeReason);
+  const pages = useApplicationPages(filter, sortMode, search, companyFilter, titleFilter, atsFilter, activeReason);
   const { jobs, counts, companyCounts: serverCompanyCounts, titleCounts: serverTitleCounts } = pages;
 
   // Use precomputed server company counts for the current status (covers all companies, e.g. all 152 on manual)
@@ -207,8 +212,33 @@ export function AutopilotApplicationsView({
     if (titleFilter) {
       result = result.filter((j) => (j.title || "").trim().toLowerCase() === titleFilter.trim().toLowerCase());
     }
+    if (search.trim()) {
+      const q = search.trim().toLowerCase();
+      result = result.filter(
+        (j) =>
+          (j.company || "").toLowerCase().includes(q) ||
+          (j.title || "").toLowerCase().includes(q) ||
+          (j.location || "").toLowerCase().includes(q)
+      );
+    }
     return result;
   }, [jobs, companyFilter, titleFilter]);
+
+  const reasonGroups = React.useMemo(() => {
+    const groups: Record<string, { meta: ReasonMeta; jobs: AutopilotJobRow[] }> = {};
+    for (const job of visible) {
+      const meta = getJobReasonMeta(job);
+      if (!groups[meta.key]) {
+        groups[meta.key] = { meta, jobs: [] };
+      }
+      groups[meta.key].jobs.push(job);
+    }
+    return Object.entries(groups).sort(([keyA, a], [keyB, b]) => {
+      if (keyA === "captcha") return -1;
+      if (keyB === "captcha") return 1;
+      return b.jobs.length - a.jobs.length;
+    });
+  }, [visible]);
 
   const loading = pages.loading && jobs.length === 0;
   const pagination = <div ref={pages.sentinel} style={{ padding: "20px", textAlign: "center" }}>
@@ -394,6 +424,17 @@ export function AutopilotApplicationsView({
           they are not tucked behind a toggle. Free-text search was removed as
           unused (repo owner, 2026-09-23); add it back if a need shows up. */}
       <div id="application-extra-filters" className={gridStyles.extraFilters}>
+        <input
+          type="search"
+          role="searchbox"
+          aria-label="Search applications"
+          placeholder="Search applications…"
+          className={styles.searchInput}
+          style={{ maxWidth: "13rem" }}
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+        />
+
         <CompanyFilterDropdown
           value={companyFilter}
           onChange={setCompanyFilter}
@@ -447,6 +488,27 @@ export function AutopilotApplicationsView({
             <option key={s.id} value={s.id}>{s.label}</option>
           ))}
         </select>
+
+        {isPostProcessingTab && (
+          <div className={stackStyles.viewModeToggle} role="radiogroup" aria-label="Card view mode">
+            <button
+              type="button"
+              className={`${stackStyles.toggleBtn} ${viewMode === "stacked" ? stackStyles.toggleBtnActive : ""}`}
+              onClick={() => setViewMode("stacked")}
+              title="Group and stack applications by failure / review reason"
+            >
+              🗂️ Stacked ({reasonGroups.length})
+            </button>
+            <button
+              type="button"
+              className={`${stackStyles.toggleBtn} ${viewMode === "grid" ? stackStyles.toggleBtnActive : ""}`}
+              onClick={() => setViewMode("grid")}
+              title="Show applications in a flat grid"
+            >
+              ⊞ Grid
+            </button>
+          </div>
+        )}
 
         {(() => {
           if (!(filter === "review" || filter === "failed" || filter === "manual" || filter === "skipped" || filter === "ineligible")) {
@@ -541,6 +603,24 @@ export function AutopilotApplicationsView({
         <WorkspaceLoading label="Loading applications…" shape="grid" rows={6} />
       ) : visible.length === 0 ? (
         <div className={styles.empty}>No applications match this filter.</div>
+      ) : isPostProcessingTab && viewMode === "stacked" ? (
+        <div className={stackStyles.stackedContainer} aria-label="Stacked applications by reason">
+          {reasonGroups.map(([key, group]) => (
+            <StackedApplicationGroup
+              key={key}
+              reasonKey={key}
+              reasonMeta={group.meta}
+              jobs={group.jobs}
+              busy={busy}
+              detailId={detail?.id}
+              onDetails={(job) => transitionSurface(() => setDetail(job))}
+              onApply={(job) => void applyNow(job)}
+              onAssistedFill={(job) => void assistedFill(job)}
+              onRetry={(job) => void retryNow(job)}
+              defaultExpanded={reasonGroups.length === 1}
+            />
+          ))}
+        </div>
       ) : (
         <div className={gridStyles.grid} aria-label="Applications">
           {visible.map((job) => (

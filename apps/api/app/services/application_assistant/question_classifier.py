@@ -113,6 +113,7 @@ class QuestionType(str, Enum):
     #: and the bare DEGREE pattern intercepted it, answering an employer count
     #: with a qualification level.
     EMPLOYER_COUNT = "EMPLOYER_COUNT"
+    EMPLOYMENT_GAP = "EMPLOYMENT_GAP"
 
     #: "I agree to use only my own words... the use of AI or other generated
     #: content will disqualify my application." Never auto-affirmed: CareerOS
@@ -216,6 +217,7 @@ _CLASSIFICATION_RULES: list[tuple[QuestionType, list[str]]] = [
     # whatever Yes/No or checkbox control the field actually is.
     (QuestionType.ACCURACY_CONFIRMATION, [
         r"have\s+you\s+(?:added|entered|completed|provided|included)\s+your\s+(?:full\s+)?(?:legal\s+)?name",
+        r"(?:confirm|acknowledge).*(?:read|reviewed).*(?:salary|compensation)\s+(?:information|range)",
     ]),
     # ── Work Auth (specific before general) ──
     (QuestionType.PERMANENT_WORK_AUTHORIZATION, [
@@ -291,6 +293,7 @@ _CLASSIFICATION_RULES: list[tuple[QuestionType, list[str]]] = [
         r"oversight.*(business|company|contract)",
         r"conflict\s*of\s*interest",
         r"outside\s+business\s+activit",
+        r"outside\s+employment",
         r"secondary\s+employment",
     ]),
     # Work authorization questions that mention country ("authorized to work in the country outlined", etc.)
@@ -367,7 +370,11 @@ _CLASSIFICATION_RULES: list[tuple[QuestionType, list[str]]] = [
         r"ethnicit",
     ]),
     (QuestionType.TRANSGENDER, [r"transgender"]),
-    (QuestionType.SEXUAL_ORIENTATION, [r"sexual\s+orient"]),
+    (QuestionType.SEXUAL_ORIENTATION, [
+        r"sexual\s+orient",
+        r"\blgbt[2qia\+]*\b",
+        r"\blgbt\w*",
+    ]),
     (QuestionType.GENDER, [r"\bgender\b", r"\bsex\b(?!ual)"]),
     (QuestionType.PRONOUNS, [r"\bpronoun"]),
     (QuestionType.VETERAN_STATUS, [
@@ -421,6 +428,13 @@ _CLASSIFICATION_RULES: list[tuple[QuestionType, list[str]]] = [
         r"number\s+of\s+(companies|employers)\s+(you|have)",
     ]),
 
+    (QuestionType.EMPLOYMENT_GAP, [
+        r"gap[s]?\s+in\s+(your\s+)?(work|employment)\s+history",
+        r"employment\s+gap[s]?",
+        r"work\s+history\s+gap[s]?",
+        r"explain\s+(any\s+)?gap[s]?",
+    ]),
+
     # Checked before TIMEZONE_AVAILABILITY: that type's resolver answers "Yes",
     # which is the right answer to "can you work Eastern hours?" and a
     # non-answer to "what time zone are you in?".
@@ -447,7 +461,14 @@ _CLASSIFICATION_RULES: list[tuple[QuestionType, list[str]]] = [
     # passing, but the bare EMAIL pattern below matches on that substring
     # anywhere in the text and would otherwise intercept this question
     # first, well before it ever reaches SMS_CONSENT's own patterns.
-    (QuestionType.SMS_CONSENT, [r"text\s*message", r"\bsms\b", r"whatsapp", r"consent.*(text|message)"]),
+    (QuestionType.SMS_CONSENT, [
+        r"text\s*message",
+        r"text\s*messaging",
+        r"we\s+text\s+to\b",
+        r"\bsms\b",
+        r"whatsapp",
+        r"consent.*(text|message)",
+    ]),
     # Also checked before EMAIL: "Please email me about future job openings"
     # and "Email me about other job openings within <company>'s entities" are
     # marketing opt-in checkboxes, not a request for the candidate's email
@@ -545,13 +566,17 @@ _CLASSIFICATION_RULES: list[tuple[QuestionType, list[str]]] = [
         # Samsara: "I confirm I reside in the US except the San Francisco Bay
         # Metro Area..."
         r"I\s+confirm\s+I\s+reside",
+        # Grove: "Without requiring relocation, can you confirm that you are based in one of the following Grove approved payroll states?"
+        r"without\s+requiring\s+relocation",
+        r"based\s+in\s+one\s+of\s+the\s+following.*states",
+        r"approved\s+payroll\s+states",
     ]),
     # Must come before LOCATION below: "Are you willing to relocate to one of
     # our hub locations...?" contains the bare word "locations", which
     # LOCATION's own unqualified r"location" pattern would otherwise match
     # first, misclassifying a relocation Yes/No question as a plain
     # city/address field and leaving it permanently unresolved.
-    (QuestionType.RELOCATE, [r"relocat", r"willing\s*to\s*relocat", r"local\s+to"]),
+    (QuestionType.RELOCATE, [r"(?<!without requiring )relocat", r"willing\s*to\s*relocat", r"local\s+to"]),
     (QuestionType.LOCATION, [
         r"location",
         r"city.*state",
@@ -620,7 +645,9 @@ _CLASSIFICATION_RULES: list[tuple[QuestionType, list[str]]] = [
         r"referred\s+(to\s+)?(this|the)\s+(position|role|job|opening)",
         r"referred\s+by\s+(a|an|any|someone|a\s+current)",
         r"who\s+referred\s+you",
-        r"refer\s+you",
+        r"\brefer\s+you\b",
+        r"\breferred\s+you\b",
+        r"(?:did|has)\s+(?:a|an|any|someone|anyone|anybody)\b.*refer\s+you",
         r"name\s+of\s+(the\s+)?(person|employee|team\s+member)\s+who\s+referred",
         r"referral\s+(name|source)",
         r"employee\s+referral",
@@ -630,6 +657,7 @@ _CLASSIFICATION_RULES: list[tuple[QuestionType, list[str]]] = [
         r"preferred\s+programming\s+language",
         r"favorite\s+programming\s+language",
         r"which\s+programming\s+language.*prefer",
+        r"primary\s+(coding|programming)\s+language",
         # Anthropic: "Which programming language would you likely use for a
         # coding interview?"
         r"which\s+programming\s+language.*(coding\s+interview|interview)",
@@ -783,6 +811,8 @@ _CLASSIFICATION_RULES: list[tuple[QuestionType, list[str]]] = [
         # employment-history type handled by COMPANY_HISTORY.
         r"have\s+you\s+used\s+\w+",
         r"are\s+you\s+familiar\s+with\s+\w+",
+        r"did\s+you\s+meet\s+with\s+or\s+see",
+        r"attending\s+an?\s+event\s+or\s+conference",
     ]),
     (QuestionType.PRIVACY_CONSENT, [
         r"privacy\s*policy",
@@ -790,6 +820,9 @@ _CLASSIFICATION_RULES: list[tuple[QuestionType, list[str]]] = [
         r"recruitment\s*privacy",
         r"applicant\s*privacy",
         r"privacy\s*acknowledg",
+        r"california\s+consumer\s+privacy",
+        r"\bccpa\b",
+        r"consumer\s+privacy\s+act",
         r"acknowledge.*read\s+and\s+understand",
         r"consent\s+to.*process",
         r"interview\s+(may\s+be\s+)?recorded",
@@ -827,7 +860,8 @@ _CLASSIFICATION_RULES: list[tuple[QuestionType, list[str]]] = [
         r"worked\s+at\s+or\s+consulted",
         r"prior\s+employment",
         r"employment\s+history",
-        r"have\s+you\s+(ever|previously)\s*[,;]?\s*(worked|been\s+employed)\s*(at|for)",
+        r"have\s+you\s+(ever|previously)\s*[,;]?\s*(worked|been\s+employed)\s*(at|for|within)",
+        r"(are|were)\s+you\s+(?:an?\s+)?(?:existing|current|present)\s+employee",
         # Greenhouse asks the compound form "Do you currently, or have you
         # previously, worked at X" - the commas broke the pattern above.
         r"do\s+you\s+currently[^?]{0,60}(worked|work|been\s+employed)\s*(at|for|by)",
@@ -845,7 +879,7 @@ _CLASSIFICATION_RULES: list[tuple[QuestionType, list[str]]] = [
         # subsidiaries?" — "full-time" sits between "employed" and "at",
         # breaking the tighter pattern above.
         r"employed\s+full[- ]?time\s+(at|by|for)",
-        r"have\s+you\s+(ever\s+)?worked\s*(at|for)",
+        r"have\s+you\s+(ever\s+)?worked\s*(at|for|within)",
         r"worked\s+for\s+\w+\s+as\s+an\s+employee,?\s+intern",
         r"employed\s+by\s+\w+\s+before",
         r"(ever,?\s*or\s+are\s+you\s+currently\s+)?working\s+at\s+\w+\s+in\s+any\s+capacity",
@@ -889,6 +923,8 @@ _CLASSIFICATION_RULES: list[tuple[QuestionType, list[str]]] = [
         r"to\s+the\s+best\s+of\s+my\s+knowledge",
         r"at-will",
         r"authorize.*references",
+        r"do\s+you\s+acknowledge",
+        r"acknowledge\s+this",
     ]),
     (QuestionType.LEGAL_AGE, [
         r"18\s+years",

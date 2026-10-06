@@ -261,7 +261,7 @@ def build_existing_key_index(existing_jobs: list[dict[str, Any]]) -> dict[str, s
 # sink it below every US posting regardless of match score or recency, while
 # leaving international postings ordered sensibly among themselves — "US first,
 # other countries at the end", not "other countries never".
-INTERNATIONAL_QUEUE_PENALTY = 1000.0
+INTERNATIONAL_QUEUE_PENALTY = 50_000.0
 
 
 def is_international_location(job: dict[str, Any]) -> bool:
@@ -293,7 +293,7 @@ _NON_US_COUNTRY_MARKERS = (
     "japan", "jordan", "kenya", "latvia", "lithuania", "malaysia", "mexico",
     "morocco", "netherlands", "new zealand", "nicaragua", "nigeria", "norway",
     "pakistan", "panama", "paraguay", "peru", "philippines", "poland",
-    "portugal", "qatar", "romania", "saudi", "serbia", "singapore", "slovakia",
+    "portugal", "qatar", "romania", "russia", "russian federation", "saudi", "serbia", "singapore", "slovakia",
     "slovenia", "south africa", "south korea", "spain", "sri lanka", "sweden",
     "switzerland", "taiwan", "thailand", "tunisia", "turkey", "uae", "ukraine",
     "united kingdom", "uruguay", "venezuela", "vietnam",
@@ -302,7 +302,7 @@ _NON_US_COUNTRY_MARKERS = (
     "berlin", "bogota", "brussels", "bucharest", "budapest", "buenos aires",
     "copenhagen", "dubai", "dublin", "gdansk", "helsinki", "hyderabad",
     "istanbul", "kiev", "kyiv", "lima", "lisbon", "london", "madrid", "manila",
-    "milan", "munich", "oslo", "paris", "prague", "riga", "rio de janeiro",
+    "milan", "moscow", "munich", "oslo", "paris", "prague", "riga", "rio de janeiro",
     "rome", "santiago", "sao paulo", "seoul", "sofia", "stockholm", "sydney",
     "tallinn", "tel aviv", "tokyo", "toronto", "vancouver", "vienna", "vilnius",
     "warsaw", "zurich", "krakow",
@@ -425,12 +425,8 @@ def role_level_flags(title_l: str) -> tuple[bool, bool]:
     is_senior = (
         any(k in title_l for k in (
             "senior", "sr.", "sr ", "sr-", "senior swe",
-            "sde iii", "sde 3", "sde ii", "sde 2", "sde i", "sde 1", "sde",
-            "swe iii", "swe 3", "swe ii", "swe 2", "swe i", "swe 1", "swe",
-            "software engineer iii", "software engineer 3", "software engineer ii", "software engineer 2",
-            "software engineer i", "software engineer 1", "software engineer",
-            "software development engineer",
-            "software developer", "full stack", "backend", "frontend",
+            "sde iii", "sde 3", "swe iii", "swe 3",
+            "software engineer iii", "software engineer 3",
         ))
         and engineering
         and not is_above_senior
@@ -611,9 +607,15 @@ def evaluate_hard_filters(
     if any(re.search(rf"\b{kw}\b", title_lower) for kw in intern_keywords):
         return False, f"Role '{title}' is an internship or apprentice position"
 
-    # Only Senior, or Staff / Principal software roles are applied to (#59).
-    if not any(role_level_flags(title_lower)):
-        return False, f"Role '{title}' is not a Senior, Staff or Principal software role"
+    # Only Senior, Staff/Principal, or qualifying SWE roles are applied to (#59).
+    is_sen, is_sop = role_level_flags(title_lower)
+    is_other_swe = any(k in title_lower for k in (
+        "software", "backend", "back end", "full stack", "fullstack", "frontend",
+        "front end", "platform", "infrastructure", "systems", "distributed",
+        "engineer", "developer", "sde", "swe", *AI_ML_TITLE_KEYWORDS,
+    ))
+    if not (is_sen or is_sop or is_other_swe):
+        return False, f"Role '{title}' is not a qualifying software engineering role"
 
     # 4. Location Filter (United States Positions Only)
     job_loc = (job.get("location") or "").lower()
@@ -840,124 +842,108 @@ def evaluate_hard_filters(
 # location/level tier (hundreds of points) but comparable to a few points of
 # match score, so it breaks ties between similar jobs without ever promoting a
 # poorly-matched posting over a well-matched one.
-RECENCY_BONUS_MAX = 12.0
-RECENCY_HALF_LIFE_HOURS = 48.0
+def extract_posting_datetime(job: dict[str, Any]) -> datetime | None:
+    """Extract and parse posting datetime with multi-format support.
 
-
-def posting_recency_bonus(job: dict[str, Any]) -> float:
-    """Extra priority for a recently discovered/posted job.
-
-    Stale postings are the single biggest source of wasted attempts: a job
-    discovered a day or two ago is frequently already closed by the time
-    Autopilot reaches it, which burns a full browser session to learn the link
-    now redirects to a careers directory. Ordering the freshest postings first
-    means the queue spends its attempts where they can still succeed, and older
-    entries are worked through afterwards rather than never.
+    Checks datePosted, postingDate, postedAt, dateDiscovered, discoveredAt,
+    queuedAt, createdAt in order, parsing ISO format and human-readable dates
+    like 'October 1, 2026'.
     """
-    from datetime import datetime, timezone
-
-    stamp = (
-        job.get("postedAt")
-        or job.get("discoveredAt")
-        or job.get("queuedAt")
-        or job.get("createdAt")
+    candidates = (
+        job.get("datePosted"),
+        job.get("postingDate"),
+        job.get("postedAt"),
+        job.get("dateDiscovered"),
+        job.get("discoveredAt"),
+        job.get("queuedAt"),
+        job.get("createdAt"),
     )
-    if not stamp:
-        return 0.0
-    try:
-        parsed = datetime.fromisoformat(str(stamp).replace("Z", "+00:00"))
-    except (TypeError, ValueError):
-        return 0.0
-    if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=timezone.utc)
-    age_hours = (datetime.now(timezone.utc) - parsed).total_seconds() / 3600.0
-    if age_hours <= 0:
-        return RECENCY_BONUS_MAX
-    # Halve the bonus for every half-life the posting has aged.
-    return RECENCY_BONUS_MAX * (0.5 ** (age_hours / RECENCY_HALF_LIFE_HOURS))
-
-
-# A posting genuinely put up by the employer within this window jumps ahead
-# of the entire rest of the queue - tier, match score, everything - on the
-# theory that a same-day posting has the least competition and the best odds
-# if applied to first. Deliberately gated on the real `datePosted` a source
-# reported, not on when *we* discovered it: those are different claims (a
-# job discovered today could have been posted weeks ago and only just
-# surfaced by a scraper's pagination), and only real-posting-date sources
-# should get this override. Most sources don't currently populate it, so
-# most postings are unaffected and fall through to the normal scoring below.
-FRESH_POSTING_WINDOW_HOURS = 24.0
-# Comfortably larger than role_location_priority_bonus's documented "hundreds
-# of points" ceiling, so this always wins regardless of tier or match score.
-FRESH_POSTING_OVERRIDE_BONUS = 100_000.0
-
-
-def _is_senior_software_engineer_title(job: dict[str, Any]) -> bool:
-    """The fresh-posting override is restricted to this one title band by
-    explicit request: a same-day posting jumping the entire queue is a
-    strong effect, and without a title gate it would apply just as hard to
-    a new-grad or unrelated-title posting that merely happened to be fresh.
-    Matches "senior software engineer" as a substring so natural variations
-    ("Senior Software Engineer II", "Senior Software Engineer, Platform")
-    still qualify, but a plain "Software Engineer" or "Staff Software
-    Engineer" does not.
-    """
-    return "senior software engineer" in (job.get("title") or "").lower()
+    for stamp in candidates:
+        if not stamp:
+            continue
+        try:
+            parsed = datetime.fromisoformat(str(stamp).replace("Z", "+00:00"))
+        except (TypeError, ValueError):
+            try:
+                from dateutil import parser as dateparser
+                parsed = dateparser.parse(str(stamp))
+            except Exception:
+                continue
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed
+    return None
 
 
 def _real_posting_age_hours(job: dict[str, Any]) -> float | None:
-    """Hours since the job's real, source-reported `datePosted` - or None
-    when that field is missing/unparseable, meaning this source never told
-    us when the posting actually went up and there is nothing honest to act
-    on (see the ingest-side fix in queue_preprocessor.py's
-    _ingest_scraper_snapshot for why this was reliably blank before)."""
-    stamp = job.get("datePosted")
-    if not stamp:
+    """Hours since the job was posted/discovered, or None if unparseable."""
+    dt = extract_posting_datetime(job)
+    if dt is None:
         return None
-    try:
-        parsed = datetime.fromisoformat(str(stamp).replace("Z", "+00:00"))
-    except (TypeError, ValueError):
-        return None
-    if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=timezone.utc)
-    return (datetime.now(timezone.utc) - parsed).total_seconds() / 3600.0
+    return (datetime.now(timezone.utc) - dt).total_seconds() / 3600.0
+
+
+def _is_senior_software_engineer_title(job: dict[str, Any]) -> bool:
+    return "senior software engineer" in (job.get("title") or "").lower()
+
+
+FRESH_POSTING_WINDOW_HOURS = 24.0
+
+
+def posting_recency_bonus(job: dict[str, Any]) -> float:
+    """Recency bonus implementing Option A: Recency-First Priority.
+
+    Postings are tiered into distinct recency bands so newer postings always
+    overtake older ones across bands, while location tier and Mistral match score
+    break ties within the same band:
+
+    - < 24 hours:   10,000 + up to 1,000 hourly decay bonus (10,000 - 11,000)
+    - 1 to 3 days:   5,000 + up to 500 hourly decay bonus (5,000 - 5,500)
+    - 3 to 7 days:   2,000 + up to 200 decay bonus (2,000 - 2,200)
+    - 7 to 14 days:  1,000 + up to 100 decay bonus (1,000 - 1,100)
+    - 14 to 30 days:   500.0
+    - > 30 days:         0.0
+    """
+    age_hours = _real_posting_age_hours(job)
+    if age_hours is None:
+        return 0.0
+    if age_hours <= 0:
+        return 11_000.0
+    if age_hours <= 24.0:
+        decay = 1_000.0 * (1.0 - (age_hours / 24.0))
+        return 10_000.0 + max(0.0, decay)
+    if age_hours <= 72.0:
+        decay = 500.0 * (1.0 - ((age_hours - 24.0) / 48.0))
+        return 5_000.0 + max(0.0, decay)
+    if age_hours <= 168.0:
+        decay = 200.0 * (1.0 - ((age_hours - 72.0) / 96.0))
+        return 2_000.0 + max(0.0, decay)
+    if age_hours <= 336.0:
+        decay = 100.0 * (1.0 - ((age_hours - 168.0) / 168.0))
+        return 1_000.0 + max(0.0, decay)
+    if age_hours <= 720.0:
+        return 500.0
+    return 0.0
 
 
 def queue_priority_score(job: dict[str, Any]) -> float:
     """The single number the persistent queue is ordered by.
 
-    A verified same-day posting overrides everything else first (see
-    FRESH_POSTING_OVERRIDE_BONUS). Below that: location/level tier dominates
-    (see ``role_location_priority_bonus``), the Mistral resume-match score
-    orders postings inside a tier, and a decaying recency bonus puts the
-    freshest postings first so the queue does not spend its attempts on
-    links that have already closed.
+    Prioritizes applications based on most recent posting (Recency-First):
+    1. Posting recency band dominates (+11,000 down to 0).
+    2. Within the same recency band, location tier (up to +120) and match score
+       (up to +100) break ties so Washington Senior SWE and high-matching roles
+       are processed first.
+    3. International postings are penalized (-50,000) so they always sit at the
+       end below domestic postings.
     """
-    age_hours = _real_posting_age_hours(job)
-    fresh_override = (
-        FRESH_POSTING_OVERRIDE_BONUS
-        if age_hours is not None
-        and 0.0 <= age_hours <= FRESH_POSTING_WINDOW_HOURS
-        and _is_senior_software_engineer_title(job)
-        else 0.0
-    )
-    # US postings are worked first and international ones last. The four tiers
-    # in role_location_priority_bonus are all US-shaped, so international
-    # postings get no tier — but neither do plenty of US postings whose title
-    # misses a tier, which left both groups at the same score and let recency
-    # decide. Measured live: inside the submittable-board pool the runner
-    # actually draws from, US and international both sat at a median of 8.17
-    # and the top of the claim order was Sezzle Peru, Encora Mexico and three
-    # India roles ahead of every US job. An explicit penalty is what actually
-    # enforces "US first, other countries at the end".
     international_penalty = (
         INTERNATIONAL_QUEUE_PENALTY if is_international_location(job) else 0.0
     )
     return (
-        fresh_override
+        posting_recency_bonus(job)
         + role_location_priority_bonus(job)
         + float(job.get("matchScore") or 0.0)
-        + posting_recency_bonus(job)
         - international_penalty
     )
 

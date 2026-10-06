@@ -1230,9 +1230,9 @@ def get_job_by_id(db: Session, job_id: str) -> dict[str, Any] | None:
     return None
 
 
-def get_stats(db: Session) -> dict[str, Any]:
+def get_stats(db: Session, available_jobs: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     snapshot = _load_snapshot(db)
-    jobs = snapshot.get("jobs") or []
+    jobs = available_jobs if available_jobs is not None else (snapshot.get("jobs") or [])
     strong = sum(1 for job in jobs if (job.get("relevancyScore") or 0) >= 75)
     moderate = sum(1 for job in jobs if 50 <= (job.get("relevancyScore") or 0) < 75)
     fresh = sum(

@@ -166,3 +166,105 @@ def test_widened_government_patterns_do_not_swallow_work_authorization(question)
     """The government-conflict patterns mention "United States" and "employment",
     which the work-authorization and sponsorship questions also do."""
     assert _t(question) != QuestionType.GOVERNMENT_CONFLICT
+
+
+@pytest.mark.parametrize(
+    "question",
+    [
+        "Did someone from Fleetio refer you? If so, share their name below. If not, list 'N/A'.",
+        "Did a current Praxenter refer you?",
+    ],
+)
+def test_referral_variants_classify_as_referral(question):
+    assert _t(question) == QuestionType.REFERRAL
+
+
+@pytest.mark.parametrize(
+    "question",
+    [
+        "Are you an existing employee at Life360, Tile, or Jiobit?",
+        "Have you previously worked within the Motional ecosphere?",
+    ],
+)
+def test_company_history_variants_classify_correctly(question):
+    assert _t(question) == QuestionType.COMPANY_HISTORY
+
+
+def test_lgbtq_community_is_sexual_orientation():
+    assert _t("Do you identify as a member of the LGBT2QIA+ community?") == QuestionType.SEXUAL_ORIENTATION
+
+
+def test_interview_problem_acknowledgment():
+    assert (
+        _t(
+            "If selected for a preliminary interview, you may be asked to work through a Python coding problem. "
+            "Do you acknowledge this?"
+        )
+        == QuestionType.ACCURACY_CONFIRMATION
+    )
+
+
+def test_approved_payroll_states_location_confirmation():
+    q = (
+        "Without requiring relocation, can you confirm that you are based in one of the following Grove approved "
+        "payroll states? (Arizona, California, Colorado, Connecticut, Florida, Georgia, Illinois, Indiana, Kentucky, "
+        "Maine, Maryland, Massachusetts, Michigan, Minnesota, Nevada, New Jersey, New Mexico, New York, "
+        "North Carolina, Ohio, Oregon, Pennsylvania, South Carolina, Tennessee, Texas, Utah, Virginia, Washington, Wisconsin)"
+    )
+    assert _t(q) == QuestionType.LOCATION_CONFIRMATION
+
+
+@pytest.mark.parametrize(
+    "question",
+    [
+        "Please explain any gaps in your work history. If none, please say N/A. *",
+        "Explain any gaps in your employment history",
+        "Do you have any employment gaps?",
+    ],
+)
+def test_employment_gap_questions_classify_and_resolve(question):
+    assert _t(question) == QuestionType.EMPLOYMENT_GAP
+    from app.services.application_assistant.profile_answer_resolver import resolve_answer
+    res = resolve_answer(question, {}, [])
+    assert res.answer == "N/A"
+
+
+def test_salary_information_acknowledgment():
+    q = "I confirm that I have read and acknowledged Code for America's posted salary information for this position.*"
+    assert _t(q) == QuestionType.ACCURACY_CONFIRMATION
+
+
+def test_talkspace_text_messaging_consent():
+    q = "Talkspace uses text messaging to help move you through the interview process quickly. We text to share application updates, schedule interviews, and be more available to support you during the process. *"
+    assert _t(q) == QuestionType.SMS_CONSENT
+
+
+def test_defense_unicorns_ccpa_disclosure():
+    q = "In this question description we have provided a link to our California Consumer Privacy Act (CCPA) disclosure. Please acknowledge that you have been provided with this disclosure - Link included in question description.*"
+    assert _t(q) == QuestionType.PRIVACY_CONSENT
+
+
+def test_defense_unicorns_conference_attendance():
+    q = "Did you meet with or see Defense Unicorns while attending an event or conference (e.g. Kubecon)?*"
+    assert _t(q) == QuestionType.COMPANY_FAMILIARITY
+    from app.services.application_assistant.profile_answer_resolver import resolve_answer
+    res = resolve_answer(q, {}, ["Yes", "No"])
+    assert res.answer == "No"
+
+
+def test_care_access_outside_employment():
+    q = "If hired by Care Access, do you intend to maintain any outside employment, consulting, contract work, self-employment, or other work activity?*"
+    assert _t(q) == QuestionType.GOVERNMENT_CONFLICT
+    from app.services.application_assistant.profile_answer_resolver import resolve_answer
+    res = resolve_answer(q, {}, ["Yes", "No"])
+    assert res.answer == "No"
+
+
+def test_runzero_primary_coding_language():
+    q = "What is your primary coding language? *"
+    assert _t(q) == QuestionType.PREFERRED_LANGUAGE
+    from app.services.application_assistant.profile_answer_resolver import resolve_answer
+    res = resolve_answer(q, {}, [])
+    assert res.answer == "Python"
+
+

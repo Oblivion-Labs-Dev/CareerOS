@@ -602,27 +602,56 @@ def _processed_autopilot_identity(db: Session) -> tuple[set[str], set[str]]:
             return list_autopilot_jobs(inner_db)
 
     all_jobs = read_cache.get(AUTOPILOT_JOBS_CACHE_KEY, 30.0, _load_all_autopilot_jobs)
-    keys = {
-        generate_composite_job_key(
-            job.get("company") or "",
-            job.get("title") or "",
-            job.get("applicationUrl") or "",
-            job.get("externalJobId") or "",
-            job.get("location") or "",
-        )
-        for job in all_jobs
-    }
-    urls = {normalize_application_url(job.get("applicationUrl") or "") for job in all_jobs}
+    keys: set[str] = set()
+    urls: set[str] = set()
+    company_titles: set[tuple[str, str]] = set()
+
+    from app.services.application_assistant.job_filter_ranker import (
+        normalize_company,
+        normalize_title,
+    )
+
+    for job in all_jobs:
+        comp = job.get("company") or ""
+        title = job.get("title") or ""
+        app_url = job.get("applicationUrl") or ""
+        agg_url = job.get("aggregatorUrl") or ""
+        ext_id = job.get("externalJobId") or ""
+        loc = job.get("location") or ""
+
+        if app_url:
+            keys.add(generate_composite_job_key(comp, title, app_url, ext_id, loc))
+            urls.add(normalize_application_url(app_url))
+        if agg_url:
+            keys.add(generate_composite_job_key(comp, title, agg_url, ext_id, loc))
+            urls.add(normalize_application_url(agg_url))
+
+        norm_c = normalize_company(comp)
+        norm_t = normalize_title(title)
+        if norm_c and norm_t:
+            company_titles.add((norm_c, norm_t))
+
     urls.discard("")
-    return keys, urls
+    return keys, urls, company_titles
 
 
-def _is_unprocessed(job: dict[str, Any], processed_keys: set[str], processed_urls: set[str]) -> bool:
+def _is_unprocessed(
+    job: dict[str, Any],
+    processed_keys: set[str],
+    processed_urls: set[str],
+    processed_company_titles: set[tuple[str, str]],
+) -> bool:
     """Whether this discovered posting is absent from the Autopilot pipeline."""
     from app.services.application_assistant.job_filter_ranker import (
         generate_composite_job_key,
         normalize_application_url,
+        normalize_company,
+        normalize_title,
     )
+
+    url_norm = normalize_application_url(job.get("url") or "")
+    if url_norm and url_norm in processed_urls:
+        return False
 
     key = generate_composite_job_key(
         job.get("companyName") or "",
@@ -633,7 +662,15 @@ def _is_unprocessed(job: dict[str, Any], processed_keys: set[str], processed_url
     )
     if key in processed_keys:
         return False
-    return normalize_application_url(job.get("url") or "") not in processed_urls
+
+    ct = (
+        normalize_company(job.get("companyName") or ""),
+        normalize_title(job.get("title") or ""),
+    )
+    if ct in processed_company_titles:
+        return False
+
+    return True
 
 
 @router.get("/jobs/discover")
@@ -662,13 +699,15 @@ def list_discovered_jobs(
 
     synced_ids = get_synced_scraper_job_ids(db)
     dismissed_ids = set(snapshot.get("dismissedIds") or [])
-    processed_keys, processed_urls = _processed_autopilot_identity(db)
+    processed_keys, processed_urls, processed_company_titles = _processed_autopilot_identity(db)
+    all_snapshot_jobs = snapshot.get("jobs") or []
     available_jobs = [
-        job for job in (snapshot.get("jobs") or [])
+        job for job in all_snapshot_jobs
         if job.get("id") not in synced_ids
         and job.get("id") not in dismissed_ids
-        and _is_unprocessed(job, processed_keys, processed_urls)
+        and _is_unprocessed(job, processed_keys, processed_urls, processed_company_titles)
     ]
+    assistant_total = len(all_snapshot_jobs) - len(available_jobs)
     from app.services.job_discover.browse_filters import filter_facets
     available_jobs = filter_facets(available_jobs, specialties=specialties, seniorities=seniorities, work_modes=work_modes, experience=experience, companies=companies)
     jobs, total = job_discover.filter_jobs(
@@ -693,14 +732,14 @@ def list_discovered_jobs(
         "success": True,
         "jobs": jobs,
         "total": total,
-        "indexedTotal": snapshot.get("totalJobs", 0),
-        "assistantTotal": len(synced_ids),
+        "indexedTotal": len(available_jobs),
+        "assistantTotal": assistant_total,
         "dismissedTotal": len(dismissed_ids),
         "page": page,
         "perPage": per_page,
         "totalPages": total_pages,
         "scrapedAt": snapshot.get("scrapedAt"),
-        "indexedCompanies": snapshot.get("companies", 0),
+        "indexedCompanies": len({j.get("companyName") for j in available_jobs if j.get("companyName")}),
         "status": job_discover.get_status(),
     }
 
@@ -711,11 +750,11 @@ def browse_filter_options(db: Session = Depends(db_session)):
     from app.services.application_assistant.scraper_import import get_synced_scraper_job_ids
     snapshot = job_discover.get_snapshot(db)
     excluded = get_synced_scraper_job_ids(db) | set(snapshot.get("dismissedIds") or [])
-    processed_keys, processed_urls = _processed_autopilot_identity(db)
+    processed_keys, processed_urls, processed_company_titles = _processed_autopilot_identity(db)
     jobs = [
         job for job in snapshot.get("jobs", [])
         if job.get("id") not in excluded
-        and _is_unprocessed(job, processed_keys, processed_urls)
+        and _is_unprocessed(job, processed_keys, processed_urls, processed_company_titles)
     ]
     result = filter_options(jobs)
     result["freshness"] = [value for value in ["24", "168", "720"] if job_discover.filter_jobs(jobs, freshness=value, per_page=1)[1]]
@@ -734,7 +773,16 @@ def job_discover_lookup(url: str = Query(...), db: Session = Depends(db_session)
 
 @router.get("/jobs/discover/stats")
 def job_discover_stats(db: Session = Depends(db_session)) -> dict[str, Any]:
-    return {"success": True, **job_discover.get_stats(db)}
+    from app.services.application_assistant.scraper_import import get_synced_scraper_job_ids
+    snapshot = job_discover.get_snapshot(db)
+    excluded = get_synced_scraper_job_ids(db) | set(snapshot.get("dismissedIds") or [])
+    processed_keys, processed_urls, processed_company_titles = _processed_autopilot_identity(db)
+    available_jobs = [
+        job for job in (snapshot.get("jobs") or [])
+        if job.get("id") not in excluded
+        and _is_unprocessed(job, processed_keys, processed_urls, processed_company_titles)
+    ]
+    return {"success": True, **job_discover.get_stats(db, available_jobs=available_jobs)}
 
 
 @router.get("/jobs/discover/locations")
@@ -744,9 +792,12 @@ def job_discover_locations(db: Session = Depends(db_session)) -> dict[str, Any]:
     snapshot = job_discover.get_snapshot(db)
     synced_ids = get_synced_scraper_job_ids(db)
     dismissed_ids = set(snapshot.get("dismissedIds") or [])
+    processed_keys, processed_urls, processed_company_titles = _processed_autopilot_identity(db)
     available_jobs = [
         job for job in (snapshot.get("jobs") or [])
-        if job.get("id") not in synced_ids and job.get("id") not in dismissed_ids
+        if job.get("id") not in synced_ids
+        and job.get("id") not in dismissed_ids
+        and _is_unprocessed(job, processed_keys, processed_urls, processed_company_titles)
     ]
     return {
         "success": True,

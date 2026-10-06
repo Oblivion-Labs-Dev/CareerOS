@@ -53,6 +53,55 @@
 .card[data-status=submitted] { --state: var(--success); }
 .card[data-status=skipped],
 .card[data-status=ineligible] { --state: var(--muted); }
+.card[data-captcha="true"] { --state: #f59e0b; }
+
+.reasonTag {
+  margin: calc(4px * var(--card-scale)) calc(9px * var(--card-scale)) 0;
+  display: inline-flex;
+  align-items: center;
+  gap: calc(4px * var(--card-scale));
+  padding: calc(2px * var(--card-scale)) calc(6px * var(--card-scale));
+  border-radius: var(--radius-sm, 4px);
+  font-size: calc(8.5px * var(--card-scale));
+  font-weight: 700;
+  width: fit-content;
+  max-width: calc(100% - calc(18px * var(--card-scale)));
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  background: color-mix(in srgb, var(--state) 12%, var(--card));
+  border: 1px solid color-mix(in srgb, var(--state) 30%, transparent);
+  color: var(--state);
+}
+
+.reasonTag[data-tone="captcha"] {
+  background: rgba(245, 158, 11, 0.15);
+  border-color: rgba(245, 158, 11, 0.4);
+  color: #fbbf24;
+}
+
+.reasonTag[data-tone="danger"] {
+  background: rgba(239, 68, 68, 0.15);
+  border-color: rgba(239, 68, 68, 0.4);
+  color: #f87171;
+}
+
+.reasonTag[data-tone="warning"] {
+  background: rgba(234, 179, 8, 0.15);
+  border-color: rgba(234, 179, 8, 0.4);
+  color: #facc15;
+}
+
+.reasonTag[data-tone="info"] {
+  background: rgba(56, 189, 248, 0.15);
+  border-color: rgba(56, 189, 248, 0.4);
+  color: #38bdf8;
+}
+
+.reasonTagText {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 
 /* Status gets its own row (flex-basis 100%) rather than fighting the company
    name for space on one line — a long label like "Answer needed" was

@@ -344,7 +344,11 @@ _LIST_OMITTED_FIELDS = (
 
 def _lean_job(job: dict[str, Any]) -> dict[str, Any]:
     """A job row trimmed to what the applications list actually renders."""
-    return {k: v for k, v in job.items() if k not in _LIST_OMITTED_FIELDS}
+    res = {k: v for k, v in job.items() if k not in _LIST_OMITTED_FIELDS}
+    if "reasonCategory" not in res:
+        from app.services.diagnostic_outcomes import reason_category
+        res["reasonCategory"] = reason_category(job)
+    return res
 
 
 @router.get("/autopilot/stats")
@@ -507,10 +511,16 @@ def get_autopilot_jobs_list(
     if sortBy_str == "company":
         jobs.sort(key=lambda j: str(j.get("company") or "").lower(), reverse=reverse)
     elif sortBy_str == "priority":
-        from app.services.application_assistant.application_list_priority import application_list_priority
-        jobs.sort(key=application_list_priority, reverse=reverse)
+        from app.services.application_assistant.job_filter_ranker import queue_priority_score
+        jobs.sort(key=queue_priority_score, reverse=reverse)
     elif sortBy_str in ("submittedAt", "updatedAt"):
         jobs.sort(key=lambda j: str(j.get(sortBy_str) or j.get("updatedAt") or ""), reverse=reverse)
+    elif sortBy_str in ("recent", "datePosted"):
+        from app.services.application_assistant.job_filter_ranker import extract_posting_datetime
+        def _job_recency_key(j: dict) -> float:
+            dt = extract_posting_datetime(j)
+            return dt.timestamp() if dt else 0.0
+        jobs.sort(key=_job_recency_key, reverse=reverse)
     else:
         jobs.sort(key=lambda j: j.get("matchScore") or 0, reverse=reverse)
 
@@ -846,9 +856,12 @@ def enqueue_job_for_autopilot(
         "status": "QUEUED",
         "matchScore": float(payload.get("matchScore") or 85.0),
         "location": payload.get("location", ""),
+        "datePosted": payload.get("datePosted") or payload.get("postingDate") or payload.get("dateDiscovered") or now_iso(),
         "discoveredAt": now_iso(),
         "queuedAt": now_iso(),
     }
+    from app.services.application_assistant.job_filter_ranker import queue_priority_score
+    job_item["queuePriority"] = queue_priority_score(job_item)
     if payload.get("tailoringMode") in ("off", "honest", "aggressive"):
         job_item["tailoringMode"] = payload["tailoringMode"]
     saved = save_autopilot_job(db, job_item)

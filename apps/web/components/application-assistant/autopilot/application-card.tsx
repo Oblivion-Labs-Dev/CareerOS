@@ -2,7 +2,7 @@ import { identityTransition } from "@/lib/surface-transition";
 import { useSurfaceDepth } from "@/hooks/use-surface-depth";
 import type { AutopilotJobRow } from "./job-types";
 import { useCountUp } from "./use-count-up";
-import { INELIGIBILITY_LABELS, capCountdown, relativeTime, statusView } from "./job-presentation";
+import { INELIGIBILITY_LABELS, capCountdown, getJobReasonMeta, relativeTime, statusView } from "./job-presentation";
 import styles from "./application-card.module.css";
 
 export function ApplicationCard({ job, busy, onDetails, onApply, onAssistedFill, onRetry, detailed = false }: {
@@ -35,6 +35,9 @@ export function ApplicationCard({ job, busy, onDetails, onApply, onAssistedFill,
   // each render rather than trusted as a flag, so the badge clears itself when
   // the window rolls even if the row has not been rewritten yet.
   const paced = capCountdown(job);
+  const isPostProcessing = ["manual", "review", "failed", "ineligible", "skipped", "unverified"].includes(status.key);
+  const reasonMeta = isPostProcessing ? getJobReasonMeta(job) : null;
+  const isCaptcha = reasonMeta?.tone === "captcha";
   const reason = job.status === "INELIGIBLE"
     ? INELIGIBILITY_LABELS[String(job.ineligibilityReason)] || job.ineligibilityDetail || "Cannot be applied to"
     : job.status === "REJECTED"
@@ -50,6 +53,7 @@ export function ApplicationCard({ job, busy, onDetails, onApply, onAssistedFill,
       className={`${styles.card} appCard`}
       title={reason || undefined}
       data-status={status.key}
+      data-captcha={isCaptcha ? "true" : undefined}
       data-job-id={job.id}
       role="button"
       tabIndex={0}
@@ -68,6 +72,12 @@ export function ApplicationCard({ job, busy, onDetails, onApply, onAssistedFill,
         <div className={styles.company}>{job.company || "Unknown company"}</div>
         <span className={styles.status}><i />{status.label}</span>
       </div>
+      {reasonMeta && (
+        <div className={styles.reasonTag} data-tone={reasonMeta.tone} title={reasonMeta.explanation}>
+          <span aria-hidden="true">{reasonMeta.icon}</span>
+          <span className={styles.reasonTagText}>{reasonMeta.label}</span>
+        </div>
+      )}
       {paced && (
         // A paced job is queued and wanted, not stuck — so this is a countdown
         // next to the status rather than a second status. Apply still works and

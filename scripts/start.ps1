@@ -145,6 +145,7 @@ if (Test-Path $VenvPython) {
 }
 
 # ── Ollama ────────────────────────────────────────────────────────────────────
+$env:CAREEROS_LOCAL_LLM = 'off'
 $localLlmOff = @('off', '0', 'false', 'no') -contains ("$env:CAREEROS_LOCAL_LLM".Trim().ToLower())
 if (-not $localLlmOff -and -not $SkipOllama) {
     Write-Step 'Ensuring Ollama is running'

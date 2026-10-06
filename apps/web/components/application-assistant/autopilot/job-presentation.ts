@@ -75,7 +75,7 @@ export function applicationCounts(statusCounts: Record<string, number>): Record<
 }
 
 export const SORTS: { id: SortMode; label: string }[] = [
-  { id: "priority", label: "Priority (Senior + Seattle)" },
+  { id: "priority", label: "Priority (Recent + Senior)" },
   { id: "match", label: "Match score" },
   { id: "recent", label: "Most recent" },
   { id: "company", label: "Company A-Z" },
@@ -214,6 +214,173 @@ export function capCountdown(job: {
   return {
     label: `Paced · ${when}`,
     detail: `This employer has reached its ${tier}. Resumes in ${when} — or click Apply to send it now.`,
+  };
+}
+
+export type ReasonMeta = {
+  key: string;
+  label: string;
+  icon: string;
+  explanation: string;
+  tone: "captcha" | "warning" | "danger" | "info" | "neutral";
+};
+
+export function getJobReasonMeta(job: AutopilotJobRow): ReasonMeta {
+  const ineligibility = String(job.ineligibilityReason || "").trim();
+  const category = String(job.reasonCategory || "").trim();
+  const text = `${ineligibility} ${category} ${job.ineligibilityDetail || ""} ${job.lastError || ""} ${job.skipReason || ""}`.toLowerCase();
+
+  // 1. CAPTCHA / Bot walls (Top priority for stacking)
+  if (
+    ineligibility === "BOT_PROTECTED_BOARD" ||
+    category === "BOT_PROTECTED_BOARD" ||
+    category === "Blocked by reCAPTCHA" ||
+    category === "Blocked by hCaptcha" ||
+    category === "Blocked by DataDome" ||
+    /captcha|recaptcha|hcaptcha|datadome|cloudflare|turnstile|bot protection|bot-protected/.test(text)
+  ) {
+    return {
+      key: "captcha",
+      label: "Blocked by CAPTCHA",
+      icon: "🛡️",
+      explanation: "Employer board requires human bot verification (reCAPTCHA, hCaptcha, or Turnstile). Use 'Autofill & open' to solve the challenge in your browser.",
+      tone: "captcha",
+    };
+  }
+
+  // 2. Cover Letter Required
+  if (/cover letter/.test(text)) {
+    return {
+      key: "cover-letter",
+      label: "Cover Letter Required",
+      icon: "📝",
+      explanation: "Application form mandates a tailored cover letter before submission.",
+      tone: "warning",
+    };
+  }
+
+  // 3. Screening Questions Needed / Form Field Unfilled
+  if (
+    category.includes("Required field left blank") ||
+    ineligibility === "REQUIRES_UNAVAILABLE_INFORMATION" ||
+    (job.pendingQuestions && job.pendingQuestions.length > 0) ||
+    /dom verification mismatch|required field|unfilled field/.test(text)
+  ) {
+    return {
+      key: "questions",
+      label: "Screening Questions Needed",
+      icon: "❓",
+      explanation: "Application requires candidate confirmation or custom screening question answers.",
+      tone: "warning",
+    };
+  }
+
+  // 4. Must Apply By Hand / No Online Form
+  if (
+    ineligibility === "MANUAL_APPLICATION_REQUIRED" ||
+    category.includes("No application form") ||
+    /no application form|apply by email|external portal/.test(text)
+  ) {
+    return {
+      key: "manual-form",
+      label: "Must Apply By Hand",
+      icon: "✍️",
+      explanation: "No direct web form on the posting page (email-only application or unsupported external ATS).",
+      tone: "info",
+    };
+  }
+
+  // 5. Posting Expired / Removed
+  if (
+    ineligibility === "POSTING_EXPIRED" ||
+    ineligibility === "NOT_A_REAL_POSTING" ||
+    category.includes("Posting expired") ||
+    /expired|removed by the employer|unlisted|expired link/.test(text)
+  ) {
+    return {
+      key: "expired",
+      label: "Posting Expired / Removed",
+      icon: "⌛",
+      explanation: "Job posting has closed, expired, or was removed by the employer.",
+      tone: "danger",
+    };
+  }
+
+  // 6. U.S. Citizenship / Clearance
+  if (ineligibility === "REQUIRES_US_CITIZENSHIP" || /citizenship|clearance|polygraph|ts\/sci/.test(text)) {
+    return {
+      key: "citizenship",
+      label: "Requires U.S. Citizenship",
+      icon: "🇺🇸",
+      explanation: "Position requires U.S. citizenship or federal government security clearance.",
+      tone: "danger",
+    };
+  }
+
+  // 7. No Visa Sponsorship
+  if (ineligibility === "NO_VISA_SPONSORSHIP" || /no sponsorship|does not sponsor/.test(text)) {
+    return {
+      key: "visa",
+      label: "No Visa Sponsorship",
+      icon: "🚫",
+      explanation: "Employer states they do not sponsor work visas for this role.",
+      tone: "danger",
+    };
+  }
+
+  // 8. Outside U.S.
+  if (ineligibility === "OUTSIDE_UNITED_STATES" || /outside the united states/.test(text)) {
+    return {
+      key: "location",
+      label: "Outside United States",
+      icon: "🌍",
+      explanation: "Role is located outside the United States.",
+      tone: "neutral",
+    };
+  }
+
+  // 9. Duplicate Application
+  if (ineligibility === "DUPLICATE_APPLICATION" || job.duplicateSubmission || /already applied/.test(text)) {
+    return {
+      key: "duplicate",
+      label: "Already Applied",
+      icon: "📋",
+      explanation: "An application has already been submitted for this company and position.",
+      tone: "neutral",
+    };
+  }
+
+  // 10. Low Match Score
+  if (/match score stayed below/.test(text)) {
+    return {
+      key: "score",
+      label: "Match Score Below Threshold",
+      icon: "📊",
+      explanation: "Match score remained below the required submission threshold.",
+      tone: "neutral",
+    };
+  }
+
+  // 11. Timeout / Browser Error
+  if (/timeout|timed out|frame was detached|closed mid-run/.test(text)) {
+    return {
+      key: "timeout",
+      label: "Browser Timeout",
+      icon: "⚠️",
+      explanation: "Automation encountered a page load or DOM interaction timeout.",
+      tone: "danger",
+    };
+  }
+
+  // 12. Fallback / Other
+  const fallbackLabel = category || (ineligibility ? (INELIGIBILITY_LABELS[ineligibility] || ineligibility) : (job.lastError || "Manual Review Needed"));
+  const cleanLabel = fallbackLabel.length > 40 ? fallbackLabel.slice(0, 37) + "…" : fallbackLabel;
+  return {
+    key: "other",
+    label: cleanLabel || "Other Reason",
+    icon: "📌",
+    explanation: job.lastError || job.ineligibilityDetail || "Requires manual inspection.",
+    tone: "neutral",
   };
 }
 

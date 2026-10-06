@@ -1041,6 +1041,7 @@ class AutopilotRunner:
                         "matchReasons": r.get("matchReasons", []),
                         "queuePriority": r.get("queuePriority", 0.0),
                         "location": r.get("location", ""),
+                        "datePosted": r.get("datePosted") or r.get("postingDate") or r.get("dateDiscovered") or r.get("createdAt") or "",
                         "discoveredAt": now_iso(),
                         "queuedAt": now_iso(),
                     })

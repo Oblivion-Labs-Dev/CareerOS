@@ -367,7 +367,7 @@
     "category": "Candidate Screening Answers",
     "fieldType": "text",
     "options": [],
-    "proposed_answer": "Seattle, WA",
+    "proposed_answer": "1000 2nd Ave, Seattle, WA 98101",
     "occurrences": 1,
     "companies": [
       "Zuora"
@@ -426,7 +426,7 @@
     "category": "Candidate Screening Answers",
     "fieldType": "text",
     "options": [],
-    "proposed_answer": "I'm most proud of building an agentic AI risk-investigation platform at Microsoft. It brought together RAG, MCP, and enterprise security signals so investigators could ask questions and get grounded answers from large amounts of risk data. I enjoyed it because it combined distributed systems, retrieval, AI, and security into a problem with real customer impact.",
+    "proposed_answer": "1000 2nd Ave",
     "occurrences": 1,
     "companies": [
       "Netdocuments"
@@ -527,7 +527,7 @@
     "category": "Candidate Screening Answers",
     "fieldType": "text",
     "options": [],
-    "proposed_answer": "Yes",
+    "proposed_answer": "1000 2nd Ave",
     "occurrences": 1,
     "companies": [
       "Tailscale"

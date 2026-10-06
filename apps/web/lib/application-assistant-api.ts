@@ -376,7 +376,7 @@ export interface AutopilotJobsPageParams {
   ats?: string;
   /** Reason category from reasonCounts, e.g. "POSTING_EXPIRED" or "Blocked by reCAPTCHA". */
   reason?: string;
-  sortBy?: "matchScore" | "submittedAt" | "updatedAt" | "priority" | "company";
+  sortBy?: "matchScore" | "submittedAt" | "updatedAt" | "priority" | "company" | "recent" | "datePosted";
   sortDir?: "asc" | "desc";
   limit?: number;
   offset?: number;

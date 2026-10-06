@@ -271,6 +271,7 @@ Write-Host ('  LLM:  ' + $env:APPLICATION_ASSISTANT_LLM_BASE_URL + ' (' + $env:A
 
 # Same switch the API reads: with the local model off, nothing may call it,
 # so Ollama is not started either.
+$env:CAREEROS_LOCAL_LLM = 'off'
 $localLlmOff = @('off', '0', 'false', 'no') -contains ("$env:CAREEROS_LOCAL_LLM".Trim().ToLower())
 if ($localLlmOff) {
     Write-Host '  Ollama: not started (CAREEROS_LOCAL_LLM=off)' -ForegroundColor DarkGray
