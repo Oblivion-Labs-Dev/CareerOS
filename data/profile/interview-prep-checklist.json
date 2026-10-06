@@ -1,0 +1,234 @@
+{
+  "title": "Interview prep from the prepared resume",
+  "basis": "Built from the claims on the prepared resume, as recorded in data/resume-corpus-initial.json. A number marked needs-evidence is on the page and still needs a source you can say out loud.",
+  "sections": [
+    {
+      "id": "before",
+      "title": "Before the interview",
+      "items": [
+        {
+          "id": "before-one-story-each",
+          "text": "Pick one Microsoft story and one Amazon story you can tell for four minutes without notes.",
+          "detail": "Use Adaptive Protection or historical enrichment for Microsoft. Use the replay platform or CloudWatch cost cut for Amazon. Everything else is a backup."
+        },
+        {
+          "id": "before-numbers",
+          "text": "Write the source for every number in the Numbers section before you say it.",
+          "detail": "The corpus still marks these needs-evidence. If you cannot name the dashboard, doc, or review that produced the figure, leave it out."
+        },
+        {
+          "id": "before-ownership",
+          "text": "For each story, decide the sentence that starts with what you did, not what the team did.",
+          "detail": "Interviewers will ask where your work stopped and someone else's started. Have that boundary ready for Purview, Step Functions, and the SageMaker sales claim."
+        },
+        {
+          "id": "before-diagram",
+          "text": "Sketch one diagram you can redraw on a whiteboard: ingestion, decision, and what happens when it fails.",
+          "detail": "Best fit is the isolated AI-agent ingestion path, or the Step Functions replay that replaced cron."
+        },
+        {
+          "id": "before-resume-copy",
+          "text": "Keep the prepared resume next to you. Do not describe work that is not on it.",
+          "detail": "Personal projects stay personal projects. Do not fold LeetDesign, FinanceOS, Arsenal, or InvisibleLoops into Microsoft or Amazon."
+        }
+      ]
+    },
+    {
+      "id": "microsoft",
+      "title": "Microsoft — be ready to explain",
+      "items": [
+        {
+          "id": "ms-adaptive",
+          "text": "Adaptive Protection: tenant-configurable detection for 237K AI agents across 13K organizations.",
+          "detail": "Walk the detection pipeline, the policy engine, where state lives, the event flow, and what happens when evaluation fails. Both numbers need a source."
+        },
+        {
+          "id": "ms-history",
+          "text": "Historical enrichment: 90 days of audit history across 40+ forests for a newly onboarded agent.",
+          "detail": "Explain replay, ordering, deduplication, consistency, and how the backfill runs in parallel without double-counting risk."
+        },
+        {
+          "id": "ms-sovereign",
+          "text": "Sovereign rollout: feature parity across Commercial, GCC, GCCH, and DoD.",
+          "detail": "Cover how a change is flagged, how data stays in-region, how CI/CD differs per cloud, and the rollout order."
+        },
+        {
+          "id": "ms-ingestion",
+          "text": "Isolated AI-agent ingestion: 28 Azure regions, 135K+ security signals a day, separate from human-user processing.",
+          "detail": "Explain partitioning, the event model, how you held throughput, and the retry path that cannot spill into the human pipeline."
+        },
+        {
+          "id": "ms-correlation",
+          "text": "Risk correlation across Graph, Entra, Defender, Sentinel, and Purview.",
+          "detail": "Say whether correlation is rules, a graph, or a score, and what a false positive costs the tenant."
+        }
+      ]
+    },
+    {
+      "id": "amazon",
+      "title": "Amazon — be ready to explain",
+      "items": [
+        {
+          "id": "amzn-bootstrap",
+          "text": "Bootstrap platform: reusable microservice foundation, an estimated 40–50 engineering weeks saved.",
+          "detail": "Name the adopting teams and repositories. 'Estimated' will get challenged. Say how the estimate was made."
+        },
+        {
+          "id": "amzn-replay",
+          "text": "Replay platform: Step Functions replaced cron, 200K+ replays a day across North America, Europe, and the Far East.",
+          "detail": "Why Step Functions, how retries work, where idempotency lives, and how a partial replay is safe."
+        },
+        {
+          "id": "amzn-logs",
+          "text": "Runtime log API: change log level without a redeploy, incident resolution shorter by more than an hour.",
+          "detail": "Cover who is allowed to change a level, how the call is authenticated, and how the change is audited."
+        },
+        {
+          "id": "amzn-sagemaker-sales",
+          "text": "SageMaker on warehouse, transportation, inventory, and operational signals, tied to a 7% increase in global sales.",
+          "detail": "Say what you owned versus the science team, the inference path, and why the 7% is attributable to this work. If you cannot, do not say the 7%."
+        },
+        {
+          "id": "amzn-localization",
+          "text": "Bedrock and RAG localization: 37 templates, 28 locales, compliance-grounded.",
+          "detail": "Explain the prompt shape, what gets validated before publish, and how you evaluated quality per locale."
+        },
+        {
+          "id": "amzn-xgboost",
+          "text": "XGBoost for earlier recovery, customer notification, and alternate-seller recommendations.",
+          "detail": "Features you used, where inference runs, and what a wrong recommendation does to the customer."
+        },
+        {
+          "id": "amzn-quantile",
+          "text": "SageMaker quantile regression associated with $28M annualized impact.",
+          "detail": "This is the number most likely to be probed. Be ready with the training pipeline, how it is deployed, and who signed the $28M. If the association is indirect, say that."
+        },
+        {
+          "id": "amzn-protocols",
+          "text": "One service layer hosting REST and gRPC for 16 microservices at 100K+ TPS.",
+          "detail": "Why both protocols, and what breaks first at that rate."
+        },
+        {
+          "id": "amzn-primeday",
+          "text": "Prime Day: 6M+ requests a day across 60+ services.",
+          "detail": "Your role in that number, what you watched, and any incident you prevented or did not."
+        },
+        {
+          "id": "amzn-jis",
+          "text": "Just-In-Stock: 16% more early delivery.",
+          "detail": "Traffic shape, the design, and how early delivery was measured."
+        },
+        {
+          "id": "amzn-ops-platform",
+          "text": "Operational platform that removed hours of manual engineering work.",
+          "detail": "Who used it, and how you know the hours went away."
+        },
+        {
+          "id": "amzn-docker",
+          "text": "Docker images 83% smaller, builds 50% faster, 60GB+ storage back.",
+          "detail": "What you removed or split, and the baseline you measured against."
+        },
+        {
+          "id": "amzn-restock",
+          "text": "Restock alerts: cancelled-ASIN sales up 13%.",
+          "detail": "Architecture, how you attributed the 13%, and the scale of the experiment."
+        },
+        {
+          "id": "amzn-cloudwatch",
+          "text": "CloudWatch spend down by more than $250K a month.",
+          "detail": "What you changed: retention, cardinality, log level, or metric volume. Have the before and after bill."
+        },
+        {
+          "id": "amzn-sim",
+          "text": "Simulation platform: 2–3 engineering hours saved per request.",
+          "detail": "Who requested simulations, and the path a request takes."
+        },
+        {
+          "id": "amzn-sev2",
+          "text": "Operational reviews tied to a 60% drop in Sev2 incidents.",
+          "detail": "The review agenda, the window you measured, and what else changed in that window."
+        },
+        {
+          "id": "amzn-tier1",
+          "text": "Tier-1 readiness: CI/CD, canaries, Multi-AZ, and fault injection.",
+          "detail": "What you automated, what reliability moved, and what you personally owned versus the wider org."
+        }
+      ]
+    },
+    {
+      "id": "numbers",
+      "title": "Numbers to source before you repeat them",
+      "items": [
+        { "id": "n-237k", "text": "237K AI agents and 13K organizations — Adaptive Protection.", "detail": "Needs a source you can name." },
+        { "id": "n-90d", "text": "90 days of history and 40+ forests — historical enrichment.", "detail": "Needs a source you can name." },
+        { "id": "n-28-regions", "text": "28 Azure regions and 135K+ signals a day — isolated ingestion.", "detail": "Needs a source you can name." },
+        { "id": "n-weeks", "text": "40–50 engineering weeks — bootstrap platform. It is an estimate.", "detail": "Say how it was estimated, or drop it." },
+        { "id": "n-200k", "text": "200K+ replays a day — Step Functions replay.", "detail": "Needs a source you can name." },
+        { "id": "n-1h", "text": "More than one hour faster incident resolution — runtime log API.", "detail": "Needs a source you can name." },
+        { "id": "n-7pct", "text": "7% global sales — SageMaker signals.", "detail": "Only say this if you can separate your work from the rest of the sales system." },
+        { "id": "n-37-28", "text": "37 templates and 28 locales — Bedrock localization.", "detail": "Needs a source you can name." },
+        { "id": "n-28m", "text": "$28M annualized — quantile regression.", "detail": "Highest-risk figure on the resume. Know who owns the number." },
+        { "id": "n-100k", "text": "16 microservices and 100K+ TPS — REST and gRPC layer.", "detail": "Needs a source you can name." },
+        { "id": "n-6m", "text": "6M+ requests a day and 60+ services — Prime Day.", "detail": "Be clear which slice was yours." },
+        { "id": "n-16", "text": "16% early delivery — Just-In-Stock.", "detail": "Needs the measurement method." },
+        { "id": "n-docker", "text": "83% smaller images, 50% faster builds, 60GB+ storage — Docker work.", "detail": "Needs the baseline." },
+        { "id": "n-13", "text": "13% cancelled-ASIN sales — restock alerts.", "detail": "Needs the attribution method." },
+        { "id": "n-250k", "text": "$250K+ a month — CloudWatch.", "detail": "Needs the before and after bill." },
+        { "id": "n-hours", "text": "2–3 hours per request — simulation platform.", "detail": "Needs who was timed." },
+        { "id": "n-sev2", "text": "60% fewer Sev2s — operational reviews.", "detail": "Needs the time window and what else changed." }
+      ]
+    },
+    {
+      "id": "do-not-claim",
+      "title": "Do not claim these",
+      "items": [
+        {
+          "id": "no-k8s",
+          "text": "Do not say you have production Kubernetes.",
+          "detail": "The resume's container work is ECS, App Mesh, and Envoy, plus Docker image cuts. If they ask, say that. Kubernetes is the common gap in the job index, and inventing it will not survive the screen."
+        },
+        {
+          "id": "no-padding",
+          "text": "Do not add TypeScript, Terraform, Rust, Kotlin, Snowflake, Flink, or React as experience unless you have a story from the resume.",
+          "detail": "Those show up often in postings and are not carried by the prepared resume."
+        },
+        {
+          "id": "no-projects-as-jobs",
+          "text": "Do not describe LeetDesign, FinanceOS, Arsenal, or InvisibleLoops as employer work.",
+          "detail": "Each is a personal project and still missing an interview story. Mention one only if they ask what you build on your own, and label it as personal."
+        }
+      ]
+    },
+    {
+      "id": "projects",
+      "title": "Personal projects — only if they ask",
+      "items": [
+        { "id": "p-leet", "text": "LeetDesign: a distributed-systems simulator.", "detail": "Have the architecture and one tradeoff. There is no interview story written yet." },
+        { "id": "p-finance", "text": "FinanceOS: deterministic processing with an LLM beside it, not instead of it.", "detail": "Explain why the numbers stay deterministic and how you evaluate the model." },
+        { "id": "p-arsenal", "text": "Arsenal: scaffolding, repository intelligence, token-efficient workflows.", "detail": "Have one adoption or usage fact, or keep it to a sentence." },
+        { "id": "p-loops", "text": "InvisibleLoops: a knowledge graph of decisions.", "detail": "State the problem it is for before the graph." }
+      ]
+    },
+    {
+      "id": "after",
+      "title": "After the interview",
+      "items": [
+        {
+          "id": "after-note",
+          "text": "Send a short note the same day that names one story you actually discussed.",
+          "detail": "Quote their question and your example. Do not attach a new claim that was not on the resume."
+        },
+        {
+          "id": "after-gap",
+          "text": "Write down any question you could not answer from the resume.",
+          "detail": "That gap belongs in the corpus as missing evidence, not as a line you add to the resume later."
+        },
+        {
+          "id": "after-number",
+          "text": "If you stated a number and they asked for the source, record whether you had it.",
+          "detail": "If you did not, mark that metric unverified and stop using it until you do."
+        }
+      ]
+    }
+  ]
+}

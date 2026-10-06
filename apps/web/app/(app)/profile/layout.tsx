@@ -9,6 +9,7 @@ export default function ProfileLayout({ children }: { children: React.ReactNode 
   return <>
     <nav className={styles.tabs} aria-label="Profile and resume">
       <Link href="/profile" aria-current={pathname === "/profile" ? "page" : undefined}>Profile & documents</Link>
+      <Link href="/profile/interview-prep" aria-current={pathname.startsWith("/profile/interview-prep") ? "page" : undefined}>Interview prep</Link>
       <Link href="/profile/resume-studio" aria-current={pathname.startsWith("/profile/resume-studio") ? "page" : undefined}>Resume Studio <span>NEW</span></Link>
     </nav>
     {children}
