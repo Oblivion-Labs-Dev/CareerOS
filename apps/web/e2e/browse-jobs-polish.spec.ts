@@ -41,3 +41,46 @@ test("browse cards, search, selection and responsive themes",async({page})=>{
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1)).toBe(true);
   await first.screenshot({path:"test-results/browse-card-mobile.png"});
 });
+
+test("HN Hiring page scopes discovery to Hacker News", async ({ page }) => {
+  let requestedSource = "";
+  await page.route("**/api/backend/jobs/discover**", async (route) => {
+    const url = new URL(route.request().url());
+    if (url.pathname.endsWith("/filter-options")) return route.fulfill({ json: { titles: [], companies: [], specialties: [], seniorities: [], workModes: [], experience: [] } });
+    if (url.pathname.endsWith("/locations")) return route.fulfill({ json: { locations: [] } });
+    if (url.pathname.endsWith("/status")) return route.fulfill({ json: { success: true, running: false } });
+    if (!url.pathname.endsWith("/jobs/discover")) return route.continue();
+
+    requestedSource = url.searchParams.get("source") || "";
+    return route.fulfill({
+      json: {
+        success: true,
+        total: 1,
+        indexedTotal: 1,
+        indexedCompanies: 1,
+        page: 1,
+        perPage: 30,
+        totalPages: 1,
+        jobs: [{
+          id: "hn:123",
+          companyName: "Acme AI",
+          title: "Senior Platform Engineer",
+          location: "Remote",
+          url: "https://news.ycombinator.com/item?id=123",
+          relevancyScore: 88,
+          color: "green",
+          source: "hackernews",
+          sourceType: "community",
+          discoverySources: ["hackernews"],
+          keywordsMatched: ["Python"],
+          freshness: { label: "Listed today", hours_ago: 1 },
+        }],
+      },
+    });
+  });
+
+  await page.goto("/jobs/hacker-news");
+  await expect(page.getByRole("heading", { name: "HN Hiring", exact: true })).toBeVisible();
+  await expect(page.locator('article[data-job-id="hn:123"]')).toBeVisible();
+  expect(requestedSource).toBe("hackernews");
+});

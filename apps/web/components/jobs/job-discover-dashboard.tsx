@@ -154,7 +154,19 @@ function formatLocationOption(label: string, count: number) {
   return `${short} (${count.toLocaleString()})`;
 }
 
-export function JobDiscoverDashboard() {
+export type JobDiscoverDashboardProps = {
+  /** Fixed source scope for specialized discovery pages such as HN Hiring. */
+  sourceFilter?: string;
+  /** Route to preserve when filters are synchronized to the URL. */
+  pagePath?: string;
+  pageTitle?: string;
+};
+
+export function JobDiscoverDashboard({
+  sourceFilter = "",
+  pagePath = "/jobs/discover",
+  pageTitle = "Browse jobs",
+}: JobDiscoverDashboardProps = {}) {
   const searchParams = useSearchParams();
   const router = useRouter();
   const { prefs, updatePrefs, snapshot, refresh: refreshWorkspace } = useCareerWorkspace();
@@ -225,6 +237,7 @@ export function JobDiscoverDashboard() {
   const [batchImporting, setBatchImporting] = useState(false);
   const [batchProgress, setBatchProgress] = useState("");
   const postRescoringRef = useRef(false);
+  const activeSource = sourceFilter || searchParams.get("source") || "";
 
   function toggleSelectJob(jobId: string) {
     setSelectedJobIds((prev) => {
@@ -394,10 +407,10 @@ export function JobDiscoverDashboard() {
       if(sponsorship!=="all")params.set("sponsorship",sponsorship);
       if(sort!=="relevancy")params.set("sort",sort);
       const qs = params.toString();
-      const target = qs ? `/jobs/discover?${qs}` : "/jobs/discover";
+      const target = qs ? `${pagePath}?${qs}` : pagePath;
       if(window.location.pathname + window.location.search !== target) router.replace(target, { scroll: false });
     },
-    [q, location, role, freshness, router, facets, company, sponsorship, sort],
+    [q, location, role, freshness, router, facets, company, sponsorship, sort, pagePath],
   );
 
   useEffect(() => {
@@ -443,12 +456,13 @@ export function JobDiscoverDashboard() {
   }, []);
 
   useEffect(() => {
-    void loadGlobalStats();
+    if (!sourceFilter) void loadGlobalStats();
     void loadLocationOptions();
     void loadAssistantSyncStatus();
-  }, [loadGlobalStats, loadLocationOptions, loadAssistantSyncStatus]);
+  }, [loadGlobalStats, loadLocationOptions, loadAssistantSyncStatus, sourceFilter]);
 
   useEffect(() => {
+    if (sourceFilter) return;
     const cached = readDiscoverCache();
     if (!cached?.jobs.length) return;
     setData({
@@ -464,7 +478,7 @@ export function JobDiscoverDashboard() {
     if (isDiscoverCacheFresh()) {
       skipInitialFetch.current = true;
     }
-  }, []);
+  }, [sourceFilter]);
 
   const requestVersion = useRef(0);
   const loadJobs = useCallback(async () => {
@@ -476,6 +490,7 @@ export function JobDiscoverDashboard() {
       company,
       location,
       role: "",
+      source: activeSource,
       specialties:facets.specialties.join(","),
       seniorities:facets.seniorities.join(","),
       work_modes:facets.workModes.join(","),
@@ -499,7 +514,7 @@ export function JobDiscoverDashboard() {
         setScraping(true);
         setScrapeMsg(payload.status.progress || payload.status.lastResult || "Running…");
       }
-      if (payload.jobs.length || payload.total) {
+      if (!sourceFilter && (payload.jobs.length || payload.total)) {
         writeDiscoverCache({
           jobs: payload.jobs,
           total: payload.total,
@@ -510,7 +525,7 @@ export function JobDiscoverDashboard() {
     } catch {
       if(version !== requestVersion.current) return;
       const cached = readDiscoverCache();
-      if (cached?.jobs.length) {
+      if (!sourceFilter && cached?.jobs.length) {
         setData({
           success: true,
           jobs: cached.jobs as DiscoverJob[],
@@ -529,7 +544,7 @@ export function JobDiscoverDashboard() {
     } finally {
       if(version === requestVersion.current) setLoading(false);
     }
-  }, [q, company, location, role, freshness, sponsorship, sort, page, facets]);
+  }, [q, company, location, role, freshness, sponsorship, sort, page, facets, activeSource, sourceFilter]);
 
   useEffect(() => {
     if (skipInitialFetch.current) {
@@ -658,6 +673,14 @@ export function JobDiscoverDashboard() {
   }, [qwenRescoring, loadJobs]);
 
   const stats = useMemo(() => {
+    if (sourceFilter) {
+      const jobs = data?.jobs ?? [];
+      return {
+        strong: jobs.filter((job) => (job.relevancyScore ?? 0) >= 75).length,
+        moderate: jobs.filter((job) => (job.relevancyScore ?? 0) >= 50 && (job.relevancyScore ?? 0) < 75).length,
+        fresh: jobs.filter((job) => (job.freshness?.hours_ago ?? 999) <= 48).length,
+      };
+    }
     if (scraping && liveCounts) {
       return {
         strong: liveCounts.strong,
@@ -678,11 +701,11 @@ export function JobDiscoverDashboard() {
       moderate: jobs.filter((job) => (job.relevancyScore ?? 0) >= 50 && (job.relevancyScore ?? 0) < 75).length,
       fresh: jobs.filter((job) => (job.freshness?.hours_ago ?? 999) <= 48).length,
     };
-  }, [scraping, liveCounts, globalStats, data?.jobs]);
+  }, [scraping, liveCounts, globalStats, data?.jobs, sourceFilter]);
 
-  const globalIndexed = globalStats?.totalJobs ?? data?.indexedTotal ?? liveCounts?.indexed ?? 0;
   const filteredTotal = data?.total ?? 0;
-  const assistantTotal = Math.max(data?.assistantTotal ?? 0, syncedAssistantTotal);
+  const globalIndexed = sourceFilter ? filteredTotal : globalStats?.totalJobs ?? data?.indexedTotal ?? liveCounts?.indexed ?? 0;
+  const assistantTotal = sourceFilter ? 0 : Math.max(data?.assistantTotal ?? 0, syncedAssistantTotal);
   const perPage = data?.perPage ?? 30;
   const filtersActive = Boolean(facets.specialties.length || facets.seniorities.length || facets.workModes.length || facets.experience || facets.companies.length || q || company || location || role || freshness !== "all" || sponsorship !== "all");
   const triageFiltersActive = atsFilter !== "all" || seniorityFilter !== "all" || maxAgeDays !== "all";
@@ -691,8 +714,10 @@ export function JobDiscoverDashboard() {
   const filterVeryNarrow =
     !scraping && !loading && filtersActive && globalIndexed > 100 && filteredTotal > 0 && filteredTotal <= 30;
   const allInAssistant = !loading && !scraping && filteredTotal === 0 && assistantTotal > 0 && !filtersActive;
-  const headerIndexed = scraping && liveCounts ? liveCounts.indexed : globalIndexed;
-  const headerCompanies = scraping && liveCounts ? liveCounts.companies : globalStats?.indexedCompanies ?? data?.indexedCompanies ?? 0;
+  const headerIndexed = sourceFilter ? filteredTotal : scraping && liveCounts ? liveCounts.indexed : globalIndexed;
+  const headerCompanies = sourceFilter
+    ? data?.indexedCompanies ?? 0
+    : scraping && liveCounts ? liveCounts.companies : globalStats?.indexedCompanies ?? data?.indexedCompanies ?? 0;
 
   function removeJobFromList(jobId: string, queued = false) {
     setData((prev) => {
@@ -1203,7 +1228,7 @@ export function JobDiscoverDashboard() {
 
   return (
     <div className={`${styles.browse} target-jobs-dashboard job-discover-dashboard${scraping ? " job-discover-dashboard--scraping" : ""}`}>
-      <header className={styles.pageHeader}><div><h1>Browse jobs</h1></div><a href="/applications?tab=queued">Open Autopilot queue ↗</a></header>
+      <header className={styles.pageHeader}><div><h1>{pageTitle}</h1></div><a href="/applications?tab=queued">Open Autopilot queue ↗</a></header>
       <section className="workflow-panel">
         <div className="dashboard-panel-header">
           <div>
@@ -1220,7 +1245,7 @@ export function JobDiscoverDashboard() {
               ) : null}
             </h2>
             <p className="muted" style={{ marginTop: "0.35rem" }}>
-              Last scraped: {formatRefreshed(globalStats?.scrapedAt ?? data?.scrapedAt)} · {headerCompanies} companies · max 30 days
+              Last scraped: {formatRefreshed(globalStats?.scrapedAt ?? data?.scrapedAt)} · {sourceFilter ? "Hacker News source" : `${headerCompanies} companies · max 30 days`}
               {!scraping && assistantTotal > 0 ? ` · ${assistantTotal.toLocaleString()} in AI Assistant` : ""}
               {!scraping && globalIndexed > 0 ? ` · ${globalIndexed.toLocaleString()} indexed total` : ""}
               {scraping && filteredTotal > 0 ? ` · ${filteredTotal.toLocaleString()} match filters` : ""}
