@@ -1,0 +1,356 @@
+/* Stacked Application Group - Visual Card Deck for Reason Grouping */
+
+.stackContainer {
+  margin-bottom: 2rem;
+  background: var(--surface-1, #13171f);
+  border: 1px solid var(--card-edge, var(--border));
+  border-radius: var(--radius-lg, 12px);
+  padding: 1.25rem;
+  box-shadow: var(--elev-1, 0 2px 8px rgba(0, 0, 0, 0.2));
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.stackContainer:hover {
+  border-color: color-mix(in srgb, var(--border) 80%, var(--accent));
+  box-shadow: var(--elev-2, 0 4px 16px rgba(0, 0, 0, 0.3));
+}
+
+.stackContainer[data-tone="captcha"] {
+  border-top: 3px solid #f59e0b;
+  background: radial-gradient(ellipse at 0 0, rgba(245, 158, 11, 0.06), transparent 70%), var(--surface-1, #13171f);
+}
+
+.stackContainer[data-tone="warning"] {
+  border-top: 3px solid var(--warning, #eab308);
+  background: radial-gradient(ellipse at 0 0, rgba(234, 179, 8, 0.05), transparent 70%), var(--surface-1, #13171f);
+}
+
+.stackContainer[data-tone="danger"] {
+  border-top: 3px solid var(--danger, #ef4444);
+  background: radial-gradient(ellipse at 0 0, rgba(239, 68, 68, 0.05), transparent 70%), var(--surface-1, #13171f);
+}
+
+.stackContainer[data-tone="info"] {
+  border-top: 3px solid var(--accent, #38bdf8);
+  background: radial-gradient(ellipse at 0 0, rgba(56, 189, 248, 0.05), transparent 70%), var(--surface-1, #13171f);
+}
+
+.stackContainer[data-tone="neutral"] {
+  border-top: 3px solid var(--muted, #64748b);
+}
+
+/* Header */
+.stackHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.stackMeta {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+.stackTitleRow {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+}
+
+.stackIcon {
+  font-size: 1.35rem;
+  line-height: 1;
+}
+
+.stackTitle {
+  margin: 0;
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: var(--text, #f8fafc);
+  letter-spacing: -0.01em;
+}
+
+.stackCountPill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.2rem 0.65rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  background: color-mix(in srgb, var(--accent) 15%, var(--card));
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+  color: var(--accent, #38bdf8);
+}
+
+.stackContainer[data-tone="captcha"] .stackCountPill {
+  background: rgba(245, 158, 11, 0.15);
+  border-color: rgba(245, 158, 11, 0.35);
+  color: #fbbf24;
+}
+
+.stackContainer[data-tone="danger"] .stackCountPill {
+  background: rgba(239, 68, 68, 0.15);
+  border-color: rgba(239, 68, 68, 0.35);
+  color: #f87171;
+}
+
+.stackExplanation {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--muted, #94a3b8);
+  line-height: 1.45;
+  max-width: 60rem;
+}
+
+.stackActions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-shrink: 0;
+}
+
+.expandBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.45rem 0.85rem;
+  border-radius: var(--radius-sm, 6px);
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  background: color-mix(in srgb, var(--card) 90%, var(--border));
+  border: 1px solid var(--border);
+  color: var(--text);
+  transition: all 0.15s ease;
+}
+
+.expandBtn:hover {
+  background: color-mix(in srgb, var(--accent) 15%, var(--card));
+  border-color: var(--accent);
+  color: var(--accent);
+  transform: translateY(-1px);
+}
+
+/* Companies preview pills */
+.companyPillsRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  margin-bottom: 1.15rem;
+  padding-bottom: 0.85rem;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+}
+
+.companyPillsLabel {
+  font-size: 0.75rem;
+  color: var(--muted);
+  font-weight: 600;
+  margin-right: 0.2rem;
+}
+
+.companyChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.15rem 0.5rem;
+  border-radius: var(--radius-sm, 4px);
+  background: color-mix(in srgb, var(--surface-2, var(--card)) 85%, transparent);
+  border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+  font-size: 0.74rem;
+  color: var(--text);
+}
+
+.companyChipCount {
+  font-weight: 700;
+  color: var(--accent, #38bdf8);
+}
+
+.moreCompaniesChip {
+  font-size: 0.74rem;
+  color: var(--muted);
+  font-style: italic;
+  padding: 0.15rem 0.35rem;
+}
+
+/* 3D Stacked Deck Appearance */
+.deckWrapper {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  max-width: 28rem;
+  padding-bottom: 1.25rem;
+  padding-right: 1rem;
+}
+
+.deckLayers {
+  position: relative;
+  width: 100%;
+}
+
+/* Layer 1 (middle card in stack) */
+.layer1 {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  right: -6px;
+  bottom: -6px;
+  background: var(--surface-2, #1a202c);
+  border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  border-radius: var(--radius-md, 8px);
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.25);
+  z-index: 1;
+  pointer-events: none;
+  transition: transform 0.2s ease;
+}
+
+/* Layer 2 (bottom card in stack) */
+.layer2 {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  right: -12px;
+  bottom: -12px;
+  background: var(--surface-3, #151922);
+  border: 1px solid color-mix(in srgb, var(--border) 40%, transparent);
+  border-radius: var(--radius-md, 8px);
+  box-shadow: 0 6px 14px rgba(0, 0, 0, 0.3);
+  z-index: 0;
+  pointer-events: none;
+  transition: transform 0.2s ease;
+}
+
+.deckWrapper:hover .layer1 {
+  transform: translate(2px, 2px);
+}
+
+.deckWrapper:hover .layer2 {
+  transform: translate(4px, 4px);
+}
+
+.topCardBox {
+  position: relative;
+  z-index: 2;
+}
+
+/* Stack Indicator Bar below top card */
+.deckControls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+  padding: 0.4rem 0.75rem;
+  border-radius: var(--radius-sm, 6px);
+  background: color-mix(in srgb, var(--surface-2, var(--card)) 60%, transparent);
+  border: 1px dashed color-mix(in srgb, var(--border) 80%, transparent);
+  font-size: 0.78rem;
+  color: var(--muted);
+  z-index: 2;
+}
+
+.cardStepper {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.stepBtn {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 4px;
+  width: 1.5rem;
+  height: 1.5rem;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  font-size: 0.75rem;
+  transition: background 0.15s;
+}
+
+.stepBtn:hover:not(:disabled) {
+  background: var(--surface-3, var(--card));
+  color: var(--accent);
+}
+
+.stepBtn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.stepperLabel {
+  font-variant-numeric: tabular-nums;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.expandLink {
+  color: var(--accent, #38bdf8);
+  font-weight: 600;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  font-size: 0.78rem;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.expandLink:hover {
+  color: color-mix(in srgb, var(--accent) 80%, #ffffff);
+}
+
+/* Expanded Grid */
+.expandedGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 1.25rem;
+  margin-top: 1rem;
+}
+
+/* View Mode Segmented Switch */
+.viewModeToggle {
+  display: inline-flex;
+  align-items: center;
+  background: var(--surface-2, #1a202c);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm, 6px);
+  padding: 2px;
+  gap: 2px;
+}
+
+.toggleBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.35rem 0.65rem;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.toggleBtn:hover {
+  color: var(--text);
+}
+
+.toggleBtnActive {
+  background: var(--card, #0f172a);
+  color: var(--accent, #38bdf8);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+}
