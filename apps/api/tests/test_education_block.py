@@ -82,3 +82,11 @@ class TestEducationResolution:
     def test_flat_profile_keys_still_answer_row_zero(self):
         flat = {"school": "Santa Clara University", "degree": "Master's Degree"}
         assert resolve_answer("School*", flat, field_id="school--0").answer == "Santa Clara University"
+
+    def test_school_typeahead_without_the_school_in_view_is_still_answered(self):
+        # Greenhouse's School combobox lists only the first few schools until
+        # you type; Coinbase went to review with School* empty (2026-10-06).
+        res = resolve_answer(
+            "School*", PROFILE, ["Abilene Christian University", "Adelphi University"], field_id="school--0",
+        )
+        assert res.answer == "Santa Clara University"

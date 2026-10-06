@@ -2279,15 +2279,17 @@ def _resolve_education_history(
     if not value:
         return
 
-    if opts:
-        matched = _match_option(opts, value)
-        if matched is None:
-            return
+    matched = _match_option(opts, value) if opts else None
+    if matched is not None:
         res.answer = matched
         res.resolution_method = PROFILE_OPTION_MAPPING
-    else:
+    elif not opts or kind == "school":
+        # A School combobox is a typeahead that shows only the first few of
+        # thousands of schools, so the profile value is typed in to search.
         res.answer = value
         res.resolution_method = PROFILE_EXACT
+    else:
+        return
     res.profile_key = f"education[{index}].{kind}"
     res.source_value = value
     res.confidence = 1.0
