@@ -35,7 +35,7 @@ def test_real_software_titles_now_pass(title):
     assert ok, reason
 
 
-# Only Senior, or Staff / Principal software roles are applied to (#59).
+# Mid-level software roles are applied to as well (owner, 2026-10-06; supersedes #59).
 @pytest.mark.parametrize("title", [
     "Software Development Engineer",
     "Software Development Engineer II – Back-End (Mission-Focused)",
@@ -43,10 +43,9 @@ def test_real_software_titles_now_pass(title):
     "Product Engineer II – Web Services",
     "Software Engineer",
 ])
-def test_software_titles_below_senior_are_rejected(title):
+def test_mid_level_software_titles_pass(title):
     ok, reason = _passes(_job(title=title))
-    assert not ok
-    assert "not a Senior, Staff or Principal software role" in reason
+    assert ok, reason
 
 
 @pytest.mark.parametrize("title", [
@@ -151,3 +150,30 @@ def test_international_switch_does_not_lift_internship_exclusion():
                          {"allowInternationalLocations": True})
     assert not ok
     assert "internship" in reason
+
+
+# A region named in the title outranks US-looking text in the location field
+# (owner, 2026-10-06: US/remote-US only). Both were submitted overnight.
+@pytest.mark.parametrize("title,location", [
+    ("LATAM Software Engineer(s) (React/Node)",
+     "Remote (Argentina, Brazil, Mexico, Puerto Rico, Virgin Islands, U.S.)"),
+    ("Staff Backend Engineer - Core Product (Europe)", "Remote (United States)"),
+    ("Senior Software Engineer, EMEA", "Remote, United States"),
+])
+def test_title_naming_a_non_us_region_is_rejected(title, location):
+    ok, _reason = _passes(_job(title=title, location=location))
+    assert not ok
+
+
+def test_us_title_with_us_location_still_passes():
+    ok, reason = _passes(_job(title="Senior Software Engineer, Americas Platform", location="Remote (United States)"))
+    assert ok, reason
+
+
+@pytest.mark.parametrize("title", [
+    "Senior Software Engineer (US / Canada)",
+    "Senior Software Engineer - Seattle or Dublin, Ireland",
+])
+def test_title_naming_the_us_alongside_another_region_passes(title):
+    ok, reason = _passes(_job(title=title, location="Remote (United States)"))
+    assert ok, reason

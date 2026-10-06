@@ -294,8 +294,37 @@ def _map_manifest_value_to_options(answer: str, opts: list[str]) -> str | None:
     return answer
 
 
+_BARE_YES_NO = ("yes", "no", "true", "false", "y", "n")
+
+
+def _manifest_entry_usable(item: dict[str, Any]) -> bool:
+    """Reject entries whose question/answer pairing cannot be right.
+
+    The manifest was captured from live forms, and two capture artefacts made it
+    answer real applications wrongly (2026-10-06): checkbox/radio "questions"
+    that are really option labels ("Male", "Asian", "I am a current employee" ->
+    "Yes"), and answers shifted onto the neighbouring field (essays answered
+    "Yes", "Former Employee" answered with a Kubernetes paragraph).
+    """
+    field_type = str(item.get("fieldType") or "").lower()
+    if field_type in ("checkbox", "radio"):
+        return False
+    answer = str(item.get("proposed_answer") or "").strip().lower()
+    # A yes/no question can still be captured as a textarea ("Do you have a
+    # close personal relationship with...?" -> "No"); only an essay prompt
+    # ("Describe...", "Which...") answered yes/no is a shifted answer.
+    question = str(item.get("question") or "").strip().lower()
+    if (
+        field_type == "textarea"
+        and answer in _BARE_YES_NO
+        and not re.match(r"(do|does|did|are|is|was|were|have|has|had|will|would|can|could)\b", question)
+    ):
+        return False
+    return True
+
+
 def _match_candidate_manifest_answer(question_text: str, options: list[str] | None = None) -> tuple[str, str] | None:
-    manifest = _load_candidate_manifest()
+    manifest = [item for item in _load_candidate_manifest() if _manifest_entry_usable(item)]
     if not manifest:
         return None
     opts = options or []
@@ -338,6 +367,10 @@ def _match_candidate_manifest_answer(question_text: str, options: list[str] | No
 
     if best_item and best_score >= 0.6:
         val = best_item.get("proposed_answer")
+        # A fuzzy match is a different question. A bare yes/no carried onto a
+        # free-text field is how "LinkedIn Profile" got "Yes" instead of a URL.
+        if not opts and str(val or "").strip().lower() in _BARE_YES_NO:
+            return None
         if val is not None and str(val).strip():
             matched_val = _map_manifest_value_to_options(str(val), opts)
             if matched_val is not None:
@@ -526,16 +559,6 @@ def _resolve_answer_impl(
             resolution.source_value = saved
             return resolution
 
-    manifest_match = _match_candidate_manifest_answer(question_text, opts)
-    if manifest_match:
-        mid, mval = manifest_match
-        resolution.answer = mval
-        resolution.resolution_method = CANDIDATE_MANIFEST
-        resolution.confidence = 1.0
-        resolution.profile_key = f"manifest.{mid}"
-        resolution.source_value = mval
-        return resolution
-
     # "What is your preferred office location?" is a pick-from-their-list
     # question, so no stored string can answer it — the valid answers differ per
     # posting. Resolve it positionally against the options actually offered:
@@ -616,6 +639,18 @@ def _resolve_answer_impl(
         resolver(resolution, profile, opts)
     else:
         _resolve_unknown(resolution, profile, opts)
+
+    # The candidate answers manifest only fills what the profile could not
+    # answer: on a factual field the profile wins (owner, 2026-10-06).
+    if not resolution.answer:
+        manifest_match = _match_candidate_manifest_answer(question_text, opts)
+        if manifest_match:
+            mid, mval = manifest_match
+            resolution.answer = mval
+            resolution.resolution_method = CANDIDATE_MANIFEST
+            resolution.confidence = 1.0
+            resolution.profile_key = f"manifest.{mid}"
+            resolution.source_value = mval
 
     return resolution
 

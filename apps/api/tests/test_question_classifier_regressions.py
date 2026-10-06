@@ -268,3 +268,20 @@ def test_runzero_primary_coding_language():
     assert res.answer == "Python"
 
 
+
+
+def test_netdocuments_previously_been_an_employee():
+    q = "Have you previously been an employee of NetDocuments?*"
+    assert _t(q) == QuestionType.COMPANY_HISTORY
+    from app.services.application_assistant.profile_answer_resolver import resolve_answer
+    res = resolve_answer(q, {}, ["Yes", "No"])
+    assert res.answer == "No"
+
+
+def test_smartasset_live_within_united_states_requirement():
+    q = ("SmartAsset is only able to employ individuals who live within the United States. "
+         "Are you able to meet this requirement?*")
+    assert _t(q) == QuestionType.LOCATION_CONFIRMATION
+    from app.services.application_assistant.profile_answer_resolver import resolve_answer
+    res = resolve_answer(q, {}, ["Yes", "No"])
+    assert res.answer == "Yes"

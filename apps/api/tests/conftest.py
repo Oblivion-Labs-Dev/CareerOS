@@ -85,3 +85,17 @@ def initialize_database() -> None:
         else:
             os.environ[key] = previous
     shutil.rmtree(_TEST_STATE_DIR, ignore_errors=True)
+
+
+@pytest.fixture(autouse=True)
+def isolate_candidate_manifest(request, monkeypatch):
+    """Keep the owner's real data/candidate_answers_manifest.json out of tests.
+
+    Its answers are personal data, so without this a resolver test's outcome
+    depends on whatever that file currently says. Tests about the manifest
+    itself opt back in with the `real_candidate_manifest` marker.
+    """
+    from app.services.application_assistant import profile_answer_resolver
+
+    real = request.node.get_closest_marker("real_candidate_manifest") is not None
+    monkeypatch.setattr(profile_answer_resolver, "_MANIFEST_CACHE", None if real else [])

@@ -716,6 +716,19 @@ def evaluate_hard_filters(
         if names_non_us and not strong_us and not allow_international:
             return False, f"Location '{job.get('location')}' is outside the United States"
 
+        # A region in the title is the employer saying who the role is for, and
+        # it outranks US-looking location text: "LATAM Software Engineer" listed
+        # "Virgin Islands, U.S." and "Core Product (Europe)" listed "Remote
+        # (United States)", and both were applied to.
+        title_region = re.search(
+            r"\b(latam|latin america|europe|emea|apac|canada|uk|united kingdom|india|"
+            r"mexico|brazil|germany|poland|ireland|australia|singapore|japan)\b",
+            title_lower,
+        )
+        title_names_us = bool(title_tokens & {"us", "usa"}) or any(ind in title_lower for ind in us_indicators)
+        if title_region and not title_names_us and not allow_international:
+            return False, f"Title '{job.get('title')}' is for {title_region.group(1).upper()}, not the United States"
+
         if job_loc and not names_non_us and not allow_international:
             has_us_marker = strong_us or weak_us or "remote" in job_loc or bool(ambiguous_location.search(job_loc))
             if not has_us_marker:

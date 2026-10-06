@@ -547,6 +547,9 @@ _CLASSIFICATION_RULES: list[tuple[QuestionType, list[str]]] = [
         r"do\s+you\s+(currently\s+|permanently\s+)?reside\s+(in|within)",
         r"(permanently|currently)\s+reside\s+(in|within)",
         r"do\s+you\s+(currently\s+)?live\s+(in|within)\s+the\s+(united\s+states|u\.?s\.?a? )",
+        # SmartAsset: "...only able to employ individuals who live within the
+        # United States. Are you able to meet this requirement?"
+        r"\blive\s+within\s+the\s+united\s+states",
         r"are\s+you\s+(currently\s+)?(a\s+)?(united\s+states|u\.?s\.?)\s+resident",
         r"are\s+you\s+(currently\s+)?(a\s+)?resident\s+of\s+(the\s+)?(united\s+states|u\.?s\.?)",
         # Compound office-location questions ("...based in SF/NYC and willing
@@ -857,6 +860,8 @@ _CLASSIFICATION_RULES: list[tuple[QuestionType, list[str]]] = [
         # through to human review instead.
         r"previously\s*(worked|employed|consulted|been\s+employed)",
         r"previously\s+been\s+employed",
+        # NetDocuments: "Have you previously been an employee of X?"
+        r"(previously|ever)\s+been\s+an?\s+employee\s+(of|at|with)",
         r"worked\s+at\s+or\s+consulted",
         r"prior\s+employment",
         r"employment\s+history",

@@ -4142,3 +4142,111 @@ review, 57 in needs-review, 27 still queued waiting to fail the same way.
 *applyable* URL, and the measurement that mattered ("does every row carry an employer link?")
 was taken on too narrow a sample to generalise. The remaining 171 recent NEEDS_REVIEW are the
 separate, pre-existing `circuit_open` ambiguous-match bucket, not this.
+
+---
+
+## 2026-10-06 08:45 UTC — Run halted: Greenhouse security-code gate with no Gmail credentials
+
+**Found the dev server down** (last process died ~08:20 UTC) and restarted it. Run
+`aprun_37951b93` was left `RUNNING` with no worker and a stale heartbeat after 45 processed:
+**0 SUBMITTED, 19 SUBMISSION_UNKNOWN, 15 MANUAL_REVIEW (captcha), 4 SKIPPED.**
+
+**Cause.** 18 of the 19 unknowns are Greenhouse postings that showed the "verification code was
+sent to … enter the 8-character code" step after the submit click. The interceptor logged
+`GMAIL_USER/GMAIL_APP_PASSWORD not configured` every time — `apps/api/.env` does not exist, and
+no other env file carries those keys. The 19th failed on "Cover Letter is required." The
+screenshots show the submit button disabled with an empty security-code field, so these were
+almost certainly **not** received by the employer. They still count against the company cap
+and are never retried.
+
+**Decision: did not resume the run.** With Greenhouse blocked and the Ashby/Lever postings
+hitting reCAPTCHA/hCaptcha, every further claim burns a posting. No code changed.
+
+**Needs the owner:** create `apps/api/.env` with `GMAIL_USER` and `GMAIL_APP_PASSWORD` (a Gmail
+app password for the inbox receiving `+career` mail), then restart and resume. Whether to put the
+18 code-gated jobs back on the queue is the owner's call: it means overriding the
+SUBMISSION_UNKNOWN never-retry guard, on the reading that Greenhouse holds an application until
+the code is entered.
+
+---
+
+## 2026-10-06 10:20 UTC — Gmail fixed; 13 submitted; manifest answers paused the run
+
+**Gmail.** Owner added `GMAIL_USER`/`GMAIL_APP_PASSWORD` to the root `.env` (restart-dev.ps1
+imports it). Code interception now works end to end (GitLab: code read <1s, confirmation URL).
+On owner approval, the 44 SUBMISSION_UNKNOWN jobs with code-gate evidence (a matching
+"Security code for your application to X" email, or the executor's own "security code was never
+entered" error) were requeued via `set-state` QUEUED. Upstart, Aura, Qventus, Qualia and
+Bitwarden FedRAMP were left as unknown: no code-gate evidence.
+
+**Result:** 13 SUBMITTED of 22 processed across the first two 10-job audits, from 0 earlier.
+
+**Paused at 10:10 UTC: manifest answers.** `data/candidate_answers_manifest.json` (commit
+ee47062) is consulted ahead of every type resolver at confidence 1.0, with a Jaccard ≥0.6 fuzzy
+tier. Capture artefacts in it produced wrong answers:
+  * **"LinkedIn Profile" = "Yes" was submitted on all 13 applications** (q_083 "Do you have a
+    LinkedIn profile?" fuzzy-matched the URL field). Confirmed on Zuora's pre-submit screenshot.
+  * Checkbox/radio entries are option labels, not questions: Male/Female/"I don't wish to
+    answer"/Asian/Black/"I am a current employee"/every how-heard source -> "Yes".
+  * Shifted answers: "Former Employee" -> Kubernetes paragraph; essays (q_023/24/32/33/35) ->
+    "Yes"; "I am authorized to work…" -> databases paragraph; q_025 (resume project) -> sports text.
+
+**Fixed (profile_answer_resolver.py):** skip checkbox/radio entries; skip textarea entries whose
+answer is a bare yes/no; the fuzzy tier never puts a bare yes/no into a free-text field.
+7 regression tests in test_candidate_answers_manifest.py.
+
+**Classifier (question_classifier.py):** "previously been an employee of X" -> COMPANY_HISTORY;
+"live within the United States" -> LOCATION_CONFIRMATION. 2 regression tests.
+
+**Left for the owner:**
+  * 7 older tests fail with or without these changes, because the manifest overrides profile
+    data (test_relocation_answer_is_never_invented, education rows, how-heard fallback, Greenhouse
+    contact mapping). Either those tests or the manifest's precedence needs a decision.
+  * Generic manifest labels ("Start date month/year", "End date year", "Title") also fill the
+    *employment* section: Zuora's form shows Microsoft, Senior SWE, Sep 2016 – Jun 2018, the same
+    dates as the MS degree. Check whether that is true.
+  * q_005 "legally entitled to work in Canada" -> Yes, and q_025 sports text on a project
+    question, are still active for exact-text matches.
+
+---
+
+## 2026-10-06 14:31 UTC — Status at hand-off
+
+Run `aprun_37951b93` still RUNNING unattended (heartbeat fresh): **62 SUBMITTED this run**, about 6–8
+per 10 processed since the Gmail fix. The textarea rule was narrowed at 11:25: a yes/no
+*question* captured as a textarea (q_078–080, "Do you have a close personal relationship…") is
+answered again, and only essay prompts answered yes/no are skipped. The agent's 10-job audit
+watcher was stopped by the harness for low system memory and was not restarted. The runner
+itself is unaffected.
+
+Also noticed, owner's call: LATAM/Europe-located roles (Praxent ×3, Kalepa Europe) are being
+applied to, which looks like an effect of the loosened location filter (3d01cc9). Canonical
+postings always stall on the "native language at high school" dropdown even though the
+manifest has an answer. That is a fill problem, not a classification one. Nebius ended
+SUBMISSION_UNKNOWN even though the page text showed a confirmation (the Qwen check disagreed);
+a confirmation email should reconcile it.
+
+---
+
+## 2026-10-06 17:00 UTC — Owner answers applied; API crash; run resumed at 73 submitted
+
+The API process died around 15:30 UTC, likely from the same memory pressure. The in-flight
+Liftoff job had not clicked submit and was requeued cleanly. 73 SUBMITTED by then.
+
+Owner decisions (2026-10-06), now implemented:
+  * **Profile wins over the manifest.** `resolve_answer` consults the candidate answers manifest only
+    when the profile/type resolvers left the field empty. Tests no longer read the real manifest
+    (autouse fixture in conftest; `real_candidate_manifest` marker for the manifest's own tests).
+    The 7 previously failing resolver tests now pass (284/284 in the resolver suites).
+  * **Employment:** live profile gained `workExperience` = Microsoft, Senior Software Engineer,
+    09/2025 – current. Employment rows no longer fall through to the manifest's generic
+    Sep 2016 – Jun 2018 dates. Previous profile backed up before the POST.
+  * **Canada:** manifest q_005 "legally entitled to work in Canada" changed Yes -> No.
+  * **US/remote-US only:** `evaluate_hard_filters` now rejects a title naming a non-US region
+    (LATAM, Europe, EMEA, APAC, Canada, UK, India, …) unless the title also names a US place, even
+    when the location field looks American. The runner re-checks hard filters at claim time, so
+    already-queued jobs are covered too. 7 tests added.
+
+Still open: 5 tests in test_job_filter_loosening.py
+(`test_software_titles_below_senior_are_rejected`) fail because of the title loosening in
+3d01cc9, not tonight's changes.

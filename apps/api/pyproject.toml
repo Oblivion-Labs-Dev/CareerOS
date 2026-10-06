@@ -26,4 +26,5 @@ pretty = true
 testpaths = ["tests"]
 markers = [
     "network: reaches a real external API; skip with -m \"not network\" when offline",
+    "real_candidate_manifest: load the owner's data/candidate_answers_manifest.json instead of an empty one",
 ]
