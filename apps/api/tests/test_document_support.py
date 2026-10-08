@@ -104,13 +104,20 @@ def test_off_exact_and_pdf_comparison_reorder_invariant(baseline):
 
 
 def test_modes_preserve_configuration_and_aggressive_changes_more(baseline,monkeypatch):
-    assert mt.mode_config("aggressive",{"max_replacement_fraction":.2,"bm25_k1":1.8}).max_replacement_fraction==.2
-    assert mt.mode_config("aggressive",{"bm25_k1":1.8}).bm25_k1==1.8
+    aggressive = mt.mode_config("aggressive", {"max_replacement_fraction": .2, "weak_relevance": .1, "bm25_k1": 1.8, "replacement_threshold": .22})
+    assert aggressive.max_replacement_fraction == .5
+    assert aggressive.weak_relevance == .75
+    assert aggressive.retention_bonus == .05
+    assert aggressive.replacement_cost == .03
+    assert aggressive.reorder_threshold == .05
+    assert aggressive.bm25_k1 == 1.8
+    assert aggressive.replacement_threshold == .22
+    assert mt.mode_config("honest", {"max_replacement_fraction": .2, "bm25_k1": 1.8}).max_replacement_fraction == .2
     records=[{"id":str(i),"company":"Example","role":"Engineer","project":"Recovery","resumeApproved":True,"evidenceTier":"professional","currentBullet":text} for i,text in enumerate([
         "Built Python production recovery automation, improving deployment reliability 45%.",
         "Designed Kubernetes incident recovery services, reducing production failures 60%."])]
     def ranks(candidates,reqs,config):
-        return ([.1,.5,.85,.9,1.,.98][:len(candidates)],[["req-1"] for _ in candidates],None)
+        return ([.1,.5,.85,.9,1.,.98][:len(candidates)],[["req-1"] for _ in candidates],None,[{"req-1": 80} for _ in candidates])
     monkeypatch.setattr(mt,"_rank",ranks)
     honest=mt.tailor(records,"Required: Python Kubernetes production recovery automation.",mode="honest",fit_check=lambda *_:True)
     aggressive=mt.tailor(records,"Required: Python Kubernetes production recovery automation.",mode="aggressive",fit_check=lambda *_:True)

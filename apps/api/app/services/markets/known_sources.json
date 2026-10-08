@@ -1,0 +1,33 @@
+{
+  "_about": "Public job boards for companies whose own career page cannot reveal them to an unattended client (403 to automation, client-rendered from a private API, or a stale URL). Keyed by identity.name_key. Each entry was verified live against the board's public API; detection still records it as evidence, and a failing board shows as FAILED like any other source.",
+  "salesforce": {
+    "url": "https://salesforce.wd12.myworkdayjobs.com/External_Career_Site",
+    "verified": "2026-10-07",
+    "evidence": "careers.salesforce.com returns 403 to automation; its public Workday board listed 1,506 postings"
+  },
+  "zillow": {
+    "url": "https://zillow.wd5.myworkdayjobs.com/Zillow_Group_External",
+    "verified": "2026-10-07",
+    "evidence": "The seed URL returns 404; Zillow's public Workday board listed 137 postings"
+  },
+  "snap": {
+    "url": "https://snapchat.wd1.myworkdayjobs.com/snap",
+    "verified": "2026-10-07",
+    "evidence": "careers.snap.com renders from a private API; Snap's public Workday board listed 201 postings"
+  },
+  "atandt": {
+    "url": "https://att.wd1.myworkdayjobs.com/ATTGeneral",
+    "verified": "2026-10-07",
+    "evidence": "AT&T's public Workday board listed 1,126 postings"
+  },
+  "ebay": {
+    "url": "https://ebay.wd5.myworkdayjobs.com/apply",
+    "verified": "2026-10-07",
+    "evidence": "jobs.ebayinc.com renders client-side; eBay's public Workday board listed 293 postings"
+  },
+  "temporaltechnologies": {
+    "url": "https://jobs.ashbyhq.com/temporal",
+    "verified": "2026-10-07",
+    "evidence": "Temporal Technologies' Ashby board 'temporal' listed 66 postings"
+  }
+}

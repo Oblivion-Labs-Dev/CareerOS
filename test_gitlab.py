@@ -35,8 +35,8 @@ async def test():
         profile = {
             "firstName": "Akshay",
             "lastName": "Borse",
-            "email": "amsborse+careeros@gmail.com",
-            "phone": "425-336-9852",
+            "email": "candidate+careeros@example.com",
+            "phone": "206-555-0100",
             "location": "Auburn, WA",
             "state": "Washington",
             "linkedin": "https://www.linkedin.com/in/amsborse/",

@@ -23,7 +23,7 @@ from app.services.resume_structure import (
 )
 
 RESUME = """Akshay Borse
-Seattle, WA | amsborse@gmail.com | (206) 555-0134
+Seattle, WA | candidate@example.com | (206) 555-0134
 
 EXPERIENCE
 

@@ -87,6 +87,27 @@ def initialize_database() -> None:
     shutil.rmtree(_TEST_STATE_DIR, ignore_errors=True)
 
 
+_REPO_ROOT = Path(__file__).resolve().parents[3]
+# The owner's personal data is not committed (it lives in the encrypted backup,
+# see scripts/backup_encrypted.py), so a clean checkout skips tests that read it.
+_PRIVATE_DATA_TESTS = {
+    "test_career_compiler.py": _REPO_ROOT / "data" / "profile" / "career.json",
+    "test_career_compiler_production.py": _REPO_ROOT / "data" / "profile" / "career.json",
+    "test_career_signal.py": _REPO_ROOT / "data" / "profile" / "career.json",
+    "test_resume_template.py": _REPO_ROOT / "templates" / "akshay-one-page.docx",
+    "test_candidate_answers_manifest.py": _REPO_ROOT / "data" / "candidate_answers_manifest.json",
+}
+
+
+def pytest_collection_modifyitems(config, items):
+    for item in items:
+        needed = _PRIVATE_DATA_TESTS.get(item.path.name)
+        if needed is not None and not needed.exists():
+            item.add_marker(pytest.mark.skip(
+                reason=f"needs the owner's private {needed.name}; restore it with scripts/backup_encrypted.py restore"
+            ))
+
+
 @pytest.fixture(autouse=True)
 def isolate_candidate_manifest(request, monkeypatch):
     """Keep the owner's real data/candidate_answers_manifest.json out of tests.

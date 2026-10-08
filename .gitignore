@@ -80,6 +80,15 @@ apps/web/.next-grid-uat/
 data/resume-tests/
 tmp/
 
+# Personal data: committed only inside backups/encrypted/ (scripts/backup_encrypted.py)
+data/profile/career.json
+data/profile/career.md
+data/candidate_answers_manifest.json
+data/autonomous_batch_results.json
+templates/
+apps/web/public/resumes/
+evals/resume/results/
+
 # Playwright test-run screenshots/artifacts (throwaway, like playwright-report/)
 apps/web/e2e/.artifacts/
 apps/web/e2e/screenshots/

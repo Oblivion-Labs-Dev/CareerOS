@@ -12,7 +12,7 @@ const JobSearchAnalytics = nextDynamic(
 export default async function AnalyticsPage() {
   let backendOnline = false;
   try {
-    const health = await fetchHealth({ revalidate: 5 });
+    const health = await fetchHealth({ revalidate: 5, timeoutMs: 800 });
     backendOnline = health.status === "ok";
   } catch {
     backendOnline = false;

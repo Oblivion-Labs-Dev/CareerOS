@@ -36,18 +36,31 @@ def _content_hash(scraper_job: dict[str, Any]) -> str:
     ).hexdigest()
 
 
+def applyable_url(scraper_job: dict[str, Any]) -> str:
+    """The posting's employer application link when the scraper captured one.
+
+    Aggregator sources (Indeed above all) store their own listing as ``url`` and
+    the employer's form as ``applyUrl``; the listing has no form to fill.
+    """
+    from app.services.application_assistant.job_filter_ranker import _is_unapplyable_listing_url
+
+    links = [str(scraper_job.get(k) or "") for k in ("applyUrl", "canonicalUrl", "url")]
+    return next((u for u in links if u and not _is_unapplyable_listing_url(u)), scraper_job.get("url") or "")
+
+
 def scraper_job_to_aa_job(scraper_job: dict[str, Any]) -> dict[str, Any]:
     url = scraper_job.get("url") or ""
+    apply_url = applyable_url(scraper_job)
     location = scraper_job.get("location") or ""
     return {
         "id": aa_job_id_for_scraper(str(scraper_job["id"])),
-        "sourceProvider": detect_provider_from_url(url),
+        "sourceProvider": detect_provider_from_url(apply_url),
         "company": (scraper_job.get("companyName") or "").title(),
         "title": scraper_job.get("title") or "",
         "description": scraper_job.get("description") or "",
         "location": location,
         "workplaceType": "remote" if "remote" in location.lower() else "",
-        "applicationUrl": url,
+        "applicationUrl": apply_url,
         "listingUrl": url,
         "externalJobId": scraper_job.get("externalId") or "",
         "contentHash": _content_hash(scraper_job),

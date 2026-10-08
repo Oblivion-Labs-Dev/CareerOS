@@ -56,6 +56,9 @@ def sections(result: dict, profile: dict) -> list[tuple[str, list[str]]]:
 
 
 def render(result: dict, profile: dict, *, draft: bool = False) -> bytes:
+    if result.get("method") == "career-compiler-v1":
+        from app.services.career_compiler.export import export
+        return export(result, "pdf")
     if result.get("method") == "minimal-change-v1":
         from app.services.resume_intelligence.baseline_document import render_baseline
         if not draft and not result.get("exportReady"):

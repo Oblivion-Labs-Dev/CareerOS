@@ -305,6 +305,31 @@ def test_an_undated_posting_is_never_assumed_fresh():
     assert [j["id"] for j in held] == ["undated"]
 
 
+def test_a_recent_datePosted_alone_earns_no_bonus():
+    """datePosted can be a board's last-modified time or the discovery time.
+    DoorDash re-saved its whole board and eight years-old roles went out in a day."""
+    jobs = [_submitted("Acme", 0.1 * i, f"j{i}") for i in range(5)]
+    modified = _queued("Acme", 90.0, "modified")
+    modified["datePosted"] = (NOW - timedelta(hours=2)).isoformat()
+
+    applyable, held = partition_by_cap([modified], jobs + [modified], now=NOW)
+
+    assert applyable == []
+    assert [j["id"] for j in held] == ["modified"]
+
+
+def test_ingest_takes_the_publish_date_not_the_board_update_time():
+    from app.services.application_assistant.queue_preprocessor import scraped_posting_dates
+
+    posted, ordering = scraped_posting_dates(
+        {"postingDate": "2024-05-22T14:21:58-04:00", "updatedAt": "2026-10-06T15:48:09-04:00"}
+    )
+    assert posted == ordering == "2024-05-22T14:21:58-04:00"
+    posted, ordering = scraped_posting_dates({"updatedAt": "2026-10-06T15:48:09-04:00"})
+    assert posted == ""
+    assert ordering == "2026-10-06T15:48:09-04:00"
+
+
 def test_the_bonus_expires_with_the_posting():
     older = _queued("Acme", 90.0, "day_old")
     older["postingDate"] = (NOW - timedelta(hours=25)).isoformat()

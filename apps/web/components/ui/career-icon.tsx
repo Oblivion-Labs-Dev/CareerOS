@@ -59,6 +59,8 @@ export function CareerIcon({ name, size = 18, ...props }: CareerIconProps) {
       return <svg {...common}><circle cx="6" cy="18" r="2"/><circle cx="18" cy="6" r="2"/><path d="M8 18h2.5A3.5 3.5 0 0 0 14 14.5v-5A3.5 3.5 0 0 1 17.5 6M7.5 6H3v5M3 6l4 4"/></svg>;
     case "search":
       return <svg {...common}><circle cx="10.5" cy="10.5" r="6.5"/><path d="m15.5 15.5 5 5"/></svg>;
+    case "radar":
+      return <svg {...common}><circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="4.5"/><path d="M12 12 18 6"/><circle cx="15.5" cy="14.5" r="1" fill="currentColor"/></svg>;
     case "arrow":
       return <svg {...common}><path d="M5 12h14M14 7l5 5-5 5"/></svg>;
     case "spark":

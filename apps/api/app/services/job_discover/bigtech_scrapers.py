@@ -15,6 +15,7 @@ Strategy: Navigate to career search page → intercept XHR/fetch calls →
           parse the JSON response → no HTML scraping needed.
 """
 
+import asyncio
 import json
 import re
 from collections.abc import Callable
@@ -186,16 +187,39 @@ def unescape_js_string(s: str) -> str:
 # Amazon — amazon.jobs/en/search.json
 # ═══════════════════════════════════════════════════════════════════════════════
 
+def _record(diagnostics: dict | None, *, status: int | None = None, error: str | None = None, total: int | None = None) -> None:
+    """Note one request's outcome, so callers can tell "failed" from "no results"."""
+    if diagnostics is None:
+        return
+    diagnostics["requests"] = diagnostics.get("requests", 0) + 1
+    if status is not None:
+        diagnostics["status"] = status
+        if status != 200:
+            diagnostics.setdefault("errors", []).append(f"HTTP {status}")
+        else:
+            diagnostics["ok"] = diagnostics.get("ok", 0) + 1
+    if error:
+        diagnostics.setdefault("errors", []).append(error[:200])
+    if total is not None:
+        diagnostics["total"] = max(int(total), int(diagnostics.get("total") or 0))
+
+
 async def scrape_amazon(
     client: httpx.AsyncClient,
     search_terms: list[str] | None = None,
     location: str = "United States",
     max_results: int = 100,
+    *,
+    extra_params: dict | None = None,
+    diagnostics: dict | None = None,
 ) -> list[dict]:
     """Scrape Amazon jobs via their hidden JSON search API.
 
     Endpoint: https://www.amazon.jobs/en/search.json
     Params: base_query, loc_query, offset, result_limit, sort, category[]
+
+    ``loc_query`` alone does not filter; ``extra_params`` carries the facets
+    that do (e.g. ``{"normalized_state_name[]": "Washington"}``).
     """
     if not search_terms:
         search_terms = ["Product Manager", "Program Manager", "UX Designer", "Software Engineer"]
@@ -210,6 +234,7 @@ async def scrape_amazon(
                 "offset": offset,
                 "result_limit": 25,
                 "sort": "recent",
+                **(extra_params or {}),
             }
             if location:
                 params["loc_query"] = location
@@ -221,8 +246,10 @@ async def scrape_amazon(
                     timeout=15,
                 )
                 if resp.status_code != 200:
+                    _record(diagnostics, status=resp.status_code)
                     break
                 data = resp.json()
+                _record(diagnostics, status=200, total=data.get("hits"))
                 hits = data.get("jobs", [])
                 if not hits:
                     break
@@ -245,7 +272,8 @@ async def scrape_amazon(
                 offset += 25
                 if len(hits) < 25:
                     break
-            except Exception:
+            except Exception as exc:
+                _record(diagnostics, error=f"{type(exc).__name__}: {exc}")
                 break
 
     # Deduplicate by job ID
@@ -269,6 +297,8 @@ async def scrape_apple(
     search_terms: list[str] | None = None,
     location: str = "united-states-USA",
     max_results: int = 100,
+    *,
+    diagnostics: dict | None = None,
 ) -> list[dict]:
     """Scrape Apple jobs by extracting SSR hydration data from search pages.
 
@@ -294,6 +324,7 @@ async def scrape_apple(
                     timeout=20,
                 )
                 if resp.status_code != 200:
+                    _record(diagnostics, status=resp.status_code)
                     break
 
                 # Extract __staticRouterHydrationData from the page
@@ -302,12 +333,14 @@ async def scrape_apple(
                     resp.text, re.DOTALL
                 )
                 if not match:
+                    _record(diagnostics, error="Search page has no hydration data (layout changed?)")
                     break
 
                 data = json.loads(unescape_js_string(match.group(1)))
                 search_data = data.get("loaderData", {}).get("search", {})
                 results = search_data.get("searchResults", [])
                 total = search_data.get("totalRecords", 0)
+                _record(diagnostics, status=200, total=total)
 
                 if not results:
                     break
@@ -341,9 +374,10 @@ async def scrape_apple(
                     })
 
                 page += 1
-                if page * 20 >= total or page > 10:  # Cap at 10 pages (200 jobs) per query
+                if (page - 1) * 20 >= total or page > 10:  # Cap at 10 pages (200 jobs) per query
                     break
-            except Exception:
+            except Exception as exc:
+                _record(diagnostics, error=f"{type(exc).__name__}: {exc}")
                 break
 
     return all_jobs[:max_results]
@@ -358,6 +392,8 @@ async def scrape_google(
     search_terms: list[str] | None = None,
     location: str = "United States",
     max_results: int = 100,
+    *,
+    diagnostics: dict | None = None,
 ) -> list[dict]:
     """Scrape Google jobs from their careers page SSR HTML.
 
@@ -386,15 +422,19 @@ async def scrape_google(
                     timeout=20,
                 )
                 if resp.status_code != 200:
+                    _record(diagnostics, status=resp.status_code)
                     break
 
                 html = resp.text
+                _record(diagnostics, status=200)
 
                 # Split into job cards by <li class="lLd3Je">
                 card_starts = [
                     m.start() for m in re.finditer(r'<li\s+class="lLd3Je"', html)
                 ]
                 if not card_starts:
+                    if page == 1 and diagnostics is not None and "jobs/results" not in html:
+                        _record(diagnostics, error="Results page has no job cards (layout changed?)")
                     break
 
                 for i, start in enumerate(card_starts):
@@ -459,8 +499,11 @@ async def scrape_google(
                     break
                 page += 1
                 if page > 6:
+                    if diagnostics is not None:
+                        diagnostics["truncated"] = True
                     break
-            except Exception:
+            except Exception as exc:
+                _record(diagnostics, error=f"{type(exc).__name__}: {exc}")
                 break
 
     return all_jobs[:max_results]
@@ -591,6 +634,9 @@ async def scrape_microsoft(
     client: httpx.AsyncClient,
     search_terms: list[str] | None = None,
     max_results: int = 100,
+    *,
+    location: str = "United States",
+    diagnostics: dict | None = None,
 ) -> list[dict]:
     """Scrape Microsoft jobs via their PCSX search API.
 
@@ -608,24 +654,31 @@ async def scrape_microsoft(
         start = 0
         while len(all_jobs) < max_results:
             try:
-                resp = await client.get(
-                    "https://apply.careers.microsoft.com/api/pcsx/search",
-                    params={
-                        "domain": "microsoft.com",
-                        "query": query,
-                        "location": "United States",
-                        "start": start,
-                    },
-                    headers={**HEADERS, "Accept": "application/json"},
-                    timeout=20,
-                )
+                for attempt in range(3):
+                    resp = await client.get(
+                        "https://apply.careers.microsoft.com/api/pcsx/search",
+                        params={
+                            "domain": "microsoft.com",
+                            "query": query,
+                            "location": location,
+                            "start": start,
+                        },
+                        headers={**HEADERS, "Accept": "application/json"},
+                        timeout=20,
+                    )
+                    if resp.status_code != 429 or attempt == 2:
+                        break
+                    retry_after = resp.headers.get("Retry-After", "")
+                    await asyncio.sleep(min(float(retry_after), 15.0) if retry_after.isdigit() else 3.0 * (attempt + 1))
                 if resp.status_code != 200:
+                    _record(diagnostics, status=resp.status_code)
                     break
 
                 data = resp.json()
                 result = data.get("data", {})
                 positions = result.get("positions", [])
                 total = result.get("count", 0)
+                _record(diagnostics, status=200, total=total)
 
                 if not positions:
                     break
@@ -639,7 +692,7 @@ async def scrape_microsoft(
                     # Location: use standardizedLocations if available
                     std_locs = pos.get("standardizedLocations", [])
                     raw_locs = pos.get("locations", [])
-                    location = (
+                    job_location = (
                         " | ".join(std_locs[:3])
                         if std_locs
                         else " | ".join(raw_locs[:3])
@@ -651,7 +704,7 @@ async def scrape_microsoft(
                         "greenhouse_id": f"ms-{jid}",
                         "company": "microsoft",
                         "title": pos.get("name", ""),
-                        "location": location,
+                        "location": job_location,
                         "department": pos.get("department", ""),
                         "url": f"https://apply.careers.microsoft.com{pos.get('positionUrl', f'/careers/job/{jid}')}",
                         "description": "",
@@ -664,7 +717,9 @@ async def scrape_microsoft(
                 start += len(positions)
                 if start >= total:
                     break
-            except Exception:
+                await asyncio.sleep(0.25)
+            except Exception as exc:
+                _record(diagnostics, error=f"{type(exc).__name__}: {exc}")
                 break
 
     return all_jobs[:max_results]
@@ -682,19 +737,30 @@ async def scrape_netflix(
     client: httpx.AsyncClient,
     search_terms: list[str] | None = None,
     max_results: int = 100,
+    *,
+    diagnostics: dict | None = None,
 ) -> list[dict]:
     """Netflix posts on multiple platforms. Try Lever first, then look for jobs."""
     # Netflix often uses their own portal or Lever
     all_jobs = []
+    start = 0
     try:
-        resp = await client.get(
-            "https://explore.jobs.netflix.net/api/apply/v2/jobs",
-            params={"domain": "netflix.com", "start": 0, "num": min(50, max_results), "query": search_terms[0] if search_terms else ""},
-            timeout=15,
-        )
-        if resp.status_code == 200:
+        while len(all_jobs) < max_results:
+            resp = await client.get(
+                "https://explore.jobs.netflix.net/api/apply/v2/jobs",
+                params={"domain": "netflix.com", "start": start, "num": min(50, max_results), "query": search_terms[0] if search_terms else ""},
+                timeout=15,
+            )
+            _record(diagnostics, status=resp.status_code)
+            if resp.status_code != 200:
+                break
             data = resp.json()
+            if diagnostics is not None and data.get("count") is not None:
+                diagnostics["total"] = data.get("count")
             positions = data.get("positions", [])
+            if not positions:
+                break
+            start += len(positions)
             for job in positions:
                 all_jobs.append({
                     "greenhouse_id": str(job.get("id", "")),
@@ -709,8 +775,10 @@ async def scrape_netflix(
                     "employment_type": "",
                     "salary_range": "",
                 })
-    except Exception:
-        pass
+            if start >= int(data.get("count") or 0):
+                break
+    except Exception as exc:
+        _record(diagnostics, error=f"{type(exc).__name__}: {exc}")
 
     return all_jobs[:max_results]
 

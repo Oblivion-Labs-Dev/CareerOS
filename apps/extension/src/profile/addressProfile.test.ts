@@ -6,14 +6,14 @@ describe('addressProfile', () => {
   it('returns saved address parts from custom fields', () => {
     const profile = createEmptyProfile();
     profile.customFields = {
-      addressLine1: '13310 SE 306th St',
+      addressLine1: '123 Main St',
       city: 'Auburn',
       state: 'Washington',
       zip: '98092',
       country: 'United States'
     };
 
-    expect(addressValueForKey('address', profile)).toBe('13310 SE 306th St');
+    expect(addressValueForKey('address', profile)).toBe('123 Main St');
     expect(addressValueForKey('city', profile)).toBe('Auburn');
     expect(addressValueForKey('state', profile)).toBe('Washington');
     expect(addressValueForKey('zip', profile)).toBe('98092');

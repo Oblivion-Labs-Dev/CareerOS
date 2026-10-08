@@ -1,0 +1,25 @@
+{
+  "id": "distributed-systems",
+  "category": "Distributed systems",
+  "jd": "Staff Software Engineer, Distributed Systems\n\nResponsibilities\n- Design fault-tolerant, event-driven distributed systems that process millions of events per day.\n- Build idempotent ingestion pipelines with replay, backfill and exactly-once style guarantees.\n- Choose isolation boundaries and capacity strategies for multi-tenant workloads.\n- Lead design reviews and mentor engineers on distributed systems fundamentals.\n- Own reliability: SLOs, observability, and incident follow-ups.\n\nRequirements\n- 10+ years of software engineering experience.\n- Deep experience with Kafka or similar streaming platforms.\n- Experience with durable workflows or orchestration (e.g. Step Functions, Temporal).\n- Strong background in concurrency, consistency and failure handling.\n\nNice to have\n- Experience with Kubernetes.\n- Experience with Rust or Go.",
+  "expected_requirements": [
+    "fault-tolerant, event-driven distributed systems",
+    "idempotent ingestion pipelines",
+    "Kafka or similar streaming platforms",
+    "durable workflows or orchestration",
+    "isolation boundaries"
+  ],
+  "expected_projects": [
+    "microsoft.agent_ingestion_isolation",
+    "amazon.back_in_stock",
+    "amazon.monolith_microservices"
+  ],
+  "expected_evidence": [
+    "microsoft.agent_ingestion_isolation.migration.replay",
+    "microsoft.agent_ingestion_isolation.decision.boundary",
+    "amazon.back_in_stock.decision.step_functions"
+  ],
+  "must_not_use": [],
+  "must_not_say": ["Kafka", "Temporal", "Rust", "Go", "Staff", "10+ years", "exactly-once"],
+  "expected_gaps": ["Kafka", "Rust"]
+}

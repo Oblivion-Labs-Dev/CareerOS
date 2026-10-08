@@ -232,6 +232,33 @@ def _state_confirmed_in_sibling_field(dom_by_label: dict[str, dict[str, Any]], p
     return False
 
 
+def _match_dom_field(
+    res_lbl: str,
+    field_id: str,
+    dom_by_id: dict[str, dict[str, Any]],
+    dom_by_label: dict[str, dict[str, Any]],
+) -> dict[str, Any] | None:
+    """Pair a resolved answer with its live DOM field: field id, then exact
+    label, then a label that one of the two begins with or substantially
+    covers. A short label buried inside a long sentence ("Resume" inside an
+    attestation that mentions "this application and resume") is a different
+    question, not the same one."""
+    matching = dom_by_id.get(field_id) if field_id else None
+    if matching is None:
+        matching = dom_by_label.get(res_lbl)
+    if matching is not None or not res_lbl:
+        return matching
+    for d_lbl, d_field in dom_by_label.items():
+        if not d_lbl:
+            continue
+        shorter, longer = sorted((res_lbl, d_lbl), key=len)
+        if shorter not in longer:
+            continue
+        if longer.startswith(shorter) or len(shorter) * 2 >= len(longer):
+            return d_field
+    return None
+
+
 async def verify_browser_dom_state(
     page_or_frame: Any,
     resolutions: list[AnswerResolution],
@@ -520,14 +547,7 @@ async def verify_browser_dom_state(
         # (observed live: a GitHub URL answer flagged as conflicting with an
         # EEO experience-level dropdown's value). Field id is unambiguous
         # when present; an exact label match is the next safest thing.
-        matching_dom = dom_by_id.get(res.field_id) if res.field_id else None
-        if matching_dom is None:
-            matching_dom = dom_by_label.get(res_lbl)
-        if matching_dom is None:
-            for d_lbl, d_field in dom_by_label.items():
-                if res_lbl in d_lbl or d_lbl in res_lbl:
-                    matching_dom = d_field
-                    break
+        matching_dom = _match_dom_field(res_lbl, res.field_id, dom_by_id, dom_by_label)
 
         if matching_dom:
             actual = matching_dom.get("value", "").strip()

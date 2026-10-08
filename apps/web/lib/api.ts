@@ -5,13 +5,15 @@ const DEFAULT_REVALIDATE_SECONDS = 15;
 
 type FetchOptions = {
   revalidate?: number | false;
+  timeoutMs?: number;
 };
 
 function fetchOptions(options?: FetchOptions): RequestInit {
+  const signal = options?.timeoutMs ? AbortSignal.timeout(options.timeoutMs) : undefined;
   if (options?.revalidate === false) {
-    return { cache: "no-store" };
+    return { cache: "no-store", signal };
   }
-  return { next: { revalidate: options?.revalidate ?? DEFAULT_REVALIDATE_SECONDS } };
+  return { next: { revalidate: options?.revalidate ?? DEFAULT_REVALIDATE_SECONDS }, signal };
 }
 
 export async function fetchHealth(options?: FetchOptions): Promise<{ status: string; service?: string }> {

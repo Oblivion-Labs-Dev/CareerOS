@@ -27,8 +27,8 @@ PROFILE = {
     "firstName": "Akshay",
     "lastName": "Borse",
     "fullName": "Akshay Borse",
-    "email": "amsborse@gmail.com",
-    "phone": "(425) 336-9852",
+    "email": "candidate@example.com",
+    "phone": "(206) 555-0100",
     "location": "Auburn, WA",
     "city": "Auburn",
     "state": "Washington",
@@ -198,7 +198,7 @@ class TestProfileAnswerResolver:
     def test_phone_is_full_number(self):
         """BUG FIX F: Phone field must have actual digits, not just country code."""
         res = resolve_answer("Phone", PROFILE)
-        assert res.answer == "(425) 336-9852"
+        assert res.answer == "(206) 555-0100"
 
     # ── Bug G: Hispanic / Race ──
     def test_hispanic_question_answer_no(self):
@@ -269,7 +269,7 @@ class TestCrossFieldValidator:
                 field_id="phone",
                 question="Phone",
                 question_type=QuestionType.PHONE.value,
-                answer="(425) 336-9852",
+                answer="(206) 555-0100",
                 resolution_method="PROFILE_EXACT",
                 confidence=1.0,
             ),

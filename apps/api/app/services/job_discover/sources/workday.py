@@ -54,9 +54,13 @@ class WorkdaySource(JobSourceAdapter):
         all_jobs: list[NormalizedJob] = []
         offset = 0
         limit = 20
+        max_results = int(config.get("max_results") or 200)
+        search_text = str(config.get("searchText") or "")
+        # Postings the board reports in total, which can exceed what was paged.
+        self.last_total: int | None = None
 
         while True:
-            payload = {"limit": limit, "offset": offset, "appliedFacets": {}, "searchText": ""}
+            payload = {"limit": limit, "offset": offset, "appliedFacets": {}, "searchText": search_text}
             resp = await self.execute_request(
                 client,
                 url,
@@ -82,7 +86,8 @@ class WorkdaySource(JobSourceAdapter):
                         continue
 
                     ext_path = job.get("externalPath", "")
-                    job_url = f"https://{host}{ext_path}" if ext_path else ""
+                    # externalPath is relative to the career site; on the bare host it 404s.
+                    job_url = f"https://{host}/{board}{ext_path}" if ext_path else ""
 
                     # Requisition ID extraction from bulletFields or path
                     bullets = job.get("bulletFields") or []
@@ -144,8 +149,11 @@ class WorkdaySource(JobSourceAdapter):
                     all_jobs.append(normalized)
 
                 total = data.get("total", 0)
+                # Workday reports the total on the first page only.
+                if self.last_total is None:
+                    self.last_total = total
                 offset += limit
-                if offset >= total or offset >= 200:  # Workday cap per sync
+                if offset >= (self.last_total or total) or offset >= max_results:  # Workday cap per sync
                     break
 
             except Exception as exc:

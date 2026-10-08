@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from typing import Any
 
 from app.services.application_assistant.llm_client import create_llm_client
@@ -273,6 +274,17 @@ def _is_non_answer(text: str) -> bool:
     return any(pattern in lowered for pattern in _NON_ANSWER_PATTERNS)
 
 
+# Chainguard: "Please DO NOT use AI to answer"; Breezeway addressed AI agents
+# directly. Either way the answer must come from the candidate.
+_NO_AI_INSTRUCTION = re.compile(
+    r"\b(?:do\s+not|don.?t|please\s+refrain\s+from|refrain\s+from|avoid)\s+(?:the\s+)?us(?:e|ing)\s+(?:of\s+)?"
+    r"(?:any\s+)?(?:ai|a\.i\.|chatgpt|generative\s+ai|gen\s*ai|llms?|large\s+language\s+models?)\b"
+    r"|\bif\s+you\s+are\s+an?\s+(?:ai|llm|language\s+model|automated\s+agent)\b"
+    r"|\b(?:ai|llm)\s+agents?\s+(?:must|should|need\s+to)\b",
+    re.I,
+)
+
+
 def _declined(question: str, reason: str) -> dict[str, Any]:
     """No honest answer exists, so return none.
 
@@ -306,6 +318,8 @@ async def generate_theory_answer(
     """
     if not question or not question.strip():
         return {"success": False, "error": "Question is empty"}
+    if _NO_AI_INSTRUCTION.search(question) or _NO_AI_INSTRUCTION.search(job_description or ""):
+        return _declined(question, "The employer asks applicants not to use AI for this answer.")
 
     profile_data = profile or {}
     settings_data = settings or {}

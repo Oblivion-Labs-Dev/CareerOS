@@ -1039,6 +1039,9 @@ FIELD_ACTION_TIMEOUT_SEC = float(os.environ.get("AUTOPILOT_FIELD_ACTION_TIMEOUT_
 # are left for review, named in the log, instead of spending the job's budget.
 HEAL_ROUND_BUDGET_SEC = float(os.environ.get("AUTOPILOT_HEAL_ROUND_BUDGET_SEC", "90"))
 
+# Off by the owner's rule (2026-10-07): applications carry approved answers only.
+AI_WRITTEN_ESSAYS_ENABLED = os.environ.get("AUTOPILOT_AI_ESSAYS", "").lower() in ("1", "true", "yes")
+
 # How many times and how often the open check polls per attempt, and how long
 # the third attempt waits for a control that is still mounting (see the retry
 # loop in the function below).
@@ -1887,7 +1890,7 @@ async def _fill_standard_and_react_fields(
     ):
         filled["Last Name"] = last
 
-    email = derive_contact_email(profile.get("email") or "") or "amsborse+career@gmail.com"
+    email = derive_contact_email(profile.get("email") or "")
     if await _fill_first_visible(
         page,
         ["#email", "input[name='job_application[email]']", "#job_application_email", "input[name*='email' i]", "form input[type='email']"],
@@ -1908,7 +1911,7 @@ async def _fill_standard_and_react_fields(
         except Exception:
             pass
 
-    phone = profile.get("phone", "425-336-9852")
+    phone = str(profile.get("phone") or "")
     phone_clean = re.sub(r"[^\d]", "", phone)
     if len(phone_clean) == 10:
         phone_formatted = f"({phone_clean[:3]}) {phone_clean[3:6]}-{phone_clean[6:]}"
@@ -2701,8 +2704,19 @@ async def _execute_live_playwright_submission_impl(
         # and guessing a slug from the company name for a genuinely
         # non-Greenhouse site could redirect to a wrong/nonexistent page.
         try:
-            from app.services.application_assistant.providers.greenhouse import resolve_greenhouse_apply_url
+            from app.services.application_assistant.providers.greenhouse import (
+                redirects_off_greenhouse,
+                resolve_greenhouse_apply_url,
+                resolve_greenhouse_embed_apply_url,
+            )
             normalized_url = resolve_greenhouse_apply_url(app_url, company_name=company)
+            if (
+                normalized_url
+                and normalized_url != app_url
+                and "greenhouse.io" not in urlparse(app_url).netloc.lower()
+                and await asyncio.to_thread(redirects_off_greenhouse, normalized_url)
+            ):
+                normalized_url = resolve_greenhouse_embed_apply_url(app_url, company_name=company)
             if normalized_url and normalized_url != app_url:
                 logger.info("Normalized application URL for %s: %s -> %s", company, app_url, normalized_url)
                 app_url = normalized_url
@@ -2723,6 +2737,7 @@ async def _execute_live_playwright_submission_impl(
         _tracking_email = None
     if _tracking_email:
         profile = {**profile, "email": _tracking_email}
+    profile = {**profile, "_jobLocation": str(job_item.get("location") or "")}
 
     if not app_url:
         return {"submitted": False, "error": "Missing application URL", "evidence": {}}
@@ -3470,20 +3485,22 @@ async def _execute_live_playwright_submission_impl(
                     # the review's "No" was submitted over it — an answer the
                     # candidate never gave, on a question that decides the
                     # application.
+                    # The owner's rule: only approved answers (profile, saved
+                    # screening answers, confirmed manifest) are ever written.
+                    # The review model's suggestion is never used; a question
+                    # the resolver cannot answer stays blank, which stages the
+                    # application when the question is required.
                     heal_resolution = resolve_answer(
                         question_text=f_label,
                         profile=profile,
                         answer_lib=answer_lib,
                     )
-                    if heal_resolution.answer and heal_resolution.resolution_method == PROFILE_EXACT:
-                        if fix_val and str(fix_val).strip() != str(heal_resolution.answer).strip():
-                            logger.warning(
-                                "Review suggested %r for %r; using the profile's %r instead",
-                                str(fix_val)[:40], f_label[:60], str(heal_resolution.answer)[:40],
-                            )
-                        fix_val = heal_resolution.answer
-                    elif not fix_val:
-                        fix_val = heal_resolution.answer
+                    if fix_val and str(fix_val).strip() != str(heal_resolution.answer or "").strip():
+                        logger.info(
+                            "Ignoring review suggestion %r for %r (approved answer: %r)",
+                            str(fix_val)[:40], f_label[:60], str(heal_resolution.answer or "")[:40],
+                        )
+                    fix_val = heal_resolution.answer or ""
 
                     # A prose box wants prose. Both the LLM's suggested fix and
                     # the resolver will happily hand back a one-word answer for
@@ -3504,22 +3521,15 @@ async def _execute_live_playwright_submission_impl(
                         )
                         fix_val = ""
 
-                    # Open-ended questions have no profile field to resolve from.
-                    #
-                    # "Why do you want to work at X?" is not a fact the profile
-                    # holds, so the resolver correctly returns nothing - and the
-                    # application then stalls on a required field it could
-                    # otherwise have answered. This was the single most common
-                    # recoverable stop: three of four non-submissions in one
-                    # batch were exactly this question at different employers.
-                    #
-                    # generate_theory_answer writes from the candidate's own
-                    # resume and profile under an explicit no-invention rule, so
-                    # the answer is the candidate's real evidence in prose. If
-                    # it cannot produce one, the field stays empty and the
-                    # application still goes to review rather than being sent
-                    # with something made up.
-                    if not fix_val and _is_open_ended_question(dom_fields_by_id.get(f_id or ""), f_label):
+                    # Open-ended questions ("Why do you want to work at X?") are
+                    # not AI-written: the owner's rule is approved answers only.
+                    # An optional essay stays blank; a required one leaves a
+                    # required field empty, which stages the application.
+                    if (
+                        AI_WRITTEN_ESSAYS_ENABLED
+                        and not fix_val
+                        and _is_open_ended_question(dom_fields_by_id.get(f_id or ""), f_label)
+                    ):
                         try:
                             from app.services.application_assistant.llm_answer_generator import (
                                 generate_theory_answer,
@@ -4144,7 +4154,7 @@ async def _execute_live_playwright_submission_impl(
 
             # ─── GREENHOUSE EMAIL VERIFICATION FLOW ─────────────────────────────
             from app.services.application_assistant.greenhouse_verification_service import handle_greenhouse_verification_flow
-            candidate_email = derive_contact_email(profile.get("email") or "") or "amsborse+career@gmail.com"
+            candidate_email = derive_contact_email(profile.get("email") or "")
             try:
                 verification_handled = await handle_greenhouse_verification_flow(
                     page=page,

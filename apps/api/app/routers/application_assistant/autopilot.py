@@ -824,6 +824,9 @@ def enqueue_job_for_autopilot(
     # ── Idempotent duplicate guard ──
     is_dup, existing = is_duplicate_application(db, company, title, app_url)
     if is_dup and existing:
+        if payload.get("careerResumeId") and existing.get("status") != "SUBMITTED":
+            existing["careerResumeId"] = payload["careerResumeId"]
+            existing = save_autopilot_job(db, existing)
         return {
             "success": True,
             "deduplicated": True,
@@ -864,6 +867,9 @@ def enqueue_job_for_autopilot(
     job_item["queuePriority"] = queue_priority_score(job_item)
     if payload.get("tailoringMode") in ("off", "honest", "aggressive"):
         job_item["tailoringMode"] = payload["tailoringMode"]
+    if payload.get("careerResumeId"):
+        # An approved Career OS resume version: the runner submits its frozen PDF and skips tailoring.
+        job_item["careerResumeId"] = payload["careerResumeId"]
     saved = save_autopilot_job(db, job_item)
     return {"success": True, "deduplicated": False, "job": saved}
 
@@ -976,31 +982,51 @@ def resolve_aggregator_urls(
 
     from app.services.application_assistant.domain import IneligibilityReason
     from app.services.application_assistant.ineligibility import apply_ineligibility
+    from app.services.application_assistant.job_filter_ranker import _is_unapplyable_listing_url
     from app.services.application_assistant.persistence import (
         list_autopilot_jobs,
+        list_discovered_jobs,
         save_autopilot_job,
     )
-    from app.services.job_discover.aggregator_resolve import (
-        is_aggregator_url,
-        resolve_aggregator_url,
-    )
+    from app.services.application_assistant.scraper_import import applyable_url
+    from app.services.job_discover import store as jd_store
+    from app.services.job_discover.aggregator_resolve import resolve_listing_url
 
     statuses = payload.get("statuses") or ["QUEUED", "MANUAL_REVIEW", "FAILED", "NEEDS_REVIEW"]
     wanted = {str(s).upper() for s in statuses}
+    dry_run = bool(payload.get("dryRun"))
+
+    def _parked_for_listing(job: dict[str, Any]) -> bool:
+        # Skipped only because of the link: once it is resolved the skip no longer applies.
+        return (str(job.get("status") or "").upper() == "SKIPPED"
+                and "aggregator listing page" in str(job.get("skipReason") or ""))
 
     all_jobs = list_autopilot_jobs(db)
     targets = [
         j for j in all_jobs
-        if str(j.get("status") or "").upper() in wanted
-        and is_aggregator_url(str(j.get("applicationUrl") or ""))
+        if (str(j.get("status") or "").upper() in wanted or _parked_for_listing(j))
+        and _is_unapplyable_listing_url(str(j.get("applicationUrl") or ""))
     ]
     if not targets:
         return {"success": True, "examined": 0, "resolved": 0, "duplicates": 0, "unresolved": 0,
                 "message": "No jobs are stored at an aggregator listing."}
 
+    # The scraper often captured the employer's form alongside the listing; that
+    # is an exact answer, so it is used before any board lookup.
+    scraped = {str(j.get("id")): j for j in (jd_store.get_snapshot(db).get("jobs") or [])}
+    scraper_ids = {str(j.get("id")): str(j.get("scraperJobId") or "")
+                   for j in list_discovered_jobs(db, active_only=False, exclude_demo=False)}
+
+    def _from_scrape(job: dict[str, Any]) -> dict[str, Any] | None:
+        source = scraped.get(scraper_ids.get(str(job.get("jobId") or ""), ""))
+        url = applyable_url(source) if source else ""
+        if url and not _is_unapplyable_listing_url(url):
+            return {"applicationUrl": url, "source": "scraped employer link"}
+        return None
+
     def _lookup(job: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any] | None]:
         try:
-            return job, resolve_aggregator_url(
+            return job, _from_scrape(job) or resolve_listing_url(
                 str(job.get("applicationUrl") or ""),
                 company_name=str(job.get("company") or ""),
                 title=str(job.get("title") or ""),
@@ -1013,13 +1039,18 @@ def resolve_aggregator_urls(
         results = list(pool.map(_lookup, targets))
 
     # URLs already spoken for, so a resolved row does not become a second copy.
+    # Some employer links identify the posting only in the query (?gh_jid=, redirect
+    # params), so the query cannot simply be dropped.
+    from app.services.application_assistant.job_filter_ranker import canonical_ats_posting_id
+    from app.services.application_assistant.persistence import _canonical_url_key
+
     def _canon(url: str) -> str:
-        return str(url or "").lower().split("?")[0].rstrip("/")
+        return canonical_ats_posting_id(str(url or "")) or _canonical_url_key(str(url or ""))
 
     taken = {
         _canon(j.get("applicationUrl")): j
         for j in all_jobs
-        if j.get("applicationUrl") and not is_aggregator_url(str(j.get("applicationUrl")))
+        if j.get("applicationUrl") and not _is_unapplyable_listing_url(str(j.get("applicationUrl")))
     }
 
     resolved = duplicates = 0
@@ -1036,7 +1067,8 @@ def resolve_aggregator_urls(
                 f"The same posting is already tracked as {existing.get('status')} "
                 f"({existing.get('id')}) once its aggregator link was resolved.",
             )
-            save_autopilot_job(db, job)
+            if not dry_run:
+                save_autopilot_job(db, job)
             duplicates += 1
             details.append({"id": job["id"], "company": job.get("company"), "state": "duplicate"})
             continue
@@ -1056,7 +1088,10 @@ def resolve_aggregator_urls(
         job["lastErrorType"] = None
         job.pop("ineligibilityReason", None)
         job.pop("ineligibilityDetail", None)
-        save_autopilot_job(db, job)
+        job.pop("skipReason", None)
+        job.pop("reasonCategory", None)
+        if not dry_run:
+            save_autopilot_job(db, job)
         taken[_canon(new_url)] = job
         resolved += 1
         details.append({"id": job["id"], "company": job.get("company"),
@@ -1069,9 +1104,11 @@ def resolve_aggregator_urls(
         "resolved": resolved,
         "duplicates": duplicates,
         "unresolved": unresolved,
+        "dryRun": dry_run,
         "details": details[:60],
         "message": (
-            f"Resolved {resolved} of {len(targets)} aggregator listings to the employer's board"
+            ("Would resolve " if dry_run else "Resolved ")
+            + f"{resolved} of {len(targets)} aggregator listings to the employer's board"
             + (f", retired {duplicates} as duplicates" if duplicates else "")
             + f". {unresolved} could not be found on a public board."
         ),

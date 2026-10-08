@@ -64,7 +64,7 @@ class ICIMSSource(JobSourceAdapter):
                 job_id = match.group(2)
                 title = match.group(4).strip()
 
-                if not matches_title(title, compiled_patterns):
+                if compiled_patterns and not matches_title(title, compiled_patterns):
                     continue
 
                 combined = title.lower()

@@ -187,8 +187,11 @@ Coverage remains a diagnostic and does not drive greedy coverage maximization.
 Each result includes KEEP/REORDER/REPLACE decisions, reasons, source revisions,
 baseline and document hashes, retention fraction, and effective configuration.
 
-Set `profile.resumeTailoringConfig` to override defaults consistently across
-Studio, generation, tailoring and application drafting:
+Set `profile.resumeTailoringConfig` to override ranking defaults consistently
+across Studio, generation, tailoring and application drafting. Aggressive mode
+still forces its own weak-slot, retention, replacement-cost, replacement-cap,
+and reorder values. Off still forces an unchanged PDF. The 15% replacement
+threshold and the BM25/fusion settings stay under the saved profile:
 
 ```json
 {

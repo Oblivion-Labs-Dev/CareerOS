@@ -6,21 +6,31 @@ import re
 import time
 from dataclasses import replace
 
-from app.services.resume_intelligence.minimal_tailoring import tailor, mode_config
+from app.services.resume_intelligence.minimal_tailoring import RETRIEVAL_MODES, tailor, mode_config
 from app.services.resume_intelligence.baseline_document import render_baseline, approved_path
 from app.services.resume_intelligence.evidence_match import compare_pdfs
 
 
-def generate_studio(records: list[dict], profile: dict, description: str, title: str = "", company: str = "", mode: str = "honest", use_semantic: bool | None = None) -> dict:
+def generate_studio(records: list[dict], profile: dict, description: str, title: str = "", company: str = "", mode: str = "honest", use_semantic: bool | None = None, retrieval: str | None = None) -> dict:
     if len(description.strip()) < 40:
         raise ValueError("Paste a full job description (at least 40 characters).")
     started = time.perf_counter()
     try:
         config = mode_config(mode, profile.get("resumeTailoringConfig"))
+        if retrieval is not None:
+            if retrieval not in RETRIEVAL_MODES:
+                raise ValueError("Retrieval must be fused, semantic, or lexical.")
+            config = replace(config, retrieval=retrieval)
         if use_semantic is not None:
             if not isinstance(use_semantic, bool):
                 raise ValueError("Semantic ranking must be a boolean.")
             config = replace(config, use_semantic=use_semantic and mode != "off")
+        elif retrieval == "lexical":
+            config = replace(config, use_semantic=False)
+        elif retrieval in ("fused", "semantic") and mode != "off":
+            config = replace(config, use_semantic=True)
+        if mode == "off" or config.retrieval == "lexical":
+            config = replace(config, use_semantic=False)
     except TypeError as exc:
         raise ValueError("Check the saved resumeTailoringConfig settings.") from exc
     result = tailor(records, description, title, config=config, mode=mode)

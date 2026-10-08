@@ -73,6 +73,44 @@ def test_non_software_titles_still_rejected(title):
     assert "not a Software Engineering role" in reason
 
 
+# OpenAI recruiting roles name the team they hire for ("SWE", "Applications Engineering").
+@pytest.mark.parametrize("title", [
+    "Technical Sourcer, Research SWE",
+    "Senior Technical Sourcer, Applications Engineering",
+    "Technical Recruiter, Software Engineering",
+])
+def test_recruiting_titles_naming_an_engineering_team_are_rejected(title):
+    ok, reason = _passes(_job(title=title))
+    assert not ok
+    assert "not a Software Engineering role" in reason
+
+
+@pytest.mark.parametrize("title", [
+    "Senior Electrical Infrastructure Engineer",
+    "Mechanical Systems Engineer",
+    "Staff Civil Infrastructure Engineer",
+])
+def test_physical_engineering_disciplines_are_rejected(title):
+    ok, reason = _passes(_job(title=title))
+    assert not ok
+    assert "not a Software Engineering role" in reason
+
+
+def test_software_role_naming_a_physical_discipline_passes():
+    ok, reason = _passes(_job(title="Senior Software Engineer, Electrical Systems"))
+    assert ok, reason
+
+
+@pytest.mark.parametrize("title", [
+    "Senior Member of Technical Staff",
+    "Member of Technical Staff - Software",
+    "Principal Member of the Technical Staff",
+])
+def test_member_of_technical_staff_titles_pass(title):
+    ok, reason = _passes(_job(title=title))
+    assert ok, reason
+
+
 @pytest.mark.parametrize("location", [
     "Remote, Canada; Remote, United States",
     "San Francisco, CA, New York, NY, Portland, OR, or Remote within US/Canada",

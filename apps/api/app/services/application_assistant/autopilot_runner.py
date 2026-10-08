@@ -2251,11 +2251,65 @@ class AutopilotRunner:
         best_changed = 0
         override = job_item.get("manualMatchOverride") is True
         attempts_log: list[dict[str, Any]] = []
+        frozen_resume: Path | None = None
+        career_resume_error = ""
+        if job_item.get("careerResumeId"):
+            # "Apply With This Resume": the user approved a Career OS version for this job.
+            # Submit its frozen PDF exactly as approved - never tailor or regenerate it here.
+            from app.services.career_compiler.versions import frozen_resume_for_job
+            try:
+                frozen_resume = await asyncio.to_thread(frozen_resume_for_job, job_item)
+            except Exception as e:  # noqa: BLE001 - any failure must hold the job, not fall back to tailoring
+                career_resume_error = f"Approved Career OS resume {job_item['careerResumeId']} is unusable: {e}"
+        if career_resume_error:
+            job_item["status"] = AutopilotJobStatus.NEEDS_REVIEW.value
+            job_item["lastError"] = career_resume_error
+            job_item["aiExplanation"] = career_resume_error
+            self._record_checkpoint(job_item, CheckpointStep.STAGED, career_resume_error)
+            self.log_event(f"{w_prefix}Held {company} — {title}: {career_resume_error}", level="warning",
+                           metadata={"slot": slot_idx, "company": company, "title": title})
+            with session_scope() as db:
+                save_autopilot_job(db, job_item)
+            return
 
         try:
             from app.services.application_assistant.tailored_match import describe_gaps
 
-            if start_mode == "off":
+            if frozen_resume is not None:
+                _granular_log(
+                    f"Using approved Career OS resume {job_item['careerResumeId']} as approved; "
+                    "tailoring and regeneration are skipped"
+                )
+                diff_data = {
+                    "matchScore": base_match_score,
+                    "baseMatchScore": base_match_score,
+                    "baselineMatchScore": base_match_score,
+                    "mode": "careeros",
+                    "documentMatch": {},
+                    "matchRescored": False,
+                    "matchReason": "Approved Career OS resume version; submitted unchanged.",
+                    "missingSkills": [],
+                    "keyMatchingSkills": [],
+                    "bulletDiffs": [],
+                    "resumeDocument": master_resume,
+                    "resumeText": "",
+                    "quality": {"ok": True, "changed": 0, "total": 0, "problems": []},
+                    "totalChanges": 0,
+                    "selectedAchievements": 0,
+                    "tailoringFailed": False,
+                    "tailoringModel": "career-compiler",
+                    "tailoringError": "",
+                    "jobDescriptionChars": len(job_item.get("description", "")),
+                    "tailoredCoverLetter": "",
+                    "screeningQAs": [],
+                    "salaryRange": job_item.get("salary") or job_item.get("salaryRange") or "Not provided",
+                    "visaStatus": "",
+                }
+                winning_mode = "careeros"
+                best_score = base_match_score
+                best_mode = "careeros"
+                job_item["tailoringAttempts"] = attempts_log
+            elif start_mode == "off":
                 _granular_log(
                     f"Tailoring off (score {base_match_score:.0f}%); proceeding with master resume untailored"
                 )
@@ -2463,7 +2517,13 @@ class AutopilotRunner:
         tailoring_mode = winning_mode
         job_item["tailoringMode"] = tailoring_mode
         job_item["matchScoreAtSubmission"] = diff_data.get("matchScore")
-        if tailoring_mode == "off":
+        if tailoring_mode == "careeros" and frozen_resume is not None:
+            submission_profile["resumePath"] = str(frozen_resume)
+            job_item["resumeFileUsed"] = frozen_resume.name
+            job_item["resumeTailoringFailed"] = False
+            job_item["resumeTailoringModel"] = "career-compiler"
+            job_item["resumeTailoringError"] = ""
+        elif tailoring_mode == "off":
             # Tailoring off means the rendered PDF would be a byte-for-byte copy
             # of the candidate's original resume (see render_tailored_resume_pdf),
             # so writing one per job just fills data/tailored_resumes with

@@ -34,11 +34,11 @@ async def test_fill():
             print("Filled last_name")
 
         if await page.locator("#email").count() > 0:
-            await page.fill("#email", profile.get("email", "amsborse@gmail.com"))
+            await page.fill("#email", profile.get("email", "candidate@example.com"))
             print("Filled email")
 
         if await page.locator("#phone").count() > 0:
-            await page.fill("#phone", profile.get("phone", "425-336-9852"))
+            await page.fill("#phone", profile.get("phone", "206-555-0100"))
             print("Filled phone")
 
         # 2. Resume file

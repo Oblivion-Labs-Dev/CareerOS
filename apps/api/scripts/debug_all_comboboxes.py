@@ -17,8 +17,8 @@ async def test_all_comboboxes():
         # 1. Basic info
         await page.locator("#first_name").fill("Akshay")
         await page.locator("#last_name").fill("Borse")
-        await page.locator("#email").fill("amsborse@gmail.com")
-        await page.locator("#phone").fill("425-336-9852")
+        await page.locator("#email").fill("candidate@example.com")
+        await page.locator("#phone").fill("206-555-0100")
         
         if os.path.exists(resume_path):
             await page.locator('input[type="file"]').first.set_input_files(resume_path)

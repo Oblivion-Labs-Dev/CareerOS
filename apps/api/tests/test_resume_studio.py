@@ -47,6 +47,25 @@ def test_current_profile_does_not_overwrite_approved_identity(baseline):
     text=PdfReader(BytesIO(base64.b64decode(r["pdfBase64"]))).pages[0].extract_text()
     assert "Approved Candidate" in text and "Unapproved" not in text
     assert "Original university and degree" in text
+def test_studio_retrieval_selects_lexical_without_loading_a_model(baseline, monkeypatch):
+    from app.services.resume_intelligence import semantic
+    calls = []
+    def forbidden(*_args, **_kwargs):
+        calls.append(True)
+        raise AssertionError("Lexical retrieval must not load a model")
+    monkeypatch.setattr(semantic, "embed_many", forbidden)
+    monkeypatch.setattr(semantic, "embed_queries", forbidden)
+    profile = {"resumeTailoringConfig": {"retrieval": "fused", "use_semantic": True}}
+    result = studio.generate_studio([], profile, JD, retrieval="lexical")
+    assert result["result"]["tailoringConfig"]["retrieval"] == "lexical"
+    assert result["result"]["tailoringConfig"]["use_semantic"] is False
+    assert profile["resumeTailoringConfig"]["retrieval"] == "fused"
+    assert calls == []
+    semantic_result = studio.generate_studio([], profile, JD, retrieval="semantic")
+    assert semantic_result["result"]["tailoringConfig"]["retrieval"] == "semantic"
+    assert semantic_result["result"]["tailoringConfig"]["use_semantic"] is True
+
+
 def test_fast_local_override_preserves_saved_config(baseline, monkeypatch):
     from app.services.resume_intelligence.resume_studio import generate_studio
     from app.services.resume_intelligence import semantic

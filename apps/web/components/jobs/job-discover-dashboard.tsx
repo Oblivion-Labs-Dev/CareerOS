@@ -7,6 +7,7 @@ import { BrowseFilterControls, type BrowseOptions } from "./browse-filter-contro
 import { ChoiceGroup } from "@/components/ui/choice-group";
 import type { DiscoverJob } from "./discover-job";
 import { DiscoverJobCard } from "./discover-job-card";
+import { fetchResumeVersions, versionForJob, versionsByJob, type ResumeVersionSummary } from "@/lib/career-resumes";
 import { WorkspaceLoading } from "@/components/ui/workspace-loading";
 import styles from "./browse-jobs.module.css";
 import { useCareerWorkspace } from "@/hooks/use-career-workspace";
@@ -455,6 +456,11 @@ export function JobDiscoverDashboard({
     }
   }, []);
 
+  const [resumeVersions, setResumeVersions] = useState<Map<string, ResumeVersionSummary>>(new Map());
+  useEffect(() => {
+    void fetchResumeVersions().then((list) => setResumeVersions(versionsByJob(list))).catch(() => undefined);
+  }, []);
+
   useEffect(() => {
     if (!sourceFilter) void loadGlobalStats();
     void loadLocationOptions();
@@ -838,6 +844,19 @@ export function JobDiscoverDashboard({
     if (addingToAssistant === job.id) return;
     setAddingToAssistant(job.id);
     try {
+      const approved = versionForJob(resumeVersions, job);
+      if (approved?.status === "approved") {
+        // Bind the exact approved PDF to the Autopilot job: it is uploaded unchanged, never regenerated.
+        const response = await fetch(`/api/backend/career/resumes/${approved.resume_id}/apply`, {
+          method: "POST", credentials: "include", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ applicationUrl: job.url, company: job.companyName, title: job.title }) });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(typeof data.detail === "string" ? data.detail : "Could not apply with the approved resume.");
+        if (data.job?.id) await approvePreflightSubmission(String(data.job.id));
+        setResumeVersions(new Map(versionsByJob(await fetchResumeVersions())));
+        setActionMsg(`Applying to ${job.companyName} with your approved resume — follow it on the Autopilot page.`);
+        return;
+      }
       const aaJobId = await queueJob(job);
       if (!aaJobId) {
         setActionMsg(`Added ${job.companyName} to the queue, but could not start the application.`);
@@ -1533,7 +1552,7 @@ export function JobDiscoverDashboard({
               {visibleJobs.map(job => <DiscoverJobCard key={job.id} job={job}
                 selected={selectedJobIds.has(job.id)} shortlisted={shortlist.has(job.id)}
                 busy={loading || addingToAssistant !== null} queued={Boolean(queuedStarts[job.id])}
-                fit={fitByJobId[job.id]} onSelect={()=>toggleSelectJob(job.id)}
+                fit={fitByJobId[job.id]} resume={versionForJob(resumeVersions, job)} onSelect={()=>toggleSelectJob(job.id)}
                 onShortlist={()=>toggleShortlist(job.id)} onHide={()=>void handleDismissJob(job)}
                 onDetails={()=>void openGapPanel(job)} onQueue={()=>void handleAddToQueue(job)}
                 onApply={()=>void handleApplyNow(job)}/>) }

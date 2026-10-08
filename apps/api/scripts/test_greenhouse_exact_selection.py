@@ -11,7 +11,7 @@ async def run_perfect_greenhouse():
         print("1. Filling basic details...")
         await page.fill("#first_name", "Akshay")
         await page.fill("#last_name", "Borse")
-        await page.fill("#email", "amsborse@gmail.com")
+        await page.fill("#email", "candidate@example.com")
         
         # Country phone selector
         try:
@@ -26,7 +26,7 @@ async def run_perfect_greenhouse():
         except Exception as e:
             print("Country select:", e)
 
-        await page.fill("#phone", "425-336-9852")
+        await page.fill("#phone", "206-555-0100")
 
         # Resume file
         resume_path = str(Path("d:/1 - Projects/Projects/CareerOS/CareerOS/apps/api/data/Akshay_Borse_Resume.pdf").resolve())

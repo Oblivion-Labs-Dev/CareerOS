@@ -111,6 +111,25 @@ def resolve_greenhouse_embed_apply_url(url: str, *, company_name: str = "") -> s
     return f"https://boards.greenhouse.io/embed/job_app?for={slug}&token={job_id}"
 
 
+def redirects_off_greenhouse(url: str, *, timeout: float = 15.0) -> bool:
+    """Whether a job-boards.greenhouse.io URL bounces to the employer's own site.
+
+    Some boards (Upstart) redirect the canonical posting to a careers page that
+    holds the form inside an iframe the filler never reaches; the embed URL
+    serves the same form directly. Network errors count as "no", keeping the
+    canonical URL.
+    """
+    import urllib.request
+
+    try:
+        request = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            final_host = (urlparse(response.geturl()).netloc or "").lower()
+    except Exception:
+        return False
+    return "greenhouse.io" not in final_host
+
+
 def _ensure_gh_jid(url: str, job_id: str) -> str:
     if "gh_jid=" in url:
         return url

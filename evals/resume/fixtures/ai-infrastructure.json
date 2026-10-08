@@ -1,0 +1,23 @@
+{
+  "id": "ai-infrastructure",
+  "category": "AI infrastructure",
+  "jd": "Senior Software Engineer, AI Infrastructure\n\nThe team\nWe run the platform that serves retrieval-augmented LLM features to every product team.\n\nWhat you will do\n- Build retrieval infrastructure: embeddings, hybrid search and grounding for LLM applications.\n- Design durable, event-driven ingestion that keeps search indexes fresh.\n- Keep LLM output separated from correctness-critical deterministic systems.\n- Build evaluation and testing workflows for LLM features.\n- Operate large-scale inference services on GPUs with vLLM or Triton.\n\nMinimum qualifications\n- Experience building production systems with LLMs, RAG and embeddings.\n- Experience with Python and one of Java, C# or C++.\n- Experience with cloud platforms (Azure or AWS).\n\nPreferred qualifications\n- Experience with PyTorch and CUDA.\n- Experience with Azure AI Search or OpenSearch.",
+  "expected_requirements": [
+    "embeddings, hybrid search",
+    "event-driven ingestion",
+    "correctness-critical deterministic systems",
+    "LLMs, RAG and embeddings",
+    "PyTorch and CUDA"
+  ],
+  "expected_projects": [
+    "microsoft.agentic_risk_investigation",
+    "amazon.rag_product_recommendations"
+  ],
+  "expected_evidence": [
+    "microsoft.agentic_risk_investigation.architecture.rag_mcp",
+    "amazon.rag_product_recommendations.decision.correctness_boundary"
+  ],
+  "must_not_use": [],
+  "must_not_say": ["PyTorch", "CUDA", "vLLM", "Triton", "GPU"],
+  "expected_gaps": ["PyTorch", "CUDA", "vLLM"]
+}

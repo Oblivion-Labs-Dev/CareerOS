@@ -316,7 +316,7 @@ class StructuredCareerPageAdapter(JobSourceAdapter):
                 html = resp.text
                 jsonld_jobs = parse_jsonld_job_postings(html, careers_url, company)
                 for j in jsonld_jobs:
-                    if matches_title(j.title, compiled_patterns) and is_recent(j.updated_at, cutoff):
+                    if (not compiled_patterns or matches_title(j.title, compiled_patterns)) and is_recent(j.updated_at, cutoff):
                         discovered_jobs.append(j)
 
             # 2. If no jobs found on main page, attempt sitemap discovery
@@ -327,7 +327,7 @@ class StructuredCareerPageAdapter(JobSourceAdapter):
                     if job_page_resp and job_page_resp.status_code == 200:
                         parsed_page_jobs = parse_jsonld_job_postings(job_page_resp.text, job_url, company)
                         for pj in parsed_page_jobs:
-                            if matches_title(pj.title, compiled_patterns) and is_recent(pj.updated_at, cutoff):
+                            if (not compiled_patterns or matches_title(pj.title, compiled_patterns)) and is_recent(pj.updated_at, cutoff):
                                 discovered_jobs.append(pj)
                                 if len(discovered_jobs) >= 20:
                                     break

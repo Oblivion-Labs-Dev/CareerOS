@@ -62,16 +62,25 @@ def _brief(text: str, limit: int = 90) -> str:
     return flat if len(flat) <= limit else flat[: limit - 1] + "\u2026"
 
 
+#: Aggressive owns these five keys. A saved Honest number must not silently
+#: cancel the mode the user selected. Every other saved setting, including the
+#: 15% material-improvement threshold, still applies.
+_AGGRESSIVE_OWNED = {
+    "weak_relevance": .75,
+    "retention_bonus": .05,
+    "replacement_cost": .03,
+    "max_replacement_fraction": .5,
+    "reorder_threshold": .05,
+}
+
+
 def mode_config(mode: str, settings: dict | None = None) -> "TailoringConfig":
     if mode not in MODES:
         raise ValueError("Choose off, honest, or aggressive tailoring.")
-    defaults = {}
+    merged = dict(settings or {})
     if mode == "aggressive":
-        defaults = {"weak_relevance": .75, "retention_bonus": .05, "replacement_cost": .03,
-                    "max_replacement_fraction": .5, "reorder_threshold": .05}
-    # Existing explicitly saved preferences win over mode defaults. The 15%
-    # material-improvement threshold remains the same unless configured.
-    config = TailoringConfig(**{**defaults, **(settings or {})})
+        merged.update(_AGGRESSIVE_OWNED)
+    config = TailoringConfig(**merged)
     return replace(config,use_semantic=False,weak_relevance=0,max_replacement_fraction=0,reorder_threshold=1) if mode=="off" else config
 
 
@@ -203,6 +212,7 @@ def _rank(candidates, reqs, config):
         vectors = None  # Missing weights, memory pressure, or encoder failures use lexical ranking.
     scores = [0.0] * len(candidates)
     matches = [[] for _ in candidates]
+    match_percents = [{} for _ in candidates]
     total = max(1, sum(r["weight"] for r in reqs))
     for req in reqs:
         ranks = []
@@ -222,8 +232,10 @@ def _rank(candidates, reqs, config):
         ceiling = len(ranks) / (config.rrf_k + 1)
         for i, c in enumerate(candidates):
             eligible, tags, evidence = _credited(req, c["optimizedBullet"])
-            if eligible and support(req["text"],c["optimizedBullet"])["status"] in ("supported","partial"):
+            verdict = support(req["text"], c["optimizedBullet"])
+            if eligible and verdict["status"] in ("supported", "partial"):
                 matches[i].append(req["id"])
+                match_percents[i][req["id"]] = round(100 * float(verdict["termFraction"]))
                 if logger.isEnabledFor(logging.DEBUG):
                     logger.debug(
                         "resume build: %r credited with %r via tags=%s words=%s",
@@ -247,7 +259,7 @@ def _rank(candidates, reqs, config):
     top = max(scores, default=0.0)
     if top > 0:
         scores = [value / top for value in scores]
-    return scores, matches, vectors
+    return scores, matches, vectors, match_percents
 
 
 #: How much of a caution's content words must appear in a sentence before the
@@ -465,7 +477,7 @@ def tailor(records, description, title="", *, baseline=None, config=None, fit_ch
         "resume build: mode=%s baseline=%s slots=%d requirements=%d records=%d title=%r",
         mode, baseline["revision"], len(incumbents), len(reqs), len(records), title,
     )
-    baseline_scores, _, _ = _rank(incumbents, reqs, config)
+    baseline_scores, _, _, _ = _rank(incumbents, reqs, config)
     weak = {i for i, value in enumerate(baseline_scores) if value < config.weak_relevance}
     logger.info(
         "resume build: %d/%d slots are weak (relevance < %.2f); baseline relevance %.3f-%.3f",
@@ -487,7 +499,7 @@ def tailor(records, description, title="", *, baseline=None, config=None, fit_ch
         )
     rejected: dict[str, int] = {reason: 0 for reason in REJECTION_REASONS}
     pool = incumbents + alternatives
-    scores, matches, vectors = _rank(pool, reqs, config)
+    scores, matches, vectors, match_percents = _rank(pool, reqs, config)
     def redundancy(c, others):
         vector = (vectors or {}).get(semantic.cache_key(c["source"]["revision"], c["optimizedBullet"]))
         def similarity(other):
@@ -513,7 +525,7 @@ def tailor(records, description, title="", *, baseline=None, config=None, fit_ch
     replaced = 0
     cap = int(len(incumbents) * config.max_replacement_fraction)
     for i, (slot, item) in enumerate(zip(baseline["bullets"], selected)):
-        item.update(decision="KEEP", requirementIds=matches[i], selectionReason="Strong approved bullet retained." if i not in weak else "No materially stronger, eligible evidence fits this slot.")
+        item.update(decision="KEEP", requirementIds=matches[i], requirementPercents=match_percents[i], selectionReason="Strong approved bullet retained." if i not in weak else "No materially stronger, eligible evidence fits this slot.")
         if mode == "off":
             item["selectionReason"] = "OFF preserves the approved resume exactly."
         others = selected[:i] + selected[i+1:]
@@ -588,7 +600,7 @@ def tailor(records, description, title="", *, baseline=None, config=None, fit_ch
         if options:
             _, value, j, runs, gain, reflowed = max(options, key=lambda o: (o[0], o[1], -o[2]))
             selected[i] = {**deepcopy(pool[j]), "original": slot["text"], "baselineBulletId": slot["id"],
-                           "richText": runs, "decision": "REPLACE", "requirementIds": matches[j],
+                           "richText": runs, "decision": "REPLACE", "requirementIds": matches[j], "requirementPercents": match_percents[j],
                            "reflowed": reflowed,
                            "selectionReason": f"Weak slot replaced with exact source evidence; utility improves {gain / max(abs(base), .1):.0%} after retention and replacement costs."
                                               + (" The bullets changing in this role pooled their lines to fit it." if reflowed else ""),
@@ -618,6 +630,7 @@ def tailor(records, description, title="", *, baseline=None, config=None, fit_ch
             if relevance(best) - relevance(target) > config.reorder_threshold:
                 selected[target], selected[best] = selected[best], selected[target]
     for slot, item in zip(baseline["bullets"], selected):
+        item["slotRect"] = [round(float(n), 2) for n in slot["rect"]]
         if item["decision"] != "REPLACE" and slot["id"] != item["baselineBulletId"]:
             item.update(decision="REORDER", selectionReason="Moved within the same role to lead with more relevant evidence; original text and rich-text runs retained.")
     selected_words = set().union(*(words(c["optimizedBullet"]) for c in selected))
@@ -641,6 +654,7 @@ def tailor(records, description, title="", *, baseline=None, config=None, fit_ch
     if mode != "off" and not alternatives and weak:
         explanation += " No approved replacement evidence is available; review accomplishments before enabling replacements."
     result = {"tailoringSummary": explanation, "eligibleReplacementCount": len(alternatives), "method": VERSION, "mode": mode, "baselineRevision": baseline["revision"], "baselineFilename": baseline["filename"],
+              "pageRect": [round(float(n), 2) for n in baseline["pageRect"]],
               "targetRoleMatched": title, "resumeBullets": selected, "requirements": reqs,
               "uncoveredRequirements": [r for r in reqs if r["coverageStatus"] != "covered"],
               # Headline coverage is now what the corpus can actually evidence

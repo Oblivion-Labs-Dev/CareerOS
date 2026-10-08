@@ -1,6 +1,7 @@
 "use client";
 
 import { StatePanel } from "@career-os/ui";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { fetchJson, postJson } from "@/lib/api";
 import { AccomplishmentExplorer } from "./components/accomplishment-explorer";
@@ -84,6 +85,7 @@ function profileWithDomains(profile: CorpusProfile, records: CorpusRecord[]): Co
 }
 
 export function ResumeCorpusClient({ previewMode, initialView, initialRecordId }: ResumeCorpusClientProps) {
+  const router = useRouter();
   const mountedAtRef = useRef(typeof performance === "undefined" ? 0 : performance.now());
   const previewLoadReportedRef = useRef(false);
   const [records, setRecords] = useState<CorpusRecord[]>(previewMode ? PREVIEW_RECORDS : []);
@@ -91,7 +93,7 @@ export function ResumeCorpusClient({ previewMode, initialView, initialRecordId }
   const [profileSource, setProfileSource] = useState<Record<string, unknown>>({});
   const [loading, setLoading] = useState(!previewMode);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [activeView, setActiveView] = useState<CorpusView>(initialView);
+  const [activeView, setActiveView] = useState<CorpusView>(initialView === "builder" ? "overview" : initialView);
   const [comingSoonFeatureId, setComingSoonFeatureId] = useState<ComingSoonFeatureId | undefined>(
     isAdvancedCorpusView(initialView) ? initialView : undefined,
   );
@@ -185,6 +187,10 @@ export function ResumeCorpusClient({ previewMode, initialView, initialRecordId }
     const handlePopState = () => {
       const params = new URL(window.location.href).searchParams;
       const nextView = params.get("view");
+      if (nextView === "builder") {
+        router.push("/profile/resume-studio");
+        return;
+      }
       if (isComingSoonFeatureId(nextView)) {
         setComingSoonFeatureId(nextView);
         setActiveView(isCorpusView(nextView) ? nextView : "overview");
@@ -197,7 +203,7 @@ export function ResumeCorpusClient({ previewMode, initialView, initialRecordId }
     };
     window.addEventListener("popstate", handlePopState);
     return () => window.removeEventListener("popstate", handlePopState);
-  }, []);
+  }, [router]);
 
   useEffect(() => {
     if (!selectedRecordId || loading || records.some((record) => record.id === selectedRecordId)) return;
@@ -220,6 +226,14 @@ export function ResumeCorpusClient({ previewMode, initialView, initialRecordId }
     window.requestAnimationFrame(() => window.scrollTo({ top: 0, left: 0, behavior: "auto" }));
   };
 
+  const openResumeStudio = useCallback(() => {
+    router.push("/profile/resume-studio");
+  }, [router]);
+
+  useEffect(() => {
+    if (initialView === "builder") openResumeStudio();
+  }, [initialView, openResumeStudio]);
+
   const openComingSoon = (featureId: ComingSoonFeatureId) => {
     setComingSoonFeatureId(featureId);
     setActiveView(isCorpusView(featureId) ? featureId : "overview");
@@ -229,6 +243,10 @@ export function ResumeCorpusClient({ previewMode, initialView, initialRecordId }
   };
 
   const navigate = (view: CorpusView) => {
+    if (view === "builder") {
+      openResumeStudio();
+      return;
+    }
     if (isAdvancedCorpusView(view)) {
       openComingSoon(view);
       return;

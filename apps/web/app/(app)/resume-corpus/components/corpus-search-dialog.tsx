@@ -225,7 +225,7 @@ export function CorpusSearchDialog({
             <>
               <div className={styles.searchGroupLabel}>Quick actions</div>
               {command("Create accomplishment", "Capture a new outcome without leaving the workspace", "NEW", onCreate)}
-              {command("Build a targeted resume", "Rank proven accomplishments for a role", "RB", () => onNavigate("builder"))}
+              {command("Build a targeted resume", "Open Resume Studio and tailor the approved resume", "RB", () => onNavigate("builder"))}
               {command("Match a job description", "Compare explicit evidence to job requirements", "JM", () => onNavigate("match"))}
               {command("Open unanswered questions", "Practice the gaps reviewers are most likely to probe", "IQ", () => onNavigate("interview"))}
               {command("Filter weak bullets", "Open accomplishments sorted for readiness", "WK", () => onNavigate("accomplishments"))}

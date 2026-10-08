@@ -159,7 +159,9 @@ async def check_job_url_freshness(
                     "reason": f"HTTP {resp.status_code} Not Found",
                 }
 
-            body_text = resp.text.lower()
+            # Career platforms ship every UI string (including "this job is no longer
+            # available") in inline script data, so only the rendered text counts.
+            body_text = re.sub(r"<(script|style)\b.*?</\1\s*>", " ", resp.text, flags=re.S | re.I).lower()
             for pattern in CLOSED_TEXT_PATTERNS:
                 if re.search(pattern, body_text):
                     return {

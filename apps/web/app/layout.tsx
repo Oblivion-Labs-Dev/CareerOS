@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Geist, Instrument_Serif, Inter, JetBrains_Mono, Outfit } from "next/font/google";
+import NextTopLoader from "nextjs-toploader";
 import { AppProviders } from "@/components/providers/app-providers";
 import "./globals.css";
 import "./career-system.css";
@@ -76,6 +77,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       className={`${inter.variable} ${outfit.variable} ${geist.variable} ${instrumentSerif.variable} ${jetbrainsMono.variable}`}
     >
       <body className={geist.className}>
+        <NextTopLoader color="var(--accent)" height={2} showSpinner={false} shadow={false} crawlSpeed={120} speed={180} zIndex={2000} />
         <AppProviders>{children}</AppProviders>
       </body>
     </html>

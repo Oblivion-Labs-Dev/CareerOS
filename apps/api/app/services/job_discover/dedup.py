@@ -16,6 +16,10 @@ TRACKING_PARAMS = frozenset({
     "trk", "gh_jid", "gh_src", "lever-source", "ashby_jid", "sr_source",
     "intcmp", "sub_id", "affiliate", "tracking_code",
 })
+# On a company-hosted page (databricks.com/.../job?gh_jid=123) the ATS job id
+# is the only thing telling postings apart; it is noise only when the path
+# already carries it (boards.greenhouse.io/acme/jobs/123?gh_jid=123).
+JOB_ID_PARAMS = frozenset({"gh_jid", "ashby_jid"})
 
 
 def canonicalize_url(url: str) -> str:
@@ -27,7 +31,11 @@ def canonicalize_url(url: str) -> str:
         clean_input = url.strip()
         parsed = urlparse(clean_input)
         query = parse_qs(parsed.query, keep_blank_values=True)
-        clean_query = {k: v for k, v in query.items() if k.lower() not in TRACKING_PARAMS}
+        clean_query = {
+            k: v for k, v in query.items()
+            if k.lower() not in TRACKING_PARAMS
+            or (k.lower() in JOB_ID_PARAMS and any(val and val not in parsed.path for val in v))
+        }
 
         # Reconstruct query
         new_query = urlencode(clean_query, doseq=True)
@@ -237,12 +245,34 @@ def merge_job_records(existing: dict[str, Any], incoming: dict[str, Any]) -> dic
             merged["salaryMax"] = incoming.get("salaryMax")
         if not merged.get("applyUrl") and incoming.get("applyUrl"):
             merged["applyUrl"] = incoming["applyUrl"]
+        if not merged.get("locations") and incoming.get("locations"):
+            merged["locations"] = incoming["locations"]
+        if not merged.get("postingDate") and incoming.get("postingDate"):
+            merged["postingDate"] = incoming["postingDate"]
+            merged["postingDateConfidence"] = incoming.get("postingDateConfidence")
         if incoming.get("sponsorshipMention"):
             merged["sponsorshipMention"] = True
             if incoming.get("sponsorshipStatus"):
                 merged["sponsorshipStatus"] = incoming["sponsorshipStatus"]
 
         return merged
+
+
+def _requisition_id(job: dict[str, Any]) -> str:
+    return str(job.get("requisition_id") or job.get("externalId") or job.get("greenhouse_id") or "").strip()
+
+
+def _distinct_requisitions(existing: dict[str, Any] | None, job: dict[str, Any]) -> bool:
+    """Two postings from the same source with different requisition ids are different jobs.
+
+    The fuzzy signature drops level words and hashes only the opening of the
+    description, which is often company boilerplate - so "Senior Software
+    Engineer" and "Software Engineer" in one city would otherwise collapse.
+    """
+    if existing is None:
+        return False
+    a, b = _requisition_id(existing), _requisition_id(job)
+    return bool(a and b and a != b and source_label(existing) == source_label(job))
 
 
 class DedupeIndex:
@@ -317,7 +347,7 @@ class DedupeIndex:
         elif req_key and req_key in req_to_id:
             matched_id = req_to_id[req_key]
         # 4. Fuzzy signature match
-        elif fuzzy_sig and fuzzy_sig in fuzzy_to_id:
+        elif fuzzy_sig and fuzzy_sig in fuzzy_to_id and not _distinct_requisitions(by_id.get(fuzzy_to_id[fuzzy_sig]), job):
             matched_id = fuzzy_to_id[fuzzy_sig]
         # 5. Cross-source match: same company and title, compatible location,
         #    but a DIFFERENT source.
@@ -411,7 +441,7 @@ def _legacy_cross_source_deduplicate(jobs: list[dict[str, Any]]) -> list[dict[st
         elif req_key and req_key in req_to_id:
             matched_id = req_to_id[req_key]
         # 4. Fuzzy signature match
-        elif fuzzy_sig and fuzzy_sig in fuzzy_to_id:
+        elif fuzzy_sig and fuzzy_sig in fuzzy_to_id and not _distinct_requisitions(by_id.get(fuzzy_to_id[fuzzy_sig]), job):
             matched_id = fuzzy_to_id[fuzzy_sig]
         # 5. Cross-source match: same company and title, compatible location,
         #    but a DIFFERENT source. This is the aggregator case — the same

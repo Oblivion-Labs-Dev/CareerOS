@@ -11,7 +11,7 @@ async def run_clean_greenhouse():
         # 1. Fill basic details
         await page.fill("#first_name", "Akshay")
         await page.fill("#last_name", "Borse")
-        await page.fill("#email", "amsborse@gmail.com")
+        await page.fill("#email", "candidate@example.com")
         
         # Select country: click country -> type United States -> click option
         try:
@@ -27,7 +27,7 @@ async def run_clean_greenhouse():
         except Exception as e:
             print("Country selection:", e)
 
-        await page.fill("#phone", "425-336-9852")
+        await page.fill("#phone", "206-555-0100")
 
         # Attach resume
         resume_path = str(Path("d:/1 - Projects/Projects/CareerOS/CareerOS/apps/api/data/Akshay_Borse_Resume.pdf").resolve())

@@ -20,6 +20,14 @@ def test_canonicalize_url():
     url = "https://boards.greenhouse.io/stripe/jobs/12345?utm_source=linkedin&utm_medium=cpc&ref=xyz"
     clean = canonicalize_url(url)
     assert clean == "https://boards.greenhouse.io/stripe/jobs/12345"
+    assert canonicalize_url("https://boards.greenhouse.io/stripe/jobs/12345?gh_jid=12345") == "https://boards.greenhouse.io/stripe/jobs/12345"
+
+
+def test_canonicalize_url_keeps_the_job_id_of_a_company_hosted_posting():
+    a = canonicalize_url("https://databricks.com/company/careers/open-positions/job?gh_jid=111&utm_source=x")
+    b = canonicalize_url("https://databricks.com/company/careers/open-positions/job?gh_jid=222")
+    assert a == "https://databricks.com/company/careers/open-positions/job?gh_jid=111"
+    assert a != b
 
 
 def test_compute_job_fingerprint():

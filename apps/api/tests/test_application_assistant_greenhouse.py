@@ -161,3 +161,52 @@ class TestGreenhouseFixturesExist:
     def test_submit_tracking_script(self):
         content = (FIXTURES_DIR / "application_form.html").read_text()
         assert "__submitClicked" in content
+
+
+class _FakeResponse:
+    def __init__(self, final_url: str):
+        self._final_url = final_url
+
+    def geturl(self) -> str:
+        return self._final_url
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+
+@pytest.mark.parametrize("final_url, expected", [
+    ("https://careers.upstart.com/jobs/senior-software-engineer?gh_jid=8161883", True),
+    ("https://job-boards.greenhouse.io/upstart/jobs/8161883?gh_jid=8161883", False),
+])
+def test_upstart_canonical_redirect_off_greenhouse_is_detected(monkeypatch, final_url, expected):
+    import urllib.request
+
+    from app.services.application_assistant.providers import greenhouse
+
+    monkeypatch.setattr(urllib.request, "urlopen", lambda *a, **k: _FakeResponse(final_url))
+    assert greenhouse.redirects_off_greenhouse(
+        "https://job-boards.greenhouse.io/upstart/jobs/8161883?gh_jid=8161883"
+    ) is expected
+
+
+def test_redirect_check_keeps_canonical_url_on_network_error(monkeypatch):
+    import urllib.request
+
+    from app.services.application_assistant.providers import greenhouse
+
+    def boom(*a, **k):
+        raise OSError("offline")
+
+    monkeypatch.setattr(urllib.request, "urlopen", boom)
+    assert greenhouse.redirects_off_greenhouse("https://job-boards.greenhouse.io/x/jobs/1") is False
+
+
+def test_upstart_wrapper_embed_url_uses_host_slug():
+    from app.services.application_assistant.providers.greenhouse import resolve_greenhouse_embed_apply_url
+
+    assert resolve_greenhouse_embed_apply_url(
+        "https://careers.upstart.com/jobs?gh_jid=8161883", company_name="Upstart"
+    ) == "https://boards.greenhouse.io/embed/job_app?for=upstart&token=8161883"

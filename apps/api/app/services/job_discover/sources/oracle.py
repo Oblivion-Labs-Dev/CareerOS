@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import re
 import time
 from datetime import datetime
 from typing import Any
@@ -10,6 +9,8 @@ from typing import Any
 import httpx
 
 from app.services.job_discover.sources.base import JobSourceAdapter, NormalizedJob
+
+_PAGE_SIZE = 100
 
 
 class OracleSource(JobSourceAdapter):
@@ -37,29 +38,52 @@ class OracleSource(JobSourceAdapter):
         start_time = time.perf_counter()
         host = config.get("host", "eeho.fa.us2.oraclecloud.com")
         site = config.get("site", "jobsearch")
-        # Oracle HCM REST API
-        url = f"https://{host}/hcmRestApi/resources/latest/recruitingCEJobRequisitions?onlyData=true&finder=findReqs;siteNumber={site},facetsList=LOCATIONS%3BPOSTING_DATES"
+        keyword = config.get("keyword") or ""
+        max_results = int(config.get("max_results") or 500)
+        self.last_total: int | None = None
 
-        resp = await self.execute_request(client, url, timeout=20.0)
-        if not resp or resp.status_code != 200:
-            self.record_failure(f"HTTP {resp.status_code if resp else 'No response'}")
-            return []
-
+        # The search returns one wrapper item per call whose requisitionList
+        # holds the page of postings; TotalJobsCount is the full match count.
+        requisitions: list[dict[str, Any]] = []
+        offset = 0
         try:
-            data = resp.json()
-            items = data.get("items", [])
-            jobs: list[NormalizedJob] = []
+            while len(requisitions) < max_results:
+                finder = f"findReqs;siteNumber={site},limit={_PAGE_SIZE},offset={offset},sortBy=POSTING_DATES_DESC"
+                if keyword:
+                    finder += f",keyword={keyword}"
+                resp = await self.execute_request(
+                    client,
+                    f"https://{host}/hcmRestApi/resources/latest/recruitingCEJobRequisitions",
+                    params={"onlyData": "true", "expand": "requisitionList.secondaryLocations", "finder": finder},
+                    timeout=20.0,
+                )
+                if not resp or resp.status_code != 200:
+                    if not requisitions:
+                        self.record_failure(f"HTTP {resp.status_code if resp else 'No response'}")
+                        return []
+                    break
+                wrapper = (resp.json().get("items") or [{}])[0]
+                if self.last_total is None and wrapper.get("TotalJobsCount") is not None:
+                    self.last_total = int(wrapper["TotalJobsCount"])
+                page = wrapper.get("requisitionList") or []
+                requisitions.extend(page)
+                offset += len(page)
+                if not page or (self.last_total is not None and offset >= self.last_total):
+                    break
 
-            for item in items:
+            jobs: list[NormalizedJob] = []
+            for item in requisitions[:max_results]:
                 title = item.get("Title", "")
-                if not matches_title(title, compiled_patterns):
+                if compiled_patterns and not matches_title(title, compiled_patterns):
                     continue
 
                 req_id = s(item.get("Id", ""))
                 location = item.get("PrimaryLocation", "")
+                secondary = [loc.get("Name") for loc in item.get("secondaryLocations") or [] if isinstance(loc, dict) and loc.get("Name")]
+                locations = [loc for loc in [location, *secondary] if loc]
                 posted = item.get("PostedDate", "")
 
-                combined = f"{location} {title}".lower()
+                combined = f"{' '.join(locations)} {title} {item.get('WorkplaceType') or ''}".lower()
                 is_remote = any(k in combined for k in ("remote", "virtual", "wfh"))
                 is_hybrid = "hybrid" in combined
                 remote_status = "REMOTE" if is_remote else ("HYBRID" if is_hybrid else "ONSITE")
@@ -72,19 +96,19 @@ class OracleSource(JobSourceAdapter):
                     company=company,
                     company_name=config.get("company_name") or company.replace("-", " ").capitalize(),
                     title=title,
-                    location=location,
-                    locations=[location] if location else [],
+                    location=" | ".join(locations),
+                    locations=locations,
                     remote=is_remote,
                     hybrid=is_hybrid,
                     remote_status=remote_status,
-                    department=item.get("Department", ""),
+                    department=item.get("Department") or "",
                     source_url=job_url,
                     apply_url=job_url,
                     canonical_url=job_url,
-                    description=strip_html(item.get("ExternalDescriptionStr", "")),
+                    description=strip_html(item.get("ExternalDescriptionStr") or item.get("ShortDescriptionStr") or ""),
                     updated_at=posted,
                     first_published=posted,
-                    employment_type=item.get("RegularOrTemporary", "Full-time"),
+                    employment_type=item.get("RegularOrTemporary") or "Full-time",
                     source="oracle",
                     source_type="ats",
                     source_priority=95,

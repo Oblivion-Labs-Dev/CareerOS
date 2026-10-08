@@ -1,0 +1,25 @@
+{
+  "id": "agentic-ai",
+  "category": "Agentic AI",
+  "jd": "Senior AI Engineer, Agents\n\nYou will build AI agents that take real actions for engineers.\n\nResponsibilities\n- Build agentic workflows with tool use, MCP servers and multi-step planning.\n- Design guardrails, human review and deterministic validation around agent actions.\n- Automate engineering workflows such as testing, debugging, incident reproduction and pull-request creation with agents.\n- Measure agent quality with evaluations and production telemetry.\n- Ship agent-driven readiness and operational checks across many services.\n\nRequired\n- Experience building LLM applications and AI agents in production.\n- Experience with Python or TypeScript.\n- Experience with LangGraph, LangChain or similar agent frameworks.\n\nPreferred\n- Experience with CrewAI or AutoGen.\n- Experience fine-tuning models with reinforcement learning.",
+  "expected_requirements": [
+    "tool use, MCP servers",
+    "guardrails, human review and deterministic validation",
+    "incident reproduction and pull-request creation",
+    "LangGraph, LangChain",
+    "CrewAI or AutoGen"
+  ],
+  "expected_projects": [
+    "microsoft.agentic_risk_investigation",
+    "microsoft.ai_assisted_testing_debugging",
+    "amazon.production_readiness_agent"
+  ],
+  "expected_evidence": [
+    "microsoft.ai_assisted_testing_debugging.workflow",
+    "amazon.production_readiness_agent.scale.services",
+    "microsoft.agentic_risk_investigation.architecture.rag_mcp"
+  ],
+  "must_not_use": [],
+  "must_not_say": ["CrewAI", "AutoGen", "fine-tun", "reinforcement learning"],
+  "expected_gaps": ["CrewAI", "AutoGen"]
+}

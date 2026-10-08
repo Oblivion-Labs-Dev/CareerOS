@@ -8,36 +8,31 @@ from app.services.application_assistant.profile_answer_resolver import resolve_a
 def empty_profile():
     return {
         "fullName": "Akshay Borse",
-        "email": "amsborse@gmail.com",
-        "phone": "4253369852",
+        "email": "candidate@example.com",
+        "phone": "2065550100",
         "city": "Auburn",
         "state": "WA",
         "workAuth": {"authorizedToWorkInUS": True, "requiresSponsorshipNowOrFuture": False},
     }
 
-def test_manifest_resolves_high_school_math(empty_profile):
-    res = resolve_answer("How did you perform in mathematics at high school?*", empty_profile)
-    assert res.answer == "Top 0.01%"
-    assert res.resolution_method in ("CANDIDATE_MANIFEST", "PROFILE_SCREENING_ANSWER")
-
-def test_manifest_resolves_native_language(empty_profile):
-    res = resolve_answer("How did you perform in your native language at high school?*", empty_profile)
-    assert res.answer == "Top 1% at my school"
-    assert res.resolution_method in ("CANDIDATE_MANIFEST", "PROFILE_SCREENING_ANSWER")
-
-def test_manifest_resolves_companies(empty_profile):
-    res = resolve_answer("In the past ten years, looking only at the time since you graduated your first undergraduate degree, how many companies have you worked for?*", empty_profile)
-    assert res.answer == "2"
+# Quarantined (confirmed_by_user: false) on 2026-10-07: unverified rankings, an
+# employer count career.json contradicts, and databases it does not record.
+@pytest.mark.parametrize("question", [
+    "How did you perform in mathematics at high school?*",
+    "How did you perform in your native language at high school?*",
+    "In the past ten years, looking only at the time since you graduated your first undergraduate degree, "
+    "how many companies have you worked for?*",
+    "Which databases do you have experience using? With which are you most familiar?",
+    "Street Address*",
+])
+def test_quarantined_manifest_entries_are_not_used(empty_profile, question):
+    res = resolve_answer(question, empty_profile)
+    assert res.resolution_method != "CANDIDATE_MANIFEST"
 
 def test_manifest_resolves_kubernetes(empty_profile):
     res = resolve_answer("In Kubernetes, what is the difference between a Pod and a Container?", empty_profile)
     assert "isolated environment" in res.answer
     assert "smallest deployable unit" in res.answer
-
-def test_manifest_resolves_databases(empty_profile):
-    res = resolve_answer("Which databases do you have experience using? With which are you most familiar?", empty_profile)
-    assert "PostgreSQL" in res.answer
-    assert "DynamoDB" in res.answer
 
 def test_manifest_resolves_relocation(empty_profile):
     res = resolve_answer("Are you open to relocating now or in the near future?*", empty_profile, options=["Yes", "No"])

@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import styles from "./checklist.module.css";
 
-export type ChecklistItem = { id: string; text: string; detail: string };
+export type ChecklistItem = { id: string; text: string; detail: string; examples?: string[] };
 export type ChecklistSection = { id: string; title: string; items: ChecklistItem[] };
 export type InterviewChecklist = { title: string; basis: string; sections: ChecklistSection[] };
 
@@ -21,7 +21,7 @@ function readChecks(): Record<string, boolean> {
   }
 }
 
-export function InterviewChecklistView({ checklist }: { checklist: InterviewChecklist }) {
+export function InterviewChecklistView({ checklist, children }: { checklist: InterviewChecklist; children?: ReactNode }) {
   const [checks, setChecks] = useState<Record<string, boolean>>({});
   const items = checklist.sections.flatMap((section) => section.items);
   const done = items.filter((item) => checks[item.id]).length;
@@ -45,6 +45,7 @@ export function InterviewChecklistView({ checklist }: { checklist: InterviewChec
         <h1>{checklist.title}</h1>
         <p>{checklist.basis}</p>
         <p className={styles.progress} role="status">{done} of {items.length} prepared</p>
+        {children}
       </header>
       {checklist.sections.map((section) => (
         <section key={section.id} className={styles.section} aria-labelledby={`prep-${section.id}`}>
@@ -61,6 +62,7 @@ export function InterviewChecklistView({ checklist }: { checklist: InterviewChec
                   <span>
                     <strong>{item.text}</strong>
                     <small>{item.detail}</small>
+                    {item.examples?.length ? <ul className={styles.examples}>{item.examples.map((example) => <li key={example}>{example}</li>)}</ul> : null}
                   </span>
                 </label>
               </li>

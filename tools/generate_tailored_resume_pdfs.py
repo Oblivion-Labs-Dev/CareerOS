@@ -116,8 +116,8 @@ def create_resume_pdf(output_path: str, diff_data: dict, candidate_info: dict):
     full_name = f"{candidate_info.get('firstName', 'Akshay')} {candidate_info.get('lastName', 'Borse')}".strip()
     contact_parts = [
         candidate_info.get("location", "Auburn, WA"),
-        candidate_info.get("email", "amsborse@gmail.com"),
-        candidate_info.get("phone", "(425) 336-9852"),
+        candidate_info.get("email", "candidate@example.com"),
+        candidate_info.get("phone", "(206) 555-0100"),
         "linkedin.com/in/amsborse",
         "github.com/amsborse"
     ]

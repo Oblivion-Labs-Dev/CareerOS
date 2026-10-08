@@ -19,8 +19,8 @@ const testProfile = {
   firstName: 'Akshay',
   lastName: 'Borse',
   fullName: 'Akshay Borse',
-  email: 'amsborse@gmail.com',
-  phone: '+1 4253369852',
+  email: 'candidate@example.com',
+  phone: '+1 2065550100',
   location: 'Seattle, WA',
   linkedin: 'https://www.linkedin.com/in/amsborse/',
   github: 'https://github.com/amsborse',
@@ -290,7 +290,7 @@ test.describe('Greenhouse Anduril autofill', () => {
     await expect(page.locator('input').filter({ has: page.locator('[value="Akshay"]') }).first()).toBeTruthy();
     await expect(page.getByLabel(/first name/i)).toHaveValue('Akshay');
     await expect(page.getByLabel(/last name/i)).toHaveValue('Borse');
-    await expect(page.getByLabel(/^email/i)).toHaveValue('amsborse@gmail.com');
+    await expect(page.getByLabel(/^email/i)).toHaveValue('candidate@example.com');
 
     expect(
       missingExpected,

@@ -178,8 +178,8 @@ async def test_greenhouse_anduril_form_filling_and_file_safety():
         profile = {
             "firstName": "Akshay",
             "lastName": "Borse",
-            "email": "amsborse@gmail.com",
-            "phone": "425-336-9852",
+            "email": "candidate@example.com",
+            "phone": "206-555-0100",
             "location": "Auburn, WA",
             "portfolio": "https://amsborse.github.io/resume",
             "workAuthorization": "Yes",
@@ -203,7 +203,7 @@ async def test_greenhouse_anduril_form_filling_and_file_safety():
         assert filled.get("First Name") == "Akshay"
         # A taggable +career variant of the candidate's own email, not the
         # bare address — see derive_contact_email / profile_answer_resolver.py.
-        assert filled.get("Email") == "amsborse+career@gmail.com"
+        assert filled.get("Email") == "candidate+career@example.com"
         assert filled.get("Resume") == "test_sample_resume.pdf"
 
         # 2. Verify file safety in field_fill_engine: attempt to pass text to a file input

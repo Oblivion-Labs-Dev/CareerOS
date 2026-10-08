@@ -104,7 +104,7 @@ class GenericCareerPageSource(JobSource):
 
             valid_jobs: list[NormalizedJob] = []
             for j in jsonld_jobs:
-                if matches_title(j.title, compiled_patterns) and is_recent(j.updated_at, cutoff):
+                if (not compiled_patterns or matches_title(j.title, compiled_patterns)) and is_recent(j.updated_at, cutoff):
                     valid_jobs.append(j)
 
             return valid_jobs

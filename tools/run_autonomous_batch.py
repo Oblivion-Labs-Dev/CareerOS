@@ -96,7 +96,9 @@ def load_candidate_profile() -> dict[str, Any]:
         prof.setdefault("firstName", "Akshay")
         prof.setdefault("lastName", "Borse")
         prof.setdefault("fullName", "Akshay Borse")
-        prof["email"] = "amsborse+careeros@gmail.com"
+        local, _, domain = str(prof.get("email") or "").partition("@")
+        if domain:
+            prof["email"] = f"{local.split('+')[0]}+careeros@{domain}"
         prof["location"] = "Auburn, WA"
         prof.setdefault("city", "Auburn")
         prof.setdefault("state", "Washington")

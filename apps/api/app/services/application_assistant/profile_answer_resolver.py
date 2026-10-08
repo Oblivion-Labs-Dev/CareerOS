@@ -275,7 +275,7 @@ def _normalize_manifest_text(text: str) -> str:
     return " ".join(cleaned.split())
 
 
-def _map_manifest_value_to_options(answer: str, opts: list[str]) -> str | None:
+def _map_manifest_value_to_options(answer: str, opts: list[str], topic: str = "") -> str | None:
     if not opts:
         return answer
     matched = _match_option(opts, answer)
@@ -286,7 +286,7 @@ def _map_manifest_value_to_options(answer: str, opts: list[str]) -> str | None:
     if matched is None and answer.lower() in ("no", "false", "n"):
         matched = _match_option(opts, "No")
     if matched is None:
-        matched = _match_yes_no_sentence_option(opts, answer)
+        matched = _match_yes_no_sentence_option(opts, answer, topic)
     if matched is not None:
         return matched
     if answer.lower() in ("yes", "no", "true", "false", "y", "n"):
@@ -306,6 +306,8 @@ def _manifest_entry_usable(item: dict[str, Any]) -> bool:
     "Yes"), and answers shifted onto the neighbouring field (essays answered
     "Yes", "Former Employee" answered with a Kubernetes paragraph).
     """
+    if item.get("confirmed_by_user") is False:
+        return False
     field_type = str(item.get("fieldType") or "").lower()
     if field_type in ("checkbox", "radio"):
         return False
@@ -338,7 +340,7 @@ def _match_candidate_manifest_answer(question_text: str, options: list[str] | No
                 if re.search(pat, question_text, re.I):
                     val = item.get("proposed_answer")
                     if val is not None and str(val).strip():
-                        matched_val = _map_manifest_value_to_options(str(val), opts)
+                        matched_val = _map_manifest_value_to_options(str(val), opts, str(item.get("question", "")))
                         if matched_val is not None:
                             return str(item.get("id") or "manifest"), matched_val
             except Exception:
@@ -349,7 +351,7 @@ def _match_candidate_manifest_answer(question_text: str, options: list[str] | No
         if _normalize_manifest_text(str(item.get("question", ""))) == norm_q:
             val = item.get("proposed_answer")
             if val is not None and str(val).strip():
-                matched_val = _map_manifest_value_to_options(str(val), opts)
+                matched_val = _map_manifest_value_to_options(str(val), opts, str(item.get("question", "")))
                 if matched_val is not None:
                     return str(item.get("id") or "manifest"), matched_val
 
@@ -372,7 +374,7 @@ def _match_candidate_manifest_answer(question_text: str, options: list[str] | No
         if not opts and str(val or "").strip().lower() in _BARE_YES_NO:
             return None
         if val is not None and str(val).strip():
-            matched_val = _map_manifest_value_to_options(str(val), opts)
+            matched_val = _map_manifest_value_to_options(str(val), opts, str(best_item.get("question", "")))
             if matched_val is not None:
                 return str(best_item.get("id") or "manifest"), matched_val
 
@@ -381,11 +383,21 @@ def _match_candidate_manifest_answer(question_text: str, options: list[str] | No
 
 # ── Core resolver ────────────────────────────────────────────────────────────
 
-def _match_yes_no_sentence_option(options: list[str], answer: str) -> str | None:
+def _saved_question_mentions(profile: dict[str, Any], screening_id: str, word: str) -> bool:
+    for entry in profile.get("screeningAnswers") or []:
+        if isinstance(entry, dict) and str(entry.get("id")) == screening_id:
+            return word in str(entry.get("question") or "").lower()
+    return False
+
+
+def _match_yes_no_sentence_option(options: list[str], answer: str, topic: str = "") -> str | None:
     """Map a yes/no answer onto sentence-form options.
 
     Returns None unless exactly one option expresses the wanted polarity, so an
-    ambiguous list is left for the caller rather than guessed at.
+    ambiguous list is left for the caller rather than guessed at. When several
+    options share the polarity ("I currently live in this job's location." /
+    "I am willing to relocate to this job's location."), the one naming what the
+    answered question was about (`topic`) is chosen, and only if it is unique.
     """
     want = answer.strip().lower()
     if want in ("yes", "true", "y"):
@@ -406,7 +418,18 @@ def _match_yes_no_sentence_option(options: list[str], answer: str) -> str | None
             positives.append(opt)
 
     wanted = positives if positive else negatives
-    return wanted[0] if len(wanted) == 1 else None
+    if len(wanted) == 1:
+        return wanted[0]
+    topic_stems = _word_stems(topic)
+    if len(wanted) < 2 or not topic_stems:
+        return None
+    scores = [len(_word_stems(opt) & topic_stems) for opt in wanted]
+    best = max(scores)
+    return wanted[scores.index(best)] if best and scores.count(best) == 1 else None
+
+
+def _word_stems(text: str) -> set[str]:
+    return {w[:6] for w in re.findall(r"[a-z]{5,}", (text or "").lower())}
 
 
 def _match_preferred_office(options: list[str], profile: dict[str, Any]) -> str | None:
@@ -432,6 +455,70 @@ def _match_preferred_office(options: list[str], profile: dict[str, Any]) -> str 
         if any(h in opt.lower() for h in HOME):
             return opt
     return usable[0]
+
+
+_CITIES_AVAILABLE = re.compile(
+    r"\b(?:which|what)\s+(?:cities|city|offices?|locations?)\b.{0,40}\b(?:available|able)\s+to\s+work\b", re.I,
+)
+
+
+def _own_city_option(options: list[str], profile: dict[str, Any]) -> str | None:
+    """The option naming the candidate's own city ("Seattle", "Seattle, WA",
+    "Seattle (Hybrid)"), or None. Any other city would assert a willingness to
+    work there that the profile does not record. A suburb's offices are listed
+    under the metro ("Seattle" for Auburn), so `metroArea` counts as well."""
+    def lead(option: str) -> str:
+        return re.split(r"\s*[,(/]\s*|\s+-\s+", option.strip().lower(), maxsplit=1)[0]
+
+    for key in ("city", "metroArea"):
+        place = str(profile.get(key) or "").strip().lower()
+        if not place:
+            continue
+        hits = [o for o in options if lead(o) == place]
+        if len(hits) == 1:
+            return hits[0]
+    return None
+
+
+_FOREIGN_JURISDICTION = re.compile(
+    r"\b(?:canada|canadian|europe|european|eu|united\s+kingdom|uk|britain|mexico|ireland|germany"
+    r"|france|netherlands|spain|poland|portugal|israel|australia|singapore|japan|brazil|india)\b",
+    re.I,
+)
+# "US" is matched case-sensitively so the pronoun in "tell us" does not count.
+_US_ABBREVIATION = re.compile(r"\bU\.S\.(?:A\.)?|\bUSA?\b")
+_US_SPELLED_OUT = re.compile(r"\bunited\s+states\b|\bamerica\b", re.I)
+
+
+def _foreign_jurisdiction_answer(question: str, qtype: QuestionType, profile: dict) -> str | None:
+    """Work authorization for a country other than the United States.
+
+    The candidate's authorization is for the United States (and their country
+    of citizenship), so "authorized to work in Canada?" is "No" and "require
+    sponsorship to work in Canada?" is "Yes". Questions that also name the US
+    ("the US or Canada") keep the normal US answer.
+    """
+    if qtype not in (
+        QuestionType.WORK_AUTHORIZED,
+        QuestionType.PERMANENT_WORK_AUTHORIZATION,
+        QuestionType.SPONSORSHIP_REQUIRED,
+    ):
+        return None
+    text = question or ""
+    places = [m.group(0).lower() for m in _FOREIGN_JURISDICTION.finditer(text)]
+    places = [p for p in places if not (p == "uk" and not re.search(r"\bUK\b", text))]
+    if not places or _US_ABBREVIATION.search(text) or _US_SPELLED_OUT.search(text):
+        return None
+    citizenship = str(profile.get("citizenshipCountry") or "").strip().lower()
+    authorized_there = bool(citizenship) and any(p in citizenship for p in places)
+    if qtype == QuestionType.SPONSORSHIP_REQUIRED:
+        return "No" if authorized_there else "Yes"
+    return "Yes" if authorized_there else "No"
+
+
+_COMMUTE_FROM_HOME = re.compile(
+    r"commut|\breside\b|\bhome\s+address\b|\b(?:currently\s+)?live\s+(?:in|near|within)\b", re.I,
+)
 
 
 def resolve_answer(
@@ -516,9 +603,49 @@ def _resolve_answer_impl(
         resolution.confidence = 1.0
         return resolution
 
+    foreign = _foreign_jurisdiction_answer(question_text, qtype, profile)
+    if foreign:
+        resolution.answer = (_match_option(opts, foreign) if opts else None) or foreign
+        resolution.resolution_method = DETERMINISTIC_RULE
+        resolution.profile_key = "workAuth"
+        resolution.confidence = 1.0
+        return resolution
+
+    visa_type = _visa_type_answer(question_text, profile) if not opts else None
+    if visa_type:
+        resolution.answer = visa_type
+        resolution.resolution_method = PROFILE_EXACT
+        resolution.profile_key = "workAuth.authorizationType"
+        resolution.confidence = 1.0
+        return resolution
+
     from app.services.application_assistant.answer_classification import match_screening_answer
 
     screening = match_screening_answer(question_text, profile)
+    if screening and qtype == QuestionType.CITIZENSHIP and not _saved_question_mentions(
+        profile, screening[0], "citizen"
+    ):
+        # A saved work-authorization "Yes" matched "authorized to work" inside a
+        # question whose real requirement is citizenship.
+        screening = None
+    if screening and qtype == QuestionType.SPONSORSHIP_REQUIRED and not _saved_question_mentions(
+        profile, screening[0], "sponsor"
+    ):
+        screening = None
+    if screening and qtype == QuestionType.SPONSORSHIP_REQUIRED and sum(
+        1 for o in opts if re.match(r"\s*yes\b", o, re.I)
+    ) > 1:
+        # "Yes, I am on an F1 Visa" / "Yes, I am on an H1B Visa": a saved plain
+        # "Yes" cannot say which visa, so the work-auth record picks.
+        screening = None
+    if screening and qtype == QuestionType.WORK_AUTHORIZED and any(_SPONSOR_WORD.search(o) for o in opts):
+        # "Yes, and I will not require sponsorship": a saved plain "Yes" cannot
+        # pick between options that also state a sponsorship position.
+        screening = None
+    if screening and qtype == QuestionType.WORK_AUTHORIZED and re.search(
+        r"\bany\s+(?:u\.?s\.?\s+)?employer", question_text, re.I
+    ):
+        screening = None
     if screening:
         _sid, saved = screening
         answer = str(saved).strip()
@@ -567,6 +694,17 @@ def _resolve_answer_impl(
     # Seattle entry and which therefore sat in review with nothing to review.
     if opts and re.search(r"preferred\s+office\s+location|which office|office (?:location )?preference",
                           question_text, re.I):
+        if _COMMUTE_FROM_HOME.search(question_text):
+            # Akoya: "Select which office is within commuting distance of your
+            # home address" asks where the candidate lives, not where they would
+            # like to work, so a distant office is a false statement.
+            nearby = _own_city_option(opts, profile) or next(
+                (o for o in opts if re.search(r"\b(?:do\s+not|don.?t|none)\b", o, re.I)), None
+            )
+            resolution.answer = nearby
+            resolution.resolution_method = PROFILE_EXACT if nearby else UNKNOWN_METHOD
+            resolution.confidence = 1.0 if nearby else 0.0
+            return resolution
         preferred = _match_preferred_office(opts, profile)
         if preferred:
             resolution.answer = preferred
@@ -578,6 +716,17 @@ def _resolve_answer_impl(
             # resolver, which would answer with the candidate's own city — a
             # value this dropdown does not offer, so it would either stay blank
             # or select something nonsensical.
+            resolution.resolution_method = UNKNOWN_METHOD
+        return resolution
+
+    if opts and _CITIES_AVAILABLE.search(question_text):
+        own = _own_city_option(opts, profile)
+        if own:
+            resolution.answer = own
+            resolution.resolution_method = PROFILE_EXACT
+            resolution.profile_key = "city"
+            resolution.confidence = 1.0
+        else:
             resolution.resolution_method = UNKNOWN_METHOD
         return resolution
 
@@ -619,6 +768,13 @@ def _resolve_answer_impl(
     # backend systems" — untrue, and a screening knockout.
     threshold = _years_threshold(question_text) if _is_yes_no_options(opts) else None
     if threshold is not None and re.search(r"experience", question_text, re.I):
+        _, unproven = _unproven_tech_words(question_text)
+        if unproven:
+            # Either answer to "N years of Rust?" asserts years of Rust.
+            resolution.blocking_errors.append(
+                "career.json records no experience with: " + ", ".join(sorted(unproven))
+            )
+            return resolution
         try:
             candidate_years = float(str(profile.get("yearsExperience", "")).strip())
         except (TypeError, ValueError):
@@ -815,6 +971,19 @@ def _resolve_address(res: AnswerResolution, profile: dict, opts: list[str]) -> N
         or custom.get("street")
         or ""
     ).strip() or None
+    q = res.question or ""
+    if addr_fallback and not opts and re.search(r"\b(?:home|mailing|residential|full|permanent)\s+address\b", q, re.I) \
+            and not re.search(r"street|line\s*1", q, re.I):
+        # A single "Home address" box wants the whole address, not one line.
+        state = str(profile.get("state") or "")
+        abbr = next((k for k, v in _STATE_ABBREVIATIONS.items() if v == state.lower()), "")
+        state = abbr.upper() or state
+        parts = [addr_fallback, str(profile.get("city") or ""), f"{state} {profile.get('zip') or ''}".strip()]
+        res.answer = ", ".join(p for p in parts if p)
+        res.resolution_method = PROFILE_EXACT
+        res.profile_key = "streetAddress+city+state+zip"
+        res.confidence = 1.0
+        return
     _resolve_from_profile(res, profile, opts, "address", fallback=addr_fallback)
 
 def _resolve_current_company(res: AnswerResolution, profile: dict, opts: list[str]) -> None:
@@ -937,6 +1106,10 @@ def _resolve_years_experience(res: AnswerResolution, profile: dict, opts: list[s
     belongs to the candidate — profile_readiness surfaces it as a blocking gap
     so it is asked before a run rather than guessed at during one.
     """
+    _, unproven = _unproven_tech_words(res.question or "")
+    if unproven:
+        res.blocking_errors.append("career.json records no experience with: " + ", ".join(sorted(unproven)))
+        return
     raw = profile.get("yearsExperience", profile.get("yearsOfExperience"))
     try:
         yoe_int = int(str(raw).strip())
@@ -997,6 +1170,12 @@ def _resolve_years_experience(res: AnswerResolution, profile: dict, opts: list[s
 
 # ── Work Authorization resolvers (the critical fixes) ────────────────────────
 
+_SPONSOR_WORD = re.compile(r"sponsor|\bvisa\b|h-?1b", re.I)
+_NO_SPONSOR = re.compile(
+    r"\b(?:not|no|never|without|don.?t|won.?t)\b.{0,40}(?:sponsor|visa)|\bno\s+sponsorship", re.I,
+)
+
+
 def _resolve_work_authorized(res: AnswerResolution, profile: dict, opts: list[str]) -> None:
     wa = _get_work_auth(profile)
     auth = wa["authorizedToWorkInUS"]
@@ -1005,16 +1184,31 @@ def _resolve_work_authorized(res: AnswerResolution, profile: dict, opts: list[st
         # res.answer unset surfaces this as a real pending question instead
         # of stating a work-authorization status the candidate never gave.
         return
+    requires = bool(wa.get("requiresSponsorshipNowOrFuture"))
+    if auth and requires and re.search(r"\bany\s+(?:u\.?s\.?\s+)?employer", res.question or "", re.I):
+        # An H-1B authorizes work for the sponsoring employer only.
+        auth = False
     if opts:
         if auth:
-            yes_opt = None
+            yes_opts = []
             for opt in opts:
                 opt_l = opt.lower()
                 if opt_l.startswith("yes") or ("authorized" in opt_l and "not" not in opt_l and "unauthorized" not in opt_l) or "visa" in opt_l or "h-1b" in opt_l or "work authorization" in opt_l or "eligible" in opt_l or "source of right" in opt_l:
-                    yes_opt = opt
-                    break
-            matched = yes_opt or _match_option(opts, "Yes")
-            res.answer = matched or opts[0]
+                    yes_opts.append(opt)
+            # "Yes, and I will not require sponsorship" / "Yes, but I will
+            # require sponsorship" each also state a sponsorship position.
+            states_stance = [o for o in yes_opts if _SPONSOR_WORD.search(o)]
+            agreeing = [o for o in states_stance if bool(_NO_SPONSOR.search(o)) != requires]
+            neutral = [o for o in yes_opts if o not in states_stance]
+            if agreeing or neutral:
+                matched = (agreeing or neutral)[0]
+            else:
+                matched = None if states_stance else _match_option(opts, "Yes")
+            res.answer = matched
+            if not matched:
+                res.resolution_method = UNKNOWN_METHOD
+                res.confidence = 0.0
+                return
         else:
             matched = _match_option(opts, "No")
             res.answer = matched or "No"
@@ -1025,6 +1219,23 @@ def _resolve_work_authorized(res: AnswerResolution, profile: dict, opts: list[st
     res.profile_key = "workAuth.authorizedToWorkInUS"
     res.source_value = wa["authorizedToWorkInUS"]
     res.confidence = 1.0
+
+
+_ASKS_VISA_TYPE = re.compile(
+    r"what\s+is\s+your\s+(?:current\s+)?(?:work\s+authori[sz]ation|visa|immigration)\s+status"
+    r"|(?:list|specify|describe)\s+the\s+type\s+of\s+(?:support|sponsorship|visa)",
+    re.I,
+)
+
+
+def _visa_type_answer(question: str, profile: dict) -> str | None:
+    """Free text asking which visa the candidate holds or needs is answered with
+    the visa itself, not the "Yes" a saved sponsorship answer would give."""
+    if not _ASKS_VISA_TYPE.search(question or ""):
+        return None
+    wa = _get_work_auth(profile)
+    visa = str(wa.get("authorizationType") or "").strip()
+    return visa if wa.get("requiresSponsorshipNowOrFuture") and visa else None
 
 
 def _resolve_sponsorship_required(res: AnswerResolution, profile: dict, opts: list[str]) -> None:
@@ -1042,8 +1253,9 @@ def _resolve_sponsorship_required(res: AnswerResolution, profile: dict, opts: li
             visa_type = str(wa.get("authorizationType") or "").lower()
             specific_match = None
             if visa_type:
+                compact_type = re.sub(r"[-\s]", "", visa_type)
                 for opt in opts:
-                    if visa_type in opt.lower():
+                    if compact_type in re.sub(r"[-\s]", "", opt.lower()):
                         specific_match = opt
                         break
             if specific_match:
@@ -1060,6 +1272,17 @@ def _resolve_sponsorship_required(res: AnswerResolution, profile: dict, opts: li
             matched = _match_option(opts, "No")
             res.answer = matched or "No"
         res.resolution_method = PROFILE_OPTION_MAPPING
+    elif re.search(r"\bwhat\b.{0,20}sponsorship", res.question or "", re.I):
+        # Free text asking which sponsorship: "Yes"/"No" doesn't answer it.
+        if requires:
+            visa_type = str(wa.get("authorizationType") or "").strip()
+            if not visa_type:
+                res.blocking_errors.append("The profile records no visa type to name")
+                return
+            res.answer = visa_type
+        else:
+            res.answer = "None"
+        res.resolution_method = PROFILE_EXACT
     else:
         res.answer = "Yes" if requires else "No"
         res.resolution_method = PROFILE_EXACT
@@ -1100,7 +1323,8 @@ _COUNTRY_VALUED_QUESTION = re.compile(
     r"(which|what)\s+(country|region|countries|nation)"
     r"|country\s*/\s*region\s+(do|of)"
     r"|country\s+of\s+(citizenship|legal\s+permanent\s+residence|residence|nationality)"
-    r"|provide\s+your\s+country",
+    r"|provide\s+your\s+country"
+    r"|what\s+is\s+your\s+(?:citizenship|nationality)\b",
     re.I,
 )
 
@@ -1112,8 +1336,18 @@ def _asks_for_a_country_name(question: str) -> bool:
 def _resolve_citizenship(res: AnswerResolution, profile: dict, opts: list[str]) -> None:
     """Never claim US citizenship unless profile confirms it."""
     if _asks_for_a_country_name(res.question):
-        # Leave unanswered: the profile has no country of citizenship, and a
-        # yes/no answer forced into a country list produces a fabricated one.
+        country = str(profile.get("citizenshipCountry") or "").strip()
+        if country and re.search(r"citizen|national", res.question or "", re.I):
+            matched = _match_option(opts, country) if opts else country
+            if matched:
+                res.answer = matched
+                res.resolution_method = PROFILE_OPTION_MAPPING if opts else PROFILE_EXACT
+                res.profile_key = "citizenshipCountry"
+                res.source_value = country
+                res.confidence = 1.0
+                return
+        # Leave unanswered: a yes/no answer forced into a country list
+        # produces a fabricated country.
         res.answer = None
         res.confidence = 0.0
         res.resolution_method = UNKNOWN_METHOD
@@ -1292,25 +1526,40 @@ def _resolve_clearance_eligibility(res: AnswerResolution, profile: dict, opts: l
     res.confidence = 1.0
 
 
+_NO_CLEARANCE = re.compile(
+    r"^\s*no\b|\bnone\b|\bno\s+(?:active\s+|us\s+|u\.s\.\s+)?(?:security\s+)?clearance|"
+    r"\b(?:do|does)\s+not\s+(?:have|hold)\b|\bnever\s+held\b|\bnot\s+applicable\b|^\s*n/?a\s*$",
+    re.I,
+)
+_CLAIMS_CLEARANCE = re.compile(r"^\s*yes\b|\bi\s+(?:currently\s+)?(?:hold|held|have\s+held)\s+a\b", re.I)
+
+
+def _no_clearance_option(opts: list[str]) -> str | None:
+    safe = [o for o in opts if _NO_CLEARANCE.search(o) and not _CLAIMS_CLEARANCE.search(o)]
+    return safe[0] if safe else None
+
+
 def _resolve_clearance_level(res: AnswerResolution, profile: dict, opts: list[str]) -> None:
     sec = _get_security(profile)
     if sec["hasHeldUSSecurityClearance"]:
         answer = profile.get("clearanceLevel", "Secret")
     else:
         answer = "None"
+    if opts and not sec["hasHeldUSSecurityClearance"]:
+        # Muon Space: a substring "no" matched inside "not listed here" and sent
+        # "Yes, but I currently hold a US Security Clearance not listed here".
+        safe = _no_clearance_option(opts)
+        if safe is None:
+            res.blocking_errors.append("No offered option states that the candidate holds no clearance.")
+            res.confidence = 0.0
+            return
+        res.answer = safe
+        res.resolution_method = PROFILE_OPTION_MAPPING
+        res.confidence = 1.0
+        res.profile_key = "security.hasHeldUSSecurityClearance"
+        res.source_value = sec["hasHeldUSSecurityClearance"]
+        return
     if opts:
-        # Check all possible negative / none options
-        for opt in opts:
-            opt_lower = opt.lower()
-            if any(phrase in opt_lower for phrase in [
-                "not hold", "do not hold", "no active", "do not have", "no clearance", "none", "not applicable", "n/a", "no", "inactive"
-            ]):
-                res.answer = opt
-                res.resolution_method = PROFILE_OPTION_MAPPING
-                res.confidence = 1.0
-                res.profile_key = "security.hasHeldUSSecurityClearance"
-                res.source_value = sec["hasHeldUSSecurityClearance"]
-                return
         matched = _match_option(opts, answer) or _match_option(opts, "N/A") or \
                   _match_option(opts, "No clearance held") or _match_option(opts, "None")
         res.answer = matched or answer
@@ -1380,6 +1629,9 @@ def _resolve_ethnicity_hispanic(res: AnswerResolution, profile: dict, opts: list
     res.confidence = 1.0
 
 
+_SOUTH_ASIAN_ANCESTRIES = {"indian", "pakistani", "bangladeshi", "sri lankan", "nepali", "bhutanese", "maldivian"}
+
+
 def _resolve_race(res: AnswerResolution, profile: dict, opts: list[str]) -> None:
     """Q: What is your race? → Asian.
 
@@ -1410,7 +1662,13 @@ def _resolve_race(res: AnswerResolution, profile: dict, opts: list[str]) -> None
         specific = str(profile.get("raceEthnicitySpecific") or "").strip()
         if specific:
             specific_word = re.compile(rf"\b{re.escape(specific)}\b", re.I)
-            exact = [o for o in safe_opts if specific_word.search(o)]
+            # "Indian" must never select "American Indian or Alaska Native".
+            exact = [
+                o for o in safe_opts
+                if specific_word.search(o) and not re.search(r"american\s+indian|alaska|native\s+american", o, re.I)
+            ]
+            if not exact and specific.lower() in _SOUTH_ASIAN_ANCESTRIES:
+                exact = [o for o in safe_opts if re.search(r"\bsouth\s+asian", o, re.I)]
             if len(exact) == 1:
                 res.answer = exact[0]
                 res.resolution_method = PROFILE_OPTION_MAPPING
@@ -1479,12 +1737,26 @@ def _resolve_transgender(res: AnswerResolution, profile: dict, opts: list[str]) 
 
 def _resolve_sexual_orientation(res: AnswerResolution, profile: dict, opts: list[str]) -> None:
     val = profile.get("sexualOrientation")
+    lgbtq = str(profile.get("lgbtq") or "").strip()
+    if lgbtq and re.search(r"lgbt|queer", res.question or "", re.I):
+        # "Do you identify as a member of the LGBTQ+ community?" is a yes/no.
+        matched = _match_option(opts, lgbtq) if opts else lgbtq
+        if matched:
+            res.answer = matched
+            res.resolution_method = PROFILE_OPTION_MAPPING if opts else PROFILE_EXACT
+            res.profile_key = "lgbtq"
+            res.source_value = lgbtq
+            res.confidence = 1.0
+            return
     if val:
         answer = str(val)
     else:
         answer = "Decline"
     if opts:
-        matched = _match_option(opts, answer) or _find_decline_option(opts)
+        # "Heterosexual / Straight": forms use either word.
+        synonyms = [s for s in re.split(r"\s*/\s*|\s*,\s*", answer) if s]
+        matched = next((m for m in (_match_option(opts, s) for s in [answer, *synonyms]) if m), None) \
+            or _find_decline_option(opts)
         res.answer = matched or answer
         res.resolution_method = PROFILE_OPTION_MAPPING
     else:
@@ -1567,6 +1839,12 @@ def _resolve_first_gen_professional(res: AnswerResolution, profile: dict, opts: 
 
 def _resolve_how_heard(res: AnswerResolution, profile: dict, opts: list[str]) -> None:
     """BUG FIX: Was selecting random options. Now uses profile.jobDiscoveryDefault."""
+    if re.search(r"\binfluence\b|\brate\b|how\s+much", res.question or "", re.I):
+        # DoorDash: "How much did content from the Engineering blog influence
+        # your decision?" is the candidate's opinion, not a discovery channel.
+        res.resolution_method = UNKNOWN_METHOD
+        res.confidence = 0.0
+        return
     default = profile.get("jobDiscoveryDefault", "LinkedIn")
     if opts:
         matched = (_match_option(opts, default)
@@ -1576,8 +1854,12 @@ def _resolve_how_heard(res: AnswerResolution, profile: dict, opts: list[str]) ->
                    or _match_option(opts, "Company Website")
                    or _match_option(opts, "Online")
                    or _match_option(opts, "Other"))
-        res.answer = matched or opts[0]
-        res.resolution_method = PROFILE_OPTION_MAPPING if matched else DETERMINISTIC_RULE
+        if not matched:
+            res.resolution_method = UNKNOWN_METHOD
+            res.confidence = 0.0
+            return
+        res.answer = matched
+        res.resolution_method = PROFILE_OPTION_MAPPING
     else:
         res.answer = default
         res.resolution_method = PROFILE_EXACT
@@ -1593,21 +1875,16 @@ def _resolve_company_familiarity(res: AnswerResolution, profile: dict, opts: lis
     company through the posting itself, not a claim of prior familiarity we
     have no basis for.
 
-    Also handles "Have you used X?" (Robinhood) / "Are you familiar with X?"
-    (Twitch) — product-use or brand-awareness questions that have Yes/No
-    options. The candidate does use these products, so Yes is truthful.
+    "Have you used X?" (Robinhood) / "Are you familiar with X?" (Twitch) are
+    personal facts the profile does not record, so they are left for the
+    candidate unless a saved screening answer covers them.
     """
     q_low = (res.question or "").lower()
     is_product_use = bool(re.search(r"have\s+you\s+used\b|are\s+you\s+familiar\s+with", q_low))
     if is_product_use:
-        if opts:
-            matched = _match_option(opts, "Yes")
-            res.answer = matched or "Yes"
-            res.resolution_method = PROFILE_OPTION_MAPPING if matched else DETERMINISTIC_RULE
-        else:
-            res.answer = "Yes"
-            res.resolution_method = DETERMINISTIC_RULE
-        res.confidence = 0.9
+        res.resolution_method = UNKNOWN_METHOD
+        res.confidence = 0.0
+        res.blocking_errors.append("Whether the candidate uses this product is not recorded in the profile.")
         return
     is_event_meet = bool(re.search(r"meet\s+with\s+or\s+see|attending\s+an?\s+event|conference", q_low))
     if is_event_meet:
@@ -1622,9 +1899,12 @@ def _resolve_company_familiarity(res: AnswerResolution, profile: dict, opts: lis
     default = "I learned about the company through this job posting"
     if opts:
         posting_opt = next((o for o in opts if re.search(r"job\s*posting|recruiter", o, re.IGNORECASE)), None)
-        heard_opt = next((o for o in opts if re.search(r"heard.*didn.?t\s*know|somewhat\s*familiar", o, re.IGNORECASE)), None)
-        res.answer = posting_opt or heard_opt or opts[0]
-        res.resolution_method = DETERMINISTIC_RULE
+        heard_opt = next((o for o in opts if re.search(r"heard.*didn.?t\s*know", o, re.IGNORECASE)), None)
+        res.answer = posting_opt or heard_opt
+        res.resolution_method = DETERMINISTIC_RULE if res.answer else UNKNOWN_METHOD
+        if not res.answer:
+            res.confidence = 0.0
+            return
     else:
         res.answer = default
         res.resolution_method = DETERMINISTIC_RULE
@@ -1638,15 +1918,95 @@ def _resolve_relocate(res: AnswerResolution, profile: dict, opts: list[str]) -> 
     # does NOT require the company to relocate them, so blindly answering
     # "Yes" to both is wrong for the "require" phrasing specifically.
     q_low = (res.question or "").lower()
-    requires_relocation_assistance = bool(re.search(r"\brequire\b.{0,15}relocat", q_low))
+    requires_relocation_assistance = bool(re.search(r"\b(?:require|need)\b.{0,15}relocat", q_low))
     if requires_relocation_assistance:
         # Not asking the company to pay for a move commits the candidate to
         # nothing, so "No" stays a safe default here.
         _resolve_from_profile(res, profile, opts, "relocateAssistance", fallback="No")
         return
+    local = _local_to_named_place(res.question or "", profile)
+    if local:
+        matched = _match_option(opts, local) if opts else local
+        if matched:
+            res.answer = matched
+            res.resolution_method = PROFILE_EXACT
+            res.profile_key = "city+state"
+            res.confidence = 1.0
+        return
+    lives_here = _lives_here_option(opts) if _job_is_in_candidate_city(profile) else None
+    if lives_here:
+        res.answer = lives_here
+        res.resolution_method = PROFILE_OPTION_MAPPING
+        res.profile_key = "city+jobLocation"
+        res.source_value = profile.get("_jobLocation")
+        res.confidence = 1.0
+        return
+    if re.search(r"\bplans?\s+to\s+relocate\s+within\b", q_low):
+        # Concrete plans, not willingness: only the candidate knows.
+        return
+    if opts and str(profile.get("relocate") or "").strip().lower() in ("yes", "true"):
+        # Brex offers "Yes, I'm currently located here" before "Yes, I'd
+        # relocate"; willingness to move is the second, not the first yes.
+        moving = [
+            o for o in opts
+            if re.search(r"relocat|\bmove\b", o, re.I) and not re.search(r"\bnot\b|^\s*no\b|n['’]t\b", o, re.I)
+        ]
+        if len(moving) == 1:
+            res.answer = moving[0]
+            res.resolution_method = PROFILE_OPTION_MAPPING
+            res.profile_key = "relocate"
+            res.confidence = 1.0
+            return
     # Willingness to move is a promise on a real application, so it comes from
     # the profile or not at all — never a hardcoded "Yes".
     _resolve_from_profile(res, profile, opts, "relocate")
+
+
+_LOCAL_TO = re.compile(
+    r"^\s*are\s+you\s+(?:currently\s+)?(?:local\s+to|located\s+in|based\s+in|living\s+in)\s+(?:the\s+)?([^?*]+)", re.I
+)
+
+
+def _local_to_named_place(question: str, profile: dict) -> str | None:
+    """"Are you local to Ann Arbor, MI?" is a fact about where the candidate
+    lives: Yes when it names their city, No when it names a different state.
+    A region without a state ("the Puget Sound area") or any either/or
+    phrasing is left unanswered."""
+    m = _LOCAL_TO.match(question)
+    if not m or re.search(r"\bor\b|willing|relocat|commut", question, re.I):
+        return None
+    place = m.group(1).strip().lower()
+    city = str(profile.get("city") or "").split(",")[0].strip().lower()
+    state = str(profile.get("state") or "").strip().lower()
+    state_abbrev = next((a for a, n in _STATE_ABBREVIATIONS.items() if n == state), state if len(state) == 2 else "")
+    if city and re.search(rf"\b{re.escape(city)}\b", place):
+        return "Yes"
+    abbrev = re.search(r",\s*([a-z]{2})\s*$", place)
+    named_state = abbrev.group(1) if abbrev else next(
+        (a for a, n in _STATE_ABBREVIATIONS.items() if re.search(rf"\b{n}\b", place)), "")
+    if named_state and state_abbrev and named_state != state_abbrev:
+        return "No"
+    return None
+
+
+_LIVES_HERE = re.compile(
+    r"(?:live|located|reside)\s+(?:here|nearby|in\s+(?:this|the))|currently\s+(?:live|located|reside)", re.I
+)
+
+
+def _job_is_in_candidate_city(profile: dict) -> bool:
+    """`_jobLocation` is set by the executor from the posting being applied to."""
+    job_location = str(profile.get("_jobLocation") or "").lower()
+    city = str(profile.get("city") or "").split(",")[0].strip().lower()
+    return bool(job_location and len(city) > 2 and city in job_location)
+
+
+def _lives_here_option(opts: list[str]) -> str | None:
+    matches = [
+        o for o in opts
+        if _LIVES_HERE.search(o) and not re.search(r"\bnot\b|^\s*no\b|n['’]t\b", o, re.I)
+    ]
+    return matches[0] if len(matches) == 1 else None
 
 # Wording that turns a work-arrangement question into a commitment about being
 # in a particular place, rather than a preference between schedules.
@@ -1660,6 +2020,12 @@ _PLACE_COMMITMENT_PATTERNS = (
     r"office\s+(?:is\s+)?(?:located\s+)?in",
     r"in-?\s?office\s+in",
     r"willing\s+to\s+(?:move|relocate)",
+)
+
+
+_PRESENCE_CLAIM = re.compile(
+    r"located\s+(?:here|nearby|near|in)|live\s+(?:here|nearby|near|in)|\blocal\b|\bnearby\b|relocat",
+    re.I,
 )
 
 
@@ -1701,10 +2067,22 @@ def _resolve_work_arrangement(res: AnswerResolution, profile: dict, opts: list[s
         return
     stored = str(profile.get("workArrangement") or "").strip()
     if not opts:
-        res.answer = stored or "Yes"
-        res.resolution_method = PROFILE_EXACT if stored else DETERMINISTIC_RULE
-        res.confidence = 0.9 if stored else 0.7
+        asks_preference = bool(stored) and bool(re.search(r"\bprefer", res.question or "", re.I))
+        res.answer = stored if asks_preference else "Yes"
+        res.resolution_method = PROFILE_EXACT if asks_preference else DETERMINISTIC_RULE
+        res.confidence = 0.9 if asks_preference else 0.7
         return
+
+    if stored and re.search(r"\bprefer", res.question or "", re.I):
+        # "What is your preferred work arrangement?" asks for the preference
+        # (Remote), not the willingness to do any of them.
+        matched = _match_option(opts, stored)
+        if matched:
+            res.answer = matched
+            res.resolution_method = PROFILE_OPTION_MAPPING
+            res.profile_key = "workArrangement"
+            res.confidence = 1.0
+            return
 
     # Prefer an explicit "open to anything" option when the form offers one.
     for keyword in ("flexible", "no preference", "open to all", "open to any", "either", "any of the above"):
@@ -1726,6 +2104,13 @@ def _resolve_work_arrangement(res: AnswerResolution, profile: dict, opts: list[s
     # A plain Yes/No question ("are you open to hybrid, 3 days/week?") — being
     # open to all arrangements means yes to whichever specific one is asked.
     matched_yes = _match_option(opts, "Yes")
+    if matched_yes and _PRESENCE_CLAIM.search(matched_yes):
+        # Brex: "Yes, I'm currently located here" is the first yes-option, but
+        # the resolver never sees the job's location, so it cannot say that.
+        _resolve_relocate(res, profile, opts)
+        if not res.answer:
+            res.resolution_method = UNKNOWN_METHOD
+        return
     if matched_yes:
         res.answer = matched_yes
         res.resolution_method = DETERMINISTIC_RULE
@@ -1736,12 +2121,39 @@ def _resolve_work_arrangement(res: AnswerResolution, profile: dict, opts: list[s
     # option isn't answerable from "open to all" alone — leave it for review
     # rather than guessing which one this specific listing wants to hear.
 
+# Standard and daylight-saving offsets.
+_TIMEZONE_UTC_OFFSETS: dict[str, tuple[int, int]] = {
+    "America/Los_Angeles": (-8, -7),
+    "America/Denver": (-7, -6),
+    "America/Phoenix": (-7, -7),
+    "America/Chicago": (-6, -5),
+    "America/New_York": (-5, -4),
+}
+
+
 def _resolve_timezone_availability(res: AnswerResolution, profile: dict, opts: list[str]) -> None:
     """"Are you ok working Eastern/Central Time?"-style questions — the
     candidate is generally flexible on core-hours overlap, same spirit as
     being open to any work arrangement.
+
+    "Do you live in UTC -6 through UTC+2?" is a fact about where the candidate
+    lives, so it is checked against the profile's time zone instead.
     """
     answer = "Yes"
+    offsets = [
+        int(sign.replace("\u2212", "-") + hours)
+        for sign, hours in re.findall(r"(?:UTC|GMT)\s*([+\-\u2212])\s*(\d{1,2})", res.question or "", re.I)
+    ]
+    if len(offsets) == 2 and re.search(r"\b(?:live|located|based|reside)\b", res.question or "", re.I):
+        own = _TIMEZONE_UTC_OFFSETS.get(str(profile.get("timezone") or ""))
+        if own is None:
+            res.blocking_errors.append("The profile records no time zone to compare with the asked UTC range.")
+            res.resolution_method = UNKNOWN_METHOD
+            res.confidence = 0.0
+            return
+        low, high = min(offsets), max(offsets)
+        answer = "Yes" if all(low <= o <= high for o in own) else "No"
+        res.profile_key = "timezone"
     if opts:
         matched = _match_option(opts, answer)
         res.answer = matched or answer
@@ -1784,6 +2196,12 @@ def _resolve_salary(res: AnswerResolution, profile: dict, opts: list[str]) -> No
     # field — not a fabricated answer on a live application.
     _resolve_from_profile(res, profile, opts, "salaryExpectations")
 
+def _only_option(opts: list[str]) -> str | None:
+    """A single-option control (an acknowledgement) has one honest answer; with
+    several, picking the first is a guess."""
+    return opts[0] if len(opts) == 1 else None
+
+
 def _resolve_notice_period(res: AnswerResolution, profile: dict, opts: list[str]) -> None:
     q_low = (res.question or "").lower()
     if any(k in q_low for k in ("job search", "active are you", "search activity", "search status")):
@@ -1792,8 +2210,8 @@ def _resolve_notice_period(res: AnswerResolution, profile: dict, opts: list[str]
                        or _match_option(opts, "Open to opportunities")
                        or _match_option(opts, "Ready to interview")
                        or _match_option(opts, "Active"))
-            res.answer = matched or opts[0]
-            res.resolution_method = PROFILE_OPTION_MAPPING if matched else DETERMINISTIC_RULE
+            res.answer = matched or _only_option(opts)
+            res.resolution_method = PROFILE_OPTION_MAPPING if res.answer else UNKNOWN_METHOD
         else:
             res.answer = "Actively looking"
             res.resolution_method = DETERMINISTIC_RULE
@@ -1808,8 +2226,8 @@ def _resolve_notice_period(res: AnswerResolution, profile: dict, opts: list[str]
                    or _match_option(opts, "Within 2 weeks")
                    or _match_option(opts, "Immediately")
                    or _match_option(opts, "Immediate"))
-        res.answer = matched or opts[0]
-        res.resolution_method = PROFILE_OPTION_MAPPING if matched else DETERMINISTIC_RULE
+        res.answer = matched or _only_option(opts)
+        res.resolution_method = PROFILE_OPTION_MAPPING if res.answer else UNKNOWN_METHOD
     else:
         res.answer = str(val)
         res.resolution_method = DETERMINISTIC_RULE
@@ -1857,7 +2275,23 @@ def _resolve_english_proficiency(res: AnswerResolution, profile: dict, opts: lis
         res.confidence = 0.0
         return
 
-    if opts:
+    # Pleased: "Do you have English proficiency?" is a Yes/No, sometimes on a
+    # custom dropdown whose options are not read, so the phrasing decides it too.
+    # Fluency says nothing about whether English is the candidate's first language.
+    asks_native = re.search(r"native|first\s+language|mother\s+tongue", res.question or "", re.I)
+    yes_no_opts = bool(opts) and {o.strip().lower() for o in opts} <= {"yes", "no"}
+    yes_no_phrasing = not opts and re.match(r"\s*(do|are|is|can|have)\b", res.question or "", re.I)
+    if (yes_no_opts or yes_no_phrasing) and not asks_native:
+        if _CEFR_FOR_LEVEL.get(target.lower()) not in ("C1", "C2"):
+            res.blocking_errors.append(
+                f"The recorded English level is {target!r}; whether that counts as "
+                "proficient is the candidate's call."
+            )
+            res.confidence = 0.0
+            return
+        res.answer = _match_option(opts, "Yes") if opts else "Yes"
+        res.resolution_method = PROFILE_OPTION_MAPPING if opts else DETERMINISTIC_RULE
+    elif opts:
         # Some forms (observed on Sezzle) offer bare CEFR codes (A1-C2)
         # instead of descriptive text — "Fluent"/"Professional"/"Native"
         # share no substring with "C2", so a descriptive-text match always
@@ -2082,9 +2516,8 @@ def _resolve_employment_gap(res: AnswerResolution, profile: dict, opts: list[str
                 res.resolution_method = PROFILE_OPTION_MAPPING
                 res.confidence = 1.0
                 return
-        res.answer = opts[0]
-        res.resolution_method = PROFILE_OPTION_MAPPING
-        res.confidence = 0.8
+        res.resolution_method = UNKNOWN_METHOD
+        res.confidence = 0.0
     else:
         res.answer = "N/A"
         res.resolution_method = DETERMINISTIC_RULE
@@ -2122,7 +2555,7 @@ def _resolve_originality_declaration(res: AnswerResolution, profile: dict, opts:
             or _match_option(opts, "Yes")
             or _match_option(opts, "I acknowledge")
             or _match_option(opts, "Accept")
-            or opts[0]
+            or _only_option(opts)
         )
     else:
         res.answer = target
@@ -2133,7 +2566,7 @@ def _resolve_originality_declaration(res: AnswerResolution, profile: dict, opts:
 def _resolve_privacy_consent(res: AnswerResolution, profile: dict, opts: list[str]) -> None:
     target = "I agree"
     if opts:
-        res.answer = _match_option(opts, "I agree") or _match_option(opts, "Agree") or _match_option(opts, "Yes") or _match_option(opts, "I acknowledge") or _match_option(opts, "Accept") or opts[0]
+        res.answer = _match_option(opts, "I agree") or _match_option(opts, "Agree") or _match_option(opts, "Yes") or _match_option(opts, "I acknowledge") or _match_option(opts, "Accept") or _only_option(opts)
     else:
         res.answer = target
     res.resolution_method = DETERMINISTIC_RULE
@@ -2431,8 +2864,10 @@ def _resolve_company_history(res: AnswerResolution, profile: dict, opts: list[st
 
     if opts:
         for o in opts:
-            o_low = o.lower()
-            if any(neg in o_low for neg in ("never", "no", "not previously", "none of the above", "neither")):
+            # Whole words only: "no" sits inside "Snowflake", "know", "now".
+            if re.search(r"\b(?:never|no|not\s+previously|none\s+of\s+the\s+above|neither)\b", o, re.I) and not re.match(
+                r"\s*yes\b", o, re.I
+            ):
                 res.answer = o
                 res.resolution_method = DETERMINISTIC_RULE
                 res.confidence = 0.95
@@ -2490,7 +2925,60 @@ def _resolve_school(res: AnswerResolution, profile: dict, opts: list[str]) -> No
     if not res.answer:
         _resolve_from_profile(res, profile, opts, "school")
 
+# Attainment order for "Do you have a <level>?" questions; each pattern names a
+# level and everything ranked at or above it satisfies a question asking for it.
+_DEGREE_LEVELS = (
+    (r"high\s*school|\bged\b|diploma|equivalen", 1),
+    (r"associate", 2),
+    (r"bachelor|\bb\.(?:s|a|e)\.|\bb\.?tech\b|undergraduate", 3),
+    (r"master|\bm\.(?:s|a)\.|\bm\.?tech\b|\bmba\b|(?<!under)graduate\s+degree", 4),
+    (r"ph\.?\s?d|doctor", 5),
+)
+
+
+def _degree_level(text: str) -> int | None:
+    found = [level for pat, level in _DEGREE_LEVELS if re.search(pat, text or "", re.I)]
+    return max(found) if found else None
+
+
+def _resolve_degree_attainment(res: AnswerResolution, profile: dict, opts: list[str]) -> bool:
+    """Answer "Do you have a <level> degree/diploma?" from the recorded education.
+
+    Returns False (leaving `res` untouched) unless this is a yes/no question
+    naming a level. A question that also names a field of study is answered only
+    when the candidate's recorded discipline appears in it.
+    """
+    question = res.question or ""
+    yes_no = _is_yes_no_options(opts) or (
+        not opts and re.match(r"\s*(do|have|did|are)\b", question, re.I)
+    )
+    asked = _degree_level(question)
+    if not yes_no or asked is None:
+        return False
+    entries = _education_entries(profile)
+    held = [_degree_level(str(e.get("degree") or "")) for e in entries if e]
+    held_level = max((h for h in held if h), default=None)
+    if held_level is None:
+        res.blocking_errors.append("No degree is recorded on the profile to answer this.")
+        return True
+    names_field = asked > 1 and re.search(r"\b(?:in|of)\s+(?:a\s+)?[a-z]+\s+(?:science|engineering|field|studies)", question, re.I)
+    if names_field:
+        disciplines = [str(e.get("discipline") or "").lower() for e in entries if e]
+        if not any(d and d in question.lower() for d in disciplines):
+            res.blocking_errors.append("The question names a field of study the recorded discipline does not match.")
+            return True
+    answer = "Yes" if held_level >= asked else "No"
+    res.answer = _match_option(opts, answer) if opts else answer
+    res.resolution_method = PROFILE_OPTION_MAPPING if opts else PROFILE_EXACT
+    res.profile_key = "education[].degree"
+    res.source_value = held_level
+    res.confidence = 1.0
+    return True
+
+
 def _resolve_degree(res: AnswerResolution, profile: dict, opts: list[str]) -> None:
+    if _resolve_degree_attainment(res, profile, opts):
+        return
     _resolve_education_history(res, profile, opts, "degree", 0)
     if not res.answer:
         _resolve_from_profile(res, profile, opts, "degree", fallback="Bachelor's Degree")
@@ -2557,15 +3045,17 @@ def _resolve_transcript(res: AnswerResolution, profile: dict, opts: list[str]) -
 def _resolve_test_score(res: AnswerResolution, profile: dict, opts: list[str]) -> None:
     if opts:
         for opt in opts:
-            opt_l = opt.lower()
-            if any(k in opt_l for k in ["n/a", "not applicable", "did not take", "none", "no", "not taken", "i did not take", "i do not have", "0"]):
+            if re.search(
+                r"\bn/?a\b|not\s+applicable|did\s+not\s+take|not\s+taken|\bnone\b|^\s*no\b|i\s+do\s+not\s+have|^\s*0\s*$",
+                opt, re.I,
+            ):
                 res.answer = opt
                 res.confidence = 1.0
                 res.resolution_method = PROFILE_OPTION_MAPPING
                 return
-        res.answer = opts[0]
-        res.confidence = 0.9
-        res.resolution_method = PROFILE_OPTION_MAPPING
+        # No "did not take" option: any other choice would state a score never recorded.
+        res.blocking_errors.append("No offered option says the candidate has no test score to report.")
+        res.confidence = 0.0
     else:
         res.answer = "N/A"
         res.confidence = 1.0
@@ -2575,9 +3065,11 @@ def _resolve_location_confirmation(res: AnswerResolution, profile: dict, opts: l
     q_low = (res.question or "").lower()
     profile_state = (profile.get("state") or "Washington").lower()
     profile_city = (profile.get("city") or "Auburn").lower()
+    profile_metro = str(profile.get("metroArea") or "").lower()
 
     # Check if question is asking about living in US / candidate's region
-    is_asking_us = any(k in q_low for k in ["united states", "u.s.", "usa", "in the us", "within the us", "north america"])
+    is_asking_us = any(k in q_low for k in ["united states", "u.s.", "usa", "in the us", "within the us", "north america"]) \
+        or bool(_US_ABBREVIATION.search(res.question or ""))
     # Match the candidate's CITY as well as their state. Airtable asks "...based
     # in SF Bay Area/NYC ... or 2) based out of Seattle?" — naming the city but
     # never the state, so a state-only check answered "No" for a candidate who
@@ -2588,6 +3080,7 @@ def _resolve_location_confirmation(res: AnswerResolution, profile: dict, opts: l
         or " wa " in q_low
         or "(wa)" in q_low
         or (len(profile_city) > 3 and profile_city in q_low)
+        or (len(profile_metro) > 3 and re.search(rf"\b(?:greater\s+)?{re.escape(profile_metro)}\s+(?:area|metro)", q_low))
     )
 
     if opts:
@@ -2616,28 +3109,97 @@ def _resolve_location_confirmation(res: AnswerResolution, profile: dict, opts: l
         res.confidence = 1.0
         res.resolution_method = PROFILE_EXACT
 
+_TECH_WORD = re.compile(r"[a-z0-9][a-z0-9+#]*")
+
+# Words that name no technology, so they neither prove nor disprove a claim.
+_TECH_FILLER = frozenset("""
+a an the and or of in on to for with using use used writing write building build developing develop designing
+design working work architecting scaling maintaining running operating do does did you your have has had any
+some experience experienced professional production commercial hands real world years year least more less
+fewer than at most over under plus minimum strong solid deep familiarity familiar proficiency proficient
+expertise knowledge code coding program programming language languages software engineering engineer
+development based related similar equivalent environment environments large scale modern tools tooling
+framework frameworks technologies technology stack tech platform platforms system systems service services
+application applications app apps backend frontend full web cloud data distributed infrastructure team teams
+level such as e g etc including like other both either this that these those role position our we please
+describe explain if yes no how many much following which what is are be been currently previously recent
+recently projects project products product solutions high quality assisted i my it its
+one two three four five six seven eight nine ten eleven twelve fifteen twenty several
+relevant related total overall qualified qualifying industry paid time part career early mid senior junior
+entry post graduate individual contributor prior previous past current deliver delivering delivered shipping
+practice practices automated automation testing test tests devops
+excluding excluded internship internships advanced complex general full-time
+phd degree specifically outside educational academic personal api apis
+""".split())
+
+# Practice questions a senior engineer answers truthfully in the affirmative;
+# they name no technology to check against the evidence.
+_PRACTICE_QUESTION = re.compile(
+    r"experience\s+(?:using|with)\s+ai[\s-]*assisted|(?:github\s+copilot|cursor|chatgpt).*workflow|"
+    r"reliable,\s*durable,\s*and\s*easily\s*maintained|coordinating\s+cross-functionally|"
+    r"stakeholders\s+throughout\s+the\s+software\s+development\s+lifecycle",
+    re.I,
+)
+
+
+def _career_tech_words() -> frozenset[str]:
+    """Every word of every technology career.json records (skills index plus
+    each project's technologies). Read-only; empty if career.json is absent."""
+    try:
+        from app.services.career_compiler.store import load_store
+
+        store = load_store()
+    except Exception:
+        return frozenset()
+    terms: set[str] = set()
+    for values in (store.data.get("skills") or {}).values():
+        if isinstance(values, list):
+            terms.update(str(v) for v in values)
+    for project in store.projects.values():
+        terms.update(project.technologies)
+    return frozenset(w for t in terms for w in _TECH_WORD.findall(t.lower()) if not w.isdigit())
+
+
+def _unproven_tech_words(text: str) -> tuple[set[str], set[str]]:
+    """(words career.json records, words it does not) among the question's
+    technology words. Absence from the evidence is not proof of no experience,
+    so an unproven word means "ask the candidate", never "No"."""
+    known = _career_tech_words()
+    words = {w for w in _TECH_WORD.findall(text.lower()) if not w.rstrip("+").isdigit() and w not in _TECH_FILLER}
+    return words & known, words - known
+
+
 def _resolve_tech_stack_experience(res: AnswerResolution, profile: dict, opts: list[str]) -> None:
-    if opts:
-        yes_opt = _match_option(opts, "Yes")
-        if yes_opt:
-            res.answer = yes_opt
+    question = res.question or ""
+    if _PRACTICE_QUESTION.search(question):
+        yes = _match_option(opts, "Yes") if opts else "Yes"
+        if yes:
+            res.answer = yes
             res.confidence = 1.0
-            res.resolution_method = PROFILE_OPTION_MAPPING
-            return
+            res.resolution_method = PROFILE_OPTION_MAPPING if opts else PROFILE_EXACT
+        return
+    if opts and not _is_yes_no_options(opts):
+        # A pick-one list of technologies: choose one the evidence records.
         for opt in opts:
-            opt_l = opt.lower()
-            if any(s in opt_l for s in ["both", "all of the above", "python", "golang", "go", "ruby", "distributed", "c++", "cpp"]):
+            proven, unproven = _unproven_tech_words(opt)
+            if proven and not unproven:
                 res.answer = opt
                 res.confidence = 1.0
                 res.resolution_method = PROFILE_OPTION_MAPPING
                 return
-        res.answer = opts[0]
-        res.confidence = 0.9
-        res.resolution_method = PROFILE_OPTION_MAPPING
-    else:
-        res.answer = "Yes"
-        res.confidence = 1.0
-        res.resolution_method = PROFILE_EXACT
+        res.blocking_errors.append("None of the offered technologies is recorded in career.json")
+        return
+    if re.match(r"\s*(?:which|what)\b", question, re.I):
+        return
+    _, unproven = _unproven_tech_words(question)
+    if unproven:
+        res.blocking_errors.append(
+            "career.json records no experience with: " + ", ".join(sorted(unproven))
+        )
+        return
+    res.answer = (_match_option(opts, "Yes") if opts else None) or "Yes"
+    res.confidence = 1.0
+    res.resolution_method = PROFILE_OPTION_MAPPING if opts else PROFILE_EXACT
 
 def _resolve_preferred_language(res: AnswerResolution, profile: dict, opts: list[str]) -> None:
     default = "Python"
@@ -2733,10 +3295,12 @@ _RESOLVERS: dict[QuestionType, Any] = {
 }
 
 def _resolve_legal_age(res: AnswerResolution, profile: dict, opts: list[str]) -> None:
+    # "Are you under 18?" shares this type; the adult candidate's answer there is No.
+    answer = "No" if re.search(r"\bunder\b", res.question or "", re.I) else "Yes"
     if opts:
-        res.answer = _match_option(opts, "Yes") or "Yes"
+        res.answer = _match_option(opts, answer) or answer
     else:
-        res.answer = "Yes"
+        res.answer = answer
     res.resolution_method = DETERMINISTIC_RULE
     res.confidence = 1.0
 

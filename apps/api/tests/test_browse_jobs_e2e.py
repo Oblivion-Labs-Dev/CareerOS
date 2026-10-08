@@ -33,7 +33,7 @@ def run_browse_jobs_e2e():
         print("[E2E] Setting session cookie on browser context...")
         context.add_cookies([{
             "name": "co_session",
-            "value": "amsborse@gmail.com.1789956112.d19f7da196dff6c90e6c767be8a39cb6ddf0db52e64058b27939f274d7efd30a",
+            "value": "candidate@example.com.1789956112.d19f7da196dff6c90e6c767be8a39cb6ddf0db52e64058b27939f274d7efd30a",
             "domain": "localhost",
             "path": "/",
             "httpOnly": True,

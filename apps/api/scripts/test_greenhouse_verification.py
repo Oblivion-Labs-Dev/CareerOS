@@ -15,7 +15,7 @@ async def main():
         # Fill name & email
         await page.locator('#first_name').fill("Akshay")
         await page.locator('#last_name').fill("Borse")
-        await page.locator('#email').fill("amsborse@gmail.com")
+        await page.locator('#email').fill("candidate@example.com")
 
         # Fill location with 'Seattle'
         loc = page.locator('#candidate-location')
@@ -74,7 +74,7 @@ async def main():
         profile = {
             "firstName": "Akshay",
             "lastName": "Borse",
-            "email": "amsborse@gmail.com",
+            "email": "candidate@example.com",
             "city": "Seattle",
             "state": "Washington",
             "location": "Seattle, WA",

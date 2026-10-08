@@ -23,6 +23,7 @@ export const VISIBLE_NAV_HREFS = [
   "/dashboard",
   "/applications",
   "/jobs/discover",
+  "/jobs/markets",
   "/jobs/hacker-news",
   "/diagnostic",
   "/analytics",
@@ -42,6 +43,7 @@ export const ALL_NAV_GROUPS: NavGroup[] = [
     items: [
       { href: "/applications", label: "AI Autopilot", icon: "applypilot", emoji: "⚡", requiresBackend: true, enabled: true },
       { href: "/jobs/discover", label: "Browse Jobs", icon: "jobs", emoji: "🔎", requiresBackend: true, enabled: true },
+      { href: "/jobs/markets", label: "Markets", icon: "radar", emoji: "📡", requiresBackend: true, enabled: true },
       { href: "/jobs/hacker-news", label: "HN Hiring", icon: "jobs", emoji: "🟠", requiresBackend: true, enabled: true },
       { href: "/application-assistant", label: "AI Assistant", icon: "applypilot", emoji: "🤖", requiresBackend: true, enabled: true },
       { href: "/benchmarks", label: "LLM Benchmarks", icon: "evidence", emoji: "⚡", requiresBackend: true, enabled: true },
@@ -111,6 +113,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { href: "/applications?tab=inbox", label: "Inbox", icon: "applications", requiresBackend: true, enabled: false },
       { href: "/applications?tab=pipeline", label: "Pipeline", icon: "applications", requiresBackend: true, enabled: false },
       { href: "/jobs/discover", label: "Browse Jobs", icon: "search", requiresBackend: true, enabled: true },
+      { href: "/jobs/markets", label: "Markets", icon: "radar", requiresBackend: true, enabled: true },
       { href: "/jobs/hacker-news", label: "HN Hiring", icon: "search", requiresBackend: true, enabled: true },
       { href: "/diagnostic", label: "Diagnostic", icon: "insights", requiresBackend: true, enabled: true },
       { href: "/applications?tab=tracker", label: "All Applications", icon: "applications", requiresBackend: true, enabled: false },

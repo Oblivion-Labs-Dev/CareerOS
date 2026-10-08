@@ -122,10 +122,11 @@ def _parse(value: Any) -> datetime | None:
 def posting_date(job: Mapping[str, Any]) -> datetime | None:
     """When the employer published the role, if the board told us.
 
-    ``datePosted`` is the alias carried by some sources; the rest of the
-    codebase already reads both, so this does too.
+    Only ``postingDate``. ``datePosted`` is an ordering hint that falls back to a
+    board's last-modified time or the discovery time, and granting the bonus on
+    it let a bulk board re-save pass years-old postings off as published today.
     """
-    return _parse(job.get("postingDate")) or _parse(job.get("datePosted"))
+    return _parse(job.get("postingDate"))
 
 
 def is_fresh_posting(job: Mapping[str, Any], *, now: datetime | None = None) -> bool:

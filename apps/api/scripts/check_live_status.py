@@ -6,7 +6,7 @@ import httpx
 
 try:
     with httpx.Client(base_url="http://127.0.0.1:8000", timeout=15) as client:
-        client.post("/auth/login", json={"username": "amsborse@gmail.com", "password": "CareerOS12$"})
+        client.post("/auth/login", json={"username": "candidate@example.com", "password": "CareerOS12$"})
         res = client.get("/application-assistant/autopilot/status")
         data = res.json()
         print("Status Code:", res.status_code)

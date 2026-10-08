@@ -95,6 +95,8 @@ from app.routers.diagnostic import router as diagnostic_router
 from app.routers.gmail_archive import router as gmail_archive_router
 from app.routers.matcher_benchmark import router as matcher_benchmark_router
 from app.routers.story_map import router as story_map_router
+from app.routers.career_compiler import router as career_compiler_router
+from app.routers.markets import router as markets_router
 from app.services.error_fix_tracker import error_fix_tracker, reconcile_error_history_on_startup, seed_error_fix_history_if_empty
 
 log_dir = Path(__file__).resolve().parent.parent / "data" / "logs"
@@ -405,6 +407,8 @@ app.include_router(resume_intelligence_router)
 app.include_router(job_search_router)
 app.include_router(networking_router)
 app.include_router(story_map_router)
+app.include_router(career_compiler_router)
+app.include_router(markets_router)
 app.include_router(matcher_benchmark_router)
 app.include_router(gmail_archive_router)
 app.include_router(gemini_router)

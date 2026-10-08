@@ -552,6 +552,7 @@ async def test_workday_adapter():
     assert job.external_id == "JR-100234"
     assert "Santa Clara" in job.location
     assert job.source_priority == 95
+    assert job.source_url == "https://nvidia.wd5.myworkdayjobs.com/NVIDIAExternalCareerSite/job/Santa-Clara/Principal-Hardware-System-Architect_JR-100234"
 
 
 # ---------------------------------------------------------------------------

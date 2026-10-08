@@ -233,6 +233,14 @@ export function CorpusShell({
               </div>
             ))}
 
+            <div className={styles.navGroup}>
+              <div className={styles.navGroupLabel}>Build</div>
+              <Link href="/profile/resume-studio" className={styles.navItem} aria-label="Resume Builder" title={collapsed ? "Resume Builder" : undefined}>
+                <span className={styles.navIcon} aria-hidden="true">RB</span>
+                <span className={styles.navLabel}>Resume Builder</span>
+              </Link>
+            </div>
+
             <div className={`${styles.navGroup} ${styles.comingSoonNavGroup}`}>
               <button
                 type="button"

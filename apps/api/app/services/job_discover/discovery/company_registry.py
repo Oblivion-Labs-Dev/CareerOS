@@ -86,7 +86,13 @@ class JobSourceDiscoveryService:
 
         # 1. Greenhouse
         if "boards.greenhouse.io" in netloc or "job-boards.greenhouse.io" in netloc or "greenhouse.io" in netloc:
-            board_id = parts[1] if len(parts) >= 2 and parts[0] in ("embed", "v1") else (parts[0] if parts else "")
+            for_param = re.search(r"(?:^|&)for=([a-z0-9_-]+)", parsed.query)
+            if for_param:
+                board_id = for_param.group(1)
+            elif len(parts) >= 3 and parts[0] == "v1" and parts[1] == "boards":
+                board_id = parts[2]
+            else:
+                board_id = parts[1] if len(parts) >= 2 and parts[0] in ("embed", "v1") else (parts[0] if parts else "")
             return {
                 "provider": "greenhouse",
                 "confidence": 0.99,
@@ -311,8 +317,10 @@ class JobSourceDiscoveryService:
             }
 
         # 23. Direct Big Tech Career Portals
-        if "careers.google.com" in netloc:
+        if "careers.google.com" in netloc or (netloc.endswith("google.com") and path.startswith("/about/careers")):
             return {"provider": "bigtech", "confidence": 0.99, "boardIdentifier": "google", "evidence": "Google Careers Portal"}
+        if netloc in ("jobs.netflix.com", "explore.jobs.netflix.net"):
+            return {"provider": "bigtech", "confidence": 0.99, "boardIdentifier": "netflix", "evidence": "Netflix Jobs Portal"}
         if "amazon.jobs" in netloc:
             return {"provider": "bigtech", "confidence": 0.99, "boardIdentifier": "amazon", "evidence": "Amazon Jobs Portal"}
         if "metacareers.com" in netloc:

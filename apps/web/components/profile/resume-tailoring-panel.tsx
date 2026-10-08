@@ -28,7 +28,7 @@ const MODE_COPY: Record<TailoringMode, { label: string; description: string }> =
   },
   aggressive: {
     label: "Aggressive",
-    description: "Inflate and optimize the resume to match the job description and maximize callback calls.",
+    description: "Replace more weak bullets when stronger approved evidence fits. Skills and numbers are never invented.",
   },
 };
 

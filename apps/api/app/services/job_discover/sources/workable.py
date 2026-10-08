@@ -50,7 +50,7 @@ class WorkableSource(JobSourceAdapter):
             for job in raw_jobs:
                 title = job.get("title", "")
                 ts = job.get("published_on", "")
-                if not matches_title(title, compiled_patterns):
+                if compiled_patterns and not matches_title(title, compiled_patterns):
                     continue
                 if not is_recent(ts, cutoff):
                     continue

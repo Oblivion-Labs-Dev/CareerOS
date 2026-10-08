@@ -20,10 +20,10 @@ class TestPhoneCountryFields:
         assert match_profile_key("Search", selector_hint="#iti-0__search-input") is None
 
     def test_infer_us_from_local_phone(self):
-        assert infer_phone_country({"phone": "(425) 336-9852", "location": "Seattle, WA"}) == "United States"
+        assert infer_phone_country({"phone": "(206) 555-0100", "location": "Seattle, WA"}) == "United States"
 
     def test_classify_phone_country_not_location(self):
-        profile = {"phone": "(425) 336-9852", "location": "Seattle, WA"}
+        profile = {"phone": "(206) 555-0100", "location": "Seattle, WA"}
         cls, value, confidence, source, _ = classify_answer(
             label="Country*",
             profile=profile,

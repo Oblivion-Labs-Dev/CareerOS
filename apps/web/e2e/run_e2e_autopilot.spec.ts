@@ -13,7 +13,7 @@
  * Run with:
  *   CAREEROS_LIVE_APPLY=1 \
  *   CAREEROS_APPROVED_JOB_IDS="id1,id2,...id12" \
- *   CAREER_OS_ADMIN_USERNAME=amsborse@gmail.com \
+ *   CAREER_OS_ADMIN_USERNAME=candidate@example.com \
  *   CAREER_OS_ADMIN_PASSWORD="CareerOS12$" \
  *   npx playwright test e2e/run_e2e_autopilot.spec.ts --project=chromium
  */

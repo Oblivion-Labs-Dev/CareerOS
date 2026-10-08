@@ -218,6 +218,11 @@ _CLASSIFICATION_RULES: list[tuple[QuestionType, list[str]]] = [
     (QuestionType.ACCURACY_CONFIRMATION, [
         r"have\s+you\s+(?:added|entered|completed|provided|included)\s+your\s+(?:full\s+)?(?:legal\s+)?name",
         r"(?:confirm|acknowledge).*(?:read|reviewed).*(?:salary|compensation)\s+(?:information|range)",
+        # Aevex: "Is your most recent resume updated and included?" - the run always attaches it.
+        r"is\s+your\s+(?:most\s+recent\s+)?resume\s+(?:updated|current|included|attached)",
+        # Vestmark: "I affirm that the information provided on this application
+        # and resume is true and complete" mentions the resume but attests.
+        r"\bi\s+affirm\b.{0,120}\btrue\s+and\s+complete",
     ]),
     # ── Work Auth (specific before general) ──
     (QuestionType.PERMANENT_WORK_AUTHORIZATION, [
@@ -231,6 +236,9 @@ _CLASSIFICATION_RULES: list[tuple[QuestionType, list[str]]] = [
         r"\bitar\b",
         r"\bear\b(?!.*year)",
         r"u\.s\.\s*person",
+        # Chaos: "Are you any of the following 'protected individual(s)' as
+        # defined in ... 8 U.S.C. 1324b(a)(3)?" lists the U.S.-person statuses.
+        r"protected\s+individual",
         r"export\s+administration",
         r"export\s+regulation",
     ]),
@@ -298,6 +306,17 @@ _CLASSIFICATION_RULES: list[tuple[QuestionType, list[str]]] = [
     ]),
     # Work authorization questions that mention country ("authorized to work in the country outlined", etc.)
     # must be classified as WORK_AUTHORIZED rather than falling into CITIZENSHIP.
+    # BeyondTrust: "Are you a U.S. citizen currently living and authorized to work
+    # in the United States?" requires citizenship; WORK_AUTHORIZED answered it "Yes".
+    (QuestionType.CITIZENSHIP, [
+        r"are\s+you\s+an?\s+(?:u\.?\s?s\.?|united\s+states)\s+citizen",
+    ]),
+    # Brex: "If you're not authorized to work at the stated location, what
+    # sponsorship would you require for the role?" asks for the sponsorship, and
+    # WORK_AUTHORIZED's "Yes" there reads as needing it.
+    (QuestionType.SPONSORSHIP_REQUIRED, [
+        r"what\s+(?:type\s+of\s+|kind\s+of\s+)?(?:visa\s+)?sponsorship\s+(?:would|will|do)\s+you",
+    ]),
     (QuestionType.WORK_AUTHORIZED, [
         # Every "authori[sz]" spelling below accepts both the American and the
         # British form. These patterns were American-only, so "Are you
@@ -307,15 +326,26 @@ _CLASSIFICATION_RULES: list[tuple[QuestionType, list[str]]] = [
         # for a different reason. Boards written outside the US use the "s"
         # spelling routinely; 18 live applications were held by it.
         r"authori[sz]ed\s+to\s+work",
+        # Stack AV: "Are you presently authorized under U.S. immigration laws to
+        # work in the United States?" fell to SPONSORSHIP's "immigration" and
+        # answered No.
+        r"authori[sz]ed\s+under\s+.{0,40}?\bto\s+work",
+        r"(?:legally\s+)?entitled\s+to\s+work",
         # "authorized to lawfully work in the country..." — an adverb between
         # "to" and "work" broke the plain contiguous match above and fell
         # through everything else to the bare COUNTRY pattern much further
         # down, which answered a Yes/No work-authorization question with the
         # candidate's country name.
         r"authori[sz]ed\s+to\s+(?:lawfully|legally)\s+work",
+        # Cribl: "authorized to reside and work in the country where this role is based?"
+        r"authori[sz]ed\s+to\s+(?:reside|live)\s+and\s+work",
+        # Aevex (I-9): "provide proof of your identity and employment eligibility if you are hired?"
+        r"proof\s+of\s+(?:your\s+)?identity\s+and\s+(?:employment\s+)?eligibility",
         r"authori[sz]ation\s+to\s+work",
         r"right\s+to\s+work",
         r"eligible\s+to\s+(?:legally\s+)?work",
+        # Zeta Global: "Are you able to work in the United States?"
+        r"\b(?:able|permitted|allowed)\s+to\s+work\s+in\s+the\s+(?:usa\b|u\.?\s?s\.?(?![a-z])|united\s+states)",
         r"legally\s+(authori[sz]ed|able|eligible)\s+to\s+work",
         r"eligible\s+for\s+employment",
         r"work\s+authoriz",
@@ -325,7 +355,9 @@ _CLASSIFICATION_RULES: list[tuple[QuestionType, list[str]]] = [
     ]),
     (QuestionType.CITIZENSHIP, [
         r"citizen(ship)?(?!.*clear)",
-        r"national(ity)?(?!.*security)",
+        # \b: Block's "contract work ... (whether in the U.S. or internationally)"
+        # was read as a citizenship question.
+        r"\bnational(ity)?\b(?!.*security)",
         r"are you a.{0,30}citizen",
     ]),
     (QuestionType.SPONSORSHIP_REQUIRED, [
@@ -336,6 +368,10 @@ _CLASSIFICATION_RULES: list[tuple[QuestionType, list[str]]] = [
         r"immigration",
         r"\bh-?1b\b",
         r"require\s+visa",
+        # Alarm.com: "Are you currently on a nonimmigrant visa (ex. F-1)? ... a written
+        # submission to your school ... (ex. CPT/OPT/STEM OPT)" fell through to SCHOOL.
+        r"non-?immigrant\s+visa",
+        r"\b(?:cpt|stem)\s*/?\s*opt\b",
     ]),
 
     # ── Security Clearance ──
@@ -452,7 +488,7 @@ _CLASSIFICATION_RULES: list[tuple[QuestionType, list[str]]] = [
         r"first\s+and\s+last\s+name",
         r"name\s+as\s+it\s+appears",
     ]),
-    (QuestionType.PREFERRED_NAME, [r"preferred\s*(first\s*)?name", r"preferred\s*name", r"nickname", r"what.*call\s*you"]),
+    (QuestionType.PREFERRED_NAME, [r"preferred\s*(first\s*)?name", r"preferred\s*name", r"nickname", r"what.*call\s*you", r"name\s+you.?d\s+prefer"]),
     (QuestionType.FIRST_NAME, [r"first[\s_-]*name", r"^fname$", r"given[\s_-]*name"]),
     (QuestionType.LAST_NAME, [r"last[\s_-]*name", r"^lname$", r"family[\s_-]*name", r"surname"]),
     (QuestionType.FULL_NAME, [r"full\s*name", r"^name\s*\*?$", r"legal\s*name", r"applicant\s*name"]),
@@ -478,6 +514,9 @@ _CLASSIFICATION_RULES: list[tuple[QuestionType, list[str]]] = [
         r"email\s+me\s+about\s+(?:other\s+|future\s+)?job\s+openings",
         r"notify\s+me\s+(?:of|about)\s+(?:future|other)\s+(?:job\s+)?opportunities",
         r"keep\s+me\s+(?:up\s*to\s*date|informed)\s+(?:on|about)\s+(?:future\s+)?(?:job\s+)?opportunities",
+        # Braze: "Select 'Yes' to join Braze's Talent Community and receive newsletters..."
+        r"join\b.{0,40}\btalent\s+(?:community|network|pool)",
+        r"receive\s+(?:our\s+)?newsletters?",
     ]),
     (QuestionType.EMAIL, [r"e-?mail"]),
     (QuestionType.PHONE_COUNTRY, [r"country\s*code", r"dial\s*code"]),
@@ -494,7 +533,7 @@ _CLASSIFICATION_RULES: list[tuple[QuestionType, list[str]]] = [
         r"\bprovince\b",
     ]),
     (QuestionType.CITY, [r"\bcity\b", r"municipality"]),
-    (QuestionType.ZIP, [r"\bzip\b", r"postal\s*code", r"postcode"]),
+    (QuestionType.ZIP, [r"\bzip(?:\s*code)?\b", r"postal\s*code", r"postcode"]),
     (QuestionType.COUNTRY, [r"\bcountr(y|ies)\b(?!.*code)"]),
     # A secondary address line (apartment/suite/unit) is a different question
     # from the street address itself — must be checked first, since "address"
@@ -550,6 +589,9 @@ _CLASSIFICATION_RULES: list[tuple[QuestionType, list[str]]] = [
         # SmartAsset: "...only able to employ individuals who live within the
         # United States. Are you able to meet this requirement?"
         r"\blive\s+within\s+the\s+united\s+states",
+        # Empower: "...limited to those working from within the United States.
+        # Will you work from within the United States?"
+        r"\bwork(ing)?\s+from\s+within\s+the\s+(united\s+states|u\.?s\.?a?\b)",
         r"are\s+you\s+(currently\s+)?(a\s+)?(united\s+states|u\.?s\.?)\s+resident",
         r"are\s+you\s+(currently\s+)?(a\s+)?resident\s+of\s+(the\s+)?(united\s+states|u\.?s\.?)",
         # Compound office-location questions ("...based in SF/NYC and willing
@@ -601,6 +643,7 @@ _CLASSIFICATION_RULES: list[tuple[QuestionType, list[str]]] = [
     # ── Professional ──
     (QuestionType.CURRENT_COMPANY, [
         r"^(what\s+is\s+your\s+)?current\s*(company|employer)",
+        r"current\s*/\s*previous\s+employer",
         r"name\s+of\s+your\s+current\s*(or\s+most\s+recent)?\s*(company|employer)",
         r"most\s+recent.*(company|employer)",
         r"company\s*name",
@@ -618,6 +661,9 @@ _CLASSIFICATION_RULES: list[tuple[QuestionType, list[str]]] = [
     ]),
     (QuestionType.YEARS_EXPERIENCE, [
         r"years\s*(of\s*)?experience",
+        # "Years of relevant experience:" - a single qualifier word is still the
+        # overall figure; a named skill in that slot is TECH_STACK territory.
+        r"years\s+of\s+(relevant|related|professional|industry|applicable|total|work)\s+experience",
         r"experience\s*level",
         r"how\s*many\s*years",
         r"hands-on\s*experience",
@@ -672,6 +718,7 @@ _CLASSIFICATION_RULES: list[tuple[QuestionType, list[str]]] = [
     (QuestionType.WEBSITE, [
         r"portfolio",
         r"website",
+        r"where\s+can\s+we\s+see\s+(?:some\s+of\s+)?your\s+work",
         r"personal\s*site",
         r"other\s*links?",
         r"other\s*websites?",
@@ -687,6 +734,13 @@ _CLASSIFICATION_RULES: list[tuple[QuestionType, list[str]]] = [
     (QuestionType.TRANSCRIPT, [r"(?<!interview\s)(?<!audio,\s)(?<!video,\s)(?<!and/or\s)\bacademic\s*transcript\b|\bcollege\s*transcript\b|\bofficial\s*transcript\b|^\s*transcripts?\s*\*?$"]),
 
     # ── Education ──
+    # 2K: "Do you have a high school diploma, or ... equivalency exam such as the
+    # GED?" is a Yes/No about attainment; SCHOOL answered it with a school name.
+    (QuestionType.DEGREE, [
+        r"high\s*school\s+(?:diploma|equivalen)",
+        r"\bged\b",
+        r"\bdiploma\b",
+    ]),
     (QuestionType.SCHOOL, [r"school", r"university", r"college", r"institution"]),
     (QuestionType.DEGREE, [
         r"degree",
@@ -779,6 +833,8 @@ _CLASSIFICATION_RULES: list[tuple[QuestionType, list[str]]] = [
         r"days?\s*(in|per)\s*(the\s*)?office",
         r"work\s*arrangement",
         r"working\s*environment",
+        r"in[- ]?office\s+requirements?",
+        r"commute\s+and\s+work\s+in\s+an\s+office",
     ]),
     (QuestionType.TIMEZONE_AVAILABILITY, [
         r"time\s*zone",
@@ -835,6 +891,11 @@ _CLASSIFICATION_RULES: list[tuple[QuestionType, list[str]]] = [
         r"^\s*accept\s*$",
         # Ethena: "I acknowledge that I have read and understand Ethena's ..."
         r"I\s+acknowledge\s+that\s+I\s+have\s+read",
+        r"data\s+privacy\s+consent",
+        r"privacy\s+notice",
+        r"responsible\s+use\s+policy",
+        r"may\s+use\s+ai\s+tools\s+to\s+assist",
+        r"read\s+and\s+acknowledge\s+the\s+following",
     ]),
     (QuestionType.ENGLISH_PROFICIENCY, [r"english\s*proficiency", r"english\s*language", r"fluent\s*in\s*english"]),
     (QuestionType.BACKGROUND_CHECK, [r"background\s*check"]),
@@ -866,6 +927,8 @@ _CLASSIFICATION_RULES: list[tuple[QuestionType, list[str]]] = [
         r"prior\s+employment",
         r"employment\s+history",
         r"have\s+you\s+(ever|previously)\s*[,;]?\s*(worked|been\s+employed)\s*(at|for|within)",
+        # Block: "Have you ever provided any contract work for Block, Inc. ...?"
+        r"(?:provided|performed|done)\s+(?:any\s+)?contract\s+work\s+for",
         r"(are|were)\s+you\s+(?:an?\s+)?(?:existing|current|present)\s+employee",
         # Greenhouse asks the compound form "Do you currently, or have you
         # previously, worked at X" - the commas broke the pattern above.
@@ -936,6 +999,8 @@ _CLASSIFICATION_RULES: list[tuple[QuestionType, list[str]]] = [
         r"over\s+18",
         r"at\s+least\s+18",
         r"under\s+18",
+        # Fanatics: "Are you over the age of 18 ?"
+        r"(over|above|under)\s+the\s+age\s+of\s+(18|eighteen)",
         r"are\s+you\s+18",
         r"legal\s+age\s+to\s+work",
     ]),
@@ -1034,6 +1099,12 @@ def _is_boolean_options(options: list[str] | None) -> bool:
     )
 
 
+_RACE_OPTION_MARKERS = (
+    "american indian", "alaska native", "black", "african american", "hispanic", "latin",
+    "pacific islander", "white", "caucasian", "asian", "middle eastern",
+)
+
+
 def classify_question(
     question_text: str,
     field_id: str = "",
@@ -1070,6 +1141,11 @@ def classify_question(
         normalized_opts = {o.strip().lower() for o in options if o.strip()}
         if "cisgender" in normalized_opts and "transgender" in normalized_opts:
             return QuestionType.TRANSGENDER
+        # "Which categories describe you?" is the race question only its
+        # options reveal: several distinct racial categories in one list.
+        joined = " | ".join(normalized_opts)
+        if sum(m in joined for m in _RACE_OPTION_MARKERS) >= 3:
+            return QuestionType.RACE
 
     return QuestionType.UNKNOWN
 

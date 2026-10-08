@@ -1,5 +1,5 @@
 import { WorkspaceLoading } from "@/components/ui/workspace-loading";
 
 export default function Loading() {
-  return <WorkspaceLoading label="Loading resumes" />;
+  return <WorkspaceLoading label="Loading resumes" shape="page" rows={4} />;
 }

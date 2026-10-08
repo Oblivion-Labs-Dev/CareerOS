@@ -9,6 +9,7 @@ import logging
 import os
 import time
 from collections import Counter
+from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal
@@ -154,6 +155,12 @@ def _job_key(job: dict[str, Any]) -> str:
 def _normalize_scraped_job(raw: dict[str, Any]) -> dict[str, Any]:
     from app.services.job_discover.job_verification_engine import verify_and_normalize_job
     verified = verify_and_normalize_job(raw, discovery_source=str(raw.get("source") or "JobPilot Scraper"))
+    primary_location = verified.get("location_raw") or str(raw.get("location") or "").strip()
+    other_locations: list[str] = []
+    for loc in [*(raw.get("locations") or []), *(verified.get("additional_locations") or [])]:
+        loc = str(loc or "").strip()
+        if loc and loc != primary_location and loc not in other_locations:
+            other_locations.append(loc)
     job = {
         "id": verified.get("job_id") or _job_key(raw),
         "externalId": str(raw.get("greenhouse_id") or raw.get("externalId") or verified.get("requisition_id") or ""),
@@ -161,7 +168,10 @@ def _normalize_scraped_job(raw: dict[str, Any]) -> dict[str, Any]:
         "title": verified.get("title") or str(raw.get("title") or "").strip(),
         "normalizedTitle": verified.get("normalized_title"),
         "seniority": verified.get("seniority"),
-        "location": verified.get("location_raw") or str(raw.get("location") or "").strip(),
+        "location": primary_location,
+        # Every other place the employer lists the role (Seattle can be the
+        # second location of a San Francisco-first posting).
+        "locations": other_locations,
         "remoteStatus": verified.get("remote_status"),
         "department": str(raw.get("department") or "").strip(),
         "url": verified.get("canonical_job_url") or str(raw.get("url") or "").strip(),
@@ -508,7 +518,7 @@ async def _append_scraped_batch(
 
 #: Fields whose change makes a re-imported posting an "update" rather than
 #: an unchanged duplicate.
-_IMPORT_UPDATE_FIELDS = ("title", "location", "description", "url", "postingDate")
+_IMPORT_UPDATE_FIELDS = ("title", "location", "locations", "description", "url", "postingDate")
 
 
 def _dedupe_import(
@@ -573,13 +583,18 @@ async def import_jobs_batch(db: Session, raw_jobs: list[dict[str, Any]]) -> list
     results: list[dict[str, Any] | None] = [None] * len(raw_jobs)
     positions: list[int] = []
     normalized: list[dict[str, Any]] = []
-    for position, raw in enumerate(raw_jobs):
-        try:
-            normalized.append(_normalize_scraped_job(raw))
-            positions.append(position)
-        except Exception as exc:
-            logger.exception("Import: could not normalize job %s", raw.get("url"))
-            results[position] = {"status": "failed", "jobId": None, "reason": f"normalization failed: {exc}"}
+
+    def _normalize_all() -> None:
+        for position, raw in enumerate(raw_jobs):
+            try:
+                normalized.append(_normalize_scraped_job(raw))
+                positions.append(position)
+            except Exception as exc:
+                logger.exception("Import: could not normalize job %s", raw.get("url"))
+                results[position] = {"status": "failed", "jobId": None, "reason": f"normalization failed: {exc}"}
+
+    # Off the event loop: a few hundred jobs take seconds to normalize.
+    await asyncio.to_thread(_normalize_all)
 
     if normalized:
         async with _save_lock:
@@ -1220,6 +1235,24 @@ def get_job_by_url(db: Session, url: str) -> dict[str, Any] | None:
         if job_url and job_url == normalized:
             return apply_h1b_fields(job) if not job.get("h1bStatus") else job
     return None
+
+
+def rewrite_job_urls(db: Session, fix: Callable[[str], str]) -> int:
+    """Correct stored posting links in place; returns how many jobs changed.
+
+    Not routed through dedup: a merge keeps the existing record's URL.
+    """
+    snapshot = _load_snapshot(db)
+    jobs, changed = [], 0
+    for job in snapshot.get("jobs") or []:
+        fixed = {k: fix(job[k]) for k in ("url", "applyUrl", "canonicalUrl") if isinstance(job.get(k), str) and job[k]}
+        fixed = {k: v for k, v in fixed.items() if v != job[k]}
+        if fixed:
+            job, changed = {**job, **fixed}, changed + 1
+        jobs.append(job)
+    if changed:
+        _persist_snapshot(db, {**snapshot, "jobs": jobs})
+    return changed
 
 
 def get_job_by_id(db: Session, job_id: str) -> dict[str, Any] | None:

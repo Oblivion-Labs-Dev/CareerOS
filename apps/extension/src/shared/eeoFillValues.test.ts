@@ -13,7 +13,7 @@ const baseProfile: UserProfile = {
   lastName: 'Borse',
   fullName: 'Akshay Borse',
   email: 'test@example.com',
-  phone: '(425) 336-9852',
+  phone: '(206) 555-0100',
   location: 'Seattle, WA',
   linkedin: '',
   github: '',

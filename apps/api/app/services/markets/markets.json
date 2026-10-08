@@ -1,0 +1,63 @@
+{
+  "markets": [
+    {
+      "id": "seattle",
+      "name": "Seattle Area",
+      "tagline": "Auburn-centered opportunity radar",
+      "origin": "Auburn, WA",
+      "country": "US",
+      "state": {"code": "WA", "name": "Washington"},
+      "anchorLocation": "Seattle, Washington, United States",
+      "regionAliases": [
+        "greater seattle", "seattle area", "seattle metro", "seattle-tacoma",
+        "puget sound", "seattle, wa metro", "eastside"
+      ],
+      "zones": [
+        {"id": "A", "label": "Closest / south metro", "treatment": "Highest convenience"},
+        {"id": "B", "label": "Practical commute", "treatment": "Normal target area"},
+        {"id": "C", "label": "Longer commute", "treatment": "Worth it for high-fit roles"},
+        {"id": "P", "label": "Peripheral / selective", "treatment": "Only strong fit / hybrid-friendly roles"}
+      ],
+      "areas": [
+        {"name": "Auburn", "zone": "A", "ambiguous": true},
+        {"name": "Kent", "zone": "A", "ambiguous": true},
+        {"name": "Renton", "zone": "A"},
+        {"name": "Tukwila", "zone": "A"},
+        {"name": "SeaTac", "zone": "A", "aliases": ["sea-tac", "sea tac"]},
+        {"name": "Federal Way", "zone": "A"},
+        {"name": "Seattle", "zone": "B"},
+        {"name": "Bellevue", "zone": "B", "ambiguous": true},
+        {"name": "Issaquah", "zone": "B"},
+        {"name": "Tacoma", "zone": "B"},
+        {"name": "Puyallup", "zone": "B"},
+        {"name": "Redmond", "zone": "C", "ambiguous": true},
+        {"name": "Kirkland", "zone": "C", "ambiguous": true},
+        {"name": "Bothell", "zone": "C"},
+        {"name": "Mercer Island", "zone": "C"},
+        {"name": "Newcastle", "zone": "C", "ambiguous": true},
+        {"name": "Everett", "zone": "P", "ambiguous": true},
+        {"name": "Lynnwood", "zone": "P"},
+        {"name": "Lakewood", "zone": "P", "ambiguous": true},
+        {"name": "Gig Harbor", "zone": "P"},
+        {"name": "Olympia", "zone": "P", "ambiguous": true}
+      ],
+      "seeds": [
+        {
+          "id": "seattle_company_seed",
+          "type": "xlsx",
+          "file": "Seattle_Area_H1B_Senior_SWE_Company_Queue.xlsx",
+          "sheet": "Application Queue",
+          "referenceSheet": "Sources & Method",
+          "h1bSource": "myvisajobs.com FY2025 H-1B LCA city/state reports (Seed spreadsheet: Sources & Method)"
+        }
+      ],
+      "refresh": {"freshHours": 6, "detectionTtlHours": 168},
+      "providerHints": {
+        "amazon": {"params": {"normalized_state_name[]": "Washington"}},
+        "microsoft": {"location": "Redmond, Washington, United States"},
+        "google": {"location": "Seattle, WA, USA"},
+        "apple": {"location": "seattle-SEA"}
+      }
+    }
+  ]
+}

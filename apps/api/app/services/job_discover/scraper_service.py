@@ -524,9 +524,9 @@ async def scrape_smartrecruiters(
 
 # ── Workday Scraper ──────────────────────────────────────────────────────────
 
-def flatten_workday(job: dict, company: str, base_url: str) -> dict:
+def flatten_workday(job: dict, company: str, base_url: str, board: str) -> dict:
     external_path = job.get("externalPath", "")
-    url = f"https://{base_url}{external_path}" if external_path else ""
+    url = f"https://{base_url}/{board}{external_path}" if external_path else ""
     posted = job.get("postedOn", "")
     # Workday uses relative dates like "Posted 2 Days Ago" — normalize
     location_parts = []
@@ -597,7 +597,7 @@ async def scrape_workday(
                 if not matches_title(title, compiled):
                     continue
                 # Workday doesn't give ISO dates in list — include if title matches
-                all_jobs.append(flatten_workday(job, company, host))
+                all_jobs.append(flatten_workday(job, company, host, board))
 
             total = data.get("total", 0)
             offset += limit

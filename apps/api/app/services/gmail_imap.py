@@ -131,7 +131,7 @@ class GmailImapClient:
             uid_set: set[str] = set()
 
             # 1. Primary: All emails delivered to the CareerOS alias
-            for to_query in ('(TO "careeros")', '(TO "amsborse+careeros@gmail.com")'):
+            for to_query in ('(TO "careeros")',):
                 try:
                     status, data = client.uid("search", None, to_query)
                     if status == "OK" and data and data[0]:

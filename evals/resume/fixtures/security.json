@@ -1,0 +1,25 @@
+{
+  "id": "security",
+  "category": "Security engineering",
+  "jd": "Senior Software Engineer, AI Security\n\nAbout the team\nWe protect enterprises from risky users and risky AI agents.\n\nResponsibilities\n- Build risk detection and scoring for users and AI agents at enterprise scale.\n- Enforce adaptive access policies (for example Conditional Access) that tighten as risk rises.\n- Process historical activity to bootstrap risk models for new customers.\n- Correlate signals across security products into investigations.\n- Own features end to end from design through launch.\n\nRequired\n- Experience with C#/.NET or Java on Azure.\n- Experience with Microsoft security products such as Entra, Purview, Defender or Sentinel.\n- Experience with data loss prevention or insider risk.\n\nPreferred\n- Experience with Rust.\n- Experience with Okta or SAML-based identity.",
+  "expected_requirements": [
+    "risk detection and scoring",
+    "adaptive access policies",
+    "historical activity",
+    "Entra, Purview, Defender or Sentinel",
+    "Experience with Rust"
+  ],
+  "expected_projects": [
+    "microsoft.adaptive_protection_agents",
+    "microsoft.historical_agent_risk",
+    "microsoft.cross_product_investigations"
+  ],
+  "expected_evidence": [
+    "microsoft.adaptive_protection.ownership.end_to_end",
+    "microsoft.adaptive_protection.behavior.dynamic_enforcement",
+    "microsoft.historical_agent_risk.scale.agents_orgs"
+  ],
+  "must_not_use": [],
+  "must_not_say": ["Rust", "Okta", "SAML", "34K", "25M"],
+  "expected_gaps": ["Rust", "Okta"]
+}

@@ -1527,6 +1527,7 @@ def export_local_resume(payload: dict[str, Any] = Body(...), db: Session = Depen
 
 class ResumeStudioPayload(BaseModel):
     useSemantic: bool | None = None
+    retrieval: str | None = Field(default=None, pattern="^(fused|semantic|lexical)$")
     mode: str = Field(default="honest", pattern="^(off|honest|aggressive)$")
     jobDescription: str = Field(min_length=40, max_length=40000)
     targetRole: str = Field(default="", max_length=200)
@@ -1538,7 +1539,7 @@ def generate_resume_studio(payload: ResumeStudioPayload, db: Session = Depends(d
     from app.services.resume_intelligence.resume_studio import generate_studio
     try:
         return {"success": True, **generate_studio(list_entities(db, "accomplishment"), get_kv(db, "profile") or {},
-                    payload.jobDescription, payload.targetRole, payload.targetCompany, payload.mode, payload.useSemantic)}
+                    payload.jobDescription, payload.targetRole, payload.targetCompany, payload.mode, payload.useSemantic, payload.retrieval)}
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 

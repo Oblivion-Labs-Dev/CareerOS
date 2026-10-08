@@ -1,0 +1,24 @@
+{
+  "id": "cloud-infrastructure",
+  "category": "Cloud infrastructure",
+  "jd": "Senior Cloud Infrastructure Engineer\n\nResponsibilities\n- Deploy and operate services across commercial and government/sovereign cloud regions.\n- Build disaster recovery and multi-region deployment infrastructure.\n- Stand up monitoring and alerting with Grafana, Kusto or Prometheus.\n- Separate noisy workloads onto independent infrastructure to protect reliability.\n- Automate infrastructure with Bicep, ARM templates or Terraform.\n\nRequired qualifications\n- Experience with Microsoft Azure; AWS is a plus.\n- Experience operating containerized services with Kubernetes or ECS.\n- Experience with identity and access for cloud services.\n\nPreferred qualifications\n- Experience with Google Cloud (GCP).\n- Experience with Terraform at scale.",
+  "expected_requirements": [
+    "government/sovereign cloud regions",
+    "disaster recovery",
+    "Grafana, Kusto or Prometheus",
+    "Bicep, ARM templates or Terraform",
+    "Google Cloud (GCP)"
+  ],
+  "expected_projects": [
+    "microsoft.sovereign_cloud_rollout",
+    "microsoft.agent_ingestion_isolation"
+  ],
+  "expected_evidence": [
+    "microsoft.sovereign_cloud_rollout.scale.resources",
+    "microsoft.sovereign_cloud_rollout.monitoring.gov",
+    "microsoft.agent_ingestion_isolation.decision.boundary"
+  ],
+  "must_not_use": [],
+  "must_not_say": ["Terraform", "GCP", "Google Cloud", "Prometheus"],
+  "expected_gaps": ["GCP", "Prometheus"]
+}

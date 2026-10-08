@@ -61,7 +61,6 @@ const COMING_SOON_ROWS = [
   ["architecture-review-board", "Architecture Review Board", "Review intelligence", "Review options, constraints, tradeoffs, failure modes, and decision quality.", "Makes the engineering story defensible beyond implementation detail.", "Phase 2 · Review intelligence"],
   ["security-review", "Security Review", "Review intelligence", "Inspect threat boundaries, access controls, data handling, and risk decisions.", "Prepares credible answers for security-sensitive work.", "Phase 2 · Review intelligence"],
   ["sre-review", "SRE Review", "Review intelligence", "Probe reliability targets, observability, incident response, and operational ownership.", "Connects technical work to production resilience.", "Phase 2 · Review intelligence"],
-  ["builder", "Resume Generator", "Generators", "Generate role-specific bullets from selected source accomplishments.", "Keeps every resume grounded in one verified source of truth.", "Phase 3 · Output generators"],
   ["match", "Job Description Matching", "Generators", "Match a role description to the most relevant accomplishments and evidence.", "Focuses applications on fit without duplicating career data.", "Phase 3 · Output generators"],
   ["star-story-generator", "STAR Story Generator", "Generators", "Shape accomplishment facts into situation, task, action, and result stories.", "Creates interview narratives while preserving the canonical source.", "Phase 3 · Output generators"],
   ["behavioral-story-generator", "Behavioral Story Generator", "Generators", "Build stories around leadership, conflict, ambiguity, and growth.", "Makes the corpus reusable across common interview themes.", "Phase 3 · Output generators"],
@@ -101,7 +100,7 @@ export const COMING_SOON_FEATURES: readonly ComingSoonFeature[] = COMING_SOON_RO
   ([id, label, category, description, why, stage]) => ({ id, label, category, description, why, stage }),
 );
 
-export const ADVANCED_CORPUS_VIEWS = ["builder", "match", "skills", "graph", "reviews", "templates"] as const satisfies readonly CorpusView[];
+export const ADVANCED_CORPUS_VIEWS = ["match", "skills", "graph", "reviews", "templates"] as const satisfies readonly CorpusView[];
 
 export function isCorpusView(value: string | null): value is CorpusView {
   return Boolean(value && value in CORPUS_VIEW_LABELS);

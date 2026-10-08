@@ -27,7 +27,7 @@ async def main():
         profile = {
             "firstName": "Akshay",
             "lastName": "Borse",
-            "email": "amsborse@gmail.com",
+            "email": "candidate@example.com",
             "phone": "+1 206-555-0199",
             "city": "Seattle",
             "state": "Washington",

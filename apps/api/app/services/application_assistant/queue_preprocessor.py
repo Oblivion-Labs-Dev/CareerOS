@@ -39,6 +39,7 @@ from app.db.store import get_kv, new_id, now_iso, session_scope, set_kv
 from app.services.application_assistant.candidate_match_context import load_match_context
 from app.services.application_assistant.domain import AutopilotJobStatus
 from app.services.application_assistant.job_filter_ranker import (
+    _is_unapplyable_listing_url,
     evaluate_hard_filters,
     filter_and_rank_jobs,
     queue_priority_score,
@@ -176,6 +177,21 @@ def _empty_stats() -> dict[str, Any]:
 def get_stats() -> dict[str, Any]:
     with session_scope() as db:
         return {**_empty_stats(), **(get_kv(db, STATS_KV_KEY) or {})}
+
+
+def scraped_posting_dates(scraper_job: dict[str, Any]) -> tuple[str, str]:
+    """(publish date, ordering date) for a scraped job.
+
+    The snapshot carries the employer's publish date as ``postingDate``; it has no
+    ``first_published`` key, so reading that one fell through to ``updatedAt`` - a
+    board's last-modified time, which a bulk re-save stamps on every posting at
+    once. The publish date is kept on its own because the company-cap freshness
+    bonus must not be granted on anything weaker. The ordering date may still fall
+    back to the last-modified time; it is never the discovery time.
+    """
+    posted = str(scraper_job.get("postingDate") or scraper_job.get("first_published") or "")
+    modified = str(scraper_job.get("updated_at") or scraper_job.get("updatedAt") or "")
+    return posted, posted or modified
 
 
 #: Serialises queue intake between the background loop and import-triggered intake.
@@ -427,31 +443,26 @@ class QueuePreprocessor:
             if not scraper_jobs:
                 return 0
 
-            known_ids = {j.get("id") for j in list_discovered_jobs(db, active_only=False, exclude_demo=False)}
+            known = {j.get("id"): j for j in list_discovered_jobs(db, active_only=False, exclude_demo=False)}
+            known_ids = set(known)
             for scraper_job in scraper_jobs:
                 try:
                     aa_job = scraper_job_to_aa_job(scraper_job)
                 except Exception:
                     continue
                 if aa_job["id"] in known_ids:
+                    # Rows ingested before the employer link was preferred still
+                    # point at the aggregator listing; give them the form.
+                    row = known.get(aa_job["id"])
+                    if (row and _is_unapplyable_listing_url(str(row.get("applicationUrl") or ""))
+                            and not _is_unapplyable_listing_url(aa_job["applicationUrl"])):
+                        upsert_discovered_job(db, {**row, "applicationUrl": aa_job["applicationUrl"],
+                                                   "sourceProvider": aa_job["sourceProvider"]})
                     continue
                 if not aa_job.get("applicationUrl"):
                     continue
                 aa_job["dateDiscovered"] = now_iso()
-                # The scraper's own snapshot (see sources/base.py's ScrapedJob.
-                # to_dict) never had "postedAt"/"datePosted" keys - only
-                # "first_published" and "updated_at"/"updatedAt" - so this was
-                # always writing "" regardless of what the source actually
-                # reported, silently disabling freshness-based queue ordering
-                # for every posting from every source. first_published is the
-                # real "when the employer posted this" signal where a source
-                # supplies it; updated_at is the next-best real signal (some
-                # ATS APIs only expose a last-modified timestamp). Left blank
-                # rather than defaulting to discovery time - a job we only
-                # just found is not the same claim as a job that was actually
-                # posted today, and posting_recency_bonus already treats a
-                # blank datePosted as "no bonus" rather than guessing.
-                aa_job["datePosted"] = scraper_job.get("first_published") or scraper_job.get("updated_at") or scraper_job.get("updatedAt") or ""
+                aa_job["postingDate"], aa_job["datePosted"] = scraped_posting_dates(scraper_job)
                 upsert_discovered_job(db, aa_job)
                 known_ids.add(aa_job["id"])
                 added += 1
@@ -699,19 +710,16 @@ class QueuePreprocessor:
         # duplicate check below: the dedupe key is built from the URL, so
         # resolving afterwards would let the same posting in twice, once under
         # each link.
-        from app.services.job_discover.aggregator_resolve import (
-            is_aggregator_url,
-            resolve_aggregator_url,
-        )
+        from app.services.job_discover.aggregator_resolve import resolve_listing_url
 
         aggregator_rows = [
             r for r in ranked
-            if is_aggregator_url(str(r.get("applicationUrl") or r.get("listingUrl") or ""))
+            if _is_unapplyable_listing_url(str(r.get("applicationUrl") or r.get("listingUrl") or ""))
         ]
         if aggregator_rows:
             def _resolve_row(row: dict[str, Any]) -> None:
                 source_url = str(row.get("applicationUrl") or row.get("listingUrl") or "")
-                found = resolve_aggregator_url(
+                found = resolve_listing_url(
                     source_url,
                     company_name=str(row.get("company") or ""),
                     title=str(row.get("title") or ""),
@@ -797,6 +805,7 @@ class QueuePreprocessor:
                     "matchReasons": r.get("matchReasons", []),
                     "queuePriority": r.get("queuePriority", 0.0),
                     "datePosted": r.get("datePosted") or r.get("postingDate") or r.get("dateDiscovered") or r.get("createdAt") or "",
+                    "postingDate": r.get("postingDate") or "",
                     "discoveredAt": now_iso(),
                     "queuedAt": now_iso(),
                 })

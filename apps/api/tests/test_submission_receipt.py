@@ -12,7 +12,7 @@ def test_submission_receipt_archival():
     app_url = "https://jobs.ashbyhq.com/openai/test-123"
     conf_url = "https://jobs.ashbyhq.com/openai/test-123/confirmation"
     conf_text = "Thank you for applying to OpenAI!"
-    fields = {"First Name": "Akshay", "Email": "amsborse@gmail.com"}
+    fields = {"First Name": "Akshay", "Email": "candidate@example.com"}
 
     receipt = create_submission_receipt(
         job_id=job_id,

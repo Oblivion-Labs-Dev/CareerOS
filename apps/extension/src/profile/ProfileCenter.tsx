@@ -385,7 +385,7 @@ export function ProfileCenter() {
               id="addressLine1"
               value={profile.customFields?.addressLine1 || profile.customFields?.street || ''}
               onChange={(e) => updateCustomField('addressLine1', e.target.value)}
-              placeholder="13310 SE 306th St"
+              placeholder="123 Main St"
             />
           </div>
 

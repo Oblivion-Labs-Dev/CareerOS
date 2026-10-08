@@ -1692,7 +1692,7 @@ Other outcomes from that batch, all known-good categories: Liftoff → NEEDS_REV
 
 **New bug — Grove Collaborative (match 83.1) wrongly staged.** `cross_field_validator`
 Rule 9 blocked it with `PHONE_INCOMPLETE`: "Phone field contains 'Yes' - no actual phone
-number". The real phone field was filled correctly ("(425) 336-9852", DOM verification
+number". The real phone field was filled correctly ("(phone on file)", DOM verification
 passed). The culprit is a yes/no question, "If you provided a phone number, do you consent
 to ...", which `question_classifier` types as `PHONE` because it matches `r"phone"` but none
 of `SMS_CONSENT`'s patterns (`text message`, `sms`, `whatsapp`, `consent.*(text|message)`).
@@ -4250,3 +4250,345 @@ Owner decisions (2026-10-06), now implemented:
 Still open: 5 tests in test_job_filter_loosening.py
 (`test_software_titles_below_senior_are_rejected`) fail because of the title loosening in
 3d01cc9, not tonight's changes.
+
+---
+
+## 2026-10-07 08:20 UTC — Night run started; lost Gmail env from a manual API restart
+
+Started run `aprun_410194b0` (target 300, concurrency 1, selfHealing off, tierGuardrails on, minMatchScore 80,
+submittable boards only) after the aggregator-link repair re-queued 1,489 jobs (QUEUED 5 -> 1,494).
+
+**Paused after 3 jobs:** Happy Money (Greenhouse) failed to fetch the 8-character security code. Cause: the API had
+been restarted earlier by hand (`uvicorn` via `Start-Process`), which does not import the root `.env`, so
+`GMAIL_USER`/`GMAIL_APP_PASSWORD` were missing. Restarted with `scripts/restart-dev.ps1` instead; `/email/verify`
+confirms Gmail is configured, and the run resumed. **Always restart through restart-dev.ps1 during a night run.**
+
+Happy Money ended SUBMISSION_UNKNOWN (submit clicked, code never entered; the restart interrupted it). Left for the
+owner per the set-state rule. Queue preparation restarted; QUEUED is 3,091 after its first ingest. Local LLM scoring
+is off (`CAREEROS_LOCAL_LLM=off` in root `.env`), left as configured.
+**08:26 UTC — classifier fix deployed.** Empower Pharmacy hit NEEDS_REVIEW on two deterministic questions:
+"Will you work from within the United States?" (now LOCATION_CONFIRMATION -> Yes from profile) and "Years of relevant
+experience:" (YEARS_EXPERIENCE now accepts one qualifier word: relevant/related/professional/industry/applicable/
+total/work). 4 regression tests; 262 pass across the question/answer suites. Paused at zero APPLYING, restarted
+through restart-dev.ps1, Gmail verified, resumed. Empower left in NEEDS_REVIEW: its location-preference, "able to
+meet the location requirements" and AI-assisted-technology consent questions are the owner's to answer.
+Ashby (0 submitted / 56+ reCAPTCHA all-time) and Lever (0 / 24) postings are being claimed first and land in
+MANUAL_REVIEW in ~8s each; harmless, but they delay the Greenhouse jobs.
+**08:37 UTC — title filter fix deployed.** OpenAI "Technical Sourcer, Research SWE" / "Senior Technical Sourcer,
+Applications Engineering" were queued: `software_role_rejection` matched the team name ("swe", "applications
+engineer"). Titles naming sourcer/recruiter/recruiting coordinator|partner|lead are now rejected first. Qumulo
+"Senior Member of Technical Staff" was skipped as not-SWE: MTS now counts as a software title, and
+`role_level_flags` reads "member of technical staff" as "software engineer" so its "staff" is not taken as a level.
+6 tests; 215 pass across filter/rank/level/markets suites (only the known test_apply_level_gate failure).
+Paused at zero APPLYING, restarted via restart-dev.ps1, Gmail verified, Qumulo reprocessed to QUEUED, run resumed.
+**08:42 UTC — work-authorization fix deployed.** Cribl (Greenhouse) went to NEEDS_REVIEW with "This field is
+required": "Are you currently authorized to reside and work in the country where this role is based?" classified as
+COUNTRY ("reside and" broke the contiguous `authorized to work` match), so the Yes/No/Not Sure select got
+"United States" and stayed empty. Added `authori[sz]ed to (reside|live) and work` to WORK_AUTHORIZED; regression
+test; 263 pass. Only Cribl was affected; reprocessed to QUEUED after a pause-at-idle restart. Run resumed.
+**09:15 UTC — English proficiency Yes/No fix deployed.** Pleased Technologies: "Do you have English proficiency?"
+(Yes/No custom dropdown) stayed empty because the resolver only mapped the recorded level ("Fluent") onto
+descriptive or CEFR options. A Yes/No question (by options, or by do/are/is/can/have phrasing when options were not
+read) now answers Yes for a C1/C2-equivalent recorded level; lower levels and native/first-language questions go to
+review. 265 pass. Pleased itself stays NEEDS_REVIEW (B2B/B2C contract question is the owner's). Block's
+SUBMISSION_UNKNOWN was reconciled to SUBMITTED from its "Thank you for applying" email via
+/autopilot/reconcile-manual-submissions; Happy Money has no confirmation email and stays unknown. Coupang (relatives
+attestation) and Anthropic ("Why Anthropic?" essay) correctly left in NEEDS_REVIEW.
+**09:50 UTC — company-cap freshness bonus was granted on a board update time. Paused, fixed, resumed.**
+DoorDash got 8 SUBMITTED between 08:51 and 09:46 UTC (cap is 5/day, +3 for a posting published in the last 24h).
+Every one was treated as fresh because its `datePosted` was `2026-10-06T15:48:09-04:00` - DoorDash's board-wide
+`updated_at` - although Greenhouse's `first_published` for them is 2024-01 .. 2026-07. Cause: the job_discover snapshot
+stores the publish date as `postingDate` and has no `first_published` key, so queue_preprocessor fell through to
+`updatedAt`. Separately, enqueue fell back to `dateDiscovered` (= now) for undated jobs, which would also read as fresh.
+Fix: `scraped_posting_dates()` takes `postingDate` first; Autopilot jobs now carry `postingDate` (real publish date
+only) and `company_cap.posting_date` reads only that, so the bonus is never granted on a modified/discovery time.
+Backfilled postingDate/datePosted on 803 queued jobs from the snapshot. 2 tests; 230 pass across cap/queue/autopilot.
+All 18 queued DoorDash jobs are now held, none fresh. The 8 DoorDash applications already sent cannot be undone;
+all are real roles with matching confirmation emails, but 3 over the owner's intended 5/day.
+**10:40 UTC — age question + physical-engineering titles.** Fanatics x2 NEEDS_REVIEW on "Are you over the age of 18 ?"
+(UNKNOWN: LEGAL_AGE only had "over 18"). Added "(over|above|under) the age of (18|eighteen)". Also fixed a latent bug:
+"under 18" was routed to LEGAL_AGE, whose resolver answered Yes unconditionally - an "Are you under 18?" now answers
+No. DigitalOcean "Senior Electrical Infrastructure Engineer" reached the queue via "infrastructure engineer"; titles
+naming electrical/mechanical/civil/chemical/structural/hvac without "software" are now rejected. Tests added; 282
+question/answer and 255 filter tests pass (known test_apply_level_gate failure only). Restarted at idle, Fanatics
+reprocessed, run resumed. Second Block (Finance Applications) SUBMISSION_UNKNOWN has a matching code email at
+09:31:09 and "Thank you for applying" at 09:32:06; the reconciler declines to credit it (another Block job submitted
+recently) - left for the owner.
+**10:50 UTC — (committed to disk, deploy pending with the next restart).** Aevex: "Is your most recent resume updated
+and included?" -> ACCURACY_CONFIRMATION (Yes; the run always attaches the master resume); "Will you be able to
+provide proof of your identity and employment eligibility if you are hired?" (I-9) -> WORK_AUTHORIZED. 359 pass.
+Aevex itself stays NEEDS_REVIEW: "Have you disqualified or recused yourself from ... AEVEX matters?" is the owner's.
+Fanatics fix confirmed live: one SUBMITTED, its twin posting correctly SKIPPED as DUPLICATE_APPLICATION.
+**10:55 UTC — owner decision needed: active-clearance roles.** The profile records no security clearance, yet 30
+QUEUED roles require an active one in the title ("Cleared", "TS/SCI ... Polygraph", "Top Secret Clearance"; Microsoft
+CTJ, SpaceX Starlink, Oracle, J&T). Rise8 "Senior Software Engineer (Cleared)" stalled on "what level of clearance do
+you currently have?". Not filtered unattended: whether the candidate holds a clearance is the owner's fact to record.
+If none, add a hard-filter rule for active-clearance titles (or a profile field the filter reads).
+**10:57 UTC — deployed** the Aevex classifier fix (resume attestation + I-9 identity/eligibility) via
+pause → idle → restart-dev.ps1 → Gmail verify OK → /start. Run resumed RUNNING at processed 163.
+**11:08 UTC — True Anomaly ×2 NEEDS_REVIEW, left for owner (no code change).** The required ITAR question offers
+"U.S. citizen/national", "Green Card holder", "Refugee", "Asylee", "Not currently a U.S. Person / Other status".
+The export-control resolver targets "None of the above", which matches no option, so the select stayed empty and the
+board's own validation blocked the submit (nothing was sent). Not patched unattended because the right answer depends
+on a fact the profile does not hold: workAuth says not citizen/national/green-card yet *permanent* work authorization
+without sponsorship, which could mean refugee/asylee (a U.S. person under ITAR) or not. The required "If other, please
+provide details" textarea would also need the owner's own wording. Owner: record U.S.-person status (refugee/asylee or
+not); then map "Not currently a U.S. Person / Other status" as the non-U.S.-person option and decide on ITAR roles.
+**11:35 UTC — two deterministic fixes deployed, 2K + Cloudflare requeued.**
+- 2K Games: "Do you have a high school diploma, or ... GED?" (Yes/No) was classified SCHOOL and answered
+  "Santa Clara University"; the board's validation blocked submit. Diploma/GED wording now routes to DEGREE, and
+  `_resolve_degree` answers yes/no attainment questions from the recorded education level (Master's ≥ asked
+  level). A question naming a field of study answers only when the recorded discipline appears in it.
+- Cloudflare: "Do you currently live or are you willing to relocate to the job's location?" offers three sentence
+  options; the owner-confirmed manifest answer (q_002 "open to relocating" = Yes) could not be mapped because two
+  options are affirmative. The sentence matcher now breaks that tie by the answered question's topic, only when
+  unique → "I am willing to relocate to this job's location."
+- Tests: `test_2k_degree_attainment_questions_answer_yes_no` (3), `test_degree_attainment_in_an_unrecorded_field_is_not_guessed`,
+  `test_cloudflare_relocation_sentence_options_take_the_confirmed_stance`. Suite: 1505 passed.
+- Left in review: Postscript "Which age group are you in?" (no options read), Fanatics "Are you a collector?",
+  Fleetio essays. Block "Staff iOS Software Engineer, Bitcoin" is SUBMISSION_UNKNOWN; reconciler found no
+  attributable confirmation → owner.
+**11:43 UTC — verified live + two more fixes deployed.**
+- Live check of the 11:35 fixes: Cloudflare (relocation → "I am willing to relocate to this job's location.") and
+  2K Games (diploma → "Yes") both SUBMITTED on retry.
+- BeyondTrust SRE: "Are you a U.S. citizen currently living and authorized to work in the United States? (FedRAMP …
+  required)" classified WORK_AUTHORIZED and the saved screening answer work_auth_us ("authorized\s+to\s+work") put
+  "Yes". The submission policy caught the citizenship contradiction and blocked it (nothing sent). Fix: "are you a
+  U.S. citizen" routes to CITIZENSHIP ahead of WORK_AUTHORIZED, and a saved screening answer whose own question is
+  not about citizenship no longer answers a CITIZENSHIP question → "No" from workAuth.usCitizen.
+  The job itself requires citizenship, so it is left in NEEDS_REVIEW (not requeued) for the owner.
+- Akoya: "Zipcode*" (one word) was UNKNOWN; ZIP pattern now accepts it → profile zip. Requeued.
+- Compeer Financial ×2 left in review: Address 1 and County are not on the profile (owner data), plus
+  current/previous team-member dropdowns with no readable options.
+- Tests: `test_beyondtrust_citizen_and_authorized_question_is_answered_as_citizenship`, `test_akoya_zipcode_label_routes_to_zip` (3).
+  Suite 1509 passed. Run resumed RUNNING at processed 193.
+**12:05 UTC — Alarm.com fix deployed; Akoya verified.**
+- Akoya SUBMITTED on retry after the Zipcode fix (verified live).
+- Alarm.com Principal SWE: "Are you currently on a nonimmigrant visa (ex. F-1)? ... written submission to your school
+  ... (CPT/OPT/STEM OPT)" classified SCHOOL (the word "school") and was answered "Santa Clara University"; the board's
+  validation blocked submit. Added "nonimmigrant visa" and "CPT/OPT | STEM OPT" to SPONSORSHIP_REQUIRED → "No" from
+  workAuth.requiresSponsorshipNowOrFuture. Test: `test_alarmcom_nonimmigrant_visa_question_is_sponsorship_not_school`.
+  Suite 1510 passed. Requeued; run resumed RUNNING at processed 217.
+- Left in review: Varda ×2 "Have you worked on safety critical software? If so, what was the application?" (needs
+  the owner's own account).
+**12:13 UTC — Greenhouse wrapper-redirect fix deployed (watch first results).**
+- Upstart ×2 SUBMISSION_UNKNOWN (12:03 today, 06:57 yesterday) + 1 MANUAL_REVIEW: `careers.upstart.com/jobs?gh_jid=N`
+  is normalized to job-boards.greenhouse.io/upstart/jobs/N, which Greenhouse redirects straight back to the Upstart
+  careers page, where the form lives in an iframe. Nothing was filled (answers empty) yet a submit click was issued
+  and the form stayed active → almost certainly NOT submitted. Left SUBMISSION_UNKNOWN for the owner per policy.
+- Fix: `providers/greenhouse.redirects_off_greenhouse()` checks the canonical URL once (HTTP, off the event loop);
+  when a non-Greenhouse wrapper's canonical URL bounces off greenhouse.io the executor uses the direct embed form
+  (`boards.greenhouse.io/embed/job_app?for=<slug>&token=N`, verified to serve the form). Network errors keep the old
+  path. Live probe of queued wrappers: Upstart(3), Databricks, Stripe, Okta, Instacart → embed; Coinbase(17),
+  Pinterest → unchanged canonical. Note Instacart had 1 prior SUBMITTED via the old path - watch its next result.
+- Tests: redirect detection (2), network-error fallback, embed URL slug. Suite 1514 passed. Run resumed at 220.
+- Same batch: 9 reCAPTCHA/hCaptcha MANUAL_REVIEW (Hercules ×5, Pomelo ×2, Aerovy, Meetic), Hiya no form,
+  Pitchbook POSTING_EXPIRED, SpaceX INELIGIBLE - all correct.
+**12:33 UTC — Greenhouse embed fix verified live.** Upstart "Software Engineer II, Delivery" and "Principal Software
+Engineer, Capital Marketplace" SUBMITTED through the embed path: 21 answers filled each, Greenhouse redirected to
+`/embed/job_app/confirmation?for=upstart&token=…`. Alarm.com (nonimmigrant-visa fix) also SUBMITTED on retry.
+Batch otherwise correct: Hercules ×3 reCAPTCHA, SpaceX ×2 citizenship, Ripple/Flex outside US.
+**12:58 UTC — truthfulness guard deployed (work-arrangement "Yes" options).**
+- Brex IAM: "This role requires in-office work three days per week... Do you acknowledge?" offers "Yes, I'm currently
+  located here" / "Yes, I'd relocate prior to the start" / "No, I'm not located nearby". `_resolve_work_arrangement`
+  fuzzy-matched "Yes" to the first option, i.e. claimed the candidate is local without ever seeing the job location
+  (true here only because the role is Seattle). Audit of all 140 SUBMITTED/UNKNOWN answers: 0 such claims sent.
+  Fix: a yes-option that asserts presence or relocation goes through the relocation stance instead; with none on the
+  profile it stays unresolved → review. Plain Yes/No hybrid questions still answer "Yes".
+  Test: `test_brex_in_office_question_never_claims_the_candidate_is_local`. Suite 1515 passed.
+- Brex job itself stays NEEDS_REVIEW (its "live in or plan to relocate" question needs job-location awareness).
+  **Owner/next-day idea:** pass the job's location into resolve_answer so "I live here" can be answered truthfully
+  for Seattle-area roles; and record a `relocate` stance on the profile (only the manifest q_002 holds one).
+- MCG Health "related to a current employee?" → personal attestation, left for owner.
+- Run resumed RUNNING at processed 243.
+**13:13 UTC — Braze talent-community fix deployed.** "Select 'Yes' to join Braze's Talent Community and receive
+newsletters" (required Yes/No) was UNKNOWN and got "I agree", which is not an option → required field empty. Added
+"join ... talent community/network/pool" and "receive newsletters" to MARKETING_CONSENT → existing default "No"
+(profile has no marketingConsent). Test: `test_braze_talent_community_opt_in_is_marketing_consent`. Suite 1516 passed.
+Braze requeued; run resumed at 252. Batch otherwise correct (Scribd no form, Shield AI/Atomic/Headway captcha, SpaceX).
+**13:22 UTC — Braze verified; relocation-assistance wording (deploy pending with next restart).**
+- Braze "Senior Software Engineer I, Core Objects" SUBMITTED after the talent-community fix (verified live).
+- Sony SIE: "Will you need relocation assistance...?" missed the existing `require ... relocat` → "No" rule (safe:
+  declining assistance commits the candidate to nothing). Widened to `(require|need)`. Test
+  `test_sony_need_relocation_assistance_is_the_assistance_question`; suite 1517 passed. Sony itself still has a
+  relatives/close-relationship attestation → stays with the owner, so not requeued.
+- Orbis SE: includes "To help us prevent automated job applications, solve for X: 1 + X = 3" — an anti-automation
+  check; left unanswered on purpose (never bypass), plus an AI-tool-policy attestation and travel %. Owner.
+**13:39 UTC — job-location awareness deployed (+ Sony relocation-assistance wording).**
+- Instacart SUBMITTED via the embed path (confirmation `/embed/job_app/confirmation?for=instacart`) - 3rd verified.
+- Brex "Do you currently live in, or plan to relocate to, the specified location?" (3 hits tonight, 27 Brex queued:
+  9 Seattle / 8 SF / 7 NY). The executor now passes the posting's location to the resolver as `_jobLocation` (on its
+  in-memory profile copy only; nothing persists it). `_resolve_relocate` picks the single "I live here / currently
+  located here" option only when the job location names the candidate's recorded city; otherwise unchanged
+  (relocation stance or review). Covers the work-arrangement guard from 12:58 too.
+  Tests: `test_brex_live_here_only_when_the_job_is_in_the_candidates_city`, `test_brex_in_office_acknowledgement_for_a_local_role`.
+  Suite 1518 passed + 1 flaky (`test_autopilot_ats_filter::test_no_ats_filter_leaves_the_list_unchanged`, 30 s
+  read-cache timing; passes on rerun 2/2, unrelated code).
+- Requeued the Seattle Brex job; SF and NY Brex jobs stay in review (owner's relocation call). Run resumed at 276.
+**13:45 UTC — job-location fix verified live.** Brex IAM (Seattle) SUBMITTED with "Yes, I live here" and
+"Yes, I'm currently located here", both true for a Seattle role; Greenhouse embed confirmation reached.
+Batch otherwise correct: SimpliSafe immediate-family attestation and Accenture Federal "worked on an Accenture project"
+→ owner; Orbis (anti-automation check) → owner; SpaceX ×2 citizenship; Solace no sponsorship; Comfy/GameChanger captcha.
+**14:05 UTC — ⚠ FALSE CLEARANCE CLAIM SENT (owner action) + fix deployed.**
+- **Muon Space "Staff Software Engineer, Government Programs" (apjob_8da1d4b3-2c9d-4d94-8225-1553f3148747) was
+  SUBMITTED at 13:51 with "Do you currently hold a security clearance?" = "Yes, but I currently hold a US Security
+  Clearance not listed here".** The profile records no clearance. OWNER: contact Muon Space / withdraw or correct
+  this application. Audit of every SUBMITTED/UNKNOWN answer mentioning clearance: this is the only false one
+  (Sphinx Defense "No", Defcon AI "No"/"None" are correct).
+- Cause: `_resolve_clearance_level` picked the first option containing the substring "no" — which "not listed here"
+  contains. It would equally have accepted "No, but I held a US Security Clearance in the past 24 months".
+  Fix: with no clearance on the profile, only an option that states no clearance and claims none held/holding
+  ("^yes", "I hold/held a") is eligible; if none exists the field is left blank (blocking error), never fuzzy-matched.
+- Same substring bug found and fixed in two other resolvers before it caused harm (audited, 0 bad answers sent):
+  company history ("no" inside "Snowflake"/"know"/"now" could pick "Yes, I currently work at …") and test score
+  (also stopped falling back to the first option, which would have stated a score never recorded).
+- Tests: `test_muon_no_clearance_never_selects_a_held_clearance_option`, `test_no_clearance_picks_the_plain_negative` (3),
+  `test_company_history_never_picks_a_yes_option_containing_no_inside_a_word`. Suite 1524 passed.
+- Run was paused for the fix; resumed RUNNING at processed 292.
+
+## 14:21–14:40 UTC — wakes 28–29 (processed 332, submitted 59)
+
+- No action needed: 8 captcha boards → MANUAL_REVIEW (Rula, Scribd, Tinder, World View, Radiant Nuclear, Volley,
+  Optivolt); 4 DUPLICATE_APPLICATION skips (Braze ×3, Gusto); Varda POSTING_EXPIRED; Double has no on-page form.
+- Owner decisions (left in NEEDS_REVIEW): Mindgrub contract (start date, hourly rate); True Anomaly ITAR;
+  SimpliSafe immediate-family attestation; Verkada ×2 "San Mateo onsite, not remote — able to come onsite?"
+  (relocation stance not on the profile).
+- Fix 1 — Vestmark (DOM verifier false mismatch): the "Resume" answer was paired with the background-check
+  attestation because its label contains the word "resume", so "I agree" was reported as conflicting with the
+  resume filename. Label fallback in `browser_verifier._match_dom_field` now needs a prefix relation or ≥50%
+  overlap. Test: `test_vestmark_resume_answer_is_not_paired_with_an_attestation_mentioning_resume`.
+- Fix 2 — Datadog "In what cities are you available to work?" (multi-select) was UNKNOWN; the LLM heal typed
+  "Seattle, WA", which matches no option ("Seattle"), so the required field stayed empty. Resolver now picks the
+  option naming the candidate's own city and nothing else (any other city would claim a willingness the profile
+  doesn't record); no such option → unanswered. Tests: `test_datadog_cities_available_to_work_picks_only_the_candidates_own_city`,
+  `test_cities_available_to_work_without_the_candidates_city_stays_unanswered`. Suite 1527 passed.
+- Deployed (pause → restart-dev → email verify OK → start), single listeners on 4000/5000; Datadog and Vestmark reprocessed.
+
+## 14:24–14:35 UTC — wake 30 (processed 341, submitted 60)
+
+- Blueprint Technologies SUBMITTED. SpaceX INELIGIBLE (requires U.S. citizenship, correct). Coderabbit (reCAPTCHA) and
+  Extreme Networks (hCaptcha) → MANUAL_REVIEW.
+- Owner decisions: Torq Consulting ×2 (personal essays: favorite book, a class you'd teach, best thing this year);
+  Neros Technologies (ITAR U.S.-person, start timeline, open "additional information").
+- Fix — Faire "Which categories describe you? Select all that apply" is the voluntary race self-ID, but the label
+  has no race keyword so it was UNKNOWN and the required field stayed empty. Classifier now recognises a race
+  question from its option set (≥3 racial categories), alongside the existing transgender option rescue. The
+  profile's "Asian" maps to three options here, so the resolver answers "I don't wish to answer" — no
+  sub-category is guessed. Test: `test_faire_which_categories_describe_you_is_the_race_question`. Suite 1528 passed.
+- Deployed the same way; Faire reprocessed (Datadog/Vestmark retries were already queued/running).
+
+## 14:30–15:10 UTC — wake 31 (processed 353, submitted 65)
+
+- Verified live: Datadog (cities = "Seattle"), Vestmark, Faire (race and gender = "I don't wish to answer") all
+  SUBMITTED after the previous fixes. Also submitted: Discord, Bot Auto.
+- Whatnot (reCAPTCHA), PolicyMe (hCaptcha) → MANUAL_REVIEW. Owner: Torq Principal (personal essays), Relativity
+  Space (commute/relocate free text), Accenture Federal (Accenture-project attestation; Degree also empty),
+  Rvo Health ×3 "professional experience writing production Go?" (career.json has no Go — correctly left blank).
+- ⚠ Fabrication bug found while triaging Rvo: `_resolve_tech_stack_experience` answered "Yes" to every
+  "experience with X" question without looking at any evidence (Rust, COBOL → Yes), and `_resolve_years_experience`
+  answered total years (9) for "years with X" for any X.
+  Fix: both read career.json (read-only, via `career_compiler.store.load_store`: skills index + every project's
+  technologies). A technology word the evidence doesn't record → unanswered with a blocking error (never "No":
+  absence isn't proof). Same guard on the years-threshold Yes/No path. Pick-one technology lists choose only a
+  recorded technology ("All of the above" never). Known practice questions (AI-assisted tools, cross-functional,
+  reliable/durable systems) keep their Yes. Tests: `test_experience_with_a_technology_career_json_never_mentions_is_not_claimed` (8),
+  `test_experience_recorded_in_career_json_is_still_yes` (4), `test_technology_pick_list_chooses_only_a_recorded_technology`.
+  Suite 1541 passed. Deployed; run resumed.
+- Audit of all 162 SUBMITTED/SUBMISSION_UNKNOWN answers for experience claims — **owner action needed** (all from
+  the 2026-10-06 runs unless noted):
+  - Stackblitz "Senior Software Engineer - Rails": Ruby on Rails "5+ years", Node.js "5+ years", PostgreSQL "5+ years"
+    (none in career.json); TypeScript "5+ years" (in career.json, years unverified).
+  - Salesloft "Principal Software Engineer, AI": people-management experience "9" years (career.json shows IC roles).
+  - Elite Technology "Senior Software Engineer": "Yes" to front-end experience "such as Angular and AG Grid".
+  - DoorDash "Senior ML Engineer - New Verticals Agentic Foundations" (2026-10-07 09:16): "Yes" to "3+ years post
+    graduate degree developing ML models with business impact" — unverified against career.json; owner to confirm.
+  - All other experience answers checked (Java, AWS, GraphQL, AI agents, CI/CD, total years) are supported.
+- Residual (not fixed): a years question about a technology career.json DOES record (e.g. TypeScript, Kotlin)
+  still answers with total years; career.json has no per-technology duration to answer it more precisely.
+
+## 14:57–15:11 UTC — wakes 32–33 (processed 367, submitted 68)
+
+- PAUSED alert = the fabrication-fix deploy (expected). SUBMITTED: Olsson, Viant Technology, Stack AV — none asked an
+  experience question, so nothing affected by the old bug. Anduril ×4 INELIGIBLE (U.S. citizenship). Captcha →
+  MANUAL_REVIEW: Arsiem, Spring Health, d-Matrix, DDN. Owner: Anthropic "Why Anthropic?" essay; Neros Data Platform
+  (ITAR, start timeline, additional info). No fix needed.
+
+## 15:10–15:22 UTC — wake 34 (processed 370, submitted 68)
+
+- Fix — Zeta Global "Are you able to work in the United States?" was UNKNOWN; added a WORK_AUTHORIZED pattern
+  ("able/permitted/allowed to work in the US/USA/United States"). Test: `test_zeta_able_to_work_in_the_us_is_work_authorization` (3).
+- Fix — Torc Robotics "Are you local to Ann Arbor, MI?" (RELOCATE) was unanswered. It is a fact about where the
+  candidate lives: Yes when it names the profile city, No when it names a different state; regions without a state
+  ("Puget Sound area") and either/or phrasings ("…or willing to relocate") stay unanswered.
+  Test: `test_torc_local_to_a_named_place_is_answered_from_where_the_candidate_lives` (5). Suite 1549 passed.
+- Torc stays NEEDS_REVIEW regardless (owner: employment agreement that may restrict accepting the offer). Gallup →
+  owner (prior Gallup applications, "career plans" essay, proficiency self-ratings, several experience questions).
+- Deployed; Zeta reprocessed.
+
+## 15:25–15:35 UTC — owner review; run STOPPED (processed 386, submitted 71)
+
+- Zeta Global SUBMITTED (work-auth fix verified). Brex ×2 answered "Yes" to "If you're not authorized…, what
+  sponsorship would you require?" — fix written + tested (classifier + screening guard + free-text "None"), NOT deployed.
+- Owner asked for the full list of answers in use. That audit found further wrong answers already sent: Stack AV
+  "presently authorized under U.S. immigration laws" → No; education years 2016/2018 (career.json: MS 2017–2019);
+  Coinbase "opposed to AI tools"; Natera state "HI"; Akoya commute → "Boston, MA"; Canada/EU work auth → Yes;
+  Process Street UTC-6..+2 → Yes; Affirm citizenship → "No"; Care Access referrer → own name; DoorDash "Early
+  Career (E3)" and blog "5 = Strong"; B12 stack "9"; inconsistent ZIP/street address. Manifest has many wrong or
+  mismatched entries (Go, Spring Boot, Node, Dropwizard, KVM/PXE, education years, mismatched pairs).
+- Owner decisions: fix everything then resume; home = Auburn, WA 98092 (no street on file); ITAR "U.S. Person" = No.
+- Owner then said "stop applications": autopilot STOPPED, 0 APPLYING, night watcher stopped. Fixes not started yet.
+
+## Oct 7 — profile corrected, manifest quarantined, resolver fixes (autopilot and servers still STOPPED)
+
+- Profile (DB KV, backup in %TEMP%\profile_backup_20261007-094705.json): city Auburn, location "Auburn, WA", zip/
+  postalCode 98092, metroArea Seattle, timezone America/Los_Angeles; education = Santa Clara MS 09/2017–06/2019 and
+  PICT BS 06/2012–06/2016 (career.json). No street address. U.S. Person stays No (workAuth unchanged). career.json untouched.
+- Manifest (backup %TEMP%\manifest_backup_20261007-094705.json): 55 of 135 entries set `confirmed_by_user: false` with a
+  `quarantine_reason` (mismatched pairs, option labels, placeholder street, Go/PostgreSQL/MySQL/Jenkins/ArgoCD/Spring
+  Boot/KVM claims, unverified high-school ranks, "2 companies since undergrad" — career.json shows 4, "plans to relocate
+  in 12 months", eligible-states). Fixed: education years 2017/2019, ZIPs 98092, location Auburn, Bachelor's → Yes, Go
+  dropped from language lists. `_manifest_entry_usable` now skips unconfirmed entries.
+- Resolver/classifier: work authorization for a named non-US country → No (sponsorship there → Yes; India = citizenship
+  → Yes); "authorized under U.S. immigration laws to work" and "entitled to work" → WORK_AUTHORIZED; "what is your
+  citizenship" → India; UTC-range residence checked against the profile time zone; "commuting distance of your home"
+  office pickers choose only the home metro or the "do not live within commuting distance" option; `national` needs a
+  word boundary (Block "internationally"); "protected individual" → EXPORT_CONTROL; "I affirm … true and complete" →
+  ACCURACY_CONFIRMATION; Block "contract work for" → COMPANY_HISTORY; CircleCI "US/UK/CAN" counts as naming the US;
+  "greater Seattle area" matches metroArea; "have you used X", blog-influence ratings, and how-heard lists without a
+  truthful option are left blank; more generic words in the tech filler; essays whose prompt or JD forbids AI are not generated.
+- Tests: 20+ new regression cases; manifest tests updated for quarantine. Suite 1578 passed, 16 skipped.
+- Replay of 565 unique questions from submitted apps: 62 answers corrected, 68 now left for the owner, 11 essays drafted
+  at apply time, 424 unchanged. Not deployed; nothing committed.
+
+## Oct 7 (evening) — owner-approved answers only; H-1B sponsorship (autopilot and servers still STOPPED)
+
+- Owner-approved answers (profile backup %TEMP%\profile_backup_20261007-203205.json): portfolio/website
+  https://amsborse.github.io/; prefers Remote but Yes to hybrid and onsite; street address added to the profile;
+  needs sponsorship = Yes (H-1B, `workAuth.requiresSponsorshipNowOrFuture: true`, `authorizationType: "H-1B"`); no
+  clearance held or eligible; current company Microsoft; Male, Heterosexual/Straight, LGBTQ+ No, transgender No; race
+  Asian (Indian when offered).
+- Owner rule: only approved answers. A question without one stays blank; required → application staged for review,
+  optional → skipped and the application still submits. Essays: never AI-written (`AUTOPILOT_AI_ESSAYS` off by default);
+  the heal loop no longer takes the LLM's `suggestedFixValue`, only resolver answers. No first-option fallbacks
+  (`_only_option` takes an option only when it is the sole one).
+- Resolver: work-auth options that also state a sponsorship stance pick the one that matches the profile; "authorized for
+  any employer" → No; Truveta-style multi-Yes sponsorship options pick the H-1B one; free-text "what is your work
+  authorization status" / "list the type of support" → H-1B; race picks "South Asian" when no plain Asian option and never
+  "American Indian"; LGBTQ+ → No; orientation matches Heterosexual or Straight; "preferred" arrangement → Remote, "willing
+  to work hybrid/onsite" → Yes; home address → full address; "Never held a clearance" counts as no clearance; "Where can
+  we see your work?" → portfolio; "Current/Previous Employer" → Microsoft; "name you'd prefer" → preferred name.
+- Owner approved: auto-accept required consent/acknowledgement checkboxes (privacy notices, AI responsible-use policy,
+  "may use AI tools", "read and acknowledge requirements"); willing to relocate (`relocate: "Yes"`, profile backup
+  %TEMP%\profile_backup_20261007-204947.json). Relocation options pick "I'd relocate" over "currently located here";
+  "plans to relocate within 12 months" stays for review. Metron "aware this role requires a clearance" stays for review.
+- Submitted applications already sent sponsorship "No" (~100) and some "Yes, and I will not require sponsorship" — these
+  conflict with H-1B; owner informed.
+- Tests: suite 1609 passed, 16 skipped. Replay: 57 questions without an approved answer (24 required → staged,
+  33 optional → skipped). Not deployed; nothing committed.
+- Backup: owner kept the repo public and chose encryption with a locally kept key. `scripts/backup_encrypted.py`
+  writes apps/api/data (DB via sqlite backup + kv_store JSON export), logs, resume eval results, career.json/md,
+  templates, the answers manifest, batch results and resume PDFs as AES-256-GCM parts (≤45 MB) in backups/encrypted/.
+  Key: ~/.careeros/backup.key (never committed). Browser sessions and .env files excluded. Those personal files are now
+  git-ignored and untracked; the owner's phone/email/street in code and tests replaced with fakes; tests needing
+  private files skip on a clean checkout. Backup → verify → restore round trip checked: files byte-identical, DB
+  kv_store and row counts identical, integrity ok. Earlier commits on GitHub still contain the old plain-text data.

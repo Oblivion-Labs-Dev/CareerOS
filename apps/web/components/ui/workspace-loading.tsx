@@ -24,11 +24,40 @@ export function WorkspaceLoading({
   rows = 3,
 }: {
   label: string;
-  /** panel: a card of lines. list: repeated rows. grid: tiles. */
-  shape?: "panel" | "list" | "grid";
+  /** panel: a card of lines. list: repeated rows. grid: tiles. page: a full workspace stand-in. */
+  shape?: "panel" | "list" | "grid" | "page";
   /** How many rows or tiles to stand in for. Ignored by `panel`. */
   rows?: number;
 }) {
+  if (shape === "page") {
+    return (
+      <div className={styles.page} role="status" aria-busy="true" aria-label={label}>
+        <div className={styles.pageHead} aria-hidden="true">
+          <i className="skeleton" />
+          <i className="skeleton" />
+          <i className="skeleton" />
+        </div>
+        <div className={styles.grid} aria-hidden="true">
+          {Array.from({ length: 4 }, (_, index) => (
+            <div key={index} className={styles.cell}>
+              <i className="skeleton" style={{ width: "40%" }} />
+              <i className="skeleton" style={{ width: "55%", height: "1.6rem" }} />
+            </div>
+          ))}
+        </div>
+        <div className={styles.list} aria-hidden="true">
+          {Array.from({ length: rows }, (_, index) => (
+            <div key={index} className={styles.row}>
+              <i className="skeleton" />
+              <i className="skeleton" />
+            </div>
+          ))}
+        </div>
+        <span className={styles.srOnly}>{label}</span>
+      </div>
+    );
+  }
+
   if (shape === "panel") {
     return (
       <div className={styles.loading} role="status" aria-busy="true" aria-label={label}>

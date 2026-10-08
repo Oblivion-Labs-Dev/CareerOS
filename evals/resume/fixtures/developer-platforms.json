@@ -1,0 +1,28 @@
+{
+  "id": "developer-platforms",
+  "category": "Developer platforms",
+  "jd": "Senior Software Engineer, Developer Platform\n\nOur platform team makes every engineer faster.\n\nWhat you'll do\n- Build self-service infrastructure-as-code libraries and golden paths that cut service setup time.\n- Own CI/CD and deployment tooling used by many teams and services.\n- Consolidate deployment pipelines while keeping services independently scalable.\n- Drive adoption across teams and keep older pipelines upgradable with backward compatibility.\n- Automate production-readiness reviews before peak events.\n\nQualifications\n- Experience with AWS CDK, CloudFormation or Terraform.\n- Experience with Docker and container orchestration (ECS or Kubernetes).\n- Experience building internal developer platforms or tooling.\n\nBonus\n- Experience with Backstage or Spinnaker.",
+  "expected_requirements": [
+    "infrastructure-as-code libraries",
+    "CI/CD and deployment tooling",
+    "Consolidate deployment pipelines",
+    "AWS CDK, CloudFormation or Terraform",
+    "Backstage or Spinnaker"
+  ],
+  "expected_projects": [
+    "amazon.fxm_cdk_commons",
+    "amazon.multi_service_deployment",
+    "amazon.production_readiness_agent"
+  ],
+  "expected_evidence": [
+    "amazon.fxm_cdk_commons.metric.setup_time",
+    "amazon.fxm_cdk_commons.metric.weeks_saved",
+    "amazon.multi_service_deployment.decision.isolation"
+  ],
+  "must_not_use": [
+    "amazon.multi_service_deployment.metric.pipeline_15_to_2",
+    "amazon.multi_service_deployment.metric.pipeline_9"
+  ],
+  "must_not_say": ["Terraform", "CloudFormation", "Backstage", "Spinnaker", "15 to 2", "9 pipelines"],
+  "expected_gaps": ["Terraform", "Spinnaker"]
+}

@@ -31,6 +31,10 @@ def test_only_materially_better_evidence_replaces_weak_slot(baseline):
     result=mt.tailor(evidence(),JD,baseline=baseline,config=config())
     assert [b["decision"] for b in result["resumeBullets"]]==["REPLACE","KEEP","KEEP","KEEP"]
     first=result["resumeBullets"][0]
+    assert result["pageRect"]==[round(float(n), 2) for n in baseline["pageRect"]]
+    assert first["slotRect"]==[round(float(n), 2) for n in baseline["bullets"][0]["rect"]]
+    assert set(first["requirementPercents"])==set(first["requirementIds"])
+    assert all(0<=value<=100 for value in first["requirementPercents"].values())
     assert first["debug"]["improvementFraction"]>.15
     assert first["optimizedBullet"]==evidence()[0]["currentBullet"]
     assert mt.validate(result,evidence())==[]
@@ -55,7 +59,7 @@ def test_rich_runs_preserved_for_keep_and_reorder(baseline):
 
 def test_nonadjacent_slots_can_reorder_without_touching_other_pixels(baseline, monkeypatch):
     # The old adjacent-only pass missed a strong bullet behind an unrelated slot.
-    monkeypatch.setattr(mt, '_rank', lambda candidates, reqs, config: ([.1,.1,.9,.1], [[] for _ in candidates], None))
+    monkeypatch.setattr(mt, '_rank', lambda candidates, reqs, config: ([.1,.1,.9,.1], [[] for _ in candidates], None, [{} for _ in candidates]))
     result = mt.tailor([], JD, baseline=baseline, config=mt.TailoringConfig(use_semantic=False))
     assert result['resumeBullets'][0]['baselineBulletId'] == baseline['bullets'][2]['id']
     assert result['resumeBullets'][1]['decision'] == 'KEEP'

@@ -1,8 +1,5 @@
+import { WorkspaceLoading } from "@/components/ui/workspace-loading";
+
 export default function AppLoading() {
-  return (
-    <div className="page-loading page-loading--route" role="status" aria-label="Loading page">
-      <span className="page-loading-bar" />
-      <p className="page-loading-label">Loading…</p>
-    </div>
-  );
+  return <WorkspaceLoading label="Loading page" shape="page" rows={6} />;
 }

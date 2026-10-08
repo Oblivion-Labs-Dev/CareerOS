@@ -12,6 +12,7 @@ export async function POST(request: NextRequest) {
   if (input && input.mode === undefined) input.mode = "honest";
   if (!input || typeof input.jobDescription !== "string" || input.jobDescription.trim().length < 40 || input.jobDescription.length > 40000
     || (input.useSemantic !== undefined && typeof input.useSemantic !== "boolean")
+    || (input.retrieval !== undefined && !["fused", "semantic", "lexical"].includes(input.retrieval))
     || !["off", "honest", "aggressive"].includes(input.mode)
     || (input.targetRole !== undefined && (typeof input.targetRole !== "string" || input.targetRole.length > 200))
     || (input.targetCompany !== undefined && (typeof input.targetCompany !== "string" || input.targetCompany.length > 200))) {
@@ -29,7 +30,8 @@ export async function POST(request: NextRequest) {
       const result = response.ok ? JSON.parse(body) : null;
       // A running older API may accept but silently ignore the new mode. Use
       // the local worker until that API is upgraded; do not interrupt its jobs.
-      if (!response.ok || (result?.result?.mode === input.mode && result?.matchComparison && result?.result?.tailoringSummary && (input.useSemantic === undefined || result?.result?.tailoringConfig?.use_semantic === (input.mode === "off" ? false : input.useSemantic)))) {
+      const retrievalMatches = input.retrieval === undefined || result?.result?.tailoringConfig?.retrieval === input.retrieval;
+      if (!response.ok || (result?.result?.mode === input.mode && result?.matchComparison && result?.result?.tailoringSummary && retrievalMatches && (input.useSemantic === undefined || result?.result?.tailoringConfig?.use_semantic === (input.mode === "off" ? false : input.useSemantic)))) {
         return new NextResponse(body, { status: response.status, headers: { "Content-Type": "application/json", "Cache-Control": "no-store" } });
       }
     }

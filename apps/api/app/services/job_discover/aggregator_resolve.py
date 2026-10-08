@@ -344,6 +344,14 @@ def resolve_company_branded_greenhouse_url(
     return None
 
 
+def resolve_listing_url(url: str, *, company_name: str = "", title: str = "") -> dict[str, Any] | None:
+    """Employer posting for any job-board listing: Himalayas-style slugs first,
+    then a company + title lookup for boards whose URL carries neither (Indeed, LinkedIn, HN)."""
+    if is_aggregator_url(url):
+        return resolve_aggregator_url(url, company_name=company_name, title=title)
+    return resolve_by_company_and_title(company_name, title)
+
+
 def resolve_aggregator_url(
     url: str, *, company_name: str = "", title: str = ""
 ) -> dict[str, Any] | None:

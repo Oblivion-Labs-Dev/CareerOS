@@ -1,0 +1,27 @@
+{
+  "id": "backend",
+  "category": "Backend services",
+  "jd": "Senior Backend Engineer, Fulfillment Platform\n\nAbout the role\nWe build the services that decide when and how customer orders arrive. You will own backend services end to end, from API design to production operations.\n\nWhat you'll do\n- Design and build low-latency backend services and REST and gRPC APIs in Java or Python.\n- Own high-throughput order and delivery-promise services that must meet strict latency SLAs.\n- Break apart legacy monoliths into independently deployable microservices without downtime.\n- Use machine learning predictions in customer-facing decisions while keeping correctness deterministic.\n- Improve operational excellence: on-call, incident response, and production readiness.\n\nBasic qualifications\n- 5+ years of experience building backend systems in Java, Python or C#.\n- Experience with NoSQL or relational data stores such as DynamoDB or PostgreSQL.\n- Experience designing APIs and services that handle tens of thousands of requests per second.\n\nPreferred qualifications\n- Experience with Go.\n- Experience with AWS (Lambda, Step Functions, SQS, SNS).\n- Experience in e-commerce, logistics or fulfillment domains.\n\nWe offer competitive salary and benefits. Equal opportunity employer.",
+  "expected_requirements": [
+    "REST and gRPC APIs",
+    "latency SLAs",
+    "monoliths into independently deployable microservices",
+    "DynamoDB or PostgreSQL",
+    "Experience with Go"
+  ],
+  "expected_projects": [
+    "amazon.monolith_microservices",
+    "amazon.prediction_promise",
+    "amazon.promise_consolidation"
+  ],
+  "expected_evidence": [
+    "amazon.monolith_microservices.scale.tps",
+    "amazon.prediction_promise.decision.protocols",
+    "amazon.prediction_promise.constraint.wrapper_latency"
+  ],
+  "must_not_use": [
+    "amazon.just_in_stock.scale.500k_tps"
+  ],
+  "must_not_say": ["Go", "Golang", "PostgreSQL", "Staff", "1M TPS", "500K"],
+  "expected_gaps": ["Go", "PostgreSQL"]
+}

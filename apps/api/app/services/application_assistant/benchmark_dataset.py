@@ -18,7 +18,7 @@ BENCHMARK_PROFILE: dict[str, Any] = {
     "firstName": "Akshay",
     "lastName": "Borse",
     "fullName": "Akshay Borse",
-    "email": "amsborse@gmail.com",
+    "email": "candidate@example.com",
     "phone": "+1 (425) 555-0199",
     "phoneCountryCode": "United States (+1)",
     "location": "Seattle, WA, United States",

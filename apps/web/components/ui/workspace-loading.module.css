@@ -4,6 +4,16 @@
    workspace instead of a second one growing beside it. The bars themselves
    carry the global .skeleton class, which owns the sheen and its
    reduced-motion opt-in. */
+.page { display: grid; gap: 22px; }
+.pageHead { display: grid; gap: 10px; max-width: 36rem; }
+.pageHead i { height: 12px; }
+.pageHead i:first-child { width: 6.5rem; height: 10px; }
+.pageHead i:nth-child(2) { width: min(100%, 18rem); height: 2rem; }
+.pageHead i:nth-child(3) { width: min(100%, 28rem); }
+.row { display: grid; gap: 8px; padding: 16px 18px; border: 1px solid var(--border); border-radius: 14px; background: var(--card); }
+.row i { display: block; height: 12px; border-radius: 5px; }
+.row i:first-child { width: 38%; }
+.row i:last-child { width: 62%; height: 10px; }
 .list { display: grid; gap: 10px; }
 .grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); }
 .cell { display: grid; gap: 8px; padding: 14px; border: 1px solid var(--border); border-radius: 14px; background: var(--card); }

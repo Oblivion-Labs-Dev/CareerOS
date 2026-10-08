@@ -22,8 +22,8 @@ async def test_full_submission():
         # 1. Fill basic text fields
         await page.locator("#first_name").fill("Akshay")
         await page.locator("#last_name").fill("Borse")
-        await page.locator("#email").fill("amsborse@gmail.com")
-        await page.locator("#phone").fill("425-336-9852")
+        await page.locator("#email").fill("candidate@example.com")
+        await page.locator("#phone").fill("206-555-0100")
         
         # 2. Upload resume
         file_input = page.locator('input[type="file"]').first

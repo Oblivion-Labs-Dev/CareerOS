@@ -12,4 +12,10 @@
 .section input { margin-top: 0.2rem; }
 .section strong { display: block; font-weight: 600; line-height: 1.4; }
 .section small { display: block; margin-top: 0.25rem; color: var(--text-secondary); line-height: 1.45; }
+.section .examples { display: block; margin: 0.4rem 0 0; padding-left: 1rem; list-style: disc; font-size: 0.8rem; color: var(--text-secondary); }
+.section .examples li { border: 0; border-radius: 0; background: none; line-height: 1.45; }
+.links { display: flex; gap: 1rem; margin-top: 0.8rem; font-size: 0.85rem; }
+.links a { color: var(--accent); }
+.jd { margin-top: 0.8rem; font-size: 0.85rem; }
+.jd pre { white-space: pre-wrap; max-height: 20rem; overflow: auto; font: inherit; color: var(--text-secondary); }
 .section input:checked + span strong { color: var(--text-secondary); text-decoration: line-through; }

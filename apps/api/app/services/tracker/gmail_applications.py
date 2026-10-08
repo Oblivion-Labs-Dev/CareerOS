@@ -109,7 +109,7 @@ _CAREEROS_ALIAS_MARKERS = ("+career@", "+careeros@")
 
 def _is_careeros_recipient(to_address: str) -> bool:
     """True when the email was delivered to a CareerOS plus-alias
-    (e.g. amsborse+career@gmail.com), meaning CareerOS itself submitted it."""
+    (e.g. you+career@gmail.com), meaning CareerOS itself submitted it."""
     addr = (to_address or "").lower().strip()
     return any(marker in addr for marker in _CAREEROS_ALIAS_MARKERS)
 

@@ -130,11 +130,14 @@ test.describe("Resume Corpus redesign", () => {
     );
   });
 
-  test("shows roadmap previews for gated generators", async ({ page }) => {
-    await openPreview(page, "&view=builder");
-    await expect(page.getByRole("heading", { level: 1, name: "Resume Generator" })).toBeVisible();
-    await expect(page.getByTestId("coming-soon-preview")).toContainText("planned but not yet available");
+  test("opens Resume Studio from the corpus builder view", async ({ page }) => {
+    await page.goto("/resume-corpus?preview=1&view=builder");
+    await expect(page).toHaveURL(/\/profile\/resume-studio/);
+    await expect(page.getByRole("heading", { level: 1 })).toContainText("A new role");
+    await expect(page.getByRole("group", { name: "Tailoring mode" })).toBeVisible();
+  });
 
+  test("shows roadmap previews for gated generators", async ({ page }) => {
     await openPreview(page, "&view=match");
     await expect(page.getByRole("heading", { level: 1, name: "Job Description Matching" })).toBeVisible();
     await expect(page.getByTestId("coming-soon-preview")).toContainText("planned but not yet available");

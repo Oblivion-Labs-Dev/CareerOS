@@ -1016,6 +1016,13 @@ def save_autopilot_job(db: Session, payload: dict[str, Any]) -> dict[str, Any]:
             close_duplicate_applications(db, saved)
         except Exception:
             logger.exception("Could not retire duplicates for %s", saved.get("id"))
+        if saved.get("careerResumeId"):
+            try:
+                from app.services.career_compiler.versions import record_submission
+                record_submission(str(saved["careerResumeId"]), str(saved.get("id") or ""),
+                                  saved.get("answers") if isinstance(saved.get("answers"), dict) else None)
+            except Exception:
+                logger.exception("Could not record the applied outcome for %s", saved.get("careerResumeId"))
     _invalidate_autopilot_jobs_cache()
     return saved
 

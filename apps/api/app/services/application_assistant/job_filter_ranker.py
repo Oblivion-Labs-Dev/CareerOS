@@ -410,8 +410,13 @@ def role_location_priority_bonus(job: dict[str, Any]) -> float:
     return 0.0
 
 
+_MEMBER_OF_TECHNICAL_STAFF = re.compile(r"\bmember\s+of\s+(?:the\s+)?technical\s+staff\b")
+
+
 def role_level_flags(title_l: str) -> tuple[bool, bool]:
     """(is_senior, is_staff_or_principal) for an individual-contributor engineering title."""
+    # "Member of Technical Staff" is a software engineer title; its "staff" is not a level.
+    title_l = _MEMBER_OF_TECHNICAL_STAFF.sub("software engineer", title_l)
     above_senior_markers = (
         "staff", "principal", "distinguished", "fellow", "architect", "lead",
     )
@@ -437,6 +442,95 @@ def role_level_flags(title_l: str) -> tuple[bool, bool]:
         and engineering
     )
     return is_senior, is_staff_or_principal
+
+
+def software_role_rejection(title: str) -> str | None:
+    """Why ``title`` is not a qualifying individual-contributor software role, else None."""
+    title_lower = title.lower()
+    swe_keywords = [
+        "software engineer",
+        "software developer",
+        "full stack",
+        "fullstack",
+        "backend",
+        "back end",
+        "frontend",
+        "front end",
+        "platform engineer",
+        "systems engineer",
+        "infrastructure engineer",
+        "distributed systems",
+        "devops",
+        "site reliability",
+        "sre",
+        "applications engineer",
+        "application engineer",
+        "swe",
+        # Missing until 2026-09-15, and rejecting real postings in bulk: Esri,
+        # Zscaler and others title the role "Software Development Engineer"
+        # at every level, and "Full-Stack" is usually hyphenated.
+        "software development engineer",
+        "software engineer in test",
+        "full-stack",
+        *AI_ML_TITLE_KEYWORDS,
+    ]
+    # Short role codes and "product engineer" need word boundaries: "sde" must
+    # not match inside another word, and "product engineer" must not pull in
+    # "product security engineer" or any sales/presales title.
+    swe_patterns = (
+        r"\bsde\b",
+        r"\bsdet\b",
+        r"\bproduct engineer\b",
+        _MEMBER_OF_TECHNICAL_STAFF.pattern,
+    )
+    # Recruiting roles name the team they hire for ("Technical Sourcer, Research
+    # SWE"), so the engineering keywords alone would let them through.
+    if re.search(r"\b(sourcer|recruiter|recruiting\s+(coordinator|partner|lead))\b", title_lower):
+        return f"Role '{title}' is a recruiting role, not a Software Engineering role"
+    # "Senior Electrical Infrastructure Engineer" matches "infrastructure engineer".
+    if "software" not in title_lower and re.search(
+        r"\b(electrical|mechanical|civil|chemical|structural|hvac)\b", title_lower
+    ):
+        return f"Role '{title}' is a physical engineering discipline, not a Software Engineering role"
+    is_swe_role = any(kw in title_lower for kw in swe_keywords) or any(
+        re.search(pattern, title_lower) for pattern in swe_patterns
+    )
+    if not is_swe_role:
+        return f"Role '{title}' is not a Software Engineering role"
+
+    # Exclude management / director / executive positions (prioritizing individual contributor SDEs)
+    management_keywords = (
+        "director",
+        "manager",
+        "engineering manager",
+        "product manager",
+        "program manager",
+        "project manager",
+        "head of",
+        "vp",
+        "vice president",
+        "chief",
+        "managing director",
+        "lead manager",
+    )
+    if any(re.search(rf"\b{re.escape(kw)}\b", title_lower) for kw in management_keywords):
+        return f"Role '{title}' is a management/director position"
+
+    # Exclude internship / co-op / apprentice / student postings for experienced candidate
+    intern_keywords = ("intern", "internship", "co-op", "apprentice", "working student", "fellowship")
+    if any(re.search(rf"\b{kw}\b", title_lower) for kw in intern_keywords):
+        return f"Role '{title}' is an internship or apprentice position"
+
+    # Only Senior, Staff/Principal, or qualifying SWE roles are applied to (#59).
+    is_sen, is_sop = role_level_flags(title_lower)
+    is_other_swe = any(k in title_lower for k in (
+        "software", "backend", "back end", "full stack", "fullstack", "frontend",
+        "front end", "platform", "infrastructure", "systems", "distributed",
+        "engineer", "developer", "sde", "swe", *AI_ML_TITLE_KEYWORDS,
+    ))
+    if not (is_sen or is_sop or is_other_swe):
+        return f"Role '{title}' is not a qualifying software engineering role"
+    return None
 
 
 def duplicate_block_reason(job: dict[str, Any], existing_key_index: dict[str, set[str]]) -> str | None:
@@ -547,75 +641,9 @@ def evaluate_hard_filters(
 
     # 3. Role Title Filter (Software Engineering Roles Only)
     title_lower = title.lower()
-    swe_keywords = [
-        "software engineer",
-        "software developer",
-        "full stack",
-        "fullstack",
-        "backend",
-        "back end",
-        "frontend",
-        "front end",
-        "platform engineer",
-        "systems engineer",
-        "infrastructure engineer",
-        "distributed systems",
-        "devops",
-        "site reliability",
-        "sre",
-        "applications engineer",
-        "application engineer",
-        "swe",
-        # Missing until 2026-09-15, and rejecting real postings in bulk: Esri,
-        # Zscaler and others title the role "Software Development Engineer"
-        # at every level, and "Full-Stack" is usually hyphenated.
-        "software development engineer",
-        "software engineer in test",
-        "full-stack",
-        *AI_ML_TITLE_KEYWORDS,
-    ]
-    # Short role codes and "product engineer" need word boundaries: "sde" must
-    # not match inside another word, and "product engineer" must not pull in
-    # "product security engineer" or any sales/presales title.
-    swe_patterns = (r"\bsde\b", r"\bsdet\b", r"\bproduct engineer\b")
-    is_swe_role = any(kw in title_lower for kw in swe_keywords) or any(
-        re.search(pattern, title_lower) for pattern in swe_patterns
-    )
-    if not is_swe_role:
-        return False, f"Role '{title}' is not a Software Engineering role"
-
-    # Exclude management / director / executive positions (prioritizing individual contributor SDEs)
-    management_keywords = (
-        "director",
-        "manager",
-        "engineering manager",
-        "product manager",
-        "program manager",
-        "project manager",
-        "head of",
-        "vp",
-        "vice president",
-        "chief",
-        "managing director",
-        "lead manager",
-    )
-    if any(re.search(rf"\b{re.escape(kw)}\b", title_lower) for kw in management_keywords):
-        return False, f"Role '{title}' is a management/director position"
-
-    # Exclude internship / co-op / apprentice / student postings for experienced candidate
-    intern_keywords = ("intern", "internship", "co-op", "apprentice", "working student", "fellowship")
-    if any(re.search(rf"\b{kw}\b", title_lower) for kw in intern_keywords):
-        return False, f"Role '{title}' is an internship or apprentice position"
-
-    # Only Senior, Staff/Principal, or qualifying SWE roles are applied to (#59).
-    is_sen, is_sop = role_level_flags(title_lower)
-    is_other_swe = any(k in title_lower for k in (
-        "software", "backend", "back end", "full stack", "fullstack", "frontend",
-        "front end", "platform", "infrastructure", "systems", "distributed",
-        "engineer", "developer", "sde", "swe", *AI_ML_TITLE_KEYWORDS,
-    ))
-    if not (is_sen or is_sop or is_other_swe):
-        return False, f"Role '{title}' is not a qualifying software engineering role"
+    role_rejection = software_role_rejection(title)
+    if role_rejection:
+        return False, role_rejection
 
     # 4. Location Filter (United States Positions Only)
     job_loc = (job.get("location") or "").lower()

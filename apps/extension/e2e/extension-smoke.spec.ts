@@ -153,8 +153,8 @@ test.describe('JobFill extension smoke', () => {
         firstName: "Akshay",
         lastName: "Borse",
         fullName: "Akshay Borse",
-        email: "amsborse@gmail.com",
-        phone: "+1 4253369852",
+        email: "candidate@example.com",
+        phone: "+1 2065550100",
         location: "Seattle, WA",
         linkedin: "https://www.linkedin.com/in/amsborse/",
         github: "https://github.com/amsborse",
@@ -216,8 +216,8 @@ test.describe('JobFill extension smoke', () => {
     // Text inputs
     await expect(page.getByRole('textbox', { name: /first name/i })).toHaveValue('Akshay');
     await expect(page.getByRole('textbox', { name: /last name/i })).toHaveValue('Borse');
-    await expect(page.getByRole('textbox', { name: /email/i })).toHaveValue('amsborse@gmail.com');
-    await expect(page.getByRole('textbox', { name: /phone number/i })).toHaveValue('425-336-9852');
+    await expect(page.getByRole('textbox', { name: /email/i })).toHaveValue('candidate@example.com');
+    await expect(page.getByRole('textbox', { name: /phone number/i })).toHaveValue('206-555-0100');
     await expect(page.getByRole('textbox', { name: /linkedin link/i })).toHaveValue(/linkedin\.com\/in\/amsborse\/?$/);
     await expect(page.getByRole('textbox', { name: /website link/i })).toHaveValue('https://amsborse.github.io/resume');
 

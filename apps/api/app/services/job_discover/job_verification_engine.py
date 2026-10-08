@@ -128,6 +128,14 @@ def parse_posting_date(date_str: str | None) -> tuple[str | None, PostingDateCon
         formatted = f"{match.group(1)}-{match.group(2)}-{match.group(3)}T00:00:00+00:00"
         return formatted, PostingDateConfidence.MEDIUM
 
+    # "October 3, 2026" / "Oct 03, 2026" (Amazon, Apple)
+    for fmt in ("%B %d, %Y", "%b %d, %Y", "%d %B %Y", "%d %b %Y"):
+        try:
+            dt = datetime.strptime(clean_str, fmt).replace(tzinfo=timezone.utc)
+        except ValueError:
+            continue
+        return dt.isoformat(), PostingDateConfidence.MEDIUM
+
     return None, PostingDateConfidence.UNVERIFIED
 
 

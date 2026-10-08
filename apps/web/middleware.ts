@@ -11,25 +11,41 @@ const SESSION_COOKIE_NAME = "co_session";
 const rawBase = process.env.CAREER_OS_API_PUBLIC_URL || process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:4000";
 const API_BASE = rawBase.replace("//localhost:", "//127.0.0.1:");
 
+// Every page request runs this middleware. Calling the API on each one made
+// navigation wait on a round trip — and on the full 2s timeout when the API
+// was slow or down. Remember the answer briefly instead.
+const AUTH_STATUS_TTL_MS = 30_000;
+const AUTH_STATUS_MISS_TTL_MS = 5_000;
+const AUTH_STATUS_TIMEOUT_MS = 250;
+
+type AuthCache = { authRequired: boolean; expiresAt: number };
+let authCache: AuthCache | null = null;
+
+async function authIsRequired(now = Date.now()): Promise<boolean> {
+  if (authCache && authCache.expiresAt > now) return authCache.authRequired;
+  try {
+    const res = await fetch(`${API_BASE.replace(/\/$/, "")}/auth/status`, {
+      signal: AbortSignal.timeout(AUTH_STATUS_TIMEOUT_MS),
+    });
+    const authRequired = res.ok ? Boolean((await res.json()).authRequired) : false;
+    authCache = { authRequired, expiresAt: now + AUTH_STATUS_TTL_MS };
+    return authRequired;
+  } catch {
+    // API unreachable — fail open rather than hold every page. Data requests
+    // still go through the API's own auth gate. Remember the miss so the next
+    // click does not wait on another timeout.
+    authCache = { authRequired: false, expiresAt: now + AUTH_STATUS_MISS_TTL_MS };
+    return false;
+  }
+}
+
 export async function middleware(request: NextRequest) {
   // Auth is opt-in (CAREER_OS_ADMIN_PASSWORD unset = gate is off entirely) — a
   // fresh checkout with no .env must never lock the owner out of their own
   // local instance. Without this check, "no cookie yet" and "auth not
   // configured" are indistinguishable and every navigation would bounce to
   // /login, which itself redirects back, forever.
-  let authRequired = false;
-  try {
-    const res = await fetch(`${API_BASE.replace(/\/$/, "")}/auth/status`, {
-      signal: AbortSignal.timeout(2000),
-    });
-    if (res.ok) {
-      authRequired = Boolean((await res.json()).authRequired);
-    }
-  } catch {
-    // API unreachable (e.g. mid-restart) — fail open rather than lock out a
-    // single local user; the API's own AuthGateMiddleware still protects data.
-    authRequired = false;
-  }
+  const authRequired = await authIsRequired();
 
   if (!authRequired || request.cookies.has(SESSION_COOKIE_NAME)) {
     return NextResponse.next();
