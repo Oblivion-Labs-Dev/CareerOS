@@ -177,6 +177,19 @@ def test_each_education_row_gets_its_own_degree_over_a_saved_answer():
     assert bachelor.answer == "Bachelors Degree or Equivalent"
 
 
+def test_each_education_row_gets_its_own_degree_over_an_answer_library_entry():
+    """A library "Degree*" -> "Master's Degree" left both eBay rows unselected."""
+    lib = [{
+        "normalizedKey": "degree*", "questionVariants": ["Degree*"], "answerType": "short_text",
+        "value": "Master's Degree", "verificationStatus": "verified", "source": "user_approved_group",
+    }]
+    profile = {"education": EDUCATION}
+    master = resolve_answer("Degree *", profile, options=EBAY_DEGREES, field_id="degree--0", answer_lib=lib)
+    bachelor = resolve_answer("Degree *", profile, options=EBAY_DEGREES, field_id="degree--1", answer_lib=lib)
+    assert master.answer == "Masters Degree or Equivalent"
+    assert bachelor.answer == "Bachelors Degree or Equivalent"
+
+
 def test_phenom_education_row_maps_by_school_not_row_order():
     html = """<input name="educationData[0].schoolName" value="Pune Institute of Computer Technology">
               <input name="educationData[1].schoolName" value="Santa Clara University">

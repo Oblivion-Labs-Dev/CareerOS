@@ -791,6 +791,22 @@ def _resolve_answer_impl(
             resolution.resolution_method = UNKNOWN_METHOD
         return resolution
 
+    # Greenhouse's structured employment rows are identified by their element id
+    # (company-name-0, start-date-month-1, ...), not by a question type, so they
+    # are resolved before the type dispatch below ever sees them. They also
+    # precede the answer library: a saved "Degree*" answer cannot tell one
+    # school's row from another's.
+    employment = _employment_field(field_id, question_text)
+    if employment:
+        _resolve_employment_history(resolution, profile, opts, employment[0], employment[1])
+        resolution.question_type = QuestionType.UNKNOWN.value
+        return resolution
+
+    education = _education_field(field_id, question_text)
+    if education:
+        _resolve_education_history(resolution, profile, opts, education[0], education[1])
+        return resolution
+
     # A candidate's own prior approval outranks a fresh guess — but never for
     # sensitive factual fields (visa, citizenship, clearance, etc.), which must
     # always come from the authoritative profile, never a fuzzy-matched library
@@ -803,20 +819,6 @@ def _resolve_answer_impl(
             resolution.resolution_method = USER_OVERRIDE
             resolution.confidence = 0.9
             return resolution
-
-    # Greenhouse's structured employment rows are identified by their element id
-    # (company-name-0, start-date-month-1, ...), not by a question type, so they
-    # are resolved before the type dispatch below ever sees them.
-    employment = _employment_field(field_id, question_text)
-    if employment:
-        _resolve_employment_history(resolution, profile, opts, employment[0], employment[1])
-        resolution.question_type = QuestionType.UNKNOWN.value
-        return resolution
-
-    education = _education_field(field_id, question_text)
-    if education:
-        _resolve_education_history(resolution, profile, opts, education[0], education[1])
-        return resolution
 
     # A Yes/No that states a years-of-experience threshold has exactly one
     # truthful answer, and which one depends on the direction the threshold
