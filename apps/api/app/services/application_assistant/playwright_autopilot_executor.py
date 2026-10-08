@@ -1665,6 +1665,16 @@ def _state_tokens(profile: dict[str, Any]) -> set[str]:
     return {t for t in tokens if t}
 
 
+# Careers sites put a job-search "Location" box on the posting page (Jack Henry,
+# Unifirst: class="search-location", name="l"); that is not an application field.
+_APPLICATION_LOCATION_INPUT = (
+    ':is(input[id*="candidate-location" i], input[id*="candidate_location" i], '
+    'input[id*="location" i], input[name*="location" i])'
+    ':not([id*="search" i]):not([class*="search" i]):not([name*="search" i])'
+    ':not([role="search"] input):not(form[action*="search" i] input)'
+)
+
+
 def _pick_location_option(
     option_texts: list[str], answer: str, profile: dict[str, Any]
 ) -> int | None:
@@ -1978,7 +1988,7 @@ async def _fill_standard_and_react_fields(
         filled["Phone"] = phone_formatted
 
     # Fill Location (City) if requested
-    loc_input = page.locator('input[id*="candidate-location" i], input[id*="candidate_location" i], input[id*="location" i], input[name*="location" i]').first
+    loc_input = page.locator(_APPLICATION_LOCATION_INPUT).first
     if await loc_input.count() > 0 and await loc_input.is_visible():
         city_full = profile.get("location") or "Seattle, WA"
         if city_full.strip().lower() in ("akshay", "akshay borse", "none", ""):
