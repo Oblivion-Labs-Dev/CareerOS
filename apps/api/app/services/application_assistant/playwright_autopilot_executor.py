@@ -1665,6 +1665,26 @@ def _state_tokens(profile: dict[str, Any]) -> set[str]:
     return {t for t in tokens if t}
 
 
+# Radancy careers sites (NetApp, Sony Pictures, Jack Henry, Unifirst) put a
+# talent-network / job-alert signup on the posting page: name, email and a
+# keyword + location alert list, posted to /form/submit. Filling and submitting
+# it would record a newsletter signup as an application.
+_ONLY_TALENT_FORMS_JS = """sel => {
+    const isTalent = f => !!f && (
+        /\\/form\\/submit\\b/i.test(f.getAttribute('action') || '')
+        || !!f.querySelector('.keyword-location, [data-keyword-list]'));
+    const fields = [...document.querySelectorAll(sel)];
+    return fields.length > 0 && fields.every(e => isTalent(e.closest('form')));
+}"""
+
+
+async def _only_talent_network_forms(frame: Any, identity_selector: str) -> bool:
+    try:
+        return bool(await frame.evaluate(_ONLY_TALENT_FORMS_JS, identity_selector))
+    except Exception:
+        return False
+
+
 # Careers sites put a job-search "Location" box on the posting page (Jack Henry,
 # Unifirst: class="search-location", name="l"); that is not an application field.
 _APPLICATION_LOCATION_INPUT = (
@@ -3353,6 +3373,17 @@ async def _execute_live_playwright_submission_impl(
                 has_form = await target_frame.locator(APPLICATION_FORM_SELECTOR).count() > 0
             except Exception:
                 has_form = True  # never block a submission on a probe that errored
+            if has_form and await _only_talent_network_forms(target_frame, APPLICATION_FORM_SELECTOR):
+                logger.warning("Only a talent-network signup form at %s - not an application", page.url)
+                return {
+                    "submitted": False,
+                    "error": (
+                        "No application form on the posting page - only a talent-network / job-alert "
+                        "signup form is here; the application starts from the employer's Apply link"
+                    ),
+                    "evidence": {"finalUrl": page.url},
+                    "fieldsFilled": {},
+                }
             if not has_form:
                 # A page with no form may simply be a job description, or it may
                 # be a form that never rendered because a bot challenge is
