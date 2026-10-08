@@ -375,3 +375,40 @@ def test_combined_race_ethnicity_list_picks_the_profile_race_not_the_decline():
         options=["Please Select", *COMBINED_RACE_OPTIONS],
     )
     assert r.answer == "Asian (Not Hispanic or Latino) (United States of America)"
+
+
+def test_a_text_answer_that_no_yes_no_option_can_take_is_dropped():
+    r = resolve_answer(
+        "Have you ever been employed by an organization (company/agency) that is a Fiserv or First Data client/customer?",
+        {"currentCompany": "Microsoft", "workExperience": [{"company": "Microsoft", "current": True}]},
+        options=["Please Select", "Yes", "No"],
+    )
+    assert r.answer != "Microsoft"
+
+
+def test_willingness_to_sign_a_non_compete_is_not_defaulted_to_no():
+    r = resolve_answer("Are you willing to sign a non-compete agreement?", {}, options=["Yes", "No"])
+    assert not r.answer
+
+
+EBAY_DISABILITY = """
+<div class="field-radio-group" id="disability_heading_self_identity.disabilityStatus" role="radiogroup">
+  <div class="radio"><label><span><input type="radio" name="disability_heading_self_identity.disabilityStatus"
+    id="disability_heading_self_identity.disabilityStatus.YES_REV_2026" value="YES_REV_2026">
+    <span class="radio-text">Yes, I have a disability, or have had one in the past</span></span></label></div>
+  <div class="radio"><label><span><input type="radio" name="disability_heading_self_identity.disabilityStatus"
+    id="disability_heading_self_identity.disabilityStatus.NO_REV_2026" value="NO_REV_2026">
+    <span class="radio-text">No, I do not have a disability and have not had one in the past</span></span></label></div>
+</div>
+"""
+
+
+def test_a_radio_coded_in_its_value_is_chosen_by_its_wrapping_label():
+    async def check(page):
+        chosen = await _select_radio_option(
+            page, "disability_heading_self_identity.disabilityStatus.YES_REV_2026",
+            "No, I do not have a disability and have not had one in the past",
+        )
+        return chosen, await page.is_checked('[id="disability_heading_self_identity.disabilityStatus.NO_REV_2026"]')
+
+    assert _in_chromium(EBAY_DISABILITY, check) == (True, True)

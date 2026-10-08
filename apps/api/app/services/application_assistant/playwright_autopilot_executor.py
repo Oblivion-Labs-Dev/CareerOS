@@ -1059,6 +1059,13 @@ _VISIBLE_ERRORS_JS = """() => Array.from(document.querySelectorAll('[class*="err
     .slice(0, 6)"""
 
 
+async def _refill_and_blur(inp: Any, value: str) -> None:
+    """Regions re-validates a field only when it loses focus; until then the old error stays."""
+    await inp.fill(value)
+    await inp.dispatch_event("change")
+    await inp.blur()
+
+
 async def _drop_email_alias(page: Any) -> bool:
     """Mastercard's form calls "name+tag@gmail.com" an invalid address."""
     changed = False
@@ -1071,7 +1078,7 @@ async def _drop_email_alias(page: Any) -> bool:
             value = (await inp.input_value()).strip()
             plain = re.sub(r"\+[^@]*@", "@", value)
             if plain != value:
-                await inp.fill(plain)
+                await _refill_and_blur(inp, plain)
                 changed = True
         except Exception:
             continue
@@ -1127,7 +1134,7 @@ async def _phone_digits_only(page: Any) -> bool:
             if len(digits) == 11 and digits.startswith("1"):
                 digits = digits[1:]
             if len(digits) == 10 and digits != value:
-                await inp.fill(digits)
+                await _refill_and_blur(inp, digits)
                 changed = True
         except Exception:
             continue
@@ -1443,6 +1450,12 @@ async def _fill_first_visible(page_or_frame: Any, selectors: list[str], value: s
     return False
 
 
+_RADIO_OPTION_TEXT_JS = """el => {
+    const wrap = el.closest('label');
+    return (wrap && wrap.innerText.trim()) || el.getAttribute('aria-label') || '';
+}"""
+
+
 async def _select_radio_option(page_or_frame: Any, field_id: str, value: str) -> bool:
     """Choose a radio option by its exact/partial visible label without guessing."""
     try:
@@ -1468,6 +1481,8 @@ async def _select_radio_option(page_or_frame: Any, field_id: str, value: str) ->
                 option_label = page_or_frame.locator(f'label[for="{radio_id}"]').first
                 if await option_label.count() > 0:
                     label = (await option_label.inner_text()).strip()
+            if not label:
+                label = (await radio.evaluate(_RADIO_OPTION_TEXT_JS) or "").strip()
             candidates = (option_value.lower(), label.lower())
             if wanted and any(wanted == candidate for candidate in candidates if candidate):
                 return await _tick_checkbox(radio)
@@ -1480,6 +1495,8 @@ async def _select_radio_option(page_or_frame: Any, field_id: str, value: str) ->
                 option_label = page_or_frame.locator(f'label[for="{radio_id}"]').first
                 if await option_label.count() > 0:
                     label = (await option_label.inner_text()).strip()
+            if not label:
+                label = (await radio.evaluate(_RADIO_OPTION_TEXT_JS) or "").strip()
             candidates = (option_value.lower(), label.lower())
             for candidate in candidates:
                 if not candidate:
@@ -2713,6 +2730,12 @@ async def _fill_standard_and_react_fields(
                         text = (await lbl_el.inner_text()).strip()
                         if text:
                             opt_label = text
+                if not opt_id or opt_label == (await opt.get_attribute("value") or "").strip():
+                    # Phenom wraps each radio in its label and keeps a code in
+                    # value ("NO_REV_2026").
+                    text = (await opt.evaluate(_RADIO_OPTION_TEXT_JS) or "").strip()
+                    if text:
+                        opt_label = text
                 if opt_label:
                     options.append(opt_label)
                     option_ids.append(opt_id)

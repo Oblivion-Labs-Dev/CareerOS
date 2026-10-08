@@ -857,6 +857,13 @@ def _resolve_answer_impl(
     else:
         _resolve_unknown(resolution, profile, opts)
 
+    # "Have you been employed by an organization that is a Fiserv client?"
+    # reads as a current-employer field and resolved to "Microsoft" - an
+    # answer no Yes/No control can take.
+    if resolution.answer and _is_yes_no_options(opts) and not _match_option(opts, resolution.answer):
+        resolution.answer = None
+        resolution.resolution_method = UNKNOWN_METHOD
+
     # The candidate answers manifest only fills what the profile could not
     # answer: on a factual field the profile wins (owner, 2026-10-06).
     if not resolution.answer:
@@ -2996,6 +3003,10 @@ def _question_names_a_prior_employer(question: str, profile: dict) -> str | None
 def _resolve_company_history(res: AnswerResolution, profile: dict, opts: list[str]) -> None:
     # Only answer "No" when the question is genuinely about a company the
     # candidate has no history with. See _question_names_a_prior_employer.
+    # Non-compete questions are the candidate's to answer (a saved screening
+    # answer covers the factual ones); "No" to "willing to sign one?" is a guess.
+    if re.search(r"non-?\s?compete|restrictive\s+covenant|non-?\s?solicit", res.question or "", re.I):
+        return
     prior = _question_names_a_prior_employer(res.question, profile)
     if prior:
         # "Have you previously applied to..." and conflict-of-interest/relative
