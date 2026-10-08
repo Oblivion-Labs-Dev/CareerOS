@@ -1921,8 +1921,17 @@ def _resolve_veteran(res: AnswerResolution, profile: dict, opts: list[str]) -> N
     _resolve_from_profile(res, profile, opts, "veteran", fallback=fallback)
     if opts and res.answer and res.answer.strip().lower() not in [o.strip().lower() for o in opts]:
         negative = _find_negative_option(opts, ("veteran", "military", "served"))
+        if negative is None and not _claims_service(profile):
+            # Fiserv: "No, or I prefer not to identify" names neither veteran nor military.
+            plain_no = [o for o in opts if re.match(r"\s*no\b", o, re.I)]
+            negative = plain_no[0] if len(plain_no) == 1 else None
         if negative:
             res.answer = negative
+
+
+def _claims_service(profile: dict) -> bool:
+    veteran = str(profile.get("veteran") or "").lower()
+    return bool(veteran) and not re.search(r"\bnot\b|\bno\b|\bnever\b|\bnon\b", veteran)
 
 def _resolve_disability(res: AnswerResolution, profile: dict, opts: list[str]) -> None:
     fallback = APPLICATION_FIELD_DEFAULTS.get("disability", "No, I don't have a disability")

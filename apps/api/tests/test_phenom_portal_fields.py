@@ -412,3 +412,56 @@ def test_a_radio_coded_in_its_value_is_chosen_by_its_wrapping_label():
         return chosen, await page.is_checked('[id="disability_heading_self_identity.disabilityStatus.NO_REV_2026"]')
 
     assert _in_chromium(EBAY_DISABILITY, check) == (True, True)
+
+
+EBAY_DISABILITY_FORM = """
+<div class="row form-group field disability-status-radio" role="radiogroup" aria-labelledby="dis-head" aria-required="true">
+  <label class="control-label" id="dis-head"><b>Please check one of the boxes below:</b><span class="required">*</span></label>
+""" + EBAY_DISABILITY + "</div>"
+
+
+def test_verifier_reads_a_phenom_radio_group_by_its_question_and_option_text():
+    from app.services.application_assistant.profile_answer_resolver import AnswerResolution
+
+    async def check(page):
+        await page.check('[id="disability_heading_self_identity.disabilityStatus.NO_REV_2026"]')
+        res = AnswerResolution(
+            field_id="disability_heading_self_identity.disabilityStatus.YES_REV_2026",
+            question="Please check one of the boxes below:",
+            question_type="DISABILITY",
+            answer="No, I do not have a disability and have not had one in the past",
+        )
+        result = await verify_browser_dom_state(page, [res], {})
+        return [(i.issue_type, i.label) for i in result.issues]
+
+    assert _in_chromium(EBAY_DISABILITY_FORM, check) == []
+
+
+def _fiserv_military(required: bool) -> str:
+    star = " *" if required else ""
+    boxes = "".join(
+        f'<div class="checkbox"><label><span><input type="checkbox" id="jsqData.QUESTIONNAIRE-6-818.i_{i}" '
+        f'aria-label="{text}" value="QUESTION_MULTIPLE_CHOICE_ANSWER-6-{2288 + i}"><span>{text}</span></span></label></div>'
+        for i, text in enumerate([
+            "United States Military Veteran",
+            "Currently serving in the United States Guard or Reserves",
+            "Military Spouse (current or former)",
+            "No, or I prefer not to identify",
+        ])
+    )
+    return (
+        '<form><div class="form-group"><label for="jsqData.QUESTIONNAIRE-6-818.i">Are you a current or former United '
+        f'States Military Service Member or military spouse? (Please select all that apply){star}</label>'
+        f'<div class="checkboxes" id="jsqData.QUESTIONNAIRE-6-818.i">{boxes}</div></div></form>'
+    )
+
+
+@pytest.mark.parametrize("required", [True, False])
+def test_phenom_checkbox_group_takes_the_profile_answer_only_when_required(required):
+    from app.services.application_assistant.playwright_autopilot_executor import _fill_standard_and_react_fields
+
+    async def check(page):
+        await _fill_standard_and_react_fields(page, {"veteran": "I am not a protected veteran"}, None, "Fiserv", "x", "")
+        return [await page.is_checked(f'[id="jsqData.QUESTIONNAIRE-6-818.i_{i}"]') for i in range(4)]
+
+    assert _in_chromium(_fiserv_military(required), check) == ([False, False, False, required])

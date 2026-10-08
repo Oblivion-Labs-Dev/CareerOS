@@ -1456,6 +1456,18 @@ _RADIO_OPTION_TEXT_JS = """el => {
 }"""
 
 
+_CHECKBOX_GROUP_QUESTION_JS = """el => {
+    const own = el.id && document.querySelector('label[for="' + CSS.escape(el.id) + '"]');
+    if (own && own.innerText.trim()) return own.innerText.trim();
+    let n = el.parentElement;
+    for (let i = 0; i < 4 && n; i++, n = n.parentElement) {
+        const head = Array.from(n.querySelectorAll('label, legend')).find(x => !el.contains(x) && x.innerText.trim());
+        if (head) return head.innerText.trim();
+    }
+    return '';
+}"""
+
+
 async def _select_radio_option(page_or_frame: Any, field_id: str, value: str) -> bool:
     """Choose a radio option by its exact/partial visible label without guessing."""
     try:
@@ -2887,6 +2899,37 @@ async def _fill_standard_and_react_fields(
                 filled_ids[group_lbl[:50]] = chosen_id
         except Exception as exc:
             logger.debug("Checkbox group fill error: %s", exc)
+            continue
+
+    # Phenom renders a choice question as div.checkboxes#<group> of boxes
+    # "<group>_<n>", each inside its label, with no fieldset (Fiserv's
+    # "military service member or spouse? (select all that apply)").
+    for group in await page.locator("div.checkboxes[id]").all():
+        try:
+            boxes = group.locator('input[type="checkbox"]')
+            box_count = await boxes.count()
+            if box_count < 2 or not await group.is_visible():
+                continue
+            if any([await boxes.nth(i).is_checked() for i in range(box_count)]):
+                continue
+            group_id = await group.get_attribute("id") or ""
+            group_lbl = " ".join((await group.evaluate(_CHECKBOX_GROUP_QUESTION_JS) or "").split())
+            options = [" ".join((await boxes.nth(i).evaluate(_RADIO_OPTION_TEXT_JS) or "").split())
+                       for i in range(box_count)]
+            if not group_lbl or not all(options):
+                continue
+            resolution = resolve_answer(question_text=group_lbl, profile=profile, options=options,
+                                        answer_lib=answer_lib, field_id=group_id)
+            if not resolution.answer or resolution.blocking_errors or resolution.answer not in options:
+                continue
+            required = "*" in group_lbl or await group.get_attribute("aria-required") == "true"
+            if resolution.question_type in {t.value for t in VOLUNTEER_ONLY_TYPES} and not required:
+                continue
+            if await _tick_checkbox(boxes.nth(options.index(resolution.answer))):
+                filled[group_lbl[:50]] = resolution.answer
+                filled_ids[group_lbl[:50]] = group_id
+        except Exception as exc:
+            logger.debug("Phenom checkbox group fill error: %s", exc)
             continue
 
     # Ashby renders a choice question as loose checkboxes with no <fieldset>

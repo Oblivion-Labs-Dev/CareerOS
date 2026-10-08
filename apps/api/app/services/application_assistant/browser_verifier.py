@@ -311,6 +311,13 @@ async def verify_browser_dom_state(
                         if (lbl && lbl.innerText && lbl.innerText.trim()) label = lbl.innerText.trim();
                     } catch(e) {}
                 }
+                if (!label && type === 'radio') {
+                    // Phenom: the nearest "field" div is the radio group, whose
+                    // first <label> is option one rather than the question.
+                    const group = el.closest('[role="radiogroup"][aria-labelledby]');
+                    const head = group ? document.getElementById(group.getAttribute('aria-labelledby')) : null;
+                    if (head && head.innerText.trim()) label = head.innerText.trim();
+                }
                 if (!label) {
                     const parent = el.closest('div.field, div.custom-question, div[class*="question"], div[class*="field"], fieldset');
                     if (parent) {
@@ -325,31 +332,25 @@ async def verify_browser_dom_state(
                 if (type === 'checkbox') {
                     val = el.checked ? (el.value || 'true') : '';
                 } else if (type === 'radio') {
-                    if (el.checked) {
-                        val = el.value || 'true';
-                        // Also try to get the readable label of the checked radio
-                        if (id) {
+                    // The readable text of a radio: its label[for], else the label
+                    // wrapping it (Phenom keeps a code like "NO_REV_2026" in value).
+                    const radioText = (r) => {
+                        if (r.id) {
                             try {
-                                const lblEl = document.querySelector(`label[for="${id}"]`);
-                                if (lblEl && lblEl.innerText && lblEl.innerText.trim()) {
-                                    val = lblEl.innerText.trim();
-                                }
+                                const lblEl = document.querySelector(`label[for="${CSS.escape(r.id)}"]`);
+                                if (lblEl && lblEl.innerText && lblEl.innerText.trim()) return lblEl.innerText.trim();
                             } catch(e) {}
                         }
+                        const wrap = r.closest('label');
+                        if (wrap && wrap.innerText.trim()) return wrap.innerText.trim();
+                        return r.value || 'true';
+                    };
+                    if (el.checked) {
+                        val = radioText(el);
                     } else if (name) {
                         // If unchecked, see if another radio in the same group is checked
                         const checkedSibling = document.querySelector(`input[type="radio"][name="${CSS.escape(name)}"]:checked`);
-                        if (checkedSibling) {
-                            val = checkedSibling.value || 'true';
-                            if (checkedSibling.id) {
-                                try {
-                                    const sibLbl = document.querySelector(`label[for="${checkedSibling.id}"]`);
-                                    if (sibLbl && sibLbl.innerText && sibLbl.innerText.trim()) {
-                                        val = sibLbl.innerText.trim();
-                                    }
-                                } catch(e) {}
-                            }
-                        }
+                        if (checkedSibling) val = radioText(checkedSibling);
                     }
                 } else if (isCombobox) {
                     const searchRoot = wrapper || (el.closest ? el.closest('div.select__control, div[class*="select__control"], div[class*="control"]') : null) || el;
