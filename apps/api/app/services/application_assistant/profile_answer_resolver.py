@@ -1865,6 +1865,13 @@ def _resolve_first_gen_professional(res: AnswerResolution, profile: dict, opts: 
 
 # ── Misc resolvers ───────────────────────────────────────────────────────────
 
+_CLAIMS_A_CONTACT = re.compile(
+    r"recruit|referr|employee|contacted|reached\s+out|inmail|message|customer|partner|friend|family|"
+    r"colleague|coworker|alumni|\bi\s+use\b|\bi\s+am\s+an?\b|\bi'?m\s+an?\b",
+    re.I,
+)
+
+
 def _resolve_how_heard(res: AnswerResolution, profile: dict, opts: list[str]) -> None:
     """BUG FIX: Was selecting random options. Now uses profile.jobDiscoveryDefault."""
     if re.search(r"\binfluence\b|\brate\b|how\s+much", res.question or "", re.I):
@@ -1873,15 +1880,21 @@ def _resolve_how_heard(res: AnswerResolution, profile: dict, opts: list[str]) ->
         res.resolution_method = UNKNOWN_METHOD
         res.confidence = 0.0
         return
-    default = profile.get("jobDiscoveryDefault", "LinkedIn")
+    # No channel on file means no answer: a built-in "LinkedIn" default once
+    # told Upstart "A recruiter contacted me (LinkedIn message)".
+    default = str(profile.get("jobDiscoveryDefault") or "").strip()
+    if not default:
+        res.resolution_method = UNKNOWN_METHOD
+        res.confidence = 0.0
+        return
     if opts:
-        matched = (_match_option(opts, default)
-                   or _match_option(opts, "LinkedIn")
-                   or _match_option(opts, "Job Board")
-                   or _match_option(opts, "Career Site")
-                   or _match_option(opts, "Company Website")
-                   or _match_option(opts, "Online")
-                   or _match_option(opts, "Other"))
+        # Options asserting a contact or connection are claims the channel
+        # alone cannot support, so they are never matched.
+        neutral = [o for o in opts if not _CLAIMS_A_CONTACT.search(o)]
+        matched = _careers_page_option(neutral) if "career" in default.lower() else None
+        matched = (matched
+                   or _match_option(neutral, default)
+                   or next((o for o in neutral if o.strip().lower() == "other"), None))
         if not matched:
             res.resolution_method = UNKNOWN_METHOD
             res.confidence = 0.0
