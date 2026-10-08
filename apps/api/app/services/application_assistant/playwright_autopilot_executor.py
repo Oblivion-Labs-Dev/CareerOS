@@ -2046,6 +2046,13 @@ async def _fill_standard_and_react_fields(
                 }""") or "").strip()
                 if settled:
                     filled["Location"] = settled
+                if not clicked and settled and _pick_location_option([settled], city_full, profile) is None:
+                    # The blind keypress takes whatever the widget lists first:
+                    # Unifirst's unrecognised list committed "Auburn, AL".
+                    logger.warning("Location keypress committed %r, not the candidate's town; clearing it", settled)
+                    await loc_input.fill("")
+                    filled.pop("Location", None)
+                    filled_ids.pop("Location", None)
             except Exception:
                 pass
         except Exception:

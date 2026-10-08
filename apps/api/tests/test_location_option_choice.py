@@ -51,6 +51,13 @@ def test_state_abbreviation_in_the_option_also_counts():
     assert options[_pick_location_option(options, "Auburn, WA", WA)] == "Auburn, WA, United States"
 
 
+def test_a_blind_keypress_committing_another_state_is_rejected():
+    # Unifirst's list matched no known selector, so ArrowDown+Enter committed
+    # its first suggestion; the committed value is checked the same way.
+    assert _pick_location_option(["Auburn, AL"], "Auburn, WA", WA) is None
+    assert _pick_location_option(["Auburn, WA"], "Auburn, WA", WA) == 0
+
+
 def test_blank_suggestions_are_ignored():
     options = ["", "Auburn, Washington, United States"]
     assert _pick_location_option(options, "Auburn, WA", WA) == 1
