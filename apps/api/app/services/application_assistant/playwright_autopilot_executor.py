@@ -711,6 +711,58 @@ _TOKEN_ANSWERS = frozenset({
 })
 
 
+_AFFIRMATIVE_CHECKBOX_ANSWERS = frozenset({
+    "yes", "y", "true", "checked", "agree", "i agree", "acknowledge",
+    "acknowledged", "i acknowledge", "i understand", "i certify", "i consent",
+})
+
+# Counts the checkboxes sharing a question with this one: its fieldset or
+# role="group", its name, or Ashby's "<question>-labeled-checkbox-<n>" id.
+_CHECKBOX_GROUP_SIZE_JS = """el => {
+    const set = el.closest('fieldset, [role="group"]');
+    if (set) {
+        const n = set.querySelectorAll('input[type="checkbox"]').length;
+        if (n > 1) return n;
+    }
+    if (el.name) {
+        const n = document.querySelectorAll(
+            `input[type="checkbox"][name="${CSS.escape(el.name)}"]`).length;
+        if (n > 1) return n;
+    }
+    const m = (el.id || '').match(/^(.*-labeled-checkbox-)\\d+$/);
+    if (m) {
+        const n = document.querySelectorAll(
+            `input[type="checkbox"][id^="${CSS.escape(m[1])}"]`).length;
+        if (n > 1) return n;
+    }
+    return 1;
+}"""
+
+
+def _affirms_checkbox(answer: Any) -> bool:
+    """True only for an answer that means "tick this box".
+
+    A resolved answer is often an option of some other question: "Yes, I am
+    on an H1B Visa" is the candidate's sponsorship answer, not consent to tick
+    whichever box the review pointed at.
+    """
+    return str(answer or "").strip().lower().strip(" .!") in _AFFIRMATIVE_CHECKBOX_ANSWERS
+
+
+async def _is_choice_group_checkbox(elem: Any) -> bool:
+    """True when the checkbox is one option of a multi-option question.
+
+    Those belong to the group passes, which resolve the question with its
+    options and tick only the matching one. Truveta's "Do you now OR in the
+    future require visa sponsorship?" was submitted with all four options
+    ticked after healing resolved each option label as its own question.
+    """
+    try:
+        return int(await elem.evaluate(_CHECKBOX_GROUP_SIZE_JS, timeout=5000)) > 1
+    except Exception:
+        return True
+
+
 def _is_token_answer_in_prose_box(
     dom_field: dict[str, Any] | None, label: str, value: Any
 ) -> bool:
@@ -3637,7 +3689,12 @@ async def _execute_live_playwright_submission_impl(
                                         if log_callback:
                                             log_callback(f"Self-healed [{f_label or f_id}] -> '{fix_val}'")
                                 elif el_type == "checkbox":
-                                    if fix_val and str(fix_val).lower() not in ("no", "false", "0", "unchecked", "none", "null"):
+                                    if await _is_choice_group_checkbox(elem):
+                                        logger.info(
+                                            "Not healing %r: it is one option of a choice group",
+                                            (f_label or f_id)[:60],
+                                        )
+                                    elif _affirms_checkbox(fix_val):
                                         await elem.check(force=True)
                                         filled_fields[f_label or f_id] = "checked"
                                         filled_field_ids[f_label or f_id] = f_id

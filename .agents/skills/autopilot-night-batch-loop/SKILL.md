@@ -164,6 +164,7 @@ Answers must come from the `profile` key in `kv_store` (the `user_profile`, `use
 - Sponsorship questions must match `workAuth.requiresSponsorshipNowOrFuture` (currently **Yes**, H-1B); work-authorization questions must match `workAuth.authorizedToWorkInUS`.
 - City/location answers must match `city`/`state` (currently Auburn, Washington), never another city.
 - Residence/on-site questions must never claim the candidate already lives somewhere they don't; with `relocate: Yes` the answer is "willing to relocate".
+- `answers` entries whose value is `checked` and whose key is an option label ("No, I do not require sponsorship ...", "Yes, I am on an F1 Visa ...") mean healing ticked a box of a choice group. Open the `_presubmit.png` screenshot (crop and enlarge it; Greenhouse draws a ticked box as a grey check, an unticked one as an empty square) and confirm only one option per single-choice question is ticked.
 
 A mismatch is a stop-the-run defect: `POST /application-assistant/autopilot/stop`, reproduce with `profile_answer_resolver.resolve_answer(question, profile, options)`, fix, add a regression test, then restart.
 
