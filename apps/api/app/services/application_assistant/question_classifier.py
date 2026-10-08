@@ -497,6 +497,9 @@ _CLASSIFICATION_RULES: list[tuple[QuestionType, list[str]]] = [
     # passing, but the bare EMAIL pattern below matches on that substring
     # anywhere in the text and would otherwise intercept this question
     # first, well before it ever reaches SMS_CONSENT's own patterns.
+    # Regions: "I consent to receive transactional email messages regarding
+    # employment opportunities" is about the application, not marketing.
+    (QuestionType.PRIVACY_CONSENT, [r"\btransactional\s+(?:e-?mail|messages?|communications?)"]),
     (QuestionType.SMS_CONSENT, [
         r"text\s*message",
         r"text\s*messaging",
@@ -517,6 +520,12 @@ _CLASSIFICATION_RULES: list[tuple[QuestionType, list[str]]] = [
         # Braze: "Select 'Yes' to join Braze's Talent Community and receive newsletters..."
         r"join\b.{0,40}\btalent\s+(?:community|network|pool)",
         r"receive\s+(?:our\s+)?newsletters?",
+        # HPE: "I consent to receive email communications ..."; Autodesk: "I
+        # would like to be part of the Autodesk, Inc. Talent Community ...".
+        r"receive\s+(?:\w+\s+){0,3}(?:e-?mail|marketing|promotional)\s+(?:communications?|updates|offers)",
+        r"part\s+of\b.{0,60}\btalent\s+(?:community|network|pool)",
+        r"\bjob\s+alerts?\b",
+        r"\bmarketing\s+(?:communications?|e-?mails?|messages?)",
     ]),
     (QuestionType.EMAIL, [r"e-?mail"]),
     (QuestionType.PHONE_COUNTRY, [r"country\s*code", r"dial\s*code"]),

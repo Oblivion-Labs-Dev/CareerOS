@@ -2210,6 +2210,9 @@ async def _fill_standard_and_react_fields(
                     chk_lbl = await parent.inner_text()
 
             chk_lbl_low = (chk_lbl or "").lower()
+            if classify_question(chk_lbl or "") in (QuestionType.SMS_CONSENT, QuestionType.MARKETING_CONSENT):
+                # The owner's rule: marketing and SMS opt-ins stay unticked.
+                continue
             if any(k in chk_lbl_low for k in ["consent", "agree", "acknowledge", "terms", "privacy", "survey", "certify", "understand"]):
                 await chk.check(force=True)
                 filled[chk_lbl[:50] or "Consent Checkbox"] = "checked"
