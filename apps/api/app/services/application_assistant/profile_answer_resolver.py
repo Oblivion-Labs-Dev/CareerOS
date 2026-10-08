@@ -381,6 +381,12 @@ def _match_candidate_manifest_answer(question_text: str, options: list[str] | No
     return None
 
 
+_PROFILE_IDENTITY_TYPES = frozenset({
+    QuestionType.FIRST_NAME, QuestionType.LAST_NAME, QuestionType.FULL_NAME,
+    QuestionType.EMAIL, QuestionType.PHONE,
+    QuestionType.LINKEDIN, QuestionType.GITHUB, QuestionType.WEBSITE,
+})
+
 _REFERRAL_SOURCE_QUESTION = re.compile(r"\b(?:hear|learn)\s+about\b", re.I)
 # Most specific first. Each employer names its own careers page ("Career Page",
 # "Samsara Careers Site", "Company Website / Careers Page", "BeyondTrust Website").
@@ -657,6 +663,10 @@ def _resolve_answer_impl(
     from app.services.application_assistant.answer_classification import match_screening_answer
 
     screening = match_screening_answer(question_text, profile)
+    if screening and qtype in _PROFILE_IDENTITY_TYPES:
+        # Cisco's "Email Address" matched a saved "Address 1" answer by its
+        # bare "address" wording and was filled with the street address.
+        screening = None
     if screening and qtype == QuestionType.CITIZENSHIP and not _saved_question_mentions(
         profile, screening[0], "citizen"
     ):
