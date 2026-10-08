@@ -2040,13 +2040,13 @@ def _lives_here_option(opts: list[str]) -> str | None:
 # in a particular place, rather than a preference between schedules.
 _PLACE_COMMITMENT_PATTERNS = (
     r"relocat",
-    r"commut",
+    r"\bcommut",
     r"come\s+(?:in\s+)?on-?site",
-    r"hq\s+(?:is\s+)?in",
+    r"\bhq\b\s+(?:is\s+)?in\b",
     r"headquarter",
-    r"based\s+(?:out\s+)?in",
-    r"office\s+(?:is\s+)?(?:located\s+)?in",
-    r"in-?\s?office\s+in",
+    r"based\s+(?:out\s+)?in\b",
+    r"office\s+(?:is\s+)?(?:located\s+)?in\b",
+    r"in-?\s?office\s+in\b",
     r"willing\s+to\s+(?:move|relocate)",
 )
 
@@ -2081,9 +2081,43 @@ def _asks_to_commit_to_a_place(question: str, profile: dict) -> bool:
     return True
 
 
+_PRESENT_LOCATION_QUESTION = re.compile(
+    r"\b(?:are\s+you|do\s+you)\s+(?:currently\s+)?(?:located|live|living|reside|residing|based)\b", re.I
+)
+_RELOCATION_ALTERNATIVE = re.compile(r"\bor\b[^?]*\b(?:willing|open|able)\b|relocat", re.I)
+
+
+def _present_location_answer(question: str, profile: dict) -> str | None:
+    """"Are you located within commuting distance of Colorado Springs, CO and
+    willing to be hybrid?" asks where the candidate lives now. Willingness to
+    relocate does not make that true, so it is "No" when every place named is in
+    another state. Left unanswered when it names the candidate's own state (they
+    may well be in range), names no state, or offers relocation as an option."""
+    if not _PRESENT_LOCATION_QUESTION.search(question) or _RELOCATION_ALTERNATIVE.search(question):
+        return None
+    text = question.lower()
+    state = str(profile.get("state") or "").strip().lower()
+    abbrev = next((a for a, n in _STATE_ABBREVIATIONS.items() if n == state), state if len(state) == 2 else "")
+    if (state and re.search(rf"\b{re.escape(state)}\b", text)) or (
+        abbrev and re.search(rf",\s*{abbrev.upper()}\b", question)
+    ):
+        return None
+    # Abbreviations count only in capitals: ", or Mexico" is not Oregon.
+    named = [a.lower() for a in re.findall(r",\s*([A-Z]{2})\b", question) if a.lower() in _STATE_ABBREVIATIONS]
+    named += [a for a, n in _STATE_ABBREVIATIONS.items() if re.search(rf"\b{n}\b", text)]
+    return "No" if named else None
+
+
 def _resolve_work_arrangement(res: AnswerResolution, profile: dict, opts: list[str]) -> None:
     """Hybrid / remote / onsite schedule questions — the candidate is open to any."""
     if _asks_to_commit_to_a_place(res.question, profile):
+        present = _present_location_answer(res.question, profile)
+        if present is not None:
+            res.answer = (_match_option(opts, present) if opts else present) or None
+            res.resolution_method = PROFILE_EXACT if res.answer else UNKNOWN_METHOD
+            res.profile_key = "state"
+            res.confidence = 1.0 if res.answer else 0.0
+            return
         # This is a location commitment, not a schedule preference, so it is
         # answered from the candidate's recorded relocation stance rather than
         # from "open to any arrangement". With no stance on file it stays

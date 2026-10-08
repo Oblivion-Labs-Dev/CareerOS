@@ -294,7 +294,7 @@ _CLASSIFICATION_RULES: list[tuple[QuestionType, list[str]]] = [
         # were answered "NA" -- which reads as a non-answer on a compliance
         # question that has a clear factual answer of "No" for this candidate.
         r"(civilian|military)\s+(or\s+\w+\s+)?employee",
-        r"employee\s+of\s+the\s+(united\s+states|u\.?s\.?|federal)",
+        r"employee\s+of\s+the\s+(united\s+states|u\.?s\.?|federal)\b",
         r"post-?\s*government\s+employment",
         r"restrictions?\s+on\s+post",
         r"procurement\s+or\s+contract\s+award",
@@ -773,12 +773,12 @@ _CLASSIFICATION_RULES: list[tuple[QuestionType, list[str]]] = [
     (QuestionType.EDUCATION_START_YEAR, [
         r"start\s*date\s*year",
         r"start\s*year",
-        r"start-year",
+        r"\bstart-year\b",
     ]),
     (QuestionType.EDUCATION_END_YEAR, [
         r"end\s*date\s*year",
         r"end\s*year",
-        r"end-year",
+        r"\bend-year\b",
         r"graduation\s*year",
     ]),
     (QuestionType.GPA, [r"\bgpa\b", r"grade\s*point\s*average"]),

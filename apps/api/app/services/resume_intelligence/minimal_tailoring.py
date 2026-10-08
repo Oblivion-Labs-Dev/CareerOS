@@ -314,7 +314,7 @@ def asserts_forbidden_claim(candidate: dict) -> bool:
 #: seam. Rewriting it is the one thing this composer will not do, so the voice
 #: is handled where it can be — in the ranking, by preferring the candidate
 #: that already reads like the page.
-_PRONOUN_OPENER = re.compile(r"^(?:I|We)", re.I)
+_PRONOUN_OPENER = re.compile(r"^(?:I|We)\b", re.I)
 
 
 def _voice_penalty(candidate: dict) -> float:
