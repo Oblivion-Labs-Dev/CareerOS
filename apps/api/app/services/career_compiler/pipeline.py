@@ -457,7 +457,7 @@ def build_document(store: CareerStore, spec: dict[str, Any], jd: JobDescription,
     for employment_id, job in store.employment.items():
         chosen = sorted((b for b in bullets.values() if b.employment_id == employment_id), key=lambda b: order.get(b.project_id, 99))
         sections.append(Section(employment_id=employment_id, company=job["company"], role=job["role"],
-                                location=job.get("location", ""), start=job.get("start", ""), end=job.get("end", ""), bullets=chosen))
+                                location=job.get("location", ""), start=job.get("start", ""), end=job.get("end") or "", bullets=chosen))
     featured = sorted((b.model_copy(update={"name": store.projects[b.project_id].name}) for b in bullets.values()
                        if b.employment_id == PERSONAL_EMPLOYMENT_ID), key=lambda b: order.get(b.project_id, 99))
     return ResumeDocument(store_digest=store.digest, jd_id=jd.id, template_digest=template_digest(spec),

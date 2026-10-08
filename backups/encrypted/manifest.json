@@ -1,32 +1,32 @@
 {
  "format": "careeros-backup-v1",
- "backup_id": "20261007T205849",
- "archive_sha256": "18a3a8dfe0d0da3bc2a6b3c7a0747634081cf6fdadda3e61107aab70b1a5cf46",
+ "backup_id": "20261007T210931",
+ "archive_sha256": "2c273f10a46f1c87f11a802bfa2a8a7a853467851c3aeed88b137c9aac22f81c",
  "files": 708,
  "parts": [
   {
    "file": "part-0000.bin",
-   "sha256": "e296509886a83e754e201d10d3dd316d6d49d96e1ad358054f0399616d919e16"
+   "sha256": "5fe4b1a27bcdb785dcb4a47ccd64c6a1d63d34bf4b90078d4f3a31a84a773704"
   },
   {
    "file": "part-0001.bin",
-   "sha256": "f6b2fae644eeda33f6e85ea4f9ebc8ecaf5f9925f0a9b19c5d7105c245f48d19"
+   "sha256": "26c0e1c1b1ac6657ceade33a5cea389abf03c0786133c5d13568cbc9980567c4"
   },
   {
    "file": "part-0002.bin",
-   "sha256": "6846bb7af3a4aec66d006b70c6d0ec5e8d8d040be3cf5892829e76ab7113141a"
+   "sha256": "353b574045a0253c4460d48bb5e8cb102a8b729e864bedab88f8713b62b90028"
   },
   {
    "file": "part-0003.bin",
-   "sha256": "171ec1e4b848a4a06b5f3be1234158b9169cf22f04809b455a6f4cafc7693cf0"
+   "sha256": "59f6efef9524019ed470940603bee91a7c9faeb53a1e9b3ced906e71082c419d"
   },
   {
    "file": "part-0004.bin",
-   "sha256": "2c1c856acc4856c649d9badca8d1dfad23545485bf1c492800f00fda35115b26"
+   "sha256": "853bdd948a31e61fcb7ae9edbd4496483c08f8c86a0f7483765c254af46aa243"
   },
   {
    "file": "part-0005.bin",
-   "sha256": "fbee5053598af73ad67174cf273ea762fdaf9d860ecb175956d23cf96b3c8a41"
+   "sha256": "2929ff77351f0f90bd1463293fca6010292f0c5300fdc18b30e729414a819475"
   }
  ]
 }

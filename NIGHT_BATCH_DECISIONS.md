@@ -4592,3 +4592,17 @@ Batch otherwise correct: SimpliSafe immediate-family attestation and Accenture F
   git-ignored and untracked; the owner's phone/email/street in code and tests replaced with fakes; tests needing
   private files skip on a clean checkout. Backup → verify → restore round trip checked: files byte-identical, DB
   kv_store and row counts identical, integrity ok. Earlier commits on GitHub still contain the old plain-text data.
+
+## Oct 7 (night) — owner's new career.json / career.md installed
+
+- New files from the owner (adds academic experience, publications, achievements, conceptual extensions; more
+  projects and evidence). person/education/skills unchanged. Previous copies and the profile saved in
+  %TEMP%\career_backup_20261007-210506.
+- Owner confirmed still at Microsoft: employment.microsoft `end` set to null (renders "Present"); career.md says
+  "2025-09 to Present"; the golden DOCX header "Aug 2026" → "Present" and the template spec regenerated (0 checks).
+  pipeline.py now passes an empty string to Section.end when career.json has no end date.
+- Added `application_profile` (owner-approved application answers, marked not-evidence) to career.json and an
+  "Application answers" section to career.md, matching the profile.
+- Profile `workExperience` now lists all five employers from career.json (Microsoft current). Replay unchanged
+  (1260/1260 answers identical). Suite 1609 passed, 16 skipped. Profile yearsExperience stays "9" while career.json
+  says "8+ years" — not changed, flagged to owner.
