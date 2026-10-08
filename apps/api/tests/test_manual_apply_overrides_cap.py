@@ -133,3 +133,15 @@ def test_the_override_does_not_spend_another_job_s_slot():
         "bypasses the cap rather than competing for it"
     )
     assert held == []
+
+
+def test_a_clicked_job_on_a_portal_board_survives_the_board_preference():
+    """Clicking Apply on a Phenom posting ran some other Greenhouse job instead."""
+    phenom = {"id": "q_phenom", "applicationUrl": "https://careers.mastercard.com/us/en/job/R-1"}
+    greenhouse = {"id": "q_gh", "applicationUrl": "https://job-boards.greenhouse.io/acme/jobs/1"}
+    workday = {"id": "q_wd", "applicationUrl": "https://acme.wd5.myworkdayjobs.com/x/job/1"}
+
+    kept = module.prefer_submittable_boards([phenom, greenhouse, workday], {"q_phenom"})
+
+    assert [j["id"] for j in kept] == ["q_phenom", "q_gh"]
+    assert module.prefer_submittable_boards([phenom, workday], set()) == []

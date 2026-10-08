@@ -187,6 +187,18 @@ def _is_submittable_board(job: dict[str, Any]) -> bool:
     if "gh_jid=" in url or "gh_src=" in url:
         return True
     return any(host in url for host in SUBMITTABLE_ATS_HOSTS)
+
+
+def prefer_submittable_boards(
+    queued: list[dict[str, Any]], manual_ids: set[str]
+) -> list[dict[str, Any]]:
+    """The queue narrowed to boards a batch can finish, keeping clicked jobs.
+
+    A job the user clicked Apply on stays whatever its board: the click asked
+    for that application, and dropping it would spend the run on some other
+    job instead.
+    """
+    return [j for j in queued if j.get("id") in manual_ids or _is_submittable_board(j)]
 # How many applications may be in an employer form at once.
 #
 # Sequential (1) is the safe default and stays the default. Each submission does
@@ -1301,7 +1313,7 @@ class AutopilotRunner:
             # run falls back to the full queue rather than stalling with work
             # still waiting.
             if self.submittable_boards_only:
-                submittable = [j for j in queued if _is_submittable_board(j)]
+                submittable = prefer_submittable_boards(queued, self.manual_apply_job_ids)
                 if submittable:
                     skipped = len(queued) - len(submittable)
                     if skipped and not self._logged_board_filter:
