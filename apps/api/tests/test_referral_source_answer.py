@@ -40,6 +40,8 @@ def _profile() -> dict:
          "BeyondTrust Website"),
         ("How did you hear about this job?", ["Campus Career Site", "Samsara Careers Site", "Ad on Website"],
          "Samsara Careers Site"),
+        ("How did you hear about us?*", ["Indeed.com", "Glassdoor.com", "Linkedin", "Other", "rvohealth.com"],
+         "rvohealth.com"),
     ],
 )
 def test_careers_page_answer_selects_the_employers_own_option(question, options, expected):

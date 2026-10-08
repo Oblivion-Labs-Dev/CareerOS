@@ -388,6 +388,15 @@ _CAREERS_PAGE_OPTION_TIERS = (
     re.compile(r"\bcareers?\s*(?:page|site|website)\b", re.I),
     re.compile(r"\bcompany\s+(?:web\s*)?site\b", re.I),
     re.compile(r"\bwebsite\b", re.I),
+    # Rvo Health lists its own site as a bare "rvohealth.com".
+    re.compile(
+        r"^\s*(?:https?://)?(?:www\.)?"
+        r"(?!(?:indeed|glassdoor|careerbuilder|linkedin|monster|ziprecruiter|dice|builtin"
+        r"|wellfound|angel|handshake|simplyhired|hired|google|facebook|twitter|x|lever"
+        r"|greenhouse|ashbyhq|workday|myworkdayjobs|otta|welcometothejungle)\.)"
+        r"[a-z0-9-]+\.(?:com|io|co|ai|net|org|health|tech|us)/?\s*$",
+        re.I,
+    ),
 )
 _NOT_A_CAREERS_PAGE = re.compile(r"campus|universit|alumni|blog|\bad\b|advert", re.I)
 
@@ -1202,6 +1211,11 @@ _SPONSOR_WORD = re.compile(r"sponsor|\bvisa\b|h-?1b", re.I)
 _NO_SPONSOR = re.compile(
     r"\b(?:not|no|never|without|don.?t|won.?t)\b.{0,40}(?:sponsor|visa)|\bno\s+sponsorship", re.I,
 )
+_DENIES_AUTHORIZATION = re.compile(
+    r"\bnot\s+(?:currently\s+|legally\s+)?(?:authori[sz]ed|eligible|allowed|permitted)"
+    r"|\bunauthori[sz]ed|\bunknown\b|\bunsure\b|\bdon.?t\s+know\b",
+    re.I,
+)
 
 
 def _resolve_work_authorized(res: AnswerResolution, profile: dict, opts: list[str]) -> None:
@@ -1221,12 +1235,24 @@ def _resolve_work_authorized(res: AnswerResolution, profile: dict, opts: list[st
             yes_opts = []
             for opt in opts:
                 opt_l = opt.lower()
+                if _DENIES_AUTHORIZATION.search(opt):
+                    continue
                 if opt_l.startswith("yes") or ("authorized" in opt_l and "not" not in opt_l and "unauthorized" not in opt_l) or "visa" in opt_l or "h-1b" in opt_l or "work authorization" in opt_l or "eligible" in opt_l or "source of right" in opt_l:
                     yes_opts.append(opt)
             # "Yes, and I will not require sponsorship" / "Yes, but I will
             # require sponsorship" each also state a sponsorship position.
             states_stance = [o for o in yes_opts if _SPONSOR_WORD.search(o)]
             agreeing = [o for o in states_stance if bool(_NO_SPONSOR.search(o)) != requires]
+            if requires and not agreeing:
+                # Rvo Health: "I am ONLY allowed to work for my current employer
+                # in the U.S. and I will require sponsorship ..." is the H-1B
+                # answer, yet reads as neither a "yes" nor "authorized".
+                agreeing = [
+                    o for o in opts
+                    if _SPONSOR_WORD.search(o) and not _NO_SPONSOR.search(o)
+                    and not _DENIES_AUTHORIZATION.search(o)
+                ]
+                states_stance = states_stance + [o for o in agreeing if o not in states_stance]
             neutral = [o for o in yes_opts if o not in states_stance]
             if agreeing or neutral:
                 matched = (agreeing or neutral)[0]
