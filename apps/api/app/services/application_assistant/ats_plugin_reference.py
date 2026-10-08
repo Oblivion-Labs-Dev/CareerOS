@@ -131,13 +131,7 @@ def is_prefer_not_to_answer(text: str) -> bool:
     return any(norm == p or p in norm for p in SYNONYMS["prefer not to answer"])
 
 
-def is_synonym_match(opt: str, val: str) -> bool:
-    o = normalize_match_text(opt)
-    v = normalize_match_text(val)
-    if o == v:
-        return True
-    if is_prefer_not_to_answer(o) and is_prefer_not_to_answer(v):
-        return True
+def _is_listed_synonym(o: str, v: str) -> bool:
     for canonical, synonyms in SYNONYMS.items():
         if o == canonical and v in synonyms:
             return True
@@ -145,6 +139,18 @@ def is_synonym_match(opt: str, val: str) -> bool:
             return True
         if o in synonyms and v in synonyms:
             return True
+    return False
+
+
+def is_synonym_match(opt: str, val: str) -> bool:
+    o = normalize_match_text(opt)
+    v = normalize_match_text(val)
+    if o == v:
+        return True
+    if is_prefer_not_to_answer(o) and is_prefer_not_to_answer(v):
+        return True
+    if _is_listed_synonym(o, v):
+        return True
     shorter = o if len(o) <= len(v) else v
     longer = v if len(o) <= len(v) else o
     if len(shorter) >= 4 and shorter in longer:
@@ -166,6 +172,11 @@ def score_select_option_match(opt: str, val: str) -> int:
     v_sep = normalize_separator_spacing(v)
     if o_sep == v_sep:
         return 100
+    # A listed synonym outranks a substring hit: "United States" is inside both
+    # "United States of America" and "United States Minor Outlying Islands",
+    # and Cisco's and HPE's country lists put the islands first.
+    if _is_listed_synonym(o, v):
+        return 95
     if is_synonym_match(o, v):
         return 90
     if o.startswith(f"{v} ") or o.startswith(f"{v} -") or o.startswith(f"{v},"):
