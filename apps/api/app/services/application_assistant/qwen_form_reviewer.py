@@ -203,7 +203,14 @@ async def verify_submission_confirmation(
 
     parsed_url = urlsplit(confirmation_url.lower())
     confirmation_paths = {"thank_you", "thank-you", "confirmation", "applied", "success", "thanks"}
-    url_redirected = bool(set(parsed_url.path.strip("/").split("/")) & confirmation_paths) or parse_qs(parsed_url.query).get("submitted") == ["true"]
+    segments = parsed_url.path.strip("/").split("/")
+    query = parse_qs(parsed_url.query)
+    url_redirected = (
+        bool(set(segments) & confirmation_paths)
+        # Phenom: /us/en/applythankyou?status=success
+        or (any(re.search(r"thank-?_?you", s) for s in segments) and query.get("status") == ["success"])
+        or query.get("submitted") == ["true"]
+    )
 
     conf_phrases = [
         "thank you for applying",
@@ -218,12 +225,16 @@ async def verify_submission_confirmation(
         "submission successful",
         "your response has been recorded",
         "thanks for applying",
+        "you have successfully applied",
+        "has successfully been submitted",
     ]
     body_lower = body_text.lower()
     has_phrase = any(p in body_lower for p in conf_phrases)
 
-    # If the user is still on the un-redirected page with the submit button visible, and no confirmation phrase was shown, the form did NOT submit
-    if form_still_visible or submit_button_visible:
+    # If the user is still on the un-redirected page with the submit button visible, and no confirmation phrase was shown, the form did NOT submit.
+    # A thank-you URL that also says so is not that page: Republic Services'
+    # confirmation keeps the site's job-search form and its Search button.
+    if (form_still_visible or submit_button_visible) and not (url_redirected and has_phrase):
         return {
             "submissionConfirmed": False,
             "confidence": 0.95,

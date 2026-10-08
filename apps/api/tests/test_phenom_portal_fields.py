@@ -465,3 +465,38 @@ def test_phenom_checkbox_group_takes_the_profile_answer_only_when_required(requi
         return [await page.is_checked(f'[id="jsqData.QUESTIONNAIRE-6-818.i_{i}"]') for i in range(4)]
 
     assert _in_chromium(_fiserv_military(required), check) == ([False, False, False, required])
+
+
+REPUBLIC_THANKS = (
+    "https://jobs.republicservices.com/us/en/applythankyou?status=success&jobSeqNo=ROURSAUSR185887EXTERNALENUS"
+    "&jobTitle=Full%20Stack%20Engineer%20III&jobId=R-185887"
+)
+REPUBLIC_BODY = (
+    "Republic Services Search for job Enter location Search Thank you, You have successfully applied for "
+    "Full Stack Engineer III (R-185887) Your Application has successfully been submitted Create your account"
+)
+
+
+def test_phenom_thank_you_page_confirms_even_with_the_site_search_form_visible():
+    from app.services.application_assistant.qwen_form_reviewer import verify_submission_confirmation
+
+    result = asyncio.run(verify_submission_confirmation(
+        REPUBLIC_BODY, REPUBLIC_THANKS, [], "Republic Services", "Full Stack Engineer III",
+        form_still_visible=True, submit_button_visible=True,
+    ))
+    assert result["submissionConfirmed"] is True
+
+
+def test_a_visible_form_without_a_thank_you_url_is_still_not_confirmed():
+    from app.services.application_assistant.qwen_form_reviewer import verify_submission_confirmation
+
+    result = asyncio.run(verify_submission_confirmation(
+        REPUBLIC_BODY, "https://jobs.republicservices.com/us/en/apply?jobSeqNo=X&step=6", [], "R", "T",
+        form_still_visible=True, submit_button_visible=True,
+    ))
+    assert result["submissionConfirmed"] is False
+    result = asyncio.run(verify_submission_confirmation(
+        "Review your application", REPUBLIC_THANKS.replace("status=success", "status=error"), [], "R", "T",
+        form_still_visible=True, submit_button_visible=True,
+    ))
+    assert result["submissionConfirmed"] is False
