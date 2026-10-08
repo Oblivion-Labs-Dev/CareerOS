@@ -4668,6 +4668,10 @@ async def _execute_live_playwright_submission_impl(
                         },
                         "fieldsFilled": filled_fields,
                     }
+                try:
+                    await page.screenshot(path=str(pre_screenshot_path), full_page=True, timeout=5000)
+                except Exception:
+                    pass
             if not submit_button:
                 submit_button = await _find_real_submit_button(target_frame)
             if not submit_button:

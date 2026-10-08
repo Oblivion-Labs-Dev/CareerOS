@@ -356,3 +356,22 @@ def test_in_your_current_role_do_you_is_a_yes_no_question_not_a_job_title():
     q = "In your current role, do you engage with Mastercard employees to negotiate, influence and/or sign commercial contracts?"
     assert classify_question(q) != QuestionType.CURRENT_TITLE
     assert classify_question("What is your current role?") == QuestionType.CURRENT_TITLE
+
+
+COMBINED_RACE_OPTIONS = [
+    "American Indian or Alaska Native (Not Hispanic or Latino) (United States of America)",
+    "Asian (Not Hispanic or Latino) (United States of America)",
+    "Black or African American (Not Hispanic or Latino) (United States of America)",
+    "Hispanic or Latino (United States of America)",
+    "Prefer Not to Self-Identify (United States of America)",
+    "White (Not Hispanic or Latino) (United States of America)",
+]
+
+
+def test_combined_race_ethnicity_list_picks_the_profile_race_not_the_decline():
+    r = resolve_answer(
+        "Please enter your race/ethnicity.*",
+        {"raceEthnicity": "Asian", "raceEthnicitySpecific": "Indian", "hispanic": "No"},
+        options=["Please Select", *COMBINED_RACE_OPTIONS],
+    )
+    assert r.answer == "Asian (Not Hispanic or Latino) (United States of America)"

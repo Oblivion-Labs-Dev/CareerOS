@@ -1747,8 +1747,9 @@ def _resolve_race(res: AnswerResolution, profile: dict, opts: list[str]) -> None
     val = profile.get("raceEthnicity") or APPLICATION_FIELD_DEFAULTS.get("raceEthnicity", "Prefer not to answer")
 
     if opts:
-        # SAFETY: Remove ethnicity options from race question
-        safe_opts = [o for o in opts if not _is_ethnicity_option(o)]
+        # SAFETY: Remove ethnicity options from race question. Combined EEOC
+        # lists qualify each race "(Not Hispanic or Latino)"; those stay.
+        safe_opts = [o for o in opts if not _is_ethnicity_option(o) or _is_race_option(o)]
         if not safe_opts:
             safe_opts = opts
 
