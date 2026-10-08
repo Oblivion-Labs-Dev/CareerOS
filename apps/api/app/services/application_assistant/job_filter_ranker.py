@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 from datetime import datetime, timedelta, timezone
-from typing import Any
+from typing import Any, Iterable
 
 from sqlalchemy.orm import Session
 
@@ -68,6 +68,14 @@ AI_ML_TITLE_KEYWORDS = (
     "slm optimization engineer",
     "spatial ai context engineer",
     "agentic sre",
+)
+
+# Engineering families next to SWE that the candidate applies to as well
+# (owner, 2026-10-07): ML Ops / ML infrastructure, security and data engineering.
+ADJACENT_ENGINEERING_TITLE_PATTERNS = (
+    r"\bml\s?ops\b",
+    r"\bsecurity engineer\b",
+    r"\bdata engineer\b",
 )
 
 
@@ -261,7 +269,16 @@ def build_existing_key_index(existing_jobs: list[dict[str, Any]]) -> dict[str, s
 # sink it below every US posting regardless of match score or recency, while
 # leaving international postings ordered sensibly among themselves — "US first,
 # other countries at the end", not "other countries never".
-INTERNATIONAL_QUEUE_PENALTY = 50_000.0
+INTERNATIONAL_QUEUE_PENALTY = 10_000_000.0
+
+# Queue ordering is lexicographic, packed into one number so every caller can
+# keep sorting on a single float: recency band, then role rank, then location
+# tier, then freshness within the band, then match score. Each weight is larger
+# than the most everything below it can add up to.
+RECENCY_BAND_WEIGHT = 1_000_000.0
+ROLE_RANK_WEIGHT = 100_000.0
+LOCATION_TIER_WEIGHT = 10_000.0
+FRESHNESS_WEIGHT = 1_000.0
 
 
 def is_international_location(job: dict[str, Any]) -> bool:
@@ -329,85 +346,111 @@ _STRONG_US_MARKERS = (
 )
 
 
+_MANAGEMENT_MARKERS = (
+    "director", "manager", "head of", "vp", "vice president", "chief", "managing director",
+)
+_NON_ENGINEERING_MARKERS = (
+    "sales engineer", "solution architect", "account executive", "designer", "recruiter",
+    "talent", "marketing", "human resources", "counsel", "legal", "business analyst",
+)
+_ENGINEER_TITLE = re.compile(r"\b(?:engineer|developer|sde|swe)\b")
+_EXPLICIT_IC = re.compile(r"\bic\b|individual contributor")
+_PEOPLE_LEADER = re.compile(r"people (?:leader|manager)")
+
+
+def _has_marker(title_l: str, markers: Iterable[str]) -> list[str]:
+    return [m for m in markers if re.search(rf"\b{re.escape(m)}\b", title_l)]
+
+
+def is_management_title(title: str) -> bool:
+    """Whether a title is a people-management role rather than an IC one.
+
+    An engineer title that says outright it is an individual-contributor role
+    ("Full-stack Engineer 4 (Manager, IC)") is not management despite the word.
+    Bank corporate ranks ("Vice President, Senior Full Stack Engineer") stay
+    excluded by the candidate's choice.
+    """
+    title_l = (title or "").lower()
+    if _PEOPLE_LEADER.search(title_l):
+        return True
+    if not _has_marker(title_l, _MANAGEMENT_MARKERS):
+        return False
+    return not (_ENGINEER_TITLE.search(title_l) and _EXPLICIT_IC.search(title_l))
+
+# Greater Seattle / Washington State. "Washington, D.C." is the opposite side of
+# the country and must never match. The bare "wa" token is matched on letter
+# boundaries so "Iowa," "Ottawa" and "Hawaii" do not read as Washington.
+_DC_LOCATION = re.compile(r"district of columbia|washington,?\s*d\.?c\b")
+_WA_LOCATION = re.compile(
+    r"\b(?:seattle|bellevue|redmond|kirkland|bothell|renton|issaquah|sammamish|"
+    r"woodinville|tacoma|spokane|washington)\b|(?<![a-z])wa(?![a-z])"
+)
+
+_FORWARD_DEPLOYED = re.compile(r"\bforward[\s\-]?deployed\s+(?:\w+\s+)?engineer\b")
+_SDE_2 = re.compile(r"\b(?:sde|swe|engineer|developer)\s*(?:ii|2)\b|\bmid[\s\-]level\b")
+_SDE_1 = re.compile(
+    r"\b(?:sde|swe|engineer|developer)\s*(?:i|1)\b|\bjunior\b|\bentry[\s\-]level\b|\bnew\s+grad"
+)
+
+# Candidate's role order, best first: Senior, Forward Deployed Engineer,
+# Principal, SDE 2, Staff, SDE 1. Anything else that qualifies ranks 0.
+ROLE_RANK_SENIOR = 6
+ROLE_RANK_FORWARD_DEPLOYED = 5
+ROLE_RANK_PRINCIPAL = 4
+ROLE_RANK_SDE_2 = 3
+ROLE_RANK_STAFF = 2
+ROLE_RANK_SDE_1 = 1
+
+
+def is_washington_location(job: dict[str, Any]) -> bool:
+    """Seattle, Bellevue, Redmond or anywhere else in Washington State."""
+    loc_l = (job.get("location") or "").lower()
+    if not loc_l and isinstance(job.get("metadata"), dict):
+        loc_l = (job["metadata"].get("location") or "").lower()
+    return bool(loc_l) and not _DC_LOCATION.search(loc_l) and bool(_WA_LOCATION.search(loc_l))
+
+
+def role_priority_rank(title: str) -> int:
+    """Rank of a title in the candidate's role order; higher applies first."""
+    title_l = _MEMBER_OF_TECHNICAL_STAFF.sub("software engineer", (title or "").lower())
+    is_senior, _ = role_level_flags(title_l)
+    if is_senior:
+        return ROLE_RANK_SENIOR
+    if _FORWARD_DEPLOYED.search(title_l):
+        return ROLE_RANK_FORWARD_DEPLOYED
+    if re.search(r"\bprincipal\b", title_l):
+        return ROLE_RANK_PRINCIPAL
+    if _SDE_2.search(title_l):
+        return ROLE_RANK_SDE_2
+    if re.search(r"\bstaff\b", title_l):
+        return ROLE_RANK_STAFF
+    if _SDE_1.search(title_l):
+        return ROLE_RANK_SDE_1
+    return 0
+
+
 def role_location_priority_bonus(job: dict[str, Any]) -> float:
-    """Candidate-preference ranking bonus implementing strict 4-tier priority:
+    """Candidate-preference bonus: role rank first, then location tier.
 
-    Tier 1 (+120.0): Senior Software Engineer in Washington State (Seattle, Bellevue, Redmond, Kirkland, WA)
-    Tier 2 (+90.0):  Related Washington SWE/backend/platform role at any level
-    Tier 3 (+60.0):  Senior Software Engineer elsewhere in the United States (Remote US / Nationwide)
-    Tier 4 (+25.0):  Rest / other qualifying US software engineering roles (e.g. SWE II, Platform)
-
-    Location outranks seniority inside Washington deliberately: a related
-    Washington engineering role is preferred over a Senior title somewhere else
-    in the country. The bonus is added to the Mistral resume-match score, so
-    within a tier the highest-matching posting still applies first.
+    Roles follow ``role_priority_rank`` (Senior anywhere in the US beats any
+    Forward Deployed role, and so on). Within a role, Washington State (Seattle,
+    Bellevue, Redmond and the rest of WA) beats the rest of the US.
+    Management and non-engineering titles get nothing.
     """
     title_l = (job.get("title") or "").lower()
-    loc_l = (job.get("location") or "").lower()
-
-    # If location is missing from autopilot job payload, check metadata or raw payload
-    if not loc_l and "metadata" in job and isinstance(job["metadata"], dict):
-        loc_l = (job["metadata"].get("location") or "").lower()
-
-    # Management and non-SWE roles must never receive SWE tier priority
-    management_markers = (
-        "director", "manager", "engineering manager", "product manager", "program manager",
-        "project manager", "sales engineer", "solution architect", "account executive",
-        "designer", "recruiter", "talent", "marketing", "human resources", "counsel",
-        "legal", "business analyst", "operations manager", "account manager", "head of",
-        "vp", "vice president", "chief", "managing director",
-    )
-    if any(re.search(rf"\b{re.escape(m)}\b", title_l) for m in management_markers):
+    if is_management_title(title_l) or _has_marker(title_l, _NON_ENGINEERING_MARKERS):
         return 0.0
-
-    # Location classification. "Washington, D.C." / "Washington, District of
-    # Columbia" are the opposite side of the country from Washington State and
-    # must never earn the top location tier — matching the bare substring
-    # "washington" previously put D.C. postings at the head of the queue.
-    is_dc = any(k in loc_l for k in (
-        "district of columbia", "washington, d.c", "washington d.c",
-        "washington, dc", "washington dc",
+    if any(re.search(rf"\b{k}\b", title_l) for k in ("intern", "internship", "co-op", "apprentice")):
+        return 0.0
+    is_engineering = any(k in title_l for k in (
+        "software", "backend", "back end", "full stack", "fullstack", "frontend",
+        "front end", "platform", "infrastructure", "systems", "distributed",
+        "engineer", "developer", "sde", "swe", *AI_ML_TITLE_KEYWORDS,
     ))
-    is_wa = not is_dc and any(k in loc_l for k in (
-        "seattle", "bellevue", "redmond", "kirkland", "spokane",
-        "tacoma", ", wa", "wa,", "wa ", "washington",
-    ))
-    is_us = is_wa or is_dc or any(k in loc_l for k in (
-        "united states", "usa", "u.s.", "remote", "us", "remote - us", "remote, us",
-    ))
-
-    is_senior, is_staff_or_principal = role_level_flags(title_l)
-
-    is_other_swe = (
-        any(k in title_l for k in (
-            "software", "backend", "back end", "full stack", "fullstack", "frontend",
-            "front end", "platform", "infrastructure", "systems", "distributed",
-            "engineer", "developer", "sde", "swe", *AI_ML_TITLE_KEYWORDS,
-        ))
-        and not is_senior
-        and not is_staff_or_principal
-        and not any(re.search(rf"\b{k}\b", title_l) for k in ("intern", "internship", "co-op", "apprentice"))
-    )
-
-    # Tier 1: Senior Software Engineer in Washington State
-    if is_senior and is_wa:
-        return 120.0
-
-    # Tier 2: Any related Washington engineering role — Staff/Principal, SWE II,
-    # backend/platform/infrastructure. Preferred over an out-of-state Senior
-    # title because relocation is the harder constraint here, not the level.
-    if is_wa and (is_staff_or_principal or is_other_swe):
-        return 90.0
-
-    # Tier 3: Senior Software Engineer elsewhere in the United States
-    if is_senior and is_us:
-        return 60.0
-
-    # Tier 4: Rest / other US engineering roles (Staff/Principal, SWE II, general SWE)
-    if is_us and (is_staff_or_principal or is_other_swe):
-        return 25.0
-
-    return 0.0
+    if not is_engineering:
+        return 0.0
+    location_tier = 1 if is_washington_location(job) else 0
+    return location_tier * LOCATION_TIER_WEIGHT + role_priority_rank(title_l) * ROLE_RANK_WEIGHT
 
 
 _MEMBER_OF_TECHNICAL_STAFF = re.compile(r"\bmember\s+of\s+(?:the\s+)?technical\s+staff\b")
@@ -481,7 +524,9 @@ def software_role_rejection(title: str) -> str | None:
         r"\bsde\b",
         r"\bsdet\b",
         r"\bproduct engineer\b",
+        _FORWARD_DEPLOYED.pattern,
         _MEMBER_OF_TECHNICAL_STAFF.pattern,
+        *ADJACENT_ENGINEERING_TITLE_PATTERNS,
     )
     # Recruiting roles name the team they hire for ("Technical Sourcer, Research
     # SWE"), so the engineering keywords alone would let them through.
@@ -498,22 +543,7 @@ def software_role_rejection(title: str) -> str | None:
     if not is_swe_role:
         return f"Role '{title}' is not a Software Engineering role"
 
-    # Exclude management / director / executive positions (prioritizing individual contributor SDEs)
-    management_keywords = (
-        "director",
-        "manager",
-        "engineering manager",
-        "product manager",
-        "program manager",
-        "project manager",
-        "head of",
-        "vp",
-        "vice president",
-        "chief",
-        "managing director",
-        "lead manager",
-    )
-    if any(re.search(rf"\b{re.escape(kw)}\b", title_lower) for kw in management_keywords):
+    if is_management_title(title_lower):
         return f"Role '{title}' is a management/director position"
 
     # Exclude internship / co-op / apprentice / student postings for experienced candidate
@@ -718,13 +748,14 @@ def evaluate_hard_filters(
     # Locations that name no country at all. Treated like a bare "remote": the
     # posting is not known to be outside the US, so it is not rejected for it.
     ambiguous_location = re.compile(
-        r"^\s*$|hybrid|in[- ]office|on[- ]?site|multiple locations|\b\d+\s+locations?\b|flexible",
+        r"^\s*$|hybrid|in[- ]office|on[- ]?site|multiple locations|\b\d+\s+locations?\b|flexible"
+        r"|\banywhere\b|\bworldwide\b",
         flags=re.I,
     )
 
     # Opt-in (profile.allowInternationalLocations): postings outside the United
     # States are no longer rejected at all. They still rank below every US
-    # posting, because role_location_priority_bonus gives them no location tier.
+    # posting, because queue_priority_score applies INTERNATIONAL_QUEUE_PENALTY.
     allow_international = str(profile.get("allowInternationalLocations", "")).strip().lower() in (
         "yes", "true", "1",
     )
@@ -931,52 +962,47 @@ def _is_senior_software_engineer_title(job: dict[str, Any]) -> bool:
 FRESH_POSTING_WINDOW_HOURS = 24.0
 
 
-def posting_recency_bonus(job: dict[str, Any]) -> float:
-    """Recency bonus implementing Option A: Recency-First Priority.
+# Upper age bound (hours) of each recency band, newest first. Older or undated
+# postings sit in the bottom band.
+_RECENCY_BAND_HOURS = (24.0, 72.0, 168.0, 336.0, 720.0)
 
-    Postings are tiered into distinct recency bands so newer postings always
-    overtake older ones across bands, while location tier and Mistral match score
-    break ties within the same band:
 
-    - < 24 hours:   10,000 + up to 1,000 hourly decay bonus (10,000 - 11,000)
-    - 1 to 3 days:   5,000 + up to 500 hourly decay bonus (5,000 - 5,500)
-    - 3 to 7 days:   2,000 + up to 200 decay bonus (2,000 - 2,200)
-    - 7 to 14 days:  1,000 + up to 100 decay bonus (1,000 - 1,100)
-    - 14 to 30 days:   500.0
-    - > 30 days:         0.0
-    """
+def posting_recency_band(job: dict[str, Any]) -> tuple[int, float]:
+    """(band, freshness): band 5 is the last 24 hours down to 0 for over 30
+    days or undated; freshness runs 1.0 -> 0.0 across the band."""
     age_hours = _real_posting_age_hours(job)
     if age_hours is None:
-        return 0.0
-    if age_hours <= 0:
-        return 11_000.0
-    if age_hours <= 24.0:
-        decay = 1_000.0 * (1.0 - (age_hours / 24.0))
-        return 10_000.0 + max(0.0, decay)
-    if age_hours <= 72.0:
-        decay = 500.0 * (1.0 - ((age_hours - 24.0) / 48.0))
-        return 5_000.0 + max(0.0, decay)
-    if age_hours <= 168.0:
-        decay = 200.0 * (1.0 - ((age_hours - 72.0) / 96.0))
-        return 2_000.0 + max(0.0, decay)
-    if age_hours <= 336.0:
-        decay = 100.0 * (1.0 - ((age_hours - 168.0) / 168.0))
-        return 1_000.0 + max(0.0, decay)
-    if age_hours <= 720.0:
-        return 500.0
-    return 0.0
+        return 0, 0.0
+    lower = 0.0
+    for index, upper in enumerate(_RECENCY_BAND_HOURS):
+        if age_hours <= upper:
+            freshness = 1.0 - max(0.0, age_hours - lower) / (upper - lower)
+            return len(_RECENCY_BAND_HOURS) - index, freshness
+        lower = upper
+    return 0, 0.0
+
+
+def posting_recency_bonus(job: dict[str, Any]) -> float:
+    """Recency band (primary queue key) plus freshness within the band.
+
+    The band weight dominates everything else, so a posting from the last 24
+    hours outranks any older posting. Freshness inside a band is worth less
+    than a role rank or location tier, so within the last 24 hours a Seattle
+    Senior role posted 20 hours ago still beats a Remote-US one posted 1 hour ago.
+    """
+    band, freshness = posting_recency_band(job)
+    return band * RECENCY_BAND_WEIGHT + freshness * FRESHNESS_WEIGHT
 
 
 def queue_priority_score(job: dict[str, Any]) -> float:
     """The single number the persistent queue is ordered by.
 
-    Prioritizes applications based on most recent posting (Recency-First):
-    1. Posting recency band dominates (+11,000 down to 0).
-    2. Within the same recency band, location tier (up to +120) and match score
-       (up to +100) break ties so Washington Senior SWE and high-matching roles
-       are processed first.
-    3. International postings are penalized (-50,000) so they always sit at the
-       end below domestic postings.
+    Lexicographic, highest first:
+    1. Recency band (last 24 hours, 1-3 days, 3-7 days, 7-14 days, 14-30 days, older).
+    2. Role: Senior, Forward Deployed, Principal, SDE 2, Staff, SDE 1, other.
+    3. Location: Washington State (Seattle, Bellevue, Redmond, ...) over the rest of the US.
+    4. Freshness within the band, then match score.
+    International postings are penalized below every domestic posting.
     """
     international_penalty = (
         INTERNATIONAL_QUEUE_PENALTY if is_international_location(job) else 0.0

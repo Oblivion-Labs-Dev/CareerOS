@@ -2,8 +2,8 @@
 
 Covers the two invariants the persistent Autopilot queue depends on:
 
-1. Location/level tiering — Washington Senior SWE above any related Washington
-   engineering role, above a Senior SWE elsewhere in the US.
+1. Role/location tiering — Senior, Forward Deployed, Principal, SDE 2, Staff,
+   SDE 1; within a role, Washington State above the rest of the US.
 2. The anti-fabrication guard on Mistral's match payload — a skill the resume
    does not evidence can never end up in ``keyMatchingSkills`` or raise a
    posting's score.
@@ -14,9 +14,19 @@ from __future__ import annotations
 import pytest
 
 from app.services.application_assistant.job_filter_ranker import (
+    ROLE_RANK_FORWARD_DEPLOYED,
+    ROLE_RANK_PRINCIPAL,
+    ROLE_RANK_SDE_1,
+    ROLE_RANK_SDE_2,
+    ROLE_RANK_SENIOR,
+    ROLE_RANK_STAFF,
     evaluate_hard_filters,
+    is_management_title,
+    is_washington_location,
     queue_priority_score,
     role_location_priority_bonus,
+    role_priority_rank,
+    software_role_rejection,
 )
 from app.services.application_assistant.mistral_resume_match import (
     is_empty_payload,
@@ -29,40 +39,150 @@ def job(title: str, location: str, score: float = 0.0) -> dict:
 
 
 @pytest.mark.parametrize(
-    "title,location,expected",
+    "title,expected",
     [
-        ("Senior Software Engineer", "Seattle, WA", 120.0),
-        ("Senior Software Engineer", "Kirkland , Washington, united states", 120.0),
-        ("Staff Software Engineer, Security", "Bellevue, WA", 90.0),
-        ("Software Engineer II", "Redmond, WA", 90.0),
-        ("Senior Software Engineer", "Remote - US", 60.0),
-        ("Senior Backend Engineer", "New York, New York, USA", 60.0),
-        ("Software Engineer II", "Remote - US", 25.0),
-        ("Product Manager", "Seattle, WA", 0.0),
-        ("Senior Software Engineer", "London, United Kingdom", 0.0),
+        ("Senior Software Engineer", ROLE_RANK_SENIOR),
+        ("Sr. Backend Engineer", ROLE_RANK_SENIOR),
+        ("Senior Forward Deployed Engineer", ROLE_RANK_SENIOR),
+        ("Forward Deployed Engineer", ROLE_RANK_FORWARD_DEPLOYED),
+        ("Forward-Deployed Software Engineer", ROLE_RANK_FORWARD_DEPLOYED),
+        ("Principal Software Engineer", ROLE_RANK_PRINCIPAL),
+        ("Senior Principal Engineer", ROLE_RANK_PRINCIPAL),
+        ("Software Development Engineer II", ROLE_RANK_SDE_2),
+        ("Software Engineer 2", ROLE_RANK_SDE_2),
+        ("Staff Software Engineer", ROLE_RANK_STAFF),
+        ("Senior Staff Software Engineer", ROLE_RANK_STAFF),
+        ("Software Engineer I", ROLE_RANK_SDE_1),
+        ("SDE 1", ROLE_RANK_SDE_1),
+        ("Software Engineer in Test", 0),
+        ("Member of Technical Staff", 0),
+        ("Software Engineer", 0),
     ],
 )
-def test_location_level_tiers(title: str, location: str, expected: float) -> None:
-    assert role_location_priority_bonus(job(title, location)) == expected
+def test_role_priority_rank(title: str, expected: int) -> None:
+    assert role_priority_rank(title) == expected
 
 
-def test_washington_dc_is_not_washington_state() -> None:
-    """D.C. is the opposite side of the country and must not take the top tier."""
-    dc = job("Senior Software Engineer", "Washington, District of Columbia")
-    wa = job("Senior Software Engineer", "Seattle, WA")
-    assert role_location_priority_bonus(dc) == 60.0
-    assert role_location_priority_bonus(wa) == 120.0
-    for location in ("Washington, D.C.", "Washington DC", "Washington, dc"):
-        assert role_location_priority_bonus(job("Senior Software Engineer", location)) == 60.0
+@pytest.mark.parametrize(
+    "location,is_wa",
+    [
+        ("Seattle, WA", True),
+        ("Bellevue, Washington, United States", True),
+        ("US-WA-Redmond", True),
+        ("Kirkland , Washington, united states", True),
+        ("Auburn, WA", True),
+        ("Washington, District of Columbia", False),
+        ("Washington, D.C.", False),
+        ("Washington DC", False),
+        ("Des Moines, Iowa, United States", False),
+        ("Ottawa, Ontario", False),
+        ("Honolulu, Hawaii", False),
+        ("Remote - US", False),
+        ("", False),
+    ],
+)
+def test_washington_location(location: str, is_wa: bool) -> None:
+    assert is_washington_location({"location": location}) is is_wa
 
 
-def test_requested_queue_ordering() -> None:
-    """WA Senior + high match > WA related + high match > US Senior + high match."""
-    wa_senior = job("Senior Software Engineer", "Seattle, WA", 80)
-    wa_related = job("Staff Platform Engineer", "Bellevue, WA", 95)
-    us_senior = job("Senior Software Engineer", "Remote - US", 99)
-    ordered = sorted([us_senior, wa_related, wa_senior], key=queue_priority_score, reverse=True)
-    assert ordered == [wa_senior, wa_related, us_senior]
+def test_non_engineering_titles_get_no_bonus() -> None:
+    assert role_location_priority_bonus(job("Product Manager", "Seattle, WA")) == 0.0
+    assert role_location_priority_bonus(job("Software Engineer Intern", "Seattle, WA")) == 0.0
+
+
+@pytest.mark.parametrize(
+    "title",
+    [
+        "Software Engineer Manager",
+        "Engineering Manager – AI Platform & SRE",
+        "Senior Manager, Full-stack Engineer (People Leader)-EDT",
+        "Senior Director, Full-stack Engineer (Remote-Eligible)",
+        "VP of Engineering",
+        "Chief Software Engineer",
+        "Director, Principal Software Engineer",
+        "Vice President, Senior Full Stack Engineer - SMA Solutions",
+        "Software Engineer - Assistant Vice President",
+    ],
+)
+def test_management_titles(title: str) -> None:
+    assert is_management_title(title)
+
+
+@pytest.mark.parametrize(
+    "title",
+    [
+        "Full-stack Engineer 4 (Manager, IC)",
+        "Full-stack Engineer 5 (Senior Manager, IC)-EDT",
+        "Senior Software Engineer",
+    ],
+)
+def test_individual_contributor_titles_with_management_words(title: str) -> None:
+    assert not is_management_title(title)
+
+
+def test_role_outranks_location() -> None:
+    """A Senior role anywhere in the US sits above a Seattle-area Staff role."""
+    wa_staff = job("Senior Staff Machine Learning Engineer", "Seattle, WA", 99)
+    us_senior = job("Senior Software Engineer", "Remote - US", 10)
+    assert queue_priority_score(us_senior) > queue_priority_score(wa_staff)
+
+
+def test_location_breaks_ties_within_a_role() -> None:
+    """Senior Seattle, Senior US, FDE Seattle, FDE US — in that order."""
+    jobs = [
+        job("Forward Deployed Engineer", "Remote - US", 99),
+        job("Senior Software Engineer", "Remote - US", 99),
+        job("Forward Deployed Engineer", "Bellevue, WA", 10),
+        job("Senior Software Engineer", "Seattle, WA", 10),
+    ]
+    ordered = sorted(jobs, key=queue_priority_score, reverse=True)
+    assert [(j["title"], j["location"]) for j in ordered] == [
+        ("Senior Software Engineer", "Seattle, WA"),
+        ("Senior Software Engineer", "Remote - US"),
+        ("Forward Deployed Engineer", "Bellevue, WA"),
+        ("Forward Deployed Engineer", "Remote - US"),
+    ]
+
+
+def test_requested_role_order_within_a_location() -> None:
+    titles = [
+        "Senior Software Engineer",
+        "Forward Deployed Engineer",
+        "Principal Software Engineer",
+        "Software Engineer II",
+        "Staff Software Engineer",
+        "Software Engineer I",
+    ]
+    for location in ("Seattle, WA", "Austin, TX"):
+        jobs = [job(title, location, score) for title, score in zip(titles, (10, 20, 30, 40, 50, 60))]
+        ordered = sorted(jobs, key=queue_priority_score, reverse=True)
+        assert [j["title"] for j in ordered] == titles
+
+
+@pytest.mark.parametrize(
+    "title",
+    ["Forward Deployed Engineer", "Forward-Deployed Engineer, Federal", "Senior Forward Deployed Software Engineer"],
+)
+def test_forward_deployed_engineer_is_a_software_role(title: str) -> None:
+    assert software_role_rejection(title) is None
+
+
+@pytest.mark.parametrize(
+    "title",
+    [
+        "Senior ML Ops Engineer (Machine Learning Infrastructure)",
+        "Senior Security Engineer, Corporate Security",
+        "Senior Staff Data Engineer",
+        "Lead Data Engineer - Healthcare Data & Audience Applications",
+    ],
+)
+def test_adjacent_engineering_families_are_applied_to(title: str) -> None:
+    assert software_role_rejection(title) is None
+
+
+@pytest.mark.parametrize("title", ["Power Platform Developer", "Senior HR Business Partner – Global Technology"])
+def test_non_software_titles_stay_excluded(title: str) -> None:
+    assert software_role_rejection(title) is not None
 
 
 def test_match_score_breaks_ties_within_a_tier() -> None:

@@ -401,3 +401,98 @@ def test_the_index_is_built_once_per_batch_not_once_per_company():
         company_cap.build_submission_index = real_index
 
     assert scans == 1, f"the job table was walked {scans} times for one batch"
+
+
+# ── Gap between applications to one employer ─────────────────────────────────
+
+
+def _sent_minutes_ago(company: str, minutes: float) -> dict:
+    return {
+        "id": f"sent_{company}_{minutes}",
+        "company": company,
+        "status": "SUBMITTED",
+        "submittedAt": (NOW - timedelta(minutes=minutes)).isoformat(),
+    }
+
+
+def test_a_company_applied_to_recently_is_skipped_for_the_next_in_queue():
+    queued = [_queued("Coinbase", 95, "q1"), _queued("Zuora", 90, "q2")]
+    history = [_sent_minutes_ago("Coinbase", 4)]
+
+    ready, next_ready_at = company_cap.partition_by_cooldown(queued, history, now=NOW)
+
+    assert [j["id"] for j in ready] == ["q2"]
+    assert next_ready_at == NOW + timedelta(minutes=6)
+
+
+def test_the_gap_expires_after_ten_minutes():
+    queued = [_queued("Coinbase", 95, "q1")]
+    history = [_sent_minutes_ago("Coinbase", 10)]
+
+    ready, next_ready_at = company_cap.partition_by_cooldown(queued, history, now=NOW)
+
+    assert [j["id"] for j in ready] == ["q1"]
+    assert next_ready_at is None
+
+
+def test_only_one_job_per_company_is_ready_in_a_pass():
+    queued = [
+        _queued("Coinbase", 95, "q1"),
+        _queued("Coinbase", 94, "q2"),
+        _queued("Zuora", 90, "q3"),
+    ]
+
+    ready, _ = company_cap.partition_by_cooldown(queued, [], now=NOW)
+
+    assert [j["id"] for j in ready] == ["q1", "q3"]
+
+
+def test_an_attempt_that_ended_in_review_still_starts_the_gap():
+    queued = [_queued("Coinbase", 95, "q1"), _queued("Zuora", 90, "q2")]
+    staged = {
+        "id": "staged",
+        "company": "Coinbase",
+        "status": "MANUAL_REVIEW",
+        "applicationStartedAt": (NOW - timedelta(minutes=3)).isoformat(),
+    }
+
+    ready, next_ready_at = company_cap.partition_by_cooldown(queued, [staged], now=NOW)
+
+    assert [j["id"] for j in ready] == ["q2"]
+    assert next_ready_at == NOW + timedelta(minutes=7)
+
+
+def test_an_old_review_does_not_start_the_gap():
+    queued = [_queued("Coinbase", 95, "q1")]
+    staged = {
+        "id": "staged",
+        "company": "Coinbase",
+        "status": "MANUAL_REVIEW",
+        "updatedAt": (NOW - timedelta(minutes=1)).isoformat(),
+        "applicationStartedAt": (NOW - timedelta(hours=2)).isoformat(),
+    }
+
+    ready, _ = company_cap.partition_by_cooldown(queued, [staged], now=NOW)
+
+    assert [j["id"] for j in ready] == ["q1"]
+
+
+def test_a_manual_click_skips_the_gap():
+    queued = [_queued("Coinbase", 95, "q1")]
+    history = [_sent_minutes_ago("Coinbase", 1)]
+
+    ready, _ = company_cap.partition_by_cooldown(
+        queued, history, exempt_ids={"q1"}, now=NOW
+    )
+
+    assert [j["id"] for j in ready] == ["q1"]
+
+
+def test_everything_cooling_reports_the_earliest_release():
+    queued = [_queued("Coinbase", 95, "q1"), _queued("Zuora", 90, "q2")]
+    history = [_sent_minutes_ago("Coinbase", 2), _sent_minutes_ago("Zuora", 7)]
+
+    ready, next_ready_at = company_cap.partition_by_cooldown(queued, history, now=NOW)
+
+    assert ready == []
+    assert next_ready_at == NOW + timedelta(minutes=3)

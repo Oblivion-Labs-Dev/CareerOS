@@ -55,6 +55,41 @@ def test_location_and_match_break_ties_within_same_recency_band():
     assert queue_priority_score(fresh_wa) > queue_priority_score(fresh_remote)
 
 
+def test_last_24_hours_beats_location_and_role():
+    """A fresh SDE 1 role elsewhere in the US outranks a 2-day-old Seattle Senior role."""
+    now = datetime.now(timezone.utc)
+    fresh_us_sde1 = {
+        "title": "Software Engineer I",
+        "location": "Austin, TX",
+        "matchScore": 10.0,
+        "datePosted": (now - timedelta(hours=23)).isoformat(),
+    }
+    older_wa_senior = {
+        "title": "Senior Software Engineer",
+        "location": "Seattle, WA",
+        "matchScore": 99.0,
+        "datePosted": (now - timedelta(hours=26)).isoformat(),
+    }
+    assert queue_priority_score(fresh_us_sde1) > queue_priority_score(older_wa_senior)
+
+
+def test_location_beats_freshness_inside_the_24_hour_band():
+    now = datetime.now(timezone.utc)
+    wa_20h = {
+        "title": "Senior Software Engineer",
+        "location": "Bellevue, WA",
+        "matchScore": 50.0,
+        "datePosted": (now - timedelta(hours=20)).isoformat(),
+    }
+    us_1h = {
+        "title": "Senior Software Engineer",
+        "location": "Remote - US",
+        "matchScore": 99.0,
+        "datePosted": (now - timedelta(hours=1)).isoformat(),
+    }
+    assert queue_priority_score(wa_20h) > queue_priority_score(us_1h)
+
+
 def test_hourly_decay_within_same_band():
     """Within the same day, a job posted 2 hours ago outranks a job posted 20 hours ago."""
     now = datetime.now(timezone.utc)

@@ -70,6 +70,11 @@ FRESH_POSTING_BONUS = 3
 #: How new a posting must be to earn that bonus.
 FRESH_POSTING_WINDOW_HOURS = 24
 
+#: Minimum gap between two application attempts at the same employer. Separate
+#: from the tiers: those bound how many, this bounds how close together, so a
+#: batch never works through an employer's postings back to back.
+COMPANY_COOLDOWN = timedelta(minutes=10)
+
 #: The widest window, which bounds how much history has to be kept.
 COMPANY_CAP_WINDOW_DAYS = max(days for _name, _cap, days in COMPANY_CAP_TIERS)
 
@@ -301,6 +306,80 @@ def is_held(job: Mapping[str, Any], *, now: datetime | None = None) -> bool:
     if until is None:
         return False
     return until > (now or datetime.now(timezone.utc))
+
+
+def last_attempt_index(jobs: Iterable[Mapping[str, Any]]) -> dict[str, datetime]:
+    """``company key -> most recent application attempt``.
+
+    Unlike the cap, this counts every attempt, not only sent ones: an attempt
+    that ended in review still opened and filled that employer's form, and the
+    gap is about how close together the employer sees us, not what we sent.
+    """
+    latest: dict[str, datetime] = {}
+    for job in jobs:
+        key = normalise_company(job.get("company"))
+        if not key:
+            continue
+        when = _parse(job.get("applicationStartedAt"))
+        if (job.get("status") or "").upper() in _COUNTED_STATUSES:
+            sent = _submitted_at(job)
+            if sent is not None and (when is None or sent > when):
+                when = sent
+        if when is not None and (key not in latest or when > latest[key]):
+            latest[key] = when
+    return latest
+
+
+def cooldown_until(
+    last_attempt: datetime | None, *, now: datetime | None = None
+) -> datetime | None:
+    """When this employer's gap since its last attempt ends, or ``None`` if it
+    has already passed."""
+    if last_attempt is None:
+        return None
+    until = last_attempt + COMPANY_COOLDOWN
+    return until if until > (now or datetime.now(timezone.utc)) else None
+
+
+def partition_by_cooldown(
+    queued: list[dict[str, Any]],
+    all_jobs: Iterable[Mapping[str, Any]],
+    *,
+    exempt_ids: Iterable[str] = (),
+    now: datetime | None = None,
+) -> tuple[list[dict[str, Any]], datetime | None]:
+    """Keep the jobs whose employer is off cooldown, in claim order.
+
+    Returns ``(ready, next_ready_at)``. Only the first job per employer is kept,
+    because once it is sent every later one at that employer is inside the gap.
+    ``next_ready_at`` is the earliest moment a skipped employer frees up, so a
+    caller with nothing ready knows how long to wait. Cooling jobs are left
+    untouched: they stay queued and are ready again on a later pass.
+    """
+    now = now or datetime.now(timezone.utc)
+    index = last_attempt_index(all_jobs)
+    exempt = set(exempt_ids)
+
+    ready: list[dict[str, Any]] = []
+    taken: set[str] = set()
+    next_ready_at: datetime | None = None
+
+    for job in queued:
+        key = normalise_company(job.get("company"))
+        if job.get("id") in exempt or not key:
+            ready.append(job)
+            continue
+        if key in taken:
+            continue
+        until = cooldown_until(index.get(key), now=now)
+        if until is not None:
+            if next_ready_at is None or until < next_ready_at:
+                next_ready_at = until
+            continue
+        taken.add(key)
+        ready.append(job)
+
+    return ready, next_ready_at
 
 
 def partition_by_cap(

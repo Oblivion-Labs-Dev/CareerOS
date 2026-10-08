@@ -19,11 +19,11 @@ MAX_BATCH_CONCURRENT = 1  # Strictly one application at a time via the UI.
 # Safety and validation
 MIN_MATCH_SCORE = int(os.environ.get("CAREEROS_MIN_MATCH_SCORE", "75"))
 
-# Priority rules (applied by the browse/queue replenishment logic):
-# 1. Senior Software Engineer / related roles in Washington State
-#    (Seattle, Bellevue, Redmond, Kirkland, Spokane, Tacoma)
-# 2. Senior Software Engineer / related roles, rest of the US
-# 3. Other engineering roles, ranked by resume/JD match score
+# Priority rules (job_filter_ranker.queue_priority_score):
+# 1. Postings from the last 24 hours, then older recency bands
+# 2. Senior, Forward Deployed Engineer, Principal, SDE 2, Staff, SDE 1, other
+# 3. Washington State (Seattle, Bellevue, Redmond, rest of WA), then rest of the US
+# 4. Freshness within the band, then resume/JD match score
 
 # Validation guards
 ENABLE_DETERMINISTIC_VALIDATION = True

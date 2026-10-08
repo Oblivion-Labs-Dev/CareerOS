@@ -401,6 +401,7 @@ class AutopilotRunner:
         self.submittable_boards_only: bool = True
         self._logged_board_filter: bool = False
         self._logged_company_cap: bool = False
+        self._logged_cooldown_wait: bool = False
 
     @classmethod
     def get_instance(cls) -> AutopilotRunner:
@@ -560,6 +561,7 @@ class AutopilotRunner:
         self.submittable_boards_only = bool(_opt("submittableBoardsOnly", True))
         self._logged_board_filter = False
         self._logged_company_cap = False
+        self._logged_cooldown_wait = False
         # Carry the resolved configuration onto this run so the next start that
         # omits it reads back the same values rather than the defaults.
         opts = {
@@ -1318,6 +1320,27 @@ class AutopilotRunner:
                         level="info",
                     )
 
+            # Space applications to one employer COMPANY_COOLDOWN apart: when the
+            # top job's company was applied to too recently, the next job in
+            # queue order goes instead. Manual clicks are exempt, as with the cap.
+            queued_before_cooldown = len(queued)
+            queued, next_ready_at = company_cap.partition_by_cooldown(
+                queued, cap_all_jobs, exempt_ids=self.manual_apply_job_ids
+            )
+            if not queued and next_ready_at is not None and queued_before_cooldown:
+                wait_s = max(1.0, (next_ready_at - datetime.now(timezone.utc)).total_seconds())
+                if not self._logged_cooldown_wait:
+                    self._logged_cooldown_wait = True
+                    self.log_event(
+                        f"Every ready job is at a company applied to in the last "
+                        f"{int(company_cap.COMPANY_COOLDOWN.total_seconds() // 60)} minutes — "
+                        f"waiting until {next_ready_at.astimezone().strftime('%H:%M:%S')}.",
+                        level="info",
+                    )
+                await asyncio.sleep(min(wait_s, 30.0))
+                continue
+            self._logged_cooldown_wait = False
+
             remaining_budget = max(0, target_count - processed_count)
             claim_limit = min(self.concurrency, remaining_budget)
             claimed_jobs: list[dict[str, Any]] = []
@@ -1640,14 +1663,11 @@ class AutopilotRunner:
             list_submitted_duplicate_candidates,
         )
 
+        from app.services.application_assistant.job_filter_ranker import is_management_title
+
         title_raw = str(job_item.get("title") or "").strip()
         title_lower = title_raw.lower()
-        MANAGEMENT_KEYWORDS = (
-            "director", "manager", "engineering manager", "product manager",
-            "program manager", "project manager", "head of", "vp", "vice president",
-            "chief", "managing director", "lead manager",
-        )
-        if any(re.search(rf"\b{re.escape(kw)}\b", title_lower) for kw in MANAGEMENT_KEYWORDS):
+        if is_management_title(title_raw):
             detail = f"Management/director role excluded: '{title_raw}'"
             apply_ineligibility(job_item, IneligibilityReason.ROLE_EXCLUDED, detail)
             job_item["lastError"] = detail

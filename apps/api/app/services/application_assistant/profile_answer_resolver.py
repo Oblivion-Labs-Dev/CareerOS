@@ -381,6 +381,32 @@ def _match_candidate_manifest_answer(question_text: str, options: list[str] | No
     return None
 
 
+_REFERRAL_SOURCE_QUESTION = re.compile(r"\b(?:hear|learn)\s+about\b", re.I)
+# Most specific first. Each employer names its own careers page ("Career Page",
+# "Samsara Careers Site", "Company Website / Careers Page", "BeyondTrust Website").
+_CAREERS_PAGE_OPTION_TIERS = (
+    re.compile(r"\bcareers?\s*(?:page|site|website)\b", re.I),
+    re.compile(r"\bcompany\s+(?:web\s*)?site\b", re.I),
+    re.compile(r"\bwebsite\b", re.I),
+)
+_NOT_A_CAREERS_PAGE = re.compile(r"campus|universit|alumni|blog|\bad\b|advert", re.I)
+
+
+def _careers_page_option(options: list[str]) -> str | None:
+    """The one option meaning the employer's own careers page, else None.
+
+    Two candidates at the same tier ("Enova Career Site" / "Pangea Career Site")
+    is a real choice, so it is left for the candidate rather than guessed.
+    """
+    for tier in _CAREERS_PAGE_OPTION_TIERS:
+        hits = [o for o in options if tier.search(o) and not _NOT_A_CAREERS_PAGE.search(o)]
+        if len(hits) == 1:
+            return hits[0]
+        if hits:
+            return None
+    return None
+
+
 # ── Core resolver ────────────────────────────────────────────────────────────
 
 def _saved_question_mentions(profile: dict[str, Any], screening_id: str, word: str) -> bool:
@@ -670,6 +696,8 @@ def _resolve_answer_impl(
                 # required field blank. Map a yes/no answer onto the option that
                 # actually expresses it.
                 matched = _match_yes_no_sentence_option(opts, answer)
+            if matched is None and "career" in answer.lower() and _REFERRAL_SOURCE_QUESTION.search(question_text):
+                matched = _careers_page_option(opts)
             if matched is not None:
                 answer = matched
             elif answer.lower() in ("yes", "no", "true", "false", "y", "n"):

@@ -48,6 +48,12 @@ def test_mid_level_software_titles_pass(title):
     assert ok, reason
 
 
+@pytest.mark.parametrize("location", ["Anywhere", "Remote (Worldwide)"])
+def test_anywhere_remote_does_not_read_as_outside_the_us(location):
+    ok, reason = _passes(_job(location=location))
+    assert ok, reason
+
+
 @pytest.mark.parametrize("title", [
     "Principal Software Engineer",
     "Staff Backend Engineer",
@@ -64,13 +70,18 @@ def test_senior_staff_and_principal_software_titles_pass(title):
     "Principal Presales Engineer",
     "Senior Product Manager, Platform Core Engineering",
     "Senior Product Designer",
-    "Product Security Engineer, Programs",
     "Enterprise Sales Engineer",
 ])
 def test_non_software_titles_still_rejected(title):
     ok, reason = _passes(_job(title=title))
     assert not ok
     assert "not a Software Engineering role" in reason
+
+
+# Security engineering is applied to as well (owner, 2026-10-07).
+def test_security_engineer_titles_pass():
+    ok, reason = _passes(_job(title="Product Security Engineer, Programs"))
+    assert ok, reason
 
 
 # OpenAI recruiting roles name the team they hire for ("SWE", "Applications Engineering").
