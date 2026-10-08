@@ -598,6 +598,15 @@ def resolve_answer(
     return resolution
 
 
+# A "Please Select" left in the options turns a Yes/No into an unknown list,
+# whose fallbacks pick the last option ("No").
+_PLACEHOLDER_OPTION = re.compile(
+    r"^\s*(?:-+\s*)?(?:please\s+)?(?:select|choose)(?:\s+(?:one|an?\s+option|an?\s+answer))?\s*(?:\.{3}|…)?\s*-*\s*$"
+    r"|^\s*-+\s*$|^\s*$",
+    re.I,
+)
+
+
 def _resolve_answer_impl(
     question_text: str,
     profile: dict[str, Any],
@@ -611,6 +620,7 @@ def _resolve_answer_impl(
     This is the single entry point that replaces ALL inline if/elif
     heuristics across the codebase.
     """
+    options = [o for o in options or [] if not _PLACEHOLDER_OPTION.match(o or "")] or None
     qtype = question_type or classify_question(question_text, field_id, options)
     opts = options or []
 
@@ -3291,6 +3301,8 @@ practice practices automated automation testing test tests devops
 excluding excluded internship internships advanced complex general full-time
 phd degree specifically outside educational academic personal api apis
 information needed required necessary computer science field fields object oriented
+technical environment environments including highly transactional mission critical
+multi user users architecture architectures
 """.split())
 
 # Practice questions a senior engineer answers truthfully in the affirmative;

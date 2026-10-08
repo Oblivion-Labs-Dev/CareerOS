@@ -1053,7 +1053,8 @@ _RADIO_GROUP_LABEL_JS = """el => {
 _VISIBLE_ERRORS_JS = """() => Array.from(document.querySelectorAll('[class*="error" i], [role="alert"]'))
     .filter(e => e.offsetParent !== null)
     .map(e => e.innerText.trim().replace(/\\s+/g, ' '))
-    .filter(t => t && t.length < 160)
+    .filter(t => t)
+    .map(t => t.slice(0, 200))
     .filter((t, i, all) => all.indexOf(t) === i)
     .slice(0, 6)"""
 
@@ -1061,8 +1062,12 @@ _VISIBLE_ERRORS_JS = """() => Array.from(document.querySelectorAll('[class*="err
 async def _drop_email_alias(page: Any) -> bool:
     """Mastercard's form calls "name+tag@gmail.com" an invalid address."""
     changed = False
-    for inp in await page.locator('input[type="email"], input[name*="email" i]').all():
+    for inp in await page.locator(
+        'input[type="email"], input[name*="email" i], input[id*="email" i], input[autocomplete="email"]'
+    ).all():
         try:
+            if (await inp.get_attribute("type") or "text") not in ("text", "email"):
+                continue
             value = (await inp.input_value()).strip()
             plain = re.sub(r"\+[^@]*@", "@", value)
             if plain != value:
@@ -1071,6 +1076,104 @@ async def _drop_email_alias(page: Any) -> bool:
         except Exception:
             continue
     return changed
+
+
+_CHAR_LIMIT_ERROR = re.compile(r"more than\s+([\d,]+)\s+characters", re.I)
+
+
+def _shorten_to_limit(text: str, limit: int) -> str:
+    """Cut at the last whole line or sentence that fits, never mid-word."""
+    if len(text) <= limit:
+        return text
+    head = text[:limit]
+    for boundary in ("\n", ". "):
+        cut = head.rfind(boundary)
+        if cut >= limit // 2:
+            return head[: cut + 1].rstrip()
+    cut = head.rfind(" ")
+    return head[: cut if cut > 0 else limit].rstrip()
+
+
+async def _trim_overlong_fields(page: Any, errors: list[str]) -> bool:
+    """Fiserv's resume parser copies whole role descriptions past the form's limit."""
+    limits = [int(m.group(1).replace(",", "")) for e in errors for m in [_CHAR_LIMIT_ERROR.search(e)] if m]
+    if not limits:
+        return False
+    limit = min(limits)
+    changed = False
+    for field in await page.locator("textarea, input[type='text']").all():
+        try:
+            value = await field.input_value()
+            if len(value) > limit:
+                await field.fill(_shorten_to_limit(value, limit))
+                changed = True
+        except Exception:
+            continue
+    return changed
+
+
+async def _phone_digits_only(page: Any) -> bool:
+    """Regions rejects "(425) 336-9852" as an invalid format; the country code has its own select."""
+    changed = False
+    for inp in await page.locator('input[type="tel"], input[name*="phone" i], input[id*="phone" i]').all():
+        try:
+            if not await inp.is_visible():
+                continue
+            ident = ((await inp.get_attribute("name") or "") + " " + (await inp.get_attribute("id") or "")).lower()
+            if re.search(r"ext|code|country|device", ident):
+                continue
+            value = (await inp.input_value()).strip()
+            digits = re.sub(r"\D", "", value)
+            if len(digits) == 11 and digits.startswith("1"):
+                digits = digits[1:]
+            if len(digits) == 10 and digits != value:
+                await inp.fill(digits)
+                changed = True
+        except Exception:
+            continue
+    return changed
+
+
+async def _dismiss_notice_dialog(page: Any) -> bool:
+    """Close an informational popup such as Regions' "Your Resume Uploaded Successfully. [OK]"."""
+    for dialog in await page.locator('[role="dialog"], [role="alertdialog"], .modal, [class*="modal" i]').all():
+        try:
+            if not await dialog.is_visible():
+                continue
+            if not re.search(r"success", await dialog.inner_text(), re.I):
+                continue
+            ok = dialog.locator('button:text-is("OK"), button:text-is("Ok"), button:text-is("Close")').first
+            if await ok.count() and await ok.is_visible():
+                await ok.click()
+                await asyncio.sleep(0.5)
+                return True
+        except Exception:
+            continue
+    return False
+
+
+_OPEN_DIALOG_TEXT_JS = """() => {
+    const d = Array.from(document.querySelectorAll('[role="dialog"], [role="alertdialog"], .modal, [class*="modal" i]'))
+        .find(e => e.offsetParent !== null && e.innerText.trim());
+    return d ? d.innerText.trim().replace(/\\s+/g, ' ').slice(0, 200) : '';
+}"""
+
+
+async def _repair_rejected_fields(page: Any, log_callback: Any = None) -> bool:
+    """Reformat values a form rejected for their format, never for their content."""
+    errors = await page.evaluate(_VISIBLE_ERRORS_JS)
+    fixes = []
+    if any("email" in e.lower() for e in errors) and await _drop_email_alias(page):
+        fixes.append("This form rejects the +alias email; using the plain address.")
+    if any(re.search(r"phone", e, re.I) and re.search(r"invalid|format|valid", e, re.I) for e in errors) \
+            and await _phone_digits_only(page):
+        fixes.append("This form wants the phone number as digits only.")
+    if await _trim_overlong_fields(page, errors):
+        fixes.append("Shortened a prefilled field that ran past the form's character limit.")
+    if log_callback:
+        for fix in fixes:
+            log_callback(fix)
+    return bool(fixes)
 
 
 def _is_phenom_apply_url(url: str) -> bool:
@@ -1127,18 +1230,28 @@ async def _advance_phenom_wizard(
         step = _phenom_step_name(before)
         advanced = False
         for _attempt in range(3):
+            await _dismiss_notice_dialog(page)
+            await _repair_rejected_fields(page, log_callback)
             for _ in range(20):
                 if await btn.is_enabled():
                     break
                 await asyncio.sleep(0.5)
             else:
+                if await _repair_rejected_fields(page, log_callback):
+                    continue
                 check = await verify_browser_dom_state(page, [], profile)
                 empty = [" ".join((i.label or i.field_id).split())[:80]
                          for i in check.issues if i.issue_type == "MISSING_REQUIRED"]
                 return (f"Phenom {step}: Next stays disabled"
                         + (f"; required and empty: {'; '.join(empty[:5])}" if empty else "")), None
-            await btn.scroll_into_view_if_needed(timeout=4000)
-            await btn.click()
+            try:
+                await btn.scroll_into_view_if_needed(timeout=4000)
+                await btn.click(timeout=8000)
+            except Exception:
+                if await _dismiss_notice_dialog(page):
+                    continue
+                dialog = await page.evaluate(_OPEN_DIALOG_TEXT_JS)
+                return f"Phenom {step}: Next is blocked" + (f" by a popup: {dialog}" if dialog else ""), None
             for _ in range(30):
                 await asyncio.sleep(0.5)
                 if page.url != before:
@@ -1146,10 +1259,7 @@ async def _advance_phenom_wizard(
                     break
             if advanced:
                 break
-            errors = await page.evaluate(_VISIBLE_ERRORS_JS)
-            if any("email" in e.lower() for e in errors) and await _drop_email_alias(page):
-                if log_callback:
-                    log_callback("This form rejects the +alias email; using the plain address.")
+            await _repair_rejected_fields(page, log_callback)
             found = await _phenom_step_button(page)
             if found is None or found[0] != "next":
                 break
@@ -1309,7 +1419,8 @@ async def _fill_native_selects(
                     filled_ids[sel_lbl[:50]] = sel_id
                     picked.append((sel_el, chosen_opt))
             else:
-                logger.debug("No answer for dropdown %r (%s): %s", sel_lbl[:60], resolution.question_type, available[:6])
+                logger.debug("No answer for dropdown %r id=%r (%s): %s %s", sel_lbl[:160], resolve_id,
+                             resolution.question_type, available[:6], resolution.blocking_errors[:1])
         except Exception as sel_err:
             logger.debug("Dropdown fill skipped one select: %s", sel_err)
     return picked
@@ -1335,7 +1446,8 @@ async def _fill_first_visible(page_or_frame: Any, selectors: list[str], value: s
 async def _select_radio_option(page_or_frame: Any, field_id: str, value: str) -> bool:
     """Choose a radio option by its exact/partial visible label without guessing."""
     try:
-        source = page_or_frame.locator(f"#{field_id}").first
+        # Phenom ids hold dots ("previousworker.Yes"), which "#id" reads as a class.
+        source = page_or_frame.locator(f'[id="{field_id}"]').first
         if await source.count() == 0:
             return False
         name = await source.get_attribute("name")
@@ -1358,8 +1470,7 @@ async def _select_radio_option(page_or_frame: Any, field_id: str, value: str) ->
                     label = (await option_label.inner_text()).strip()
             candidates = (option_value.lower(), label.lower())
             if wanted and any(wanted == candidate for candidate in candidates if candidate):
-                await radio.check(force=True)
-                return True
+                return await _tick_checkbox(radio)
         for index in range(await radios.count()):
             radio = radios.nth(index)
             radio_id = await radio.get_attribute("id") or ""
@@ -1380,8 +1491,7 @@ async def _select_radio_option(page_or_frame: Any, field_id: str, value: str) ->
                 if is_gender_collision:
                     continue
                 if wanted and (wanted in candidate or candidate in wanted):
-                    await radio.check()
-                    return True
+                    return await _tick_checkbox(radio)
     except Exception as exc:
         logger.debug("Radio selection error for %s: %s", field_id, exc)
     return False

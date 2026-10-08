@@ -668,7 +668,7 @@ _CLASSIFICATION_RULES: list[tuple[QuestionType, list[str]]] = [
     ]),
     (QuestionType.CURRENT_TITLE, [
         r"current\s*(job\s*)?title",
-        r"current\s*role",
+        r"current\s*role(?!\s*,?\s*(?:do|are|have|did|will|would|can|is)\s+you\b)",
         r"most\s*recent\s*title",
         r"position\s*title",
         r"headline",

@@ -20,13 +20,19 @@ from app.services.application_assistant.browser_verifier import (
 from app.services.application_assistant.pending_question_groups import _wording_pattern
 from app.services.application_assistant.playwright_autopilot_executor import (
     _RADIO_GROUP_LABEL_JS,
+    _dismiss_notice_dialog,
+    _dismiss_notice_dialog,
     _drop_email_alias,
+    _phone_digits_only,
+    _phone_digits_only,
     _is_choice_group_checkbox,
     _is_phenom_apply_url,
     _phenom_education_row_id,
     _PHENOM_EDUCATION_ID,
     _phenom_step_name,
     _prefill_disagrees,
+    _select_radio_option,
+    _shorten_to_limit,
     _tick_checkbox,
 )
 from app.services.application_assistant.profile_answer_resolver import resolve_answer
@@ -241,3 +247,112 @@ def test_a_box_under_an_overlay_still_gets_ticked():
         return await _tick_checkbox(page.locator("#c"))
 
     assert _in_chromium(html, check) is True
+
+
+def test_overlong_prefill_is_cut_at_a_line_or_sentence_boundary():
+    lines = "\n".join(f"Built service {i} handling payments at scale." for i in range(80))
+    short = _shorten_to_limit(lines, 2000)
+    assert len(short) <= 2000
+    assert short.endswith("at scale.")
+    assert _shorten_to_limit("short text", 2000) == "short text"
+    prose = "Led the platform team. " * 120
+    cut = _shorten_to_limit(prose, 2000)
+    assert len(cut) <= 2000 and cut.endswith("team.")
+
+
+@pytest.mark.parametrize("placeholder", ["Select", "Please Select", "Select an option", "-- Select --", "Choose one", ""])
+def test_a_select_placeholder_does_not_turn_a_years_yes_into_no(placeholder):
+    from app.services.application_assistant.profile_answer_resolver import resolve_answer
+
+    r = resolve_answer(
+        "Do you have 4 - 7 years experience in software development, information systems, or equivalent?",
+        {"yearsExperience": 9},
+        options=[placeholder, "Yes", "No"],
+    )
+    assert r.answer == "Yes"
+
+
+MASTERCARD_RADIO = """
+<div class="field-radio-group" id="previousworker" role="radiogroup">
+  <div class="radio"><label id="previousworker-Yes-label"><span>
+    <input type="radio" name="previousworker" id="previousworker.Yes" value="Yes">
+    <span class="radio-text">Yes</span></span></label></div>
+  <div class="radio"><label id="previousworker-No-label"><span>
+    <input type="radio" name="previousworker" id="previousworker.No" value="No">
+    <span class="radio-text">No</span></span></label></div>
+</div>
+"""
+
+
+def test_a_radio_whose_id_holds_a_dot_is_still_chosen():
+    async def check(page):
+        chosen = await _select_radio_option(page, "previousworker.Yes", "No")
+        return chosen, await page.is_checked('[id="previousworker.No"]'), await page.is_checked('[id="previousworker.Yes"]')
+
+    assert _in_chromium(MASTERCARD_RADIO, check) == (True, True, False)
+
+
+def test_a_rejected_phone_format_is_refilled_as_digits_but_extensions_are_left():
+    html = """<input type="tel" id="cellPhone" value="(425) 336-9852">
+              <input type="text" id="phoneExtension" value="12">"""
+
+    async def check(page):
+        changed = await _phone_digits_only(page)
+        return changed, await page.input_value("#cellPhone"), await page.input_value("#phoneExtension")
+
+    assert _in_chromium(html, check) == (True, "4253369852", "12")
+
+
+def test_a_success_notice_is_dismissed_but_other_dialogs_are_not():
+    html = """<div role="dialog" id="d1"><p>Your Resume Uploaded Successfully.</p>
+              <button onclick="document.getElementById('d1').style.display='none'">OK</button></div>
+              <div role="dialog" id="d2"><p>Are you sure you want to withdraw?</p>
+              <button onclick="document.getElementById('d2').style.display='none'">OK</button></div>"""
+
+    async def check(page):
+        await _dismiss_notice_dialog(page)
+        return await page.is_visible("#d1"), await page.is_visible("#d2")
+
+    assert _in_chromium(html, check) == (False, True)
+
+
+def test_a_rejected_phone_format_is_refilled_as_digits_but_extensions_are_left():
+    html = """<input type="tel" id="cellPhone" value="(425) 336-9852">
+              <input type="text" id="phoneExtension" value="12">"""
+
+    async def check(page):
+        changed = await _phone_digits_only(page)
+        return changed, await page.input_value("#cellPhone"), await page.input_value("#phoneExtension")
+
+    assert _in_chromium(html, check) == (True, "4253369852", "12")
+
+
+def test_a_success_notice_is_dismissed_but_other_dialogs_are_not():
+    html = """<div role="dialog" id="d1"><p>Your Resume Uploaded Successfully.</p>
+              <button onclick="document.getElementById('d1').style.display='none'">OK</button></div>
+              <div role="dialog" id="d2"><p>Are you sure you want to withdraw?</p>
+              <button onclick="document.getElementById('d2').style.display='none'">OK</button></div>"""
+
+    async def check(page):
+        await _dismiss_notice_dialog(page)
+        return await page.is_visible("#d1"), await page.is_visible("#d2")
+
+    assert _in_chromium(html, check) == (False, True)
+
+
+def test_descriptive_words_in_a_years_question_are_not_read_as_technologies():
+    r = resolve_answer(
+        "Do you have 4 - 7 years experience in software development, information systems, or equivalent "
+        "technical environment, including experience in development of highly transactional, mission "
+        "critical, multi-user architectures?",
+        {"yearsExperience": 9},
+        options=["Please Select", "Yes", "No"],
+        field_id="secondaryJsqData.QUESTIONNAIRE-3-5727.a",
+    )
+    assert r.answer == "Yes" and not r.blocking_errors
+
+
+def test_in_your_current_role_do_you_is_a_yes_no_question_not_a_job_title():
+    q = "In your current role, do you engage with Mastercard employees to negotiate, influence and/or sign commercial contracts?"
+    assert classify_question(q) != QuestionType.CURRENT_TITLE
+    assert classify_question("What is your current role?") == QuestionType.CURRENT_TITLE
