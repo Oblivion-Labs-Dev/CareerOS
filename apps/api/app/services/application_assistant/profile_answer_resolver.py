@@ -667,6 +667,10 @@ def _resolve_answer_impl(
         # Cisco's "Email Address" matched a saved "Address 1" answer by its
         # bare "address" wording and was filled with the street address.
         screening = None
+    if screening and _education_field(field_id, question_text):
+        # One saved "Degree" answer would give every education row the same
+        # degree; a row's own entry on the profile answers it.
+        screening = None
     if screening and qtype == QuestionType.CITIZENSHIP and not _saved_question_mentions(
         profile, screening[0], "citizen"
     ):
@@ -2853,6 +2857,8 @@ def _resolve_education_history(
         return
 
     matched = _match_option(opts, value) if opts else None
+    if matched is None and kind == "degree" and opts:
+        matched = _option_at_degree_level(opts, value)
     if matched is not None:
         res.answer = matched
         res.resolution_method = PROFILE_OPTION_MAPPING
@@ -3081,6 +3087,20 @@ def _degree_level(text: str) -> int | None:
     return max(found) if found else None
 
 
+def _option_at_degree_level(opts: list[str], degree: str) -> str | None:
+    """eBay lists "Masters Degree or Equivalent" beside "MBA or Equivalent";
+    a recorded "Master's Degree" is the option at its level that names it."""
+    level = _degree_level(degree)
+    if level is None:
+        return None
+    same = [o for o in opts if _degree_level(o) == level]
+    root = re.match(r"[a-z]+", degree.lower())
+    named = [o for o in same if root and root.group(0)[:6] in o.lower()]
+    if len(named) == 1:
+        return named[0]
+    return same[0] if len(same) == 1 else None
+
+
 def _resolve_degree_attainment(res: AnswerResolution, profile: dict, opts: list[str]) -> bool:
     """Answer "Do you have a <level> degree/diploma?" from the recorded education.
 
@@ -3270,6 +3290,7 @@ entry post graduate individual contributor prior previous past current deliver d
 practice practices automated automation testing test tests devops
 excluding excluded internship internships advanced complex general full-time
 phd degree specifically outside educational academic personal api apis
+information needed required necessary computer science field fields object oriented
 """.split())
 
 # Practice questions a senior engineer answers truthfully in the affirmative;

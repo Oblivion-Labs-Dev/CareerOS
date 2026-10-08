@@ -1014,6 +1014,8 @@ _CLASSIFICATION_RULES: list[tuple[QuestionType, list[str]]] = [
     ]),
     (QuestionType.LEGAL_AGE, [
         r"18\s+years",
+        # Republic Services: "Are you at least eighteen (18) years of age?"
+        r"eighteen\s*(?:\(\s*18\s*\)\s*)?years",
         r"over\s+18",
         r"at\s+least\s+18",
         r"under\s+18",

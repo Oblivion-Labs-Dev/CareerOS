@@ -216,6 +216,19 @@ def _clean_wording(text: str) -> str:
     return str(text or "").strip().rstrip("*").strip()
 
 
+def _wording_pattern(wording: str) -> str:
+    """A saved answer matches labels containing its wording - except a one- or
+    two-word label, which must be the whole label: a "School" answer of
+    "Santa Clara University" otherwise answered "How did you perform in
+    mathematics at high school?"."""
+    import re
+
+    escaped = re.escape(wording.lower())
+    if len(wording.split()) <= 2:
+        return rf"^\s*{escaped}\s*[*:?]*\s*$"
+    return escaped
+
+
 def remember_answer_on_profile(
     db: Any, *, question: str, answer: str, variants: list[str] | None = None
 ) -> None:
@@ -244,7 +257,7 @@ def remember_answer_on_profile(
     if not wordings or not answer:
         return
     keys = {normalize_field_key(w) for w in wordings}
-    patterns = [re.escape(w.lower()) for w in wordings]
+    patterns = [_wording_pattern(w) for w in wordings]
 
     profile = dict(get_kv(db, "profile") or {})
     entries = [dict(e) for e in profile.get("screeningAnswers") or [] if isinstance(e, dict)]

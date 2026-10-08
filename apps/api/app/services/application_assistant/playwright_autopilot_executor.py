@@ -1024,6 +1024,200 @@ _SELECTED_OPTION_TEXT_JS = (
 )
 
 
+# The question a radio group answers: the nearest enclosing text that is not
+# one of its own option labels, found before the walk reaches a container
+# holding other fields. Mastercard's Phenom form wraps the whole page in one
+# fieldset ("You are applying for -"), so its legend names no question.
+_RADIO_GROUP_LABEL_JS = """el => {
+    const name = el.name;
+    const sameGroup = r => r.type === 'radio' && r.name === name;
+    const ids = new Set(Array.from(document.querySelectorAll('input[type="radio"]'))
+        .filter(sameGroup).map(r => r.id).filter(Boolean));
+    let node = (el.closest('label') || el).parentElement;
+    while (node && node !== document.body) {
+        const others = Array.from(node.querySelectorAll('input:not([type="hidden"]), select, textarea'))
+            .some(f => !sameGroup(f));
+        if (others) return '';
+        const clone = node.cloneNode(true);
+        clone.querySelectorAll('input[type="radio"]').forEach(r => {
+            if (r.name === name) (r.closest('label') || r).remove();
+        });
+        clone.querySelectorAll('label[for]').forEach(l => { if (ids.has(l.htmlFor)) l.remove(); });
+        const text = (clone.textContent || '').replace(/\\s+/g, ' ').replace(/^[\\s*]+|[\\s*]+$/g, '');
+        if (text) return text;
+        node = node.parentElement;
+    }
+    return '';
+}"""
+
+_VISIBLE_ERRORS_JS = """() => Array.from(document.querySelectorAll('[class*="error" i], [role="alert"]'))
+    .filter(e => e.offsetParent !== null)
+    .map(e => e.innerText.trim().replace(/\\s+/g, ' '))
+    .filter(t => t && t.length < 160)
+    .filter((t, i, all) => all.indexOf(t) === i)
+    .slice(0, 6)"""
+
+
+async def _drop_email_alias(page: Any) -> bool:
+    """Mastercard's form calls "name+tag@gmail.com" an invalid address."""
+    changed = False
+    for inp in await page.locator('input[type="email"], input[name*="email" i]').all():
+        try:
+            value = (await inp.input_value()).strip()
+            plain = re.sub(r"\+[^@]*@", "@", value)
+            if plain != value:
+                await inp.fill(plain)
+                changed = True
+        except Exception:
+            continue
+    return changed
+
+
+def _is_phenom_apply_url(url: str) -> bool:
+    return "jobseqno=" in (url or "").lower()
+
+
+def _phenom_step_name(url: str) -> str:
+    m = re.search(r"[?&]stepname=([^&#]+)", url or "", re.I)
+    if m:
+        return m.group(1)
+    m = re.search(r"[?&]step=(\d+)", url or "", re.I)
+    return f"step {m.group(1)}" if m else "first step"
+
+
+async def _phenom_step_button(page: Any) -> tuple[str, Any] | None:
+    """("next", button) between steps, ("submit", button) on the last one."""
+    for sel in ('button#next', 'button:text-is("Next")', 'button:has-text("Save and Continue")',
+                'button:has-text("Submit")'):
+        loc = page.locator(sel)
+        for i in range(await loc.count()):
+            btn = loc.nth(i)
+            if not await btn.is_visible():
+                continue
+            text = (await btn.inner_text()).strip().lower()
+            return ("submit" if "submit" in text else "next"), btn
+    return None
+
+
+async def _advance_phenom_wizard(
+    page: Any,
+    profile: dict[str, Any],
+    answer_lib: list[dict[str, Any]] | None,
+    company: str,
+    title: str,
+    filled_fields: dict[str, str],
+    filled_field_ids: dict[str, str],
+    log_callback: Any = None,
+) -> tuple[str | None, Any]:
+    """Walk a Phenom application from its first page to the one that submits.
+
+    Each later step (work and education, job questions, disclosures, review)
+    is filled and verified like the first. Returns (None, submit button) on
+    the last page, or (reason, None) when a step will not advance or holds a
+    question the profile cannot answer - Submit is never clicked here.
+    """
+    for _ in range(10):
+        found = await _phenom_step_button(page)
+        if found is None:
+            return f"No Next or Submit button on Phenom {_phenom_step_name(page.url)}", None
+        kind, btn = found
+        if kind == "submit":
+            return None, btn
+        before = page.url
+        step = _phenom_step_name(before)
+        advanced = False
+        for _attempt in range(3):
+            for _ in range(20):
+                if await btn.is_enabled():
+                    break
+                await asyncio.sleep(0.5)
+            else:
+                check = await verify_browser_dom_state(page, [], profile)
+                empty = [" ".join((i.label or i.field_id).split())[:80]
+                         for i in check.issues if i.issue_type == "MISSING_REQUIRED"]
+                return (f"Phenom {step}: Next stays disabled"
+                        + (f"; required and empty: {'; '.join(empty[:5])}" if empty else "")), None
+            await btn.scroll_into_view_if_needed(timeout=4000)
+            await btn.click()
+            for _ in range(30):
+                await asyncio.sleep(0.5)
+                if page.url != before:
+                    advanced = True
+                    break
+            if advanced:
+                break
+            errors = await page.evaluate(_VISIBLE_ERRORS_JS)
+            if any("email" in e.lower() for e in errors) and await _drop_email_alias(page):
+                if log_callback:
+                    log_callback("This form rejects the +alias email; using the plain address.")
+            found = await _phenom_step_button(page)
+            if found is None or found[0] != "next":
+                break
+            btn = found[1]
+        if not advanced:
+            errors = await page.evaluate(_VISIBLE_ERRORS_JS)
+            return f"Phenom {step} would not advance: {'; '.join(errors) or 'no error shown'}", None
+
+        await asyncio.sleep(2.0)
+        step = _phenom_step_name(page.url)
+        if log_callback:
+            log_callback(f"Filling Phenom {step}...")
+        # The resume went in on the first page; attaching it again makes
+        # Phenom re-parse it over the work history it already holds.
+        step_filled, step_ids = await _fill_standard_and_react_fields(
+            page=page, profile=profile, answer_lib=answer_lib, company=company,
+            title=title, resume_file="", log_cb=log_callback,
+        )
+        filled_fields.update(step_filled)
+        filled_field_ids.update(step_ids)
+
+        resolutions: list[AnswerResolution] = []
+        for lbl, ans in step_filled.items():
+            res = resolve_answer(question_text=lbl, profile=profile, answer_lib=answer_lib,
+                                 field_id=step_ids.get(lbl, ""))
+            res.answer = ans
+            resolutions.append(res)
+        check = await verify_browser_dom_state(page, resolutions, profile)
+        blocking = [i for i in check.issues if i.severity == "BLOCKING"]
+        if blocking:
+            detail = "; ".join(
+                i.issue_type + " " + " ".join((i.label or i.field_id).split())[:90] for i in blocking[:5]
+            )
+            return f"Phenom {step}: {detail}", None
+    return "Phenom application ran past ten steps", None
+
+
+_PHENOM_EDUCATION_ID = re.compile(r"^educationData\[(\d+)\]\.(degree|fieldOfStudy)$")
+
+
+def _school_key(name: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", (name or "").lower())
+
+
+async def _phenom_education_row_id(page: Any, row: re.Match, profile: dict[str, Any]) -> str | None:
+    """Map a Phenom education row to the resolver's "degree--N" id.
+
+    Phenom builds these rows from its own parse of the resume, so its row
+    order is not the profile's. The school typed into the same row names the
+    entry; a row whose school matches nothing on the profile is left alone.
+    """
+    try:
+        school = await page.locator(f'[name="educationData[{row.group(1)}].schoolName"], '
+                                    f'[id="educationData[{row.group(1)}].schoolName"]').first.input_value()
+    except Exception:
+        return None
+    key = _school_key(school)
+    if not key:
+        return None
+    kind = "degree" if row.group(2) == "degree" else "discipline"
+    entries = [e for e in (profile.get("education") or []) if isinstance(e, dict)]
+    for idx, entry in enumerate(entries):
+        theirs = _school_key(str(entry.get("school") or ""))
+        if theirs and (theirs == key or theirs in key or key in theirs):
+            return f"{kind}--{idx}"
+    return None
+
+
 async def _select_key(sel_el: Any) -> str:
     try:
         return await sel_el.evaluate("el => el.id || el.name || el.outerHTML.slice(0, 200)")
@@ -1069,12 +1263,19 @@ async def _fill_native_selects(
                 picked.append((sel_el, available[0]))
                 continue
 
+            resolve_id = sel_id
+            edu_row = _PHENOM_EDUCATION_ID.match(sel_id or sel_name)
+            if edu_row:
+                resolve_id = await _phenom_education_row_id(page, edu_row, profile)
+                if resolve_id is None:
+                    continue
+
             resolution = resolve_answer(
                 question_text=sel_lbl,
                 profile=profile,
                 options=available,
                 answer_lib=answer_lib,
-                field_id=sel_id,
+                field_id=resolve_id,
             )
             if resolution.answer and not resolution.blocking_errors:
                 target_lower = resolution.answer.strip().lower()
@@ -1100,6 +1301,8 @@ async def _fill_native_selects(
                         if target_lower in opt_lower or opt_lower in target_lower:
                             chosen_opt = opt_t
                             break
+                if chosen_opt is None and edu_row:
+                    chosen_opt = pick_best_matching_option(available, resolution.answer)
                 if chosen_opt:
                     await sel_el.select_option(label=chosen_opt)
                     filled[sel_lbl[:50]] = chosen_opt
@@ -1848,6 +2051,8 @@ _APPLICATION_LOCATION_INPUT = (
     ':not([id*="search" i]):not([class*="search" i]):not([name*="search" i])'
     ':not([role="search"] input):not(form[action*="search" i] input)'
     ':not(header input):not(nav input)'
+    ':not([name*="experience" i]):not([id*="experience" i])'
+    ':not([name*="education" i]):not([id*="education" i])'
 )
 
 # Phenom pages keep a "Search job title" / "Location" job-search bar above
@@ -2407,10 +2612,10 @@ async def _fill_standard_and_react_fields(
 
             # Group label: fieldset/legend first, else the nearest ancestor
             # field container's leading text (mirrors the checkbox lookup above).
-            group_lbl = ""
+            group_lbl = (await radio.evaluate(_RADIO_GROUP_LABEL_JS) or "").strip()
             first_radio_id = option_ids[0]
-            if first_radio_id:
-                fieldset = page.locator(f'fieldset:has(#{first_radio_id})').first
+            if first_radio_id and not group_lbl:
+                fieldset = page.locator(f'fieldset:has([id="{first_radio_id}"])').first
                 if await fieldset.count() > 0:
                     legend = fieldset.locator("legend").first
                     if await legend.count() > 0:
@@ -2729,6 +2934,10 @@ async def _fill_standard_and_react_fields(
             if role == "combobox":
                 continue
             if await inp.evaluate(_IS_SITE_SEARCH_JS):
+                continue
+            # Phenom's work-history and education rows come from its resume
+            # parse; the candidate's home town is not a past job's location.
+            if re.match(r"(experience|education)Data\[", (await inp.get_attribute("name") or await inp.get_attribute("id") or "")):
                 continue
             curr_val = (await inp.input_value()).strip()
 
@@ -4318,7 +4527,39 @@ async def _execute_live_playwright_submission_impl(
                         return candidate
                 return None
 
-            submit_button = await _find_real_submit_button(target_frame)
+            submit_button = None
+            if _is_phenom_apply_url(page.url):
+                # The first page's Next is a type=submit button too; clicking
+                # it as the final submit recorded an application never sent.
+                try:
+                    stuck, submit_button = await _advance_phenom_wizard(
+                        page, profile, answer_lib, company, title,
+                        filled_fields, filled_field_ids, log_callback,
+                    )
+                except Exception as wizard_err:
+                    stuck, submit_button = f"Phenom {_phenom_step_name(page.url)}: {wizard_err}", None
+                if stuck:
+                    logger.warning("Phenom wizard stopped for %s: %s", company, stuck)
+                    if log_callback:
+                        log_callback(f"Submission Staged for Review: {stuck}", lvl="warning")
+                    stuck_shot = SCREENSHOTS_DIR / f"{job_id}_needs_review.png"
+                    try:
+                        await page.screenshot(path=str(stuck_shot), full_page=True, timeout=5000)
+                    except Exception:
+                        pass
+                    return {
+                        "submitted": False,
+                        "stagedForReview": True,
+                        "status": "NEEDS_REVIEW",
+                        "error": stuck,
+                        "evidence": {
+                            "phenomStep": _phenom_step_name(page.url),
+                            "preScreenshotPath": str(stuck_shot.resolve()) if stuck_shot.exists() else "",
+                        },
+                        "fieldsFilled": filled_fields,
+                    }
+            if not submit_button:
+                submit_button = await _find_real_submit_button(target_frame)
             if not submit_button:
                 submit_button = await _find_real_submit_button(page)
 
