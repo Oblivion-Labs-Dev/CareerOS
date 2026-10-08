@@ -918,10 +918,39 @@ def _resolve_email(res: AnswerResolution, profile: dict, opts: list[str]) -> Non
     _resolve_from_profile(res, tagged_profile, opts, "email")
 
 def _resolve_phone(res: AnswerResolution, profile: dict, opts: list[str]) -> None:
+    if re.search(r"\bextension\b|\bext\b", res.question or "", re.I):
+        return
     _resolve_from_profile(res, profile, opts, "phone")
 
+_DIAL_CODE_SUFFIX = re.compile(r"\s*\(\s*\+?(\d{1,4})\s*\)\s*$")
+
+
 def _resolve_phone_country(res: AnswerResolution, profile: dict, opts: list[str]) -> None:
+    # "United States of America (+1)" shares its code with two dozen other
+    # options (American Samoa, Canada, ...), so the code alone picks whichever
+    # comes first; the candidate's country decides among them.
+    coded = [(o, _DIAL_CODE_SUFFIX.search(o)) for o in opts]
+    if opts and sum(1 for _, m in coded if m) >= max(3, len(opts) // 2):
+        code = re.sub(r"\D", "", str(profile.get("phoneCountryCode") or ""))
+        country = str(profile.get("country") or "").strip()
+        candidates = {
+            _DIAL_CODE_SUFFIX.sub("", o).strip(): o
+            for o, m in coded
+            if m and (not code or m.group(1) == code)
+        }
+        name = _match_option(list(candidates), country) if country else None
+        if name:
+            res.answer = candidates[name]
+            res.resolution_method = PROFILE_OPTION_MAPPING
+            res.profile_key = "country+phoneCountryCode"
+            res.source_value = f"{country} {profile.get('phoneCountryCode') or ''}".strip()
+            res.confidence = 1.0
+            return
     _resolve_from_profile(res, profile, opts, "phoneCountryCode", fallback="United States")
+
+
+def _resolve_phone_device_type(res: AnswerResolution, profile: dict, opts: list[str]) -> None:
+    _resolve_from_profile(res, profile, opts, "phoneDeviceType")
 
 def _resolve_location(res: AnswerResolution, profile: dict, opts: list[str]) -> None:
     loc = profile.get("location") or ""
@@ -3339,6 +3368,7 @@ _RESOLVERS: dict[QuestionType, Any] = {
     QuestionType.EMAIL: _resolve_email,
     QuestionType.PHONE: _resolve_phone,
     QuestionType.PHONE_COUNTRY: _resolve_phone_country,
+    QuestionType.PHONE_DEVICE_TYPE: _resolve_phone_device_type,
     QuestionType.LOCATION: _resolve_location,
     QuestionType.CITY: _resolve_city,
     QuestionType.STATE: _resolve_state,

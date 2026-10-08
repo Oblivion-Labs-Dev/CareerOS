@@ -22,6 +22,7 @@ class QuestionType(str, Enum):
     EMAIL = "EMAIL"
     PHONE = "PHONE"
     PHONE_COUNTRY = "PHONE_COUNTRY"
+    PHONE_DEVICE_TYPE = "PHONE_DEVICE_TYPE"
 
     # ── Location ──
     CITY = "CITY"
@@ -524,11 +525,15 @@ _CLASSIFICATION_RULES: list[tuple[QuestionType, list[str]]] = [
         # would like to be part of the Autodesk, Inc. Talent Community ...".
         r"receive\s+(?:\w+\s+){0,3}(?:e-?mail|marketing|promotional)\s+(?:communications?|updates|offers)",
         r"part\s+of\b.{0,60}\btalent\s+(?:community|network|pool)",
+        r"\b(?:add|join|sign)\s+(?:me\s+)?(?:up\s+)?(?:to|for)\b.{0,40}\btalent\s+(?:community|network|pool)",
         r"\bjob\s+alerts?\b",
         r"\bmarketing\s+(?:communications?|e-?mails?|messages?)",
     ]),
     (QuestionType.EMAIL, [r"e-?mail"]),
-    (QuestionType.PHONE_COUNTRY, [r"country\s*code", r"dial\s*code"]),
+    # Phenom/Workday forms: "Phone Device Type" (Mobile/Home/Work) and
+    # "Country Phone Code" are dropdowns, not the number itself.
+    (QuestionType.PHONE_DEVICE_TYPE, [r"phone\s*(?:device\s*)?type\b", r"\btype\s+of\s+phone", r"^\s*device\s*type"]),
+    (QuestionType.PHONE_COUNTRY, [r"country\s*code", r"dial\s*code", r"country\s+phone\s+code", r"phone\s+country"]),
     (QuestionType.PHONE, [r"phone", r"telephone", r"mobile", r"\btel\b", r"cell"]),
 
     # ── Location ──
@@ -870,6 +875,10 @@ _CLASSIFICATION_RULES: list[tuple[QuestionType, list[str]]] = [
         # influence your decision to apply for a role at DoorDash?"
         r"engineering\s+blog",
         r"content\s+from.{0,40}blog.{0,40}influence",
+        # Mastercard's Phenom form: a required "Source *" dropdown.
+        r"^\s*(?:applicant\s+|candidate\s+|referral\s+)?source\s*\*?\s*$",
+        # Phenom's field id for the same question, appended to the label.
+        r"\bapplicantsource\b",
     ]),
     (QuestionType.COMPANY_FAMILIARITY, [
         r"how\s+familiar\s+were\s+you",

@@ -719,6 +719,11 @@ _AFFIRMATIVE_CHECKBOX_ANSWERS = frozenset({
 # Counts the checkboxes sharing a question with this one: its fieldset or
 # role="group", its name, or Ashby's "<question>-labeled-checkbox-<n>" id.
 _CHECKBOX_GROUP_SIZE_JS = """el => {
+    // Regions puts two independent consent boxes in one fieldset; each one
+    // carries its own sentence, where a group option is a short phrase.
+    const own = ((el.id && document.querySelector(`label[for="${CSS.escape(el.id)}"]`))
+                 || el.closest('label') || {}).innerText || '';
+    if (own.length >= 60 && /\\b(consent|agree|acknowledge|certify|authori[sz]e)\\b/i.test(own)) return 1;
     const set = el.closest('fieldset, [role="group"]');
     if (set) {
         const n = set.querySelectorAll('input[type="checkbox"]').length;
@@ -737,6 +742,21 @@ _CHECKBOX_GROUP_SIZE_JS = """el => {
     }
     return 1;
 }"""
+
+
+async def _tick_checkbox(chk: Any) -> bool:
+    """Tick a checkbox and report whether it ended up ticked.
+
+    A forced click lands on whatever sits on top at the box's coordinates;
+    on Regions' Phenom form that swallowed it ("Clicking the checkbox did
+    not change its state"), so the element's own click() is the fallback.
+    """
+    try:
+        await chk.check(force=True, timeout=4000)
+    except Exception as err:
+        logger.debug("Forced check did not stick (%s); clicking the element directly", err)
+        await chk.evaluate("el => { if (!el.checked) el.click(); }")
+    return await chk.is_checked()
 
 
 def _affirms_checkbox(answer: Any) -> bool:
@@ -955,6 +975,141 @@ async def _select_react_combobox(page: Any, cb_id: str, search_text: str) -> str
     except Exception as ex:
         logger.debug("Combobox error on %s: %s", cb_id, ex)
         return ""
+
+
+# Phenom and Workday parse the uploaded resume and type what they find into
+# the address fields ("Github, Portfolio" from a resume header line landed in
+# eBay's Address Line 1). A filled field is otherwise trusted, so these are the
+# ones whose profile value outranks whatever the portal put there.
+_PORTAL_PREFILL_TYPES = frozenset({
+    QuestionType.ADDRESS.value,
+    QuestionType.CITY.value,
+    QuestionType.ZIP.value,
+    QuestionType.STATE.value,
+})
+
+
+def _prefill_disagrees(current: str, answer: str) -> bool:
+    norm = lambda s: re.sub(r"[^a-z0-9]", "", s.lower())  # noqa: E731
+    return bool(answer) and norm(current) != norm(answer)
+
+
+async def _correct_portal_prefill(
+    inp: Any,
+    label: str,
+    field_id: str,
+    current: str,
+    profile: dict[str, Any],
+    answer_lib: list[dict[str, Any]] | None,
+    filled: dict[str, str],
+    filled_ids: dict[str, str],
+) -> None:
+    try:
+        res = resolve_answer(question_text=label, profile=profile, options=None, field_id=field_id, answer_lib=answer_lib)
+    except Exception:
+        return
+    if res.question_type not in _PORTAL_PREFILL_TYPES or res.blocking_errors:
+        return
+    answer = str(res.answer or "").strip()
+    if not _prefill_disagrees(current, answer):
+        return
+    logger.info("Replacing portal-prefilled %r=%r with the profile's %r", label[:40], current, answer)
+    await inp.fill(answer)
+    filled[label[:50]] = answer
+    filled_ids[label[:50]] = field_id
+
+
+_SELECTED_OPTION_TEXT_JS = (
+    "el => el.value && el.selectedIndex >= 0 ? el.options[el.selectedIndex].text.trim() : ''"
+)
+
+
+async def _select_key(sel_el: Any) -> str:
+    try:
+        return await sel_el.evaluate("el => el.id || el.name || el.outerHTML.slice(0, 200)")
+    except Exception:
+        return ""
+
+
+async def _fill_native_selects(
+    select_elements: list[Any],
+    page: Any,
+    profile: dict[str, Any],
+    answer_lib: list[dict[str, Any]] | None,
+    filled: dict[str, str],
+    filled_ids: dict[str, str],
+) -> list[tuple[Any, str]]:
+    """Answer each native <select> and return the (element, option text) picks."""
+    picked: list[tuple[Any, str]] = []
+    for sel_el in select_elements:
+        try:
+            sel_id = await sel_el.get_attribute("id") or ""
+            sel_name = await sel_el.get_attribute("name") or ""
+            sel_lbl = ""
+            if sel_id:
+                lbl_el = page.locator(f'label[for="{sel_id}"]').first
+                if await lbl_el.count() > 0:
+                    sel_lbl = await lbl_el.inner_text()
+            if not sel_lbl:
+                parent = sel_el.locator('xpath=ancestor::div[contains(@class, "field") or contains(@class, "custom-question") or contains(@class, "form-group")][1]').first
+                if await parent.count() > 0:
+                    sel_lbl = (await parent.inner_text()).split('\n')[0]
+            if not sel_lbl:
+                sel_lbl = await sel_el.get_attribute("aria-label") or sel_name or sel_id
+
+            opt_texts = await sel_el.locator('option').all_inner_texts()
+            available = [o.strip() for o in opt_texts if o.strip() and o.strip().lower() not in ("select...", "select", "--", "choose")]
+
+            if len(available) == 1:
+                # Same rationale as the combobox path above: one real option
+                # means there's no ambiguity to classify, just select it.
+                await sel_el.select_option(label=available[0])
+                filled[sel_lbl[:50]] = available[0]
+                filled_ids[sel_lbl[:50]] = sel_id
+                picked.append((sel_el, available[0]))
+                continue
+
+            resolution = resolve_answer(
+                question_text=sel_lbl,
+                profile=profile,
+                options=available,
+                answer_lib=answer_lib,
+                field_id=sel_id,
+            )
+            if resolution.answer and not resolution.blocking_errors:
+                target_lower = resolution.answer.strip().lower()
+                # Exact match first: substring containment alone is unsafe for
+                # short answers like "Male", which is literally a substring of
+                # "Female" ("fe-male") - checking containment before equality
+                # let a "Male" intent select the "Female" option whenever
+                # Female happened to come first in the dropdown's option order.
+                chosen_opt = None
+                for opt_t in available:
+                    if opt_t.strip().lower() == target_lower:
+                        chosen_opt = opt_t
+                        break
+                if chosen_opt is None:
+                    for opt_t in available:
+                        opt_lower = opt_t.strip().lower()
+                        is_gender_collision = (
+                            (target_lower == "male" and "female" in opt_lower)
+                            or (target_lower == "female" and opt_lower == "male")
+                        )
+                        if is_gender_collision:
+                            continue
+                        if target_lower in opt_lower or opt_lower in target_lower:
+                            chosen_opt = opt_t
+                            break
+                if chosen_opt:
+                    await sel_el.select_option(label=chosen_opt)
+                    filled[sel_lbl[:50]] = chosen_opt
+                    filled_ids[sel_lbl[:50]] = sel_id
+                    picked.append((sel_el, chosen_opt))
+            else:
+                logger.debug("No answer for dropdown %r (%s): %s", sel_lbl[:60], resolution.question_type, available[:6])
+        except Exception as sel_err:
+            logger.debug("Dropdown fill skipped one select: %s", sel_err)
+    return picked
 
 
 async def _fill_first_visible(page_or_frame: Any, selectors: list[str], value: str) -> bool:
@@ -1692,7 +1847,17 @@ _APPLICATION_LOCATION_INPUT = (
     'input[id*="location" i], input[name*="location" i])'
     ':not([id*="search" i]):not([class*="search" i]):not([name*="search" i])'
     ':not([role="search"] input):not(form[action*="search" i] input)'
+    ':not(header input):not(nav input)'
 )
+
+# Phenom pages keep a "Search job title" / "Location" job-search bar above
+# the application form; its inputs answer nothing on the application.
+_IS_SITE_SEARCH_JS = """el => {
+    if (el.type === 'search') return true;
+    if (el.closest('[role="search"], header, nav, form[action*="search" i]')) return true;
+    const hint = [el.placeholder, el.getAttribute('aria-label'), el.id, el.name].join(' ');
+    return /(^|\\s)search\\b/i.test(hint);
+}"""
 
 
 def _pick_location_option(
@@ -2129,81 +2294,55 @@ async def _fill_standard_and_react_fields(
 
     # Native Select dropdowns (EEOC, custom questions)
     select_elements = await page.locator('select:visible').all()
-    for sel_el in select_elements:
-        try:
-            sel_id = await sel_el.get_attribute("id") or ""
-            sel_name = await sel_el.get_attribute("name") or ""
-            sel_lbl = ""
-            if sel_id:
-                lbl_el = page.locator(f'label[for="{sel_id}"]').first
-                if await lbl_el.count() > 0:
-                    sel_lbl = await lbl_el.inner_text()
-            if not sel_lbl:
-                parent = sel_el.locator('xpath=ancestor::div[contains(@class, "field") or contains(@class, "custom-question") or contains(@class, "form-group")][1]').first
-                if await parent.count() > 0:
-                    sel_lbl = (await parent.inner_text()).split('\n')[0]
-            if not sel_lbl:
-                sel_lbl = await sel_el.get_attribute("aria-label") or sel_name or sel_id
-
-            opt_texts = await sel_el.locator('option').all_inner_texts()
-            available = [o.strip() for o in opt_texts if o.strip() and o.strip().lower() not in ("select...", "select", "--", "choose")]
-
-            if len(available) == 1:
-                # Same rationale as the combobox path above: one real option
-                # means there's no ambiguity to classify, just select it.
-                await sel_el.select_option(label=available[0])
-                filled[sel_lbl[:50]] = available[0]
-                filled_ids[sel_lbl[:50]] = sel_id
+    picked = await _fill_native_selects(select_elements, page, profile, answer_lib, filled, filled_ids)
+    if picked:
+        # Picking a country reloads Phenom's region list, and its resume
+        # parser rewrites fields a moment after the upload - either wipes a
+        # choice made a second earlier, so whatever lost its pick is redone.
+        await asyncio.sleep(1.5)
+        reset = []
+        for sel_el, chosen in picked:
+            try:
+                if await sel_el.evaluate(_SELECTED_OPTION_TEXT_JS) != chosen:
+                    reset.append(sel_el)
+            except Exception:
                 continue
-
-            resolution = resolve_answer(
-                question_text=sel_lbl,
-                profile=profile,
-                options=available,
-                answer_lib=answer_lib,
-                field_id=sel_id,
-            )
-            if resolution.answer and not resolution.blocking_errors:
-                target_lower = resolution.answer.strip().lower()
-                # Exact match first: substring containment alone is unsafe for
-                # short answers like "Male", which is literally a substring of
-                # "Female" ("fe-male") - checking containment before equality
-                # let a "Male" intent select the "Female" option whenever
-                # Female happened to come first in the dropdown's option order.
-                chosen_opt = None
-                for opt_t in available:
-                    if opt_t.strip().lower() == target_lower:
-                        chosen_opt = opt_t
-                        break
-                if chosen_opt is None:
-                    for opt_t in available:
-                        opt_lower = opt_t.strip().lower()
-                        is_gender_collision = (
-                            (target_lower == "male" and "female" in opt_lower)
-                            or (target_lower == "female" and opt_lower == "male")
-                        )
-                        if is_gender_collision:
-                            continue
-                        if target_lower in opt_lower or opt_lower in target_lower:
-                            chosen_opt = opt_t
-                            break
-                if chosen_opt:
-                    await sel_el.select_option(label=chosen_opt)
-                    filled[sel_lbl[:50]] = chosen_opt
-                    filled_ids[sel_lbl[:50]] = sel_id
-        except Exception:
-            pass
+        if reset:
+            logger.info("Re-choosing %d dropdown(s) the page reset after filling", len(reset))
+            await _fill_native_selects(reset, page, profile, answer_lib, filled, filled_ids)
+        # Mastercard's required "Source" list only appears once "How did you
+        # hear about us?" is answered.
+        seen = {await _select_key(s) for s in select_elements}
+        for _ in range(2):
+            appeared = []
+            for s in await page.locator('select:visible').all():
+                key = await _select_key(s)
+                if key not in seen:
+                    seen.add(key)
+                    appeared.append(s)
+            if appeared:
+                logger.info("%d dropdown(s) appeared after the first answers; filling them", len(appeared))
+            if not appeared or not await _fill_native_selects(appeared, page, profile, answer_lib, filled, filled_ids):
+                break
+            await asyncio.sleep(1.0)
 
     # Checkboxes (Consent / Demographic / Terms)
-    checkbox_elements = await page.locator('input[type="checkbox"]:visible').all()
+    # Phenom hides the real input behind a styled box; its label is what shows.
+    checkbox_elements = await page.locator('input[type="checkbox"]').all()
     for chk in checkbox_elements:
         try:
             chk_id = await chk.get_attribute("id") or ""
             chk_lbl = ""
-            if chk_id:
-                lbl_el = page.locator(f'label[for="{chk_id}"]').first
-                if await lbl_el.count() > 0:
-                    chk_lbl = await lbl_el.inner_text()
+            lbl_el = page.locator(f'label[for="{chk_id}"]').first if chk_id else None
+            input_shown = await chk.is_visible()
+            label_shown = bool(lbl_el) and await lbl_el.count() > 0 and await lbl_el.is_visible()
+            if not (input_shown or label_shown):
+                continue
+            if lbl_el is not None and await lbl_el.count() > 0:
+                chk_lbl = await lbl_el.inner_text()
+            if not chk_lbl:
+                # Regions wraps the input in its <label> rather than using for=.
+                chk_lbl = await chk.evaluate("el => (el.closest('label') || {}).innerText || ''")
             if not chk_lbl:
                 parent = chk.locator('xpath=ancestor::div[contains(@class, "field") or contains(@class, "form-group") or contains(@class, "checkbox")][1]').first
                 if await parent.count() > 0:
@@ -2214,10 +2353,16 @@ async def _fill_standard_and_react_fields(
                 # The owner's rule: marketing and SMS opt-ins stay unticked.
                 continue
             if any(k in chk_lbl_low for k in ["consent", "agree", "acknowledge", "terms", "privacy", "survey", "certify", "understand"]):
-                await chk.check(force=True)
-                filled[chk_lbl[:50] or "Consent Checkbox"] = "checked"
-        except Exception:
-            pass
+                if input_shown:
+                    ticked = await _tick_checkbox(chk)
+                else:
+                    if not await chk.is_checked():
+                        await lbl_el.click()
+                    ticked = await chk.is_checked()
+                if ticked:
+                    filled[chk_lbl[:50] or "Consent Checkbox"] = "checked"
+        except Exception as chk_err:
+            logger.debug("Consent checkbox sweep skipped one box: %s", chk_err)
 
     # Radio button groups (Yes/No and other single-choice questions rendered
     # as radio inputs rather than <select>/combobox). Previously these were
@@ -2583,9 +2728,9 @@ async def _fill_standard_and_react_fields(
             role = await inp.get_attribute("role") or ""
             if role == "combobox":
                 continue
-            curr_val = (await inp.input_value()).strip()
-            if curr_val:
+            if await inp.evaluate(_IS_SITE_SEARCH_JS):
                 continue
+            curr_val = (await inp.input_value()).strip()
 
             inp_id = await inp.get_attribute("id") or ""
             inp_lbl = ""
@@ -2599,7 +2744,11 @@ async def _fill_standard_and_react_fields(
                     inp_lbl = (await parent.inner_text()).strip()
 
             inp_lbl_lower = inp_lbl.lower()
-            if not inp_lbl_lower:
+            if not inp_lbl_lower or inp_lbl_lower.startswith("search"):
+                continue
+
+            if curr_val:
+                await _correct_portal_prefill(inp, inp_lbl, inp_id, curr_val, profile, answer_lib, filled, filled_ids)
                 continue
 
             # Ask the centralised resolver first. The if/elif chain below only
@@ -3238,6 +3387,7 @@ async def _execute_live_playwright_submission_impl(
             APPLICATION_FORM_SELECTOR = (
                 '#first_name, #email, input[id*="first_name" i], '
                 'input[name*="first_name" i], input[name*="last_name" i], '
+                'input[name$=".firstName"], input[name$=".lastName"], '
                 'input[autocomplete="given-name"], input[id*="candidate" i]'
             )
             try:
@@ -3317,14 +3467,18 @@ async def _execute_live_playwright_submission_impl(
             # required" because it had found no fields at all, and the run went
             # on to click Submit on a form nothing had filled. Wait for real
             # inputs to exist before reading the form.
+            # A lone text input is usually the header's job-search box, which
+            # Phenom's apply page shows seconds before its SPA mounts the form
+            # (Fiserv: filling began against the search box and found nothing).
             for _ in range(30):
                 try:
+                    identity = await target_frame.locator(APPLICATION_FORM_SELECTOR).count()
                     ready = await target_frame.locator(
                         'input[type="text"], input[type="email"], input[type="tel"], textarea'
                     ).count()
                 except Exception:
-                    ready = 0
-                if ready:
+                    identity, ready = 0, 0
+                if identity or ready >= 3:
                     break
                 await asyncio.sleep(0.5)
 
@@ -3745,8 +3899,7 @@ async def _execute_live_playwright_submission_impl(
                                             "Not healing %r: it is one option of a choice group",
                                             (f_label or f_id)[:60],
                                         )
-                                    elif _affirms_checkbox(fix_val):
-                                        await elem.check(force=True)
+                                    elif _affirms_checkbox(fix_val) and await _tick_checkbox(elem):
                                         filled_fields[f_label or f_id] = "checked"
                                         filled_field_ids[f_label or f_id] = f_id
                                         if log_callback:

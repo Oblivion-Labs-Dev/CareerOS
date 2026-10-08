@@ -248,15 +248,22 @@ def _match_dom_field(
         matching = dom_by_label.get(res_lbl)
     if matching is not None or not res_lbl:
         return matching
+    # "Phone" is a prefix of both "Phone Device Type" and "Phone Number *";
+    # the label with the fewest extra words is the same question.
+    norm_res = re.sub(r"[\s*:]+", " ", res_lbl).strip()
+    best: tuple[int, dict[str, Any]] | None = None
     for d_lbl, d_field in dom_by_label.items():
-        if not d_lbl:
+        norm_d = re.sub(r"[\s*:]+", " ", d_lbl or "").strip()
+        if not norm_d:
             continue
-        shorter, longer = sorted((res_lbl, d_lbl), key=len)
+        shorter, longer = sorted((norm_res, norm_d), key=len)
         if shorter not in longer:
             continue
         if longer.startswith(shorter) or len(shorter) * 2 >= len(longer):
-            return d_field
-    return None
+            extra = len(longer) - len(shorter)
+            if best is None or extra < best[0]:
+                best = (extra, d_field)
+    return best[1] if best else None
 
 
 async def verify_browser_dom_state(
@@ -352,6 +359,11 @@ async def verify_browser_dom_state(
                         const childInput = searchRoot.querySelector('input');
                         if (childInput && childInput.value) val = childInput.value.trim();
                     }
+                } else if (el.tagName === 'SELECT') {
+                    // Phenom/Workday option values are codes ("USA-WA", "UMI",
+                    // "APPLICANT_SOURCE-3-12"); the answer is the option's text.
+                    const opt = el.value && el.selectedIndex >= 0 ? el.options[el.selectedIndex] : null;
+                    val = opt ? (opt.text || '').trim() : '';
                 } else {
                     val = el.value || '';
                 }
@@ -599,6 +611,10 @@ async def verify_browser_dom_state(
             # gets compared against the candidate's actual email address and
             # always "conflicts", since the two are semantically unrelated.
             if len(lbl_low) > 40:
+                continue
+            # "Phone Device Type", "Country Phone Code" and "Phone Extension"
+            # sit beside the number; none of them holds it.
+            if field_key == "phone" and re.search(r"device|type|code|extension|\bext\b|country", lbl_low):
                 continue
             # "first name"/"last name" also match within "preferred first name" —
             # that's fine, same expected value applies there too.
