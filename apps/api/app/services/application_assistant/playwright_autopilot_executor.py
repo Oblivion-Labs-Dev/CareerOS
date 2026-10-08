@@ -1249,8 +1249,10 @@ async def _advance_phenom_wizard(
                 check = await verify_browser_dom_state(page, [], profile)
                 empty = [" ".join((i.label or i.field_id).split())[:80]
                          for i in check.issues if i.issue_type == "MISSING_REQUIRED"]
+                dialog = await page.evaluate(_OPEN_DIALOG_TEXT_JS)
                 return (f"Phenom {step}: Next stays disabled"
-                        + (f"; required and empty: {'; '.join(empty[:5])}" if empty else "")), None
+                        + (f"; required and empty: {'; '.join(empty[:5])}" if empty else "")
+                        + (f"; the page shows a popup: {dialog}" if dialog else "")), None
             try:
                 await btn.scroll_into_view_if_needed(timeout=4000)
                 await btn.click(timeout=8000)
