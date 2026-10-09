@@ -733,11 +733,12 @@ def _resolve_answer_impl(
                 matched = _careers_page_option(opts)
             if matched is not None:
                 answer = matched
-            elif answer.lower() in ("yes", "no", "true", "false", "y", "n"):
+            else:
                 # The saved answer names no option this control offers, so
-                # returning it would write a value that can never be selected.
-                # Fall through to the type-specific resolver, which knows how to
-                # read this particular question's option list.
+                # returning it would write a value that can never be selected
+                # (Xometry: a saved "United States" against a list of three
+                # metro areas). Fall through to the type-specific resolver,
+                # which knows how to read this particular question's option list.
                 answer = ""
         if answer:
             resolution.answer = answer
@@ -814,6 +815,8 @@ def _resolve_answer_impl(
     # (and differently-scoped) question.
     if not is_sensitive_factual(qtype) and answer_lib:
         approved = _find_user_approved_answer(question_text, answer_lib)
+        if approved and opts:
+            approved = _match_option(opts, str(approved))
         if approved:
             resolution.answer = approved
             resolution.resolution_method = USER_OVERRIDE
@@ -985,11 +988,32 @@ def _resolve_location(res: AnswerResolution, profile: dict, opts: list[str]) -> 
         res.answer = f"{city}, {state}"
     elif city:
         res.answer = city
+    if res.answer and opts:
+        # A pick-list of places: the candidate's own city, or the country, or -
+        # when every listed place is somewhere else - the option saying so.
+        picked = (
+            _own_city_option(opts, profile)
+            or _match_option(opts, res.answer)
+            or _match_option(opts, str(profile.get("country") or "United States"))
+            or next((o for o in opts if _NONE_OF_THE_LISTED.match(o)), None)
+        )
+        if not picked:
+            res.answer = None
+            return
+        res.source_value = res.answer
+        res.answer = picked
+        res.resolution_method = PROFILE_OPTION_MAPPING
+        res.profile_key = "location"
+        res.confidence = 1.0
+        return
     if res.answer:
         res.resolution_method = PROFILE_EXACT
         res.profile_key = "location"
         res.source_value = res.answer
         res.confidence = 1.0
+
+
+_NONE_OF_THE_LISTED = re.compile(r"\s*(?:none\s+of\s+(?:the\s+)?(?:above|these|listed)|other)\s*\.?\s*$", re.I)
 
 def _resolve_city(res: AnswerResolution, profile: dict, opts: list[str]) -> None:
     # Profiles store one combined "location" string (e.g. "Auburn, WA") rather

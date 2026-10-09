@@ -907,3 +907,55 @@ def test_essays_whose_employer_forbids_ai_are_not_generated(q):
     from app.services.application_assistant.llm_answer_generator import generate_theory_answer
     result = asyncio.run(generate_theory_answer(q))
     assert result["success"] is False and result["answer"] == ""
+
+
+@pytest.mark.parametrize("q", [
+    # Scout Motors: "resume" in the attestation routed it to RESUME.
+    "I confirm that the information I have provided in my application and resume is true, complete, and "
+    "accurate to the best of my knowledge. I understand that any false, misleading, or omitted information "
+    "may result in disqualification from consideration.",
+    # Quest Defense.
+    "Disclaimer: I understand that any misrepresentation, falsification or omission of this application shall "
+    "be sufficient reason for refusal to hire or, if employment has begun, dismissal of my employment.",
+    # Scout Motors: "base pay range" routed it to SALARY, answered with a dollar figure.
+    "The job description includes a stated initial base pay range. Final pay will be determined based on "
+    "factors such as skills and experience, and offers will not exceed the posted starting base pay range. "
+    "Do you acknowledge and agree to these compensation terms?",
+])
+def test_application_attestations_classify_as_accuracy_confirmation(q):
+    from app.services.application_assistant.profile_answer_resolver import resolve_answer
+    assert _t(q) == QuestionType.ACCURACY_CONFIRMATION
+    assert resolve_answer(q, {}, ["Yes", "No"]).answer == "Yes"
+
+
+def test_learn_about_the_position_is_a_referral_source_question():
+    assert _t("How did you learn about the position") == QuestionType.HOW_HEARD
+
+
+_AUBURN = {"city": "Auburn", "state": "Washington", "location": "Auburn, WA", "country": "United States"}
+
+
+def test_saved_location_answer_outside_the_offered_metros_picks_none_of_the_above():
+    # Xometry: a saved "United States" was written into a dropdown of three
+    # metro areas and left the required field blank.
+    from app.services.application_assistant.profile_answer_resolver import resolve_answer
+    profile = {**_AUBURN, "screeningAnswers": [
+        {"id": "current-location", "question": "Where are you currently located?", "answer": "United States"},
+    ]}
+    opts = ["Near or in Boston, MA area", "Near or in Lexington, KY", "Near or in North Bethesda, MD",
+            "None of the above"]
+    assert resolve_answer("Where are you currently located?*", profile, opts).answer == "None of the above"
+
+
+def test_location_question_with_own_city_option_picks_it():
+    from app.services.application_assistant.profile_answer_resolver import resolve_answer
+    opts = ["Auburn, WA", "Boston, MA", "None of the above"]
+    assert resolve_answer("Where are you currently located?", _AUBURN, opts).answer == "Auburn, WA"
+
+
+def test_approved_answer_that_names_no_offered_option_is_not_returned():
+    # Discord: a library answer of "United States" was returned for a Yes/No
+    # "Are you currently located in the US?" before the option check ran.
+    from app.services.application_assistant.profile_answer_resolver import resolve_answer
+    lib = [{"questionVariants": ["Are you currently located in the US?"], "value": "United States"}]
+    assert resolve_answer("Are you currently located in the US?*", _AUBURN, ["Yes", "No"], answer_lib=lib).answer == "Yes"

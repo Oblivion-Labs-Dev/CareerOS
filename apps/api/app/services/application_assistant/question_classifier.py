@@ -224,6 +224,15 @@ _CLASSIFICATION_RULES: list[tuple[QuestionType, list[str]]] = [
         # Vestmark: "I affirm that the information provided on this application
         # and resume is true and complete" mentions the resume but attests.
         r"\bi\s+affirm\b.{0,120}\btrue\s+and\s+complete",
+        # Scout Motors: "I confirm that the information I have provided in my
+        # application and resume is true, complete, and accurate".
+        r"\bi\s+(?:confirm|certify|affirm)\b.{0,160}\btrue,?\s+(?:and\s+)?(?:complete|correct|accurate)",
+        # Quest Defense: "I understand that any misrepresentation, falsification
+        # or omission of this application shall be sufficient reason for refusal to hire".
+        r"\bi\s+understand\s+that\s+any\s+(?:misrepresentation|falsification|false)",
+        # Scout Motors: "...offers will not exceed the posted starting base pay
+        # range. Do you acknowledge and agree to these compensation terms?"
+        r"\backnowledge\b.{0,40}\b(?:compensation|pay|salary)\s+terms\b",
     ]),
     # ── Work Auth (specific before general) ──
     (QuestionType.PERMANENT_WORK_AUTHORIZATION, [
@@ -870,6 +879,7 @@ _CLASSIFICATION_RULES: list[tuple[QuestionType, list[str]]] = [
         r"where\s*did\s*you.*hear",
         r"where\s+(have\s+you|did\s+you)\s+learn(ed)?\s+about",
         r"learn\s*about.*employer",
+        r"how\s+did\s+you\s+learn\s+about\s+(?:the|this|our)\s+(?:position|role|job|opening)",
         r"how.*first\s+learn",
         # DoorDash: "How much did content from the DoorDash Engineering blog
         # influence your decision to apply for a role at DoorDash?"
