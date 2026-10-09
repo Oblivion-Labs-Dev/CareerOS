@@ -960,6 +960,8 @@ _CLASSIFICATION_RULES: list[tuple[QuestionType, list[str]]] = [
         r"(are|were)\s+you\s+(?:an?\s+)?(?:existing|current|present)\s+employee",
         # Mindbody: "Are you a current or former Mindbody, ClassPass, EGYM, or Booker employee?"
         r"\bare\s+you\s+an?\s+(?:current\s+or\s+former|former\s+or\s+current)\b.{0,80}?\bemployee",
+        # Motional: "Are you currently a Motional employee?"
+        r"\bare\s+you\s+currently\s+an?\s+(?:[\w&.'-]+\s+){1,3}employee\b",
         # Greenhouse asks the compound form "Do you currently, or have you
         # previously, worked at X" - the commas broke the pattern above.
         r"do\s+you\s+currently[^?]{0,60}(worked|work|been\s+employed)\s*(at|for|by)",
