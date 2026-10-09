@@ -953,6 +953,17 @@ def test_location_question_with_own_city_option_picks_it():
     assert resolve_answer("Where are you currently located?", _AUBURN, opts).answer == "Auburn, WA"
 
 
+def test_what_type_of_visa_sponsorship_is_answered_with_the_visa():
+    # Bot Auto: a saved sponsorship "Yes" was submitted as the visa type.
+    from app.services.application_assistant.profile_answer_resolver import resolve_answer
+    profile = {"workAuth": {"requiresSponsorshipNowOrFuture": True, "authorizationType": "H-1B",
+                            "authorizedToWorkInUS": True},
+               "screeningAnswers": [{"id": "sponsor", "question": "Will you require visa sponsorship?",
+                                     "answer": "Yes", "matchPatterns": ["visa sponsorship"]}]}
+    q = "If Yes: - What type of visa sponsorship will you require? - Do you currently hold a valid U.S. visa?"
+    assert resolve_answer(q, profile).answer == "H-1B"
+
+
 def test_approved_answer_that_names_no_offered_option_is_not_returned():
     # Discord: a library answer of "United States" was returned for a Yes/No
     # "Are you currently located in the US?" before the option check ran.

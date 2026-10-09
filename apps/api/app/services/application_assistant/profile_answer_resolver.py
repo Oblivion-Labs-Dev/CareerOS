@@ -1363,7 +1363,8 @@ def _resolve_work_authorized(res: AnswerResolution, profile: dict, opts: list[st
 
 _ASKS_VISA_TYPE = re.compile(
     r"what\s+is\s+your\s+(?:current\s+)?(?:work\s+authori[sz]ation|visa|immigration)\s+status"
-    r"|(?:list|specify|describe)\s+the\s+type\s+of\s+(?:support|sponsorship|visa)",
+    r"|(?:list|specify|describe)\s+the\s+type\s+of\s+(?:support|sponsorship|visa)"
+    r"|what\s+(?:type|kind)\s+of\s+(?:visa|sponsorship|work\s+authori[sz]ation)",
     re.I,
 )
 
