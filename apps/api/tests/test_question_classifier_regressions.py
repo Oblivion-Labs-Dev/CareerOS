@@ -964,6 +964,15 @@ def test_what_type_of_visa_sponsorship_is_answered_with_the_visa():
     assert resolve_answer(q, profile).answer == "H-1B"
 
 
+def test_current_or_former_employee_of_named_brands_is_company_history():
+    # Mindbody lists its sister brands between "current or former" and "employee".
+    from app.services.application_assistant.profile_answer_resolver import resolve_answer
+    q = "Are you a current or former Mindbody, ClassPass, EGYM, or Booker employee? *"
+    assert _t(q) == QuestionType.COMPANY_HISTORY
+    profile = {"workExperience": [{"company": "Microsoft"}]}
+    assert resolve_answer(q, profile, ["Yes", "No"]).answer == "No"
+
+
 def test_years_question_excluding_internships_is_answered_from_the_profile():
     # Anthropic: "not counting ... co-ops" was read as four unproven technologies.
     from app.services.application_assistant.profile_answer_resolver import resolve_answer
