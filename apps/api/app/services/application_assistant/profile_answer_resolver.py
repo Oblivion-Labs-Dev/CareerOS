@@ -3347,6 +3347,7 @@ relevant related total overall qualified qualifying industry paid time part care
 entry post graduate individual contributor prior previous past current deliver delivering delivered shipping
 practice practices automated automation testing test tests devops
 excluding excluded internship internships advanced complex general full-time
+not count counting counted co op ops coop coops
 phd degree specifically outside educational academic personal api apis
 information needed required necessary computer science field fields object oriented
 technical environment environments including highly transactional mission critical

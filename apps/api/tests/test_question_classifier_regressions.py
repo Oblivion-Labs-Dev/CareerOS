@@ -964,6 +964,14 @@ def test_what_type_of_visa_sponsorship_is_answered_with_the_visa():
     assert resolve_answer(q, profile).answer == "H-1B"
 
 
+def test_years_question_excluding_internships_is_answered_from_the_profile():
+    # Anthropic: "not counting ... co-ops" was read as four unproven technologies.
+    from app.services.application_assistant.profile_answer_resolver import resolve_answer
+    q = ("How many years of professional software engineering experience do you have "
+         "(not counting internships or co-ops)?")
+    assert resolve_answer(q, {"yearsExperience": 9}, ["Less than 5", "5-8", "8+"]).answer == "8+"
+
+
 def test_approved_answer_that_names_no_offered_option_is_not_returned():
     # Discord: a library answer of "United States" was returned for a Yes/No
     # "Are you currently located in the US?" before the option check ran.
