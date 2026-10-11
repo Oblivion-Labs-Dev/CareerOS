@@ -1363,7 +1363,7 @@ def _resolve_work_authorized(res: AnswerResolution, profile: dict, opts: list[st
 
 _ASKS_VISA_TYPE = re.compile(
     r"what\s+is\s+your\s+(?:current\s+)?(?:work\s+authori[sz]ation|visa|immigration)\s+status"
-    r"|(?:list|specify|describe)\s+the\s+type\s+of\s+(?:support|sponsorship|visa)"
+    r"|(?:list|specify|describe)\s+the\s+type\s+of\s+(?:support|sponsorship|visa|assistance)"
     r"|what\s+(?:type|kind)\s+of\s+(?:visa|sponsorship|work\s+authori[sz]ation)",
     re.I,
 )
@@ -2093,7 +2093,20 @@ def _resolve_company_familiarity(res: AnswerResolution, profile: dict, opts: lis
     res.confidence = 0.85
 
 
+_SELF_FUNDED_OR_TIMELINE = re.compile(
+    r"without\s+(?:any\s+)?(?:employer|company|relocation)\s+(?:assistance|support|help)"
+    r"|self[-\s]?fund|own\s+expense|own\s+cost|\btimeline\b|when\s+(?:could|can|would)\s+you\s+relocate",
+    re.I,
+)
+
+
 def _resolve_relocate(res: AnswerResolution, profile: dict, opts: list[str]) -> None:
+    if _SELF_FUNDED_OR_TIMELINE.search(res.question or ""):
+        # Paying for one's own move, or when one could move, is a commitment
+        # the profile never records; leave it for the candidate.
+        res.resolution_method = UNKNOWN_METHOD
+        res.confidence = 0.0
+        return
     # "Are you willing to relocate?" and "Will you REQUIRE relocation
     # (assistance)?" are opposite-direction questions that both match the
     # same "relocat" classifier pattern — a candidate open to relocating

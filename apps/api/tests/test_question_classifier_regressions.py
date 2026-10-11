@@ -847,6 +847,27 @@ def test_h1b_sponsorship_never_picks_another_named_visa():
     assert resolve_answer(q, _H1B, plain).answer == plain[0]
 
 
+def test_specify_the_type_of_sponsorship_assistance_names_the_visa():
+    from app.services.application_assistant.profile_answer_resolver import resolve_answer
+    profile = dict(_H1B, screeningAnswers=[{"id": "sponsorship_us", "question": "Will you require sponsorship?",
+                                            "answer": "Yes", "matchPatterns": [r"sponsorship"]}])
+    q = ("If you will require sponsorship, please specify the type of assistance you would need (e.g., 'I currently "
+         "hold an H-1B and require a transfer' or 'I am on F-1 OPT and will need H-1B sponsorship').")
+    assert resolve_answer(q, profile, []).answer == "H-1B"
+
+
+@pytest.mark.parametrize("q", [
+    "If you will require relocation, what is your expected timeline and would you be willing and able to relocate "
+    "without employer assistance (i.e., self-funded and independently arranged)?",
+    "Would you be able to relocate at your own expense?",
+])
+def test_self_funded_relocation_and_timeline_stay_for_review(q):
+    from app.services.application_assistant.profile_answer_resolver import resolve_answer
+    profile = {"relocate": "Yes", "relocateAssistance": "Yes"}
+    assert resolve_answer(q, profile, []).answer is None
+    assert resolve_answer(q, profile, ["Yes", "No"]).answer is None
+
+
 @pytest.mark.parametrize("opts", [
     ["American Indian or Alaska Native", "Black or African American", "East Asian", "South Asian", "White"],
     ["Black or of African descent", "East Asian", "South Asian", "Southeast Asian"],
