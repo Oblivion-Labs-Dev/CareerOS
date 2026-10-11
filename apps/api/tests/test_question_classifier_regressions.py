@@ -1034,6 +1034,13 @@ def test_are_you_currently_a_named_company_employee_is_company_history():
     assert resolve_answer(q, {"workExperience": [{"company": "Microsoft"}]}).answer == "No"
 
 
+def test_ever_been_employed_with_named_companies_is_company_history():
+    from app.services.application_assistant.profile_answer_resolver import resolve_answer
+    q = "Have you ever been employed with Truckstop, D&S Factors or Grizella? *"
+    assert _t(q) == QuestionType.COMPANY_HISTORY
+    assert resolve_answer(q, {"workExperience": [{"company": "Microsoft"}]}, ["Yes", "No"]).answer == "No"
+
+
 def test_years_question_excluding_internships_is_answered_from_the_profile():
     # Anthropic: "not counting ... co-ops" was read as four unproven technologies.
     from app.services.application_assistant.profile_answer_resolver import resolve_answer

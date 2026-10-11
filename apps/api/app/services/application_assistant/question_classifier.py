@@ -971,7 +971,8 @@ _CLASSIFICATION_RULES: list[tuple[QuestionType, list[str]]] = [
         # previously, worked at X" - the commas broke the pattern above.
         r"do\s+you\s+currently[^?]{0,60}(worked|work|been\s+employed)\s*(at|for|by)",
         r"currently[,\s]+or\s+have\s+you\s+previously",
-        r"have\s+you\s+(ever\s+)?been\s+employed\s*(by|at|for)",
+        # Truckstop: "Have you ever been employed with Truckstop, D&S Factors or Grizella?"
+        r"have\s+you\s+(ever\s+)?been\s+employed\s*(by|at|for|with)",
         # Asana: "Have you been employed, or otherwise engaged, by an Asana
         # entity in the past?" - the parenthetical between "employed" and "by"
         # broke the contiguous pattern above, the same way the adverb did in
