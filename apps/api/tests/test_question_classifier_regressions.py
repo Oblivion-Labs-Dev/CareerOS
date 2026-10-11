@@ -833,6 +833,20 @@ def test_h1b_sponsorship_picks_the_h1b_option_over_a_saved_plain_yes():
     assert resolve_answer(q, profile, opts).answer == "Yes, I am on an H1B Visa"
 
 
+_GITLAB_VISAS = ["No", "Yes, Netherlands Highly Skilled Migrant Visa", "Yes, Ireland Highly Skilled Worker Visa",
+                 "Yes, EU Blue Card", "Yes, USMCA Professional (TN) Visa (USA)", "Yes, F-1 Visa OPT (USA)"]
+
+
+def test_h1b_sponsorship_never_picks_another_named_visa():
+    from app.services.application_assistant.profile_answer_resolver import resolve_answer
+    q = "Will you now or in the future require sponsorship for a visa to remain in your current location?"
+    opts = _GITLAB_VISAS + ["Yes, but not one of the visas listed here"]
+    assert resolve_answer(q, _H1B, opts).answer == "Yes, but not one of the visas listed here"
+    assert resolve_answer(q, _H1B, _GITLAB_VISAS).answer is None
+    plain = ["Yes, I will require visa sponsorship", "No, I will not require sponsorship"]
+    assert resolve_answer(q, _H1B, plain).answer == plain[0]
+
+
 @pytest.mark.parametrize("opts", [
     ["American Indian or Alaska Native", "Black or African American", "East Asian", "South Asian", "White"],
     ["Black or of African descent", "East Asian", "South Asian", "Southeast Asian"],

@@ -1379,6 +1379,16 @@ def _visa_type_answer(question: str, profile: dict) -> str | None:
     return visa if wa.get("requiresSponsorshipNowOrFuture") and visa else None
 
 
+_CATCH_ALL_VISA_OPTION = re.compile(
+    r"\bother\b|\bnot\s+(?:one\s+of\s+)?(?:the\s+)?(?:visas?\s+|options?\s+)?listed|\bnone\s+of\s+the", re.I,
+)
+_NAMES_VISA_TYPE = re.compile(
+    r"\bh-?1b?\b|\bh-?4\b|\bf-?1\b|\bj-?1\b|\bl-?1\b|\bo-?1\b|\be-?3\b|\btn\b|\bopt\b|\bcpt\b|\bstem\b"
+    r"|blue\s+card|green\s+card|highly\s+skilled|skilled\s+(?:worker|migrant)|\bmigrant\b|\bpermit\b",
+    re.I,
+)
+
+
 def _resolve_sponsorship_required(res: AnswerResolution, profile: dict, opts: list[str]) -> None:
     wa = _get_work_auth(profile)
     requires = wa["requiresSponsorshipNowOrFuture"]
@@ -1402,13 +1412,21 @@ def _resolve_sponsorship_required(res: AnswerResolution, profile: dict, opts: li
             if specific_match:
                 res.answer = specific_match
             else:
-                # Prefer a plain "Yes" option; only fall back to a
-                # visa-specific-sounding option if that's genuinely all
-                # that's offered, and even then prefer a generic catch-all
-                # ("Other") over guessing a specific visa type.
+                # Prefer a plain "Yes", then a catch-all ("Other", "Yes, but
+                # not one of the visas listed here"), then a "Yes" naming no
+                # visa type. An option naming a different visa is never picked.
                 generic_yes = next((o for o in opts if o.strip().lower() == "yes"), None)
                 other_opt = next((o for o in opts if o.strip().lower() == "other"), None)
-                res.answer = generic_yes or other_opt or (_match_option(opts, "Yes") or "Yes")
+                yes_opts = [o for o in opts if o.strip().lower().startswith("yes")]
+                catch_all = next((o for o in yes_opts if _CATCH_ALL_VISA_OPTION.search(o)), None)
+                unnamed = next(
+                    (o for o in yes_opts if not _NO_SPONSOR.search(o) and not _NAMES_VISA_TYPE.search(o)), None,
+                )
+                res.answer = generic_yes or other_opt or catch_all or unnamed
+                if not res.answer:
+                    res.resolution_method = UNKNOWN_METHOD
+                    res.confidence = 0.0
+                    return
         else:
             matched = _match_option(opts, "No")
             res.answer = matched or "No"
