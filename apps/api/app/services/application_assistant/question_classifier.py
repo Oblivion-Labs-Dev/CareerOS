@@ -240,6 +240,10 @@ _CLASSIFICATION_RULES: list[tuple[QuestionType, list[str]]] = [
         r"permanent\s+right\s+to\s+work",
         r"do you have permanent\s+(work\s+)?authoriz",
         r"permanent\s+legal\s+authoriz",
+        # OpenEye: "unlimited and unrestricted authorization to work" — an
+        # H-1B is restricted to the sponsoring employer.
+        r"\bunrestricted\s+(?:work\s+)?(?:authoriz|right\s+to\s+work)",
+        r"\bunlimited\s+(?:and\s+unrestricted\s+)?(?:work\s+)?authoriz",
     ]),
     (QuestionType.EXPORT_CONTROL, [
         r"export\s+control",

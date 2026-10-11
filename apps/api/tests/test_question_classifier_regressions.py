@@ -847,6 +847,18 @@ def test_h1b_sponsorship_never_picks_another_named_visa():
     assert resolve_answer(q, _H1B, plain).answer == plain[0]
 
 
+@pytest.mark.parametrize("q", [
+    "Do you have unlimited and unrestricted authorization to work in the United States (or, if the position is not "
+    "based in the United States., do you have unlimited and unrestricted authorization to work in the country in "
+    "which the position is based)?",
+    "Do you have unrestricted work authorization in the US?",
+])
+def test_h1b_does_not_have_unrestricted_work_authorization(q):
+    from app.services.application_assistant.profile_answer_resolver import resolve_answer
+    assert classify_question(q) == QuestionType.PERMANENT_WORK_AUTHORIZATION
+    assert resolve_answer(q, _H1B, ["Yes", "No"]).answer == "No"
+
+
 def test_specify_the_type_of_sponsorship_assistance_names_the_visa():
     from app.services.application_assistant.profile_answer_resolver import resolve_answer
     profile = dict(_H1B, screeningAnswers=[{"id": "sponsorship_us", "question": "Will you require sponsorship?",
