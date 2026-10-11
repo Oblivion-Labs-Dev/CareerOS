@@ -1,11 +1,11 @@
 ---
 name: autopilot-night-batch-loop
-description: Autonomous overnight batch application monitoring, fresh-jobs-first intake (postings from the last 24 hours are pulled and applied to before older queued jobs), 10-application audit loop, deterministic question resolution, and company cap preservation for CareerOS.
+description: Autonomous overnight batch application monitoring, fresh-jobs-first intake (postings from the last 24 hours are pulled and applied to before older queued jobs), a 30-minute audit loop, deterministic question resolution, mid-run fix deployment, company cap preservation and a morning handoff for CareerOS.
 ---
 
 # Autopilot Night Batch Loop Skill
 
-Autonomous, unattended or monitored overnight batch application processing for CareerOS with fresh-jobs-first intake, continuous safety validation, 10-application audit intervals, deterministic question classification, and strict per-company pacing.
+Autonomous, unattended or monitored overnight batch application processing for CareerOS with fresh-jobs-first intake, continuous safety validation, an audit of every job on each 30-minute tick, deterministic question classification, and strict per-company pacing.
 
 ## When to Use
 
@@ -23,8 +23,16 @@ Trigger this skill when:
 The night loop never ends on its own. It stops only when the user explicitly says to stop/break/end the night loop.
 
 - **Runner side**: one `POST /application-assistant/autopilot/start` run is already continuous. When `processedCount` reaches `targetProcessCount`, the runner resets its counters and starts the next batch instead of finishing. If the run is found `PAUSED` (queue drained), `STOPPED` or `FAILED` without the user asking, do a fresh 24-hour pull and start it again (`{"targetProcessCount": 100, "concurrency": 1}`). The only exception is a stop-the-run defect (see Step 2b), which you must fix before restarting.
-- **Agent side**: monitoring must survive between chat turns. Arm a recurring wake-up with the `loop` skill (local: a background PowerShell loop printing a sentinel such as `AGENT_LOOP_TICK_nightloop` every ~30 minutes, watched with `notify_on_output`). On every tick run the 10-application audit, the fresh-pull check and the review-question check below. Check the terminals for an existing loop first; never run two.
+- **Agent side**: monitoring must survive between chat turns. Arm a recurring wake-up with the `loop` skill (local: a background PowerShell loop printing a sentinel such as `AGENT_LOOP_TICK_nightloop` every ~30 minutes, watched with `notify_on_output`). On every tick run the audit, the fresh-pull check and the review-question check below. Check the terminals for an existing loop first; never run two.
 - **Breaking the loop**: only on an explicit user request. Then kill the sentinel loop's PID, `POST /application-assistant/autopilot/stop`, and confirm both stopped.
+
+### Before the user leaves
+Settle these while the user is still around; overnight nobody can answer them:
+1. **Boards after Greenhouse/Lever/Ashby run out.** With `submittableBoardsOnly` on, the runner moves to Workday, Phenom and aggregator postings once no submittable job is free of a company hold. Those almost all end in `MANUAL_REVIEW` (Workday sign-in walls, no form on the page, bot walls). Ask whether to let it keep going (it triages the backlog into the manual list) or to stop once starved (see "When the submittable boards run dry").
+2. **Pending answers.** Open `GET /application-assistant/autopilot/readiness` and ask the top questions by `unblocksAlone` now (Step 4b) instead of carrying them to the morning.
+3. **Browse Jobs alignment** (Step 6) once; it does not need repeating every tick.
+
+Open the night's entry in `NIGHT_BATCH_DECISIONS.md` (see "Morning Handoff") with the run id, the sentinel PID and the time of the fresh pull.
 
 ---
 
@@ -55,7 +63,7 @@ The night loop never ends on its own. It stops only when the user explicitly say
 
 ## Fresh-Jobs-First Intake (last 24 hours)
 
-Postings published in the **last 24 hours** are pulled and applied to before anything already waiting in the queue. Run this at the start of every night loop, and again whenever the last fresh pull is more than ~3 hours old (check it during the 10-application audit).
+Postings published in the **last 24 hours** are pulled and applied to before anything already waiting in the queue. Run this at the start of every night loop, and again whenever the last fresh pull is more than ~3 hours old (check it on every tick). The runner's own 14-day scrape also covers the last 24 hours, so it counts as a fresh pull. When the run is starved (see "When the submittable boards run dry"), pull on every tick.
 
 ### Step 1: Pull the last 24 hours of postings
 Run this **before** `POST /application-assistant/autopilot/start`. Starting the runner also starts the queue preprocessor, which immediately launches its own 14-day (`hours=336`) scrape, and only one scrape can run at a time.
@@ -124,49 +132,100 @@ for j in sorted(jobs, key=lambda j: j.get('queuePriority') or 0, reverse=True)[:
 ```
 The top rows should all be under 24h old (unless they are on a company hold). Then confirm the runner's current/next job in `GET /application-assistant/autopilot/status` is a fresh posting.
 
+### When the submittable boards run dry
+Submissions come almost entirely from Greenhouse/Lever/Ashby. On a typical night those are used up within the first one or two hours, and the big employers hit their daily caps soon after. From then on the runner keeps processing but nearly nothing reaches submit. On 2026-10-09 the first 90 minutes produced 8 submissions and the next five hours produced 2.
+
+Check this on every tick (run from `apps/api`):
+```python
+import sqlite3, json
+from app.services.application_assistant.autopilot_runner import _is_submittable_board
+from app.services.application_assistant.company_cap import partition_by_cap
+
+conn = sqlite3.connect('data/career_os.db')
+jobs = [json.loads(r[0]) for r in conn.execute(
+    "SELECT payload FROM entities WHERE entity_type = 'aa_autopilot_job'")]
+queued = [j for j in jobs if j.get('status') == 'QUEUED']
+applyable, held = partition_by_cap(queued, jobs)
+print(f"QUEUED={len(queued)} held={len(held)} applyable={len(applyable)} "
+      f"submittable={sum(map(_is_submittable_board, applyable))}")
+```
+The run is **starved** when `submittable` is 0 and no job was submitted in the last two ticks. Then:
+1. Run the 24-hour pull on every tick instead of every ~3 hours. Newly published Greenhouse/Lever/Ashby postings are the only new source of submissions.
+2. Follow the user's choice from "Before the user leaves": keep the runner triaging the other boards, or stop it until a pull brings submittable jobs (then start it again).
+3. Never lift company holds or use `priorityJobIds` to feed it.
+4. Record the time the run became starved in the handoff.
+
 ---
 
-## The 10-Application Audit Cadence
+## The Audit (every tick)
 
-Every **10 applications processed** by the runner, execute the following audit routine (and re-run the Fresh-Jobs-First Intake if the last 24-hour pull is more than ~3 hours old):
+Run this on every tick, covering **every job touched since the previous tick**. A 30-minute tick covers 40–120 jobs, most of them fast `MANUAL_REVIEW` outcomes, so a "last 15 jobs" query misses most of them. Also re-run the Fresh-Jobs-First Intake when it is due.
 
 ### Step 1: Query Runner Status
 ```bash
 curl -s http://127.0.0.1:4000/application-assistant/autopilot/status
 ```
+The status endpoint serves a stale-while-revalidate cache (~3s TTL), so the first poll after a gap returns an old snapshot. Poll twice, or read the run directly (`entity_type = 'aa_autopilot_run'`: `status`, `processedCount`, `submittedCount`, `lastHeartbeatAt`) before deciding the runner is stuck.
+
 Verify:
 - `workers[0].status`: `applying`, `filling`, or `idle`.
 - Heartbeat is fresh (< 60s old).
-- Current job ID, company, title, and step.
+- Current job ID, company, title, and step (`recentLogs[-1].message`).
 
 ### Step 2: Audit Recent Job Outcomes
-Inspect the last 10–15 processed jobs in `career_os.db`:
+List every job touched since the previous tick (pass its UTC time, e.g. `2026-10-09T14:26:00`):
 ```python
-import sqlite3, json
+import sqlite3, json, sys
+sys.stdout.reconfigure(encoding='utf-8', errors='replace')  # titles contain zero-width characters
 
+since = sys.argv[1]
 conn = sqlite3.connect('apps/api/data/career_os.db')
-c = conn.cursor()
-c.execute("""
-    SELECT payload FROM entities 
-    WHERE entity_type = 'aa_autopilot_job' 
-      AND json_extract(payload, '$.status') IN ('NEEDS_REVIEW', 'MANUAL_REVIEW', 'SUBMITTED', 'FAILED', 'APPLYING')
-    ORDER BY json_extract(payload, '$.updatedAt') DESC LIMIT 15
-""")
-for row in c.fetchall():
-    d = json.loads(row[0])
+rows = conn.execute("""
+    SELECT payload FROM entities
+    WHERE entity_type = 'aa_autopilot_job'
+      AND json_extract(payload, '$.updatedAt') >= ?
+      AND json_extract(payload, '$.status') != 'QUEUED'
+    ORDER BY json_extract(payload, '$.updatedAt')
+""", (since,)).fetchall()
+print(f"touched since {since}: {len(rows)}")
+for (payload,) in rows:
+    d = json.loads(payload)
     print(f"[{d.get('status')}] {d.get('company')} - {d.get('title')} ({d.get('id')})")
-    print(f"  aiExplanation: {d.get('aiExplanation')}")
-    print(f"  unresolvedFields: {d.get('unresolvedFields')}")
+    if d.get('status') not in ('SUBMITTED', 'SKIPPED'):
+        print(f"  lastError: {(d.get('lastError') or '')[:300]}")
+        print(f"  pending: {[q.get('question') if isinstance(q, dict) else q for q in d.get('pendingQuestions') or []]}")
 ```
+Most `MANUAL_REVIEW` rows are correct and need no action: Workday candidate-account sign-in, "no application form on the posting page", account-password pages, and bot walls. Skim them by reason. Spend the tick on `SUBMITTED`, `NEEDS_REVIEW` and `SUBMISSION_UNKNOWN`.
 
 ### Step 2b: Verify answers match the profile
-Answers must come from the `profile` key in `kv_store` (the `user_profile`, `user_profile_default` and `candidate_profile` keys are stale copies nothing reads). For the jobs just processed, compare the `answers` on each `aa_autopilot_job` against the profile:
-- Sponsorship questions must match `workAuth.requiresSponsorshipNowOrFuture` (currently **Yes**, H-1B); work-authorization questions must match `workAuth.authorizedToWorkInUS`.
+Answers must come from the `profile` key in `kv_store` (the `user_profile`, `user_profile_default` and `candidate_profile` keys are stale copies nothing reads). For the jobs just processed, compare the `answers` on each `aa_autopilot_job` against the profile. This prints the answers that matter for every submission since the previous tick:
+```python
+import sqlite3, json, sys
+sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+
+since = sys.argv[1]
+WORDS = ('sponsor', 'authoriz', 'city', 'locat', 'reloc', 'resid', 'live', 'visa', 'name')
+conn = sqlite3.connect('apps/api/data/career_os.db')
+for (payload,) in conn.execute("""
+    SELECT payload FROM entities
+    WHERE entity_type = 'aa_autopilot_job'
+      AND json_extract(payload, '$.status') IN ('SUBMITTED', 'SUBMISSION_UNKNOWN')
+      AND json_extract(payload, '$.updatedAt') >= ?
+""", (since,)):
+    d = json.loads(payload)
+    print(f"[{d.get('status')}] {d.get('company')} - {d.get('title')}")
+    for k, v in (d.get('answers') or {}).items():
+        if any(w in k.lower() for w in WORDS) or str(v).lower() == 'checked':
+            print(f"    {k[:100]!r} -> {str(v)[:70]!r}")
+```
+Check:
+- Sponsorship questions must match `workAuth.requiresSponsorshipNowOrFuture` (currently **Yes**, H-1B); work-authorization questions must match `workAuth.authorizedToWorkInUS`. Exception: "authorized to work … for any employer … without restriction" (or "permanent basis") is correctly answered **No**, because H-1B is tied to the sponsoring employer. The stored `answers` keys are cut to 50 characters, so read the full question from the job's `aa_form_field` entity (`fullQuestionText`) before calling a mismatch.
 - City/location answers must match `city`/`state` (currently Auburn, Washington), never another city.
+- Name fields must hold the candidate's name. The form filler has typed other answers (a degree, a phone number) into First Name; DOM verification has caught every case so far, but a submitted one is a stop-the-run defect.
 - Residence/on-site questions must never claim the candidate already lives somewhere they don't; with `relocate: Yes` the answer is "willing to relocate".
 - `answers` entries whose value is `checked` and whose key is an option label ("No, I do not require sponsorship ...", "Yes, I am on an F1 Visa ...") mean healing ticked a box of a choice group. Open the `_presubmit.png` screenshot (crop and enlarge it; Greenhouse draws a ticked box as a grey check, an unticked one as an empty square) and confirm only one option per single-choice question is ticked.
 
-A mismatch is a stop-the-run defect: `POST /application-assistant/autopilot/stop`, reproduce with `profile_answer_resolver.resolve_answer(question, profile, options)`, fix, add a regression test, then restart.
+A mismatch is a stop-the-run defect: `POST /application-assistant/autopilot/stop`, reproduce with `profile_answer_resolver.resolve_answer(question, profile, options)`, fix, add a regression test (Step 4), deploy and restart (see "Deploying a Fix Mid-Run").
 
 ### Step 3: Triage & Classify
 - **`MANUAL_REVIEW`**:
@@ -179,21 +238,26 @@ A mismatch is a stop-the-run defect: `POST /application-assistant/autopilot/stop
       -> Proceed to Step 4.
     - **Subjective**: Free-text essays, personal opinions, unrecorded profile details, mandatory cover letter missing.
       -> Leave in `NEEDS_REVIEW`.
+    - **Fill bug (resolver right, form filler wrong)**: the most common `NEEDS_REVIEW` cause that is not a personal fact. Signs: `lastError` says "Required field '…' is empty in the live browser DOM", "Could not heal", "Live DOM value '…' doesn't match", or a Phenom page "would not advance". Test it: run `resolve_answer(label, profile, options)` on the blocking label (options from the `aa_form_field` entity's `fullQuestionText` → `options`). If it returns the right answer, the fault is in the Playwright filler. Leave the job, add it to the handoff's daytime list with the board and field, and move on. Filler fixes need a live browser and should not be made overnight.
+      -> Leave in `NEEDS_REVIEW`.
 
 ### Step 4: Deterministic Fix & Reprocess Workflow
 When a deterministic question was missed:
-1. Locate `question_classifier.py` in `apps/api/app/services/application_assistant/question_classifier.py`.
-2. Add regex pattern to the appropriate `QuestionType` or answer mapping.
-3. Add a regression test to `apps/api/tests/test_question_classifier_regressions.py`.
-4. Run tests:
-   ```bash
-   pytest tests/test_question_classifier_regressions.py
+1. Reproduce with `profile_answer_resolver.resolve_answer(question, profile, options)` and find which stage is wrong:
+   - **Wrong or missing question type** → `apps/api/app/services/application_assistant/question_classifier.py` (add a pattern to the right `QuestionType` rule).
+   - **Right type, wrong answer** → `apps/api/app/services/application_assistant/profile_answer_resolver.py`. Typical cases: a saved or approved answer that matches none of the dropdown options, location pick-lists, visa-type phrasing, or years-of-experience parsing.
+2. Write the regression test first in `apps/api/tests/test_question_classifier_regressions.py`, using the exact question text and options from the form, and watch it fail.
+3. Fix, then run the focused tests: every test file that touches the classifier or resolver. Never run the full API suite while the dev backend is live (shared SQLite; see `dev-server-restart`).
+   ```powershell
+   cd apps/api
+   pytest -q (rg -l "profile_answer_resolver|question_classifier|resolve_answer|classify_question" tests)
    ```
+4. Commit, then deploy with "Deploying a Fix Mid-Run" below. The API runs without `--reload`, so nothing changes until it restarts.
 5. Reprocess the job via the API:
    ```bash
    curl -X POST http://127.0.0.1:4000/application-assistant/autopilot/jobs/{job_id}/reprocess
    ```
-   Confirm status transitions back to `QUEUED`.
+   Confirm status transitions back to `QUEUED`, and on a later tick confirm the job was submitted with the fixed answer.
 
 ### Step 4b: Unblock review jobs with the user's answers
 `GET /application-assistant/autopilot/readiness` groups every open question in `NEEDS_REVIEW`/`MANUAL_REVIEW` jobs by how many applications it holds (`jobCount`) and how many it finishes alone (`unblocksAlone`).
@@ -218,17 +282,17 @@ c.execute("""
     SELECT json_extract(payload, '$.company'), COUNT(*), MAX(json_extract(payload, '$.companyCapHoldUntil'))
     FROM entities 
     WHERE entity_type = 'aa_autopilot_job' 
-      AND json_extract(payload, '$.companyCapHoldUntil') IS NOT NULL
+      AND json_extract(payload, '$.companyCapHoldUntil') > strftime('%Y-%m-%dT%H:%M:%S', 'now')
     GROUP BY json_extract(payload, '$.company')
     ORDER BY COUNT(*) DESC LIMIT 10
 """)
 for r in c.fetchall():
     print(f"{r[0]}: {r[1]} jobs held until {r[2]}")
 ```
-Ensure major companies remain protected.
+Ensure major companies remain protected. Company names are not merged across spellings ("Amazon", "Amazon.Com", "Amazon Web Services" each have their own row), so read the list by employer, not by row.
 
 ### Step 6: Verify Browse Jobs Count Alignment
-Confirm `/jobs/discover` and sidebar counts do not include queued roles:
+Run once at loop start, not every tick. Confirm `/jobs/discover` and sidebar counts do not include queued roles:
 ```bash
 curl -s http://127.0.0.1:4000/jobs/discover/stats
 ```
@@ -245,10 +309,42 @@ If `lastHeartbeatAt` > 60s or worker is frozen:
    `{"targetProcessCount": 25, "concurrency": 1, "selfHealing": false}`
 3. Verify heartbeat refreshes and worker resumes.
 
-### Dev Server Restart
-If code changes require server restart:
-1. Follow `dev-server-restart` skill:
+### Deploying a Fix Mid-Run
+The API runs **without `--reload`**: a committed fix does nothing until the API restarts, and restarting kills any application in flight.
+
+1. **Stop the runner between applications.** `POST /application-assistant/autopilot/stop` waits 15s for the worker, then cancels it, so stop only when the last `recentLogs` message from `/autopilot/status` is one of these: `Pacing … waiting`, `waiting until`, `Finished:`, `Navigating to … job URL`, or when `workers[0].status` is `idle`. On a starved run nothing reaches submit, so pacing waits never appear; `Navigating to … job URL` is then the usual window. Poll for it:
    ```powershell
-   powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\restart-dev.ps1 -SkipOllamaCheck
+   for ($i = 0; $i -lt 120; $i++) {
+     $s = Invoke-RestMethod http://127.0.0.1:4000/application-assistant/autopilot/status
+     $last = ($s.recentLogs | Select-Object -Last 1).message
+     if ($last -match "Navigating to .* job URL|Pacing .*waiting|waiting until|Finished:" -or $s.workers[0].status -eq 'idle') {
+       Invoke-RestMethod -Method Post http://127.0.0.1:4000/application-assistant/autopilot/stop; break
+     }
+     Start-Sleep -Seconds 2
+   }
    ```
-2. Verify ports 4000 and 5000 are listening without duplicate zombie PIDs.
+2. **Restart detached, with a unique log file.** A shell from an earlier restart can keep `careeros-restart.log` open; the next restart then fails without any message and the old code keeps serving. Launch it hidden and log to a new file:
+   ```powershell
+   $log = "$env:TEMP\careeros-restart-$(Get-Date -Format yyyyMMdd-HHmmss).log"
+   Start-Process -WindowStyle Hidden powershell -ArgumentList "-NoProfile -ExecutionPolicy Bypass -Command `"& '.\scripts\restart-dev.ps1' -Background -SkipOllamaCheck *> '$log'`""
+   ```
+   It takes ~90s to print `Ready`.
+3. **Prove the new code is live** (see `dev-server-restart`): exactly one live process listening on `:4000`, and its start time is later than the commit. A health check alone proves nothing.
+4. **Start the runner again** with `{"targetProcessCount": 100, "concurrency": 1}`. Jobs left in `APPLYING` by the stop are recovered to `QUEUED` on start.
+5. Reprocess the jobs the fix unblocks (Step 4), and record the commit, deploy time and API PID in the handoff.
+
+---
+
+## Morning Handoff
+
+The night's real output is the handoff, not the chat. Keep **one entry per night** in `NIGHT_BATCH_DECISIONS.md` (`## <date> (night) — …`) and update it in place on each tick rather than appending a section per tick. Keep it in this shape so the user can act on it straight away:
+
+1. **Headline**: hours run, processed, submitted, and when the run became starved.
+2. **Submissions**: company and title, with the profile-check result (sponsorship, authorization, location, name).
+3. **Check by hand**: `SUBMISSION_UNKNOWN` jobs; the user must look in their email or on the portal.
+4. **Questions only the user can answer**, grouped by company, highest `unblocksAlone` first. Include personal facts (relatives at the company, non-competes, licences, travel), consents, and essays (listed, never written).
+5. **Fixes made**: commit, what it changes, deploy time, and the job that proved it live.
+6. **Daytime bugs**: fill bugs (board, field, example job id), FAILED jobs with an empty `lastError`, duplicate queue rows for one posting. Put anything that could submit a wrong answer first.
+7. **Decisions for the user**, e.g. turning `submittableBoardsOnly` off, or allowing a guarded answer.
+
+When the user breaks the loop, give them items 1–4 and 7 in chat and point to the entry for the rest.
