@@ -1059,6 +1059,28 @@ def test_provided_services_as_consultant_or_contractor_is_company_history():
     assert resolve_answer(q, {"workExperience": [{"company": "Microsoft"}]}, ["Yes", "No"]).answer == "No"
 
 
+@pytest.mark.parametrize("q", [
+    "Have you worked for a Technical Product or Data Product company?",
+    "Have you ever worked at an early-stage startup?",
+    "Have you previously worked for a fintech or financial services firm?",
+])
+def test_worked_for_a_kind_of_company_is_left_for_the_candidate(q):
+    # Fivetran: a category of company, not a named employer, was answered "No".
+    from app.services.application_assistant.profile_answer_resolver import resolve_answer
+    r = resolve_answer(q, {"workExperience": [{"company": "Microsoft"}]}, ["Yes", "No"])
+    assert r.answer is None
+
+
+@pytest.mark.parametrize("q", [
+    "Have you ever worked for a Sony company previously?",
+    "If yes, have you ever worked for a Roper company or any of its subsidiaries?",
+    "Have you ever worked for a Metropolis company (e.g. SP+)?",
+])
+def test_worked_for_a_named_company_group_is_still_answered(q):
+    from app.services.application_assistant.profile_answer_resolver import resolve_answer
+    assert resolve_answer(q, {"workExperience": [{"company": "Microsoft"}]}, ["Yes", "No"]).answer == "No"
+
+
 def test_years_question_excluding_internships_is_answered_from_the_profile():
     # Anthropic: "not counting ... co-ops" was read as four unproven technologies.
     from app.services.application_assistant.profile_answer_resolver import resolve_answer

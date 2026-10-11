@@ -3067,12 +3067,24 @@ def _question_names_a_prior_employer(question: str, profile: dict) -> str | None
     return None
 
 
+# "a Sony company" / "a Roper company or any of its subsidiaries" name an employer group.
+_KIND_OF_COMPANY = re.compile(
+    r"\b(?:worked|employed)\s+(?:for|at|with|in)\s+an?\s+"
+    r"(?![\w&.'-]+\s+(?:company|companies|entity|entities|subsidiary|affiliate|brand)\b)",
+    re.I,
+)
+
+
 def _resolve_company_history(res: AnswerResolution, profile: dict, opts: list[str]) -> None:
     # Only answer "No" when the question is genuinely about a company the
     # candidate has no history with. See _question_names_a_prior_employer.
     # Non-compete questions are the candidate's to answer (a saved screening
     # answer covers the factual ones); "No" to "willing to sign one?" is a guess.
     if re.search(r"non-?\s?compete|restrictive\s+covenant|non-?\s?solicit", res.question or "", re.I):
+        return
+    # "Have you worked for a Data Product company?" names a kind of company,
+    # not an employer; whether past employers count is the candidate's call.
+    if _KIND_OF_COMPANY.search(res.question or ""):
         return
     prior = _question_names_a_prior_employer(res.question, profile)
     if prior:
