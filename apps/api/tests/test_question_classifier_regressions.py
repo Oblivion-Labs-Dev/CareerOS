@@ -1050,6 +1050,15 @@ def test_current_employee_question_mentioning_email_is_company_history():
     assert resolve_answer(q, {"workExperience": [{"company": "Microsoft"}]}, ["Yes", "No"]).answer == "No"
 
 
+def test_provided_services_as_consultant_or_contractor_is_company_history():
+    from app.services.application_assistant.profile_answer_resolver import resolve_answer
+    q = ("Are you currently or have you ever provided services to Fivetran (or any of its global subsidiaries or "
+         "affiliated entities) as a consultant or independent contractor, or through an employment agency or "
+         "placement firm of any kind? *")
+    assert _t(q) == QuestionType.COMPANY_HISTORY
+    assert resolve_answer(q, {"workExperience": [{"company": "Microsoft"}]}, ["Yes", "No"]).answer == "No"
+
+
 def test_years_question_excluding_internships_is_answered_from_the_profile():
     # Anthropic: "not counting ... co-ops" was read as four unproven technologies.
     from app.services.application_assistant.profile_answer_resolver import resolve_answer

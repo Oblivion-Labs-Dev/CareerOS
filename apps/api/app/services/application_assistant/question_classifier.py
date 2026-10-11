@@ -967,6 +967,10 @@ _CLASSIFICATION_RULES: list[tuple[QuestionType, list[str]]] = [
         r"have\s+you\s+(ever|previously)\s*[,;]?\s*(worked|been\s+employed)\s*(at|for|within)",
         # Block: "Have you ever provided any contract work for Block, Inc. ...?"
         r"(?:provided|performed|done)\s+(?:any\s+)?contract\s+work\s+for",
+        # Fivetran: "Are you currently or have you ever provided services to
+        # Fivetran (...) as a consultant or independent contractor, or through
+        # an employment agency ...?"
+        r"(?:provided|performed)\s+(?:any\s+)?services\s+(?:to|for)\b[^?]{0,120}\b(?:consultant|contractor)",
         r"(are|were)\s+you\s+(?:an?\s+)?(?:existing|current|present)\s+employee",
         # Mindbody: "Are you a current or former Mindbody, ClassPass, EGYM, or Booker employee?"
         r"\bare\s+you\s+an?\s+(?:current\s+or\s+former|former\s+or\s+current)\b.{0,80}?\bemployee",
