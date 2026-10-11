@@ -1041,6 +1041,15 @@ def test_ever_been_employed_with_named_companies_is_company_history():
     assert resolve_answer(q, {"workExperience": [{"company": "Microsoft"}]}, ["Yes", "No"]).answer == "No"
 
 
+def test_current_employee_question_mentioning_email_is_company_history():
+    # Abnormal: the "(add your Abnormal email ...)" note made this an EMAIL field.
+    from app.services.application_assistant.profile_answer_resolver import resolve_answer
+    q = ("Are you currently an employee or contractor at Abnormal? (if Yes, please add your Abnormal email "
+         "in the email section of the application page) *")
+    assert _t(q) == QuestionType.COMPANY_HISTORY
+    assert resolve_answer(q, {"workExperience": [{"company": "Microsoft"}]}, ["Yes", "No"]).answer == "No"
+
+
 def test_years_question_excluding_internships_is_answered_from_the_profile():
     # Anthropic: "not counting ... co-ops" was read as four unproven technologies.
     from app.services.application_assistant.profile_answer_resolver import resolve_answer

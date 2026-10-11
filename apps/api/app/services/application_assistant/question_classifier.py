@@ -543,6 +543,11 @@ _CLASSIFICATION_RULES: list[tuple[QuestionType, list[str]]] = [
         r"\bjob\s+alerts?\b",
         r"\bmarketing\s+(?:communications?|e-?mails?|messages?)",
     ]),
+    # Abnormal: "Are you currently an employee or contractor at Abnormal? (if
+    # Yes, please add your Abnormal email ...)" - the note mentions "email".
+    (QuestionType.COMPANY_HISTORY, [
+        r"\bare\s+you\s+(?:currently|presently)\s+an?\s+(?:employee|contractor)\s+(?:or\s+(?:an?\s+)?(?:employee|contractor)\s+)?(?:at|of|for|with)\b",
+    ]),
     (QuestionType.EMAIL, [r"e-?mail"]),
     # Phenom/Workday forms: "Phone Device Type" (Mobile/Home/Work) and
     # "Country Phone Code" are dropdowns, not the number itself.
