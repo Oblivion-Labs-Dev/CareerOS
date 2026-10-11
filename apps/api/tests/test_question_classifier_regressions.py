@@ -859,6 +859,13 @@ def test_h1b_does_not_have_unrestricted_work_authorization(q):
     assert resolve_answer(q, _H1B, ["Yes", "No"]).answer == "No"
 
 
+def test_require_an_employment_visa_is_sponsorship():
+    from app.services.application_assistant.profile_answer_resolver import resolve_answer
+    q = "Will you now or in the future require an employment visa to work in the US?"
+    assert classify_question(q) == QuestionType.SPONSORSHIP_REQUIRED
+    assert resolve_answer(q, _H1B, ["Yes", "No"]).answer == "Yes"
+
+
 def test_specify_the_type_of_sponsorship_assistance_names_the_visa():
     from app.services.application_assistant.profile_answer_resolver import resolve_answer
     profile = dict(_H1B, screeningAnswers=[{"id": "sponsorship_us", "question": "Will you require sponsorship?",

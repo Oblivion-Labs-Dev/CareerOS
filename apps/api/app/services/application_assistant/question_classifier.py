@@ -381,7 +381,8 @@ _CLASSIFICATION_RULES: list[tuple[QuestionType, list[str]]] = [
         r"need\s+sponsorship",
         r"immigration",
         r"\bh-?1b\b",
-        r"require\s+visa",
+        # Guidepoint: "require an employment visa to work in the US?"
+        r"(?:require|need)\s+(?:an?\s+)?(?:employment\s+|work\s+)?visa",
         # Alarm.com: "Are you currently on a nonimmigrant visa (ex. F-1)? ... a written
         # submission to your school ... (ex. CPT/OPT/STEM OPT)" fell through to SCHOOL.
         r"non-?immigrant\s+visa",
