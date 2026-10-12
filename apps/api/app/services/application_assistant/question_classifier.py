@@ -491,7 +491,7 @@ _CLASSIFICATION_RULES: list[tuple[QuestionType, list[str]]] = [
     # non-answer to "what time zone are you in?".
     (QuestionType.TIMEZONE_LOCATION, [
         r"what\s+time\s*zone\s+are\s+you",
-        r"which\s+time\s*zone\s+(are\s+you|do\s+you)",
+        r"which\s+(?:u\.?s\.?\s+)?time\s*zone\s+(are\s+you|do\s+you)",
         r"your\s+time\s*zone\s*\??\s*\*?$",
         r"^\s*time\s*zone\s*\*?\s*$",
     ]),
@@ -944,6 +944,8 @@ _CLASSIFICATION_RULES: list[tuple[QuestionType, list[str]]] = [
         # with no rule these fell to UNKNOWN and blocked the whole application.
         r"personal\s*/?\s*familial\s+relationship",
         r"familial\s+relationship",
+        # Zeta: "familial or close personal relationships with a current Zeta employee"
+        r"familial\s+or\s+(?:close\s+)?personal\s+relationships?\s+with",
         # Agoda asks "Do you as a candidate have a personal relationship with a
         # current Agoda employee?" - no "familial", so the two patterns above
         # both missed it and the question fell to UNKNOWN.

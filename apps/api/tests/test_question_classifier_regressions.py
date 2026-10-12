@@ -1096,6 +1096,23 @@ def test_city_plus_state_gets_both_parts(q):
     assert resolve_answer(q, {"city": "Auburn", "state": "Washington"}, []).answer == "Auburn, Washington"
 
 
+def test_which_us_timezone_is_a_timezone_question():
+    # Charlie Health: "reside in" made this a location confirmation answered "Yes".
+    from app.services.application_assistant.profile_answer_resolver import resolve_answer
+    q = "Which US timezone do you reside in?*"
+    assert _t(q) == QuestionType.TIMEZONE_LOCATION
+    r = resolve_answer(q, {"city": "Auburn", "state": "Washington"}, ["Eastern", "Central", "Mountain", "Pacific"])
+    assert r.answer == "Pacific"
+
+
+def test_familial_or_close_personal_relationships_is_company_history():
+    # Zeta: "familial or close personal relationships" matched neither relationship pattern.
+    from app.services.application_assistant.profile_answer_resolver import resolve_answer
+    q = "Do you have any familial or close personal relationships with a current Zeta employee?*"
+    assert _t(q) == QuestionType.COMPANY_HISTORY
+    assert resolve_answer(q, {"workExperience": [{"company": "Microsoft"}]}, ["Yes", "No"]).answer == "No"
+
+
 def test_years_question_excluding_internships_is_answered_from_the_profile():
     # Anthropic: "not counting ... co-ops" was read as four unproven technologies.
     from app.services.application_assistant.profile_answer_resolver import resolve_answer
