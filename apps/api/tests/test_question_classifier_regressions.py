@@ -1081,6 +1081,14 @@ def test_worked_for_a_named_company_group_is_still_answered(q):
     assert resolve_answer(q, {"workExperience": [{"company": "Microsoft"}]}, ["Yes", "No"]).answer == "No"
 
 
+def test_yes_no_do_you_have_a_linkedin_profile_answers_yes_when_the_profile_has_one():
+    # Onboard: the LinkedIn URL matched neither "Yes" nor "No", so the field stayed empty.
+    from app.services.application_assistant.profile_answer_resolver import resolve_answer
+    q = "Do you have a LinkedIn profile or Github/StackOverflow profile we can reference? *"
+    assert resolve_answer(q, {"linkedin": "https://www.linkedin.com/in/x/"}, ["Yes", "No"]).answer == "Yes"
+    assert resolve_answer(q, {}, ["Yes", "No"]).answer is None
+
+
 def test_years_question_excluding_internships_is_answered_from_the_profile():
     # Anthropic: "not counting ... co-ops" was read as four unproven technologies.
     from app.services.application_assistant.profile_answer_resolver import resolve_answer

@@ -1126,11 +1126,25 @@ def _resolve_preferred_name(res: AnswerResolution, profile: dict, opts: list[str
         res.source_value = pref
         res.confidence = 1.0
 
+def _resolve_profile_link(res: AnswerResolution, profile: dict, opts: list[str], key: str) -> None:
+    # "Do you have a LinkedIn profile ...?" with Yes/No options: the URL matches neither.
+    if opts and _is_yes_no_options(opts):
+        val = str(profile.get(key) or "").strip()
+        matched = _match_option(opts, "Yes") if val else None
+        if matched:
+            res.answer = matched
+            res.resolution_method = PROFILE_OPTION_MAPPING
+            res.profile_key = key
+            res.source_value = val
+            res.confidence = 1.0
+        return
+    _resolve_from_profile(res, profile, opts, key)
+
 def _resolve_linkedin(res: AnswerResolution, profile: dict, opts: list[str]) -> None:
-    _resolve_from_profile(res, profile, opts, "linkedin")
+    _resolve_profile_link(res, profile, opts, "linkedin")
 
 def _resolve_github(res: AnswerResolution, profile: dict, opts: list[str]) -> None:
-    _resolve_from_profile(res, profile, opts, "github")
+    _resolve_profile_link(res, profile, opts, "github")
 
 def _resolve_website(res: AnswerResolution, profile: dict, opts: list[str]) -> None:
     # Check if question is asking for additional/other links
