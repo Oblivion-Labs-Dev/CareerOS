@@ -142,6 +142,20 @@ def test_jobs_without_pending_questions_are_ignored():
     assert group_pending_questions(jobs) == []
 
 
+def test_account_password_fields_are_not_review_questions():
+    # Base-2, NetJets, Costco: an employer-site sign-up form is not a screening
+    # question, and a saved answer would send the password to every employer.
+    jobs = [{"id": "a", "company": "X", "pendingQuestions": [
+        {"question": "Password:*", "fieldType": "password"},
+        {"question": "Re-type new password:", "fieldType": "text"},
+        {"question": VISA, "fieldType": "text"},
+    ]}]
+
+    groups = group_pending_questions(jobs)
+
+    assert [g.question for g in groups] == [VISA]
+
+
 def test_blank_questions_are_skipped():
     jobs = [{"id": "a", "company": "X", "pendingQuestions": [{"question": "   "}, {"question": VISA}]}]
 
@@ -238,6 +252,13 @@ def test_an_empty_answer_is_refused():
 
     with pytest.raises(ValueError):
         _answer(question=VISA, answer="   ", job_ids=[])
+
+
+def test_a_password_is_never_saved_as_an_answer():
+    import pytest
+
+    with pytest.raises(ValueError):
+        _answer(question="Password:*", answer="hunter2", variants=["Password"], job_ids=[])
 
 
 def _drop(*job_ids: str) -> None:

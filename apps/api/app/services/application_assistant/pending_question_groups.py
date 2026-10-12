@@ -23,6 +23,7 @@ threshold, and a change to one must move the other.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from typing import Any, Iterable
 
@@ -119,6 +120,15 @@ class QuestionGroup:
         }
 
 
+_PASSWORD_LABEL = re.compile(r"\bpass\s?word\b", re.I)
+
+
+def _is_account_credential(text: str, field_type: str = "") -> bool:
+    """An employer-site sign-up field. Never a screening question, and an
+    "answer once, applies everywhere" password would be sent to every employer."""
+    return field_type.lower() == "password" or bool(_PASSWORD_LABEL.search(text or ""))
+
+
 def _pending_entries(job: dict[str, Any]) -> list[dict[str, Any]]:
     """The outstanding questions recorded on a job.
 
@@ -155,7 +165,7 @@ def group_pending_questions(
 
         for entry in _pending_entries(job):
             text = str(entry.get("question") or entry.get("rawLabel") or "").strip()
-            if not text:
+            if not text or _is_account_credential(text, str(entry.get("fieldType") or "")):
                 continue
             words = _significant_words(text)
             if not words:
@@ -316,6 +326,8 @@ def answer_question_group(
     answer = (answer or "").strip()
     if not question or not answer:
         raise ValueError("Both a question and an answer are required.")
+    if any(_is_account_credential(w) for w in [question, *(variants or [])]):
+        raise ValueError("Passwords are never saved as answers; create the account on the employer's site.")
 
     wordings = [w for w in ([question] + list(variants or [])) if str(w or "").strip()]
     seen: set[str] = set()
