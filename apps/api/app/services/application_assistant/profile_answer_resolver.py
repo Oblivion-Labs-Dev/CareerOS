@@ -1058,7 +1058,7 @@ def _compound_location_answer(question: str, profile: dict) -> str | None:
         pat in q
         for pat in ("city and state", "city, state", "city & state",
                     "city and the state", "state and city", "city/state")
-    ):
+    ) and not re.search(r"city\s*\+\s*state", q):
         return None
     want_country = "country" in q
     composed = _compose_location(profile, want_country)

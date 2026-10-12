@@ -1089,6 +1089,13 @@ def test_yes_no_do_you_have_a_linkedin_profile_answers_yes_when_the_profile_has_
     assert resolve_answer(q, {}, ["Yes", "No"]).answer is None
 
 
+@pytest.mark.parametrize("q", ["Location (City + State)*", "City+State", "City and State*", "City, State"])
+def test_city_plus_state_gets_both_parts(q):
+    # Onboard: "City + State" was answered with the state alone.
+    from app.services.application_assistant.profile_answer_resolver import resolve_answer
+    assert resolve_answer(q, {"city": "Auburn", "state": "Washington"}, []).answer == "Auburn, Washington"
+
+
 def test_years_question_excluding_internships_is_answered_from_the_profile():
     # Anthropic: "not counting ... co-ops" was read as four unproven technologies.
     from app.services.application_assistant.profile_answer_resolver import resolve_answer
