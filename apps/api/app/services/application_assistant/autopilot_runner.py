@@ -571,6 +571,7 @@ class AutopilotRunner:
             self.min_match_score = MIN_MATCH_SCORE_TO_SUBMIT
         self.tier_guardrails = bool(_opt("tierGuardrails", True))
         self.submittable_boards_only = bool(_opt("submittableBoardsOnly", True))
+        self.submittable_boards_strict = bool(_opt("submittableBoardsStrict", False))
         self._logged_board_filter = False
         self._logged_company_cap = False
         self._logged_cooldown_wait = False
@@ -581,6 +582,7 @@ class AutopilotRunner:
             "minMatchScore": self.min_match_score,
             "tierGuardrails": self.tier_guardrails,
             "submittableBoardsOnly": self.submittable_boards_only,
+            "submittableBoardsStrict": self.submittable_boards_strict,
         }
 
         # A model chosen for the batch is persisted into settings rather than
@@ -1325,6 +1327,22 @@ class AutopilotRunner:
                             level="info",
                         )
                     queued = submittable
+                elif self.submittable_boards_strict:
+                    # Checked here, between jobs, because a stop requested from
+                    # outside cancels whatever job is mid-form after 15s.
+                    with session_scope() as db:
+                        r = get_autopilot_run(db, run["id"])
+                        if r:
+                            r["status"] = AutopilotRunStatus.PAUSED.value
+                            r["lastHeartbeatAt"] = now_iso()
+                            r["currentJobId"] = None
+                            save_autopilot_run(db, r)
+                    self.log_event(
+                        "No submittable-board jobs left in the queue — run paused "
+                        "rather than falling back to boards it cannot finish unattended.",
+                        level="info",
+                    )
+                    break
                 else:
                     self.log_event(
                         "No submittable-board jobs left in the queue — falling back to the "
