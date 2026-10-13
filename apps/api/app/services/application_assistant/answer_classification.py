@@ -272,29 +272,45 @@ def should_skip_autofill_field(field: dict[str, Any]) -> bool:
     )
 
 
+def _any_pattern_matches(patterns: list[Any], text: str) -> bool:
+    for pattern in patterns:
+        try:
+            if re.search(str(pattern), text, re.I):
+                return True
+        except re.error:
+            continue
+    return False
+
+
 def match_screening_answer(label: str, profile: dict[str, Any] | None) -> tuple[str, Any] | None:
     """Match a field label to a saved screening answer on the profile."""
+    matches = match_screening_answers(label, profile)
+    return matches[0] if matches else None
+
+
+def match_screening_answers(label: str, profile: dict[str, Any] | None) -> list[tuple[str, Any]]:
+    """Every saved screening answer matching a field label, in saved order.
+
+    One wording can need different answers per form: "Are you open to travel if
+    required?" is Yes/No on most boards and a percentage band on others.
+    """
     if not profile:
-        return None
+        return []
     text = label.lower()
     norm_label = normalize_field_key(label)
+    found: list[tuple[str, Any]] = []
     for entry in profile.get("screeningAnswers") or []:
         if not isinstance(entry, dict):
             continue
+        answer = entry.get("answer")
+        if answer is None or not str(answer).strip():
+            continue
         question = str(entry.get("question") or "")
-        if question and normalize_field_key(question) == norm_label:
-            answer = entry.get("answer")
-            if answer is not None and str(answer).strip():
-                return str(entry.get("id") or norm_label), answer
-        for pattern in entry.get("matchPatterns") or []:
-            try:
-                if re.search(str(pattern), text, re.I):
-                    answer = entry.get("answer")
-                    if answer is not None and str(answer).strip():
-                        return str(entry.get("id") or norm_label), answer
-            except re.error:
-                continue
-    return None
+        if (question and normalize_field_key(question) == norm_label) or _any_pattern_matches(
+            entry.get("matchPatterns") or [], text
+        ):
+            found.append((str(entry.get("id") or norm_label), answer))
+    return found
 
 
 def match_profile_key(

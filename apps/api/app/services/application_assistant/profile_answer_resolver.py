@@ -403,6 +403,12 @@ _PROFILE_IDENTITY_TYPES = frozenset({
     QuestionType.LINKEDIN, QuestionType.GITHUB, QuestionType.WEBSITE,
 })
 
+# Saved answers for these are vetted against the question by dedicated guards in
+# _resolve_answer_impl, which only see the first match.
+_ALTERNATE_ANSWER_EXCLUDED_TYPES = _PROFILE_IDENTITY_TYPES | {
+    QuestionType.CITIZENSHIP, QuestionType.SPONSORSHIP_REQUIRED, QuestionType.WORK_AUTHORIZED,
+}
+
 _REFERRAL_SOURCE_QUESTION = re.compile(r"\b(?:hear|learn)\s+about\b", re.I)
 # Most specific first. Each employer names its own careers page ("Career Page",
 # "Samsara Careers Site", "Company Website / Careers Page", "BeyondTrust Website").
@@ -686,7 +692,10 @@ def _resolve_answer_impl(
         resolution.confidence = 1.0
         return resolution
 
-    from app.services.application_assistant.answer_classification import match_screening_answer
+    from app.services.application_assistant.answer_classification import (
+        match_screening_answer,
+        match_screening_answers,
+    )
 
     screening = match_screening_answer(question_text, profile)
     if screening and qtype in _PROFILE_IDENTITY_TYPES:
@@ -752,6 +761,12 @@ def _resolve_answer_impl(
                 matched = _match_yes_no_sentence_option(opts, answer)
             if matched is None and "career" in answer.lower() and _REFERRAL_SOURCE_QUESTION.search(question_text):
                 matched = _careers_page_option(opts)
+            if matched is None and qtype not in _ALTERNATE_ANSWER_EXCLUDED_TYPES:
+                for alt_id, alt in match_screening_answers(question_text, profile)[1:]:
+                    matched = _match_option(opts, str(alt).strip())
+                    if matched is not None:
+                        _sid, saved = alt_id, alt
+                        break
             if matched is not None:
                 answer = matched
             else:
@@ -1684,10 +1699,15 @@ def _resolve_export_control(res: AnswerResolution, profile: dict, opts: list[str
                 matched = _match_option(opts, "None of the above") or \
                           _match_option(opts, "None") or \
                           _match_option(opts, "No")
-            res.answer = matched or target
         else:
             matched = _match_option(opts, target)
-            res.answer = matched or target
+        if not matched:
+            # Neros offers three "U.S. Person" statements and no "None of the
+            # above"; a value the control does not list can never be selected.
+            res.resolution_method = UNKNOWN_METHOD
+            res.confidence = 0.0
+            return
+        res.answer = matched
         res.resolution_method = PROFILE_OPTION_MAPPING
     else:
         res.answer = target
