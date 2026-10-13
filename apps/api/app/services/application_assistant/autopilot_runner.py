@@ -411,6 +411,9 @@ class AutopilotRunner:
         # SUBMITTABLE_ATS_HOSTS). Defaults on: an unattended run should spend
         # its slots on work it can actually complete.
         self.submittable_boards_only: bool = True
+        # Also on by default: once only other boards remain, pause rather than
+        # spend the run on jobs that end in skips and manual review.
+        self.submittable_boards_strict: bool = True
         self._logged_board_filter: bool = False
         self._logged_company_cap: bool = False
         self._logged_cooldown_wait: bool = False
@@ -571,7 +574,7 @@ class AutopilotRunner:
             self.min_match_score = MIN_MATCH_SCORE_TO_SUBMIT
         self.tier_guardrails = bool(_opt("tierGuardrails", True))
         self.submittable_boards_only = bool(_opt("submittableBoardsOnly", True))
-        self.submittable_boards_strict = bool(_opt("submittableBoardsStrict", False))
+        self.submittable_boards_strict = bool(_opt("submittableBoardsStrict", True))
         self._logged_board_filter = False
         self._logged_company_cap = False
         self._logged_cooldown_wait = False

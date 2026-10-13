@@ -1,5 +1,12 @@
 # CareerOS Agent Guide
 
+## Shared working agreements
+
+The owner's cross-repository rules (release safety, verification, scope, autonomous runs, UI
+taste) live in one shared file, `~/agent-skills/working-agreements/AGENTS.md`. Read it
+before starting work. This guide wins where the two conflict. If that path does not exist on
+this machine, say so once and continue with this guide.
+
 ## 🗃️ 0. GitHub Issues + Project — Source of Truth for Development Work
 
 **GitHub Issues and the "CareerOS Development" GitHub Project are the source
@@ -287,6 +294,7 @@ If a regression test is not practical, document why and provide another repeatab
 ### 🚨 Application Safety
 
 * 🚫 Ordinary UI tests must never submit real applications.
+* 🚫 Never trigger application submissions directly from backend code or ad-hoc scripts. The gated autopilot runner (started through its API) and the user's own Apply are the only submission paths.
 * 🔐 Live application runs require `CAREEROS_LIVE_APPLY=1`.
 * 🔐 They also require at least ten explicitly approved comma-separated `CAREEROS_APPROVED_JOB_IDS`.
 * 🚫 Never add replacement recipients without approval.
@@ -294,7 +302,7 @@ If a regression test is not practical, document why and provide another repeatab
 * ⚠️ Skipped, expired, review, and failed outcomes never count as submissions.
 * 🚫 A changed button or accepted HTTP request is not proof of submission.
 * ✅ Require the exact job's terminal state and receipt, then inspect confirmation evidence.
-* 🛡️ Preserve selected resume mode, duplicate-submission guards, and human review for unresolved answers.
+* 🛡️ Preserve selected resume mode, duplicate-submission guards, and human review for unresolved answers. Never invent or guess an answer: unsupported, sensitive or ambiguous questions go to human review.
 * 🚫 Never weaken these safeguards merely to make a test pass.
 
 ### 🔐 Sensitive Data
