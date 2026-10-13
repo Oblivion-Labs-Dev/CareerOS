@@ -90,21 +90,24 @@ def initialize_database() -> None:
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 # The owner's personal data is not committed (it lives in the encrypted backup,
 # see scripts/backup_encrypted.py), so a clean checkout skips tests that read it.
+_CAREER_JSON = _REPO_ROOT / "data" / "profile" / "career.json"
+_RESUME_TEMPLATE = _REPO_ROOT / "templates" / "akshay-one-page.docx"
+_RESUME_TEMPLATE_SPEC = _REPO_ROOT / "templates" / "akshay-one-page.template.json"
 _PRIVATE_DATA_TESTS = {
-    "test_career_compiler.py": _REPO_ROOT / "data" / "profile" / "career.json",
-    "test_career_compiler_production.py": _REPO_ROOT / "data" / "profile" / "career.json",
-    "test_career_signal.py": _REPO_ROOT / "data" / "profile" / "career.json",
-    "test_resume_template.py": _REPO_ROOT / "templates" / "akshay-one-page.docx",
-    "test_candidate_answers_manifest.py": _REPO_ROOT / "data" / "candidate_answers_manifest.json",
+    "test_career_compiler.py": (_CAREER_JSON,),
+    "test_career_compiler_production.py": (_CAREER_JSON, _RESUME_TEMPLATE, _RESUME_TEMPLATE_SPEC),
+    "test_career_signal.py": (_CAREER_JSON,),
+    "test_resume_template.py": (_CAREER_JSON, _RESUME_TEMPLATE),
+    "test_candidate_answers_manifest.py": (_REPO_ROOT / "data" / "candidate_answers_manifest.json",),
 }
 
 
 def pytest_collection_modifyitems(config, items):
     for item in items:
-        needed = _PRIVATE_DATA_TESTS.get(item.path.name)
-        if needed is not None and not needed.exists():
+        missing = [p for p in _PRIVATE_DATA_TESTS.get(item.path.name, ()) if not p.exists()]
+        if missing:
             item.add_marker(pytest.mark.skip(
-                reason=f"needs the owner's private {needed.name}; restore it with scripts/backup_encrypted.py restore"
+                reason=f"needs the owner's private {missing[0].name}; restore it with scripts/backup_encrypted.py restore"
             ))
 
 
