@@ -506,7 +506,7 @@ _CLASSIFICATION_RULES: list[tuple[QuestionType, list[str]]] = [
     (QuestionType.PREFERRED_NAME, [r"preferred\s*(first\s*)?name", r"preferred\s*name", r"nickname", r"what.*call\s*you", r"name\s+you.?d\s+prefer"]),
     (QuestionType.FIRST_NAME, [r"first[\s_-]*name", r"^fname$", r"given[\s_-]*name"]),
     (QuestionType.LAST_NAME, [r"last[\s_-]*name", r"^lname$", r"family[\s_-]*name", r"surname"]),
-    (QuestionType.FULL_NAME, [r"full\s*name", r"^name\s*\*?$", r"legal\s*name", r"applicant\s*name"]),
+    (QuestionType.FULL_NAME, [r"full\s*name", r"^(?:your\s+)?name\s*\*?$", r"legal\s*name", r"applicant\s*name"]),
     # Checked before EMAIL: a long consent sentence ("contact you via SMS or
     # WhatsApp... via the email you provided") mentions "email" only in
     # passing, but the bare EMAIL pattern below matches on that substring
