@@ -64,10 +64,8 @@ def autopilot_readiness() -> dict[str, Any]:
 
     with session_scope() as db:
         readiness = evaluate_profile_readiness(get_kv(db, "profile"))
-        review_jobs = [
-            job for job in list_autopilot_jobs(db)
-            if (job.get("status") or "") in ("NEEDS_REVIEW", "MANUAL_REVIEW")
-        ]
+        review_jobs = list_autopilot_jobs(db, "NEEDS_REVIEW") + list_autopilot_jobs(db, "MANUAL_REVIEW")
+    review_jobs.sort(key=lambda j: str(j.get("queuedAt") or j.get("discoveredAt") or ""), reverse=True)
 
     questions = summarise(group_pending_questions(review_jobs))
     return {
