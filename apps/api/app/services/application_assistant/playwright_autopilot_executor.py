@@ -596,6 +596,27 @@ _VISIBLE_BOT_CHALLENGE_JS = """
 """
 
 
+def _option_key(label: str) -> str:
+    return " ".join((label or "").split()).lower()
+
+
+def _options_by_field(fields: list[dict[str, Any]]) -> dict[str, list[str]]:
+    """Each discovered field's options, keyed by its id and by its label."""
+    known: dict[str, list[str]] = {}
+    for f in fields:
+        options = [o for o in (f.get("options") or []) if o]
+        if not options:
+            continue
+        for key in (f.get("id") or "", _option_key(f.get("label") or "")):
+            if key:
+                known.setdefault(key, options)
+    return known
+
+
+def _known_field_options(known: dict[str, list[str]], field_id: str | None, label: str) -> list[str]:
+    return known.get(field_id or "") or known.get(_option_key(label)) or []
+
+
 def _is_voluntary_disclosure(label: str) -> bool:
     """True when a question is an optional demographic self-identification."""
     text = (label or "").lower()
@@ -2167,11 +2188,31 @@ def _state_tokens(profile: dict[str, Any]) -> set[str]:
 # Radancy careers sites (NetApp, Sony Pictures, Jack Henry, Unifirst) put a
 # talent-network / job-alert signup on the posting page: name, email and a
 # keyword + location alert list, posted to /form/submit. Filling and submitting
-# it would record a newsletter signup as an application.
+# it would record a newsletter signup as an application. Peraton's posting page
+# instead carries an "Interest form" ("no lengthy application required"); the
+# application itself is behind the Apply link. Only the text introducing the
+# form is read, so a consent line inside a real application cannot match.
 _ONLY_TALENT_FORMS_JS = """sel => {
+    const before = (scope, node) => {
+        if (!scope || !node) return '';
+        const r = document.createRange();
+        r.setStart(scope, 0);
+        r.setEndBefore(node);
+        return r.toString();
+    };
+    const intro = f => {
+        let lead = '';
+        for (let box = f.parentElement, depth = 0; box && depth < 4 && !lead.trim(); box = box.parentElement, depth++) {
+            lead = before(box, f);
+        }
+        const first = f.querySelector('input:not([type="hidden"]), select, textarea');
+        return (lead + ' ' + before(f, first)).replace(/\\s+/g, ' ').slice(-300);
+    };
+    const INTEREST = /\\binterest form\\b|expression of interest|no (?:lengthy )?application (?:is )?required/i;
     const isTalent = f => !!f && (
         /\\/form\\/submit\\b/i.test(f.getAttribute('action') || '')
-        || !!f.querySelector('.keyword-location, [data-keyword-list]'));
+        || !!f.querySelector('.keyword-location, [data-keyword-list]')
+        || INTEREST.test(intro(f)));
     const fields = [...document.querySelectorAll(sel)];
     return fields.length > 0 && fields.every(e => isTalent(e.closest('form')));
 }"""
@@ -2180,6 +2221,25 @@ _ONLY_TALENT_FORMS_JS = """sel => {
 async def _only_talent_network_forms(frame: Any, identity_selector: str) -> bool:
     try:
         return bool(await frame.evaluate(_ONLY_TALENT_FORMS_JS, identity_selector))
+    except Exception:
+        return False
+
+
+# Taleo Business Edition opens its apply form with "Password" and "Re-type new
+# password": the application creates a candidate account.
+_VISIBLE_PASSWORD_JS = """() => [...document.querySelectorAll('input[type="password"]')]
+    .some(e => !e.disabled && e.getClientRects().length > 0
+               && getComputedStyle(e).visibility !== 'hidden')"""
+
+
+# Taleo Enterprise (uhg.taleo.net/careersection/...) puts a privacy agreement and
+# then a mandatory sign-in / new-account step between Apply and the form.
+_TALEO_ENTERPRISE = re.compile(r"\.taleo\.net/careersection/", re.I)
+
+
+async def _has_visible_password_field(frame: Any) -> bool:
+    try:
+        return bool(await frame.evaluate(_VISIBLE_PASSWORD_JS))
     except Exception:
         return False
 
@@ -3542,6 +3602,10 @@ async def _execute_live_playwright_submission_impl(
                 "posting has expired",
                 "this job is closed",
                 "page not found",
+                # Taleo (UnitedHealth/Optum): "The job is no longer available."
+                "job is no longer available",
+                "position is no longer available",
+                "posting is no longer available",
             )
             page_text_lower = ""
             if not url_says_expired:
@@ -3830,6 +3894,8 @@ async def _execute_live_playwright_submission_impl(
                         # "/apply/" URL convention with non-"Apply" wording.
                         'a:has-text("Submit Resume")',
                         'a[href*="/apply/"]',
+                        # Taleo Enterprise: <input type="button" value="Apply Online">.
+                        'input[type="button"][value*="Apply" i]',
                     ]
                     for ab_sel in apply_btn_selectors:
                         ab = page.locator(ab_sel).first
@@ -3928,6 +3994,22 @@ async def _execute_live_playwright_submission_impl(
                     "evidence": {"finalUrl": page.url},
                     "fieldsFilled": {},
                 }
+            if _TALEO_ENTERPRISE.search(page.url or "") or await _has_visible_password_field(target_frame):
+                reason = (
+                    "This employer's apply flow requires a candidate account (the form asks for a "
+                    "password), which Autopilot does not create - apply by hand."
+                )
+                if fill_only:
+                    if log_callback:
+                        log_callback(reason, lvl="warning")
+                else:
+                    logger.warning("Account-creation form at %s - not filling", page.url)
+                    return {
+                        "submitted": False,
+                        "error": reason,
+                        "evidence": {"finalUrl": page.url},
+                        "fieldsFilled": {},
+                    }
             if not has_form:
                 # A page with no form may simply be a job description, or it may
                 # be a form that never rendered because a bot challenge is
@@ -3980,11 +4062,13 @@ async def _execute_live_playwright_submission_impl(
                 }
 
             # ─── DISCOVER & PERSIST FIELDS BEFORE RESOLUTION ─────────────────
+            discovered_options: dict[str, list[str]] = {}
             try:
                 # Discovery opens each custom dropdown so the resolver sees its
                 # real options. The later verification pass deliberately does
                 # not - it reads what was filled and must not touch the form.
                 discovered_dom_fields, _ = await _extract_dom_form_state(target_frame, expand_comboboxes=True)
+                discovered_options = _options_by_field(discovered_dom_fields)
                 if discovered_dom_fields:
                     persist_discovered_form(
                         application_id=str(job_id),
@@ -4137,6 +4221,7 @@ async def _execute_live_playwright_submission_impl(
                     heal_resolution = resolve_answer(
                         question_text=f_label,
                         profile=profile,
+                        options=_known_field_options(discovered_options, f_id, f_label) or None,
                         answer_lib=answer_lib,
                     )
                     if fix_val and str(fix_val).strip() != str(heal_resolution.answer or "").strip():
@@ -4435,7 +4520,9 @@ async def _execute_live_playwright_submission_impl(
                 job_item.pop("complianceWarnings", None)
 
             # 3. Read back live browser DOM state
-            dom_verification = await verify_browser_dom_state(target_frame, form_resolutions, profile)
+            dom_verification = await verify_browser_dom_state(
+                target_frame, form_resolutions, profile, known_options=discovered_options,
+            )
 
             # 3b. Compute field verification status from DOM read-back
             field_verification_status = "FIELD_VALUES_VERIFIED"

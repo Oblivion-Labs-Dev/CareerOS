@@ -270,12 +270,18 @@ async def verify_browser_dom_state(
     page_or_frame: Any,
     resolutions: list[AnswerResolution],
     profile: dict[str, Any],
+    known_options: dict[str, list[str]] | None = None,
 ) -> DOMVerificationResult:
     """Read back all form values from the live DOM and compare against intended answers.
 
     Guarantees that autocomplete (e.g. location), comboboxes, and inputs in the browser
     match profile facts before proceeding to submission policy evaluation.
+
+    `known_options` maps a field id or label to the choices read when the form was
+    discovered. A closed custom dropdown lists no options in the DOM, so without it
+    an empty required dropdown reaches review as a free-text question.
     """
+    known_options = known_options or {}
     result = DOMVerificationResult()
     
     # 1. Extract live DOM inputs, textareas, comboboxes, and selects
@@ -488,7 +494,12 @@ async def verify_browser_dom_state(
                         severity="BLOCKING",
                         details=f"Required field '{display_name}' is empty in the live browser DOM.",
                         field_type=f_type,
-                        options=f.get("options") or [],
+                        options=(
+                            f.get("options")
+                            or known_options.get(f.get("id") or "")
+                            or known_options.get(" ".join((f.get("label") or "").split()).lower())
+                            or []
+                        ),
                     )
                 )
 
