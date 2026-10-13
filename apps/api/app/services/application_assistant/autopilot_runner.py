@@ -212,8 +212,13 @@ def prefer_submittable_boards(
 # it. Capped at 5 so a stray value cannot spawn an unbounded number of browsers.
 APPLY_CONCURRENCY = max(1, min(5, int(os.environ.get("AUTOPILOT_APPLY_CONCURRENCY", "1"))))
 
+# How long stop() lets the batch loop finish its current job before cancelling it.
+STOP_GRACE_SECONDS = 15.0
 
-def recover_stranded_applying_jobs(worker_id: str | None = None) -> dict[str, int]:
+
+def recover_stranded_applying_jobs(
+    worker_id: str | None = None, job_ids: set[str] | None = None
+) -> dict[str, int]:
     """Return jobs stuck in APPLYING to the queue. Starts nothing.
 
     A job is left in APPLYING when the process dies mid-attempt. Until now the
@@ -232,6 +237,8 @@ def recover_stranded_applying_jobs(worker_id: str | None = None) -> dict[str, in
     with session_scope() as session:
         for job in list_autopilot_jobs(session):
             if job.get("status") != AutopilotJobStatus.APPLYING.value:
+                continue
+            if job_ids is not None and job.get("id") not in job_ids:
                 continue
             if worker_id and job.get("lockedBy") == worker_id:
                 # Belongs to a live worker in this process; leave it alone.
@@ -738,17 +745,31 @@ class AutopilotRunner:
         # is still False, so start() skips spawning a new worker loop
         # entirely: the new run's DB record says RUNNING but nothing is
         # actually processing it. Bounded wait rather than indefinite, since
-        # a genuinely wedged task shouldn't hang the stop() caller forever;
-        # on timeout we log and proceed rather than cancel, since cancelling
-        # mid-submission could skip the executor's own interrupted-submit
-        # cleanup (staging as SUBMISSION_UNCERTAIN instead of leaving it
-        # silently stuck).
+        # a genuinely wedged task shouldn't hang the stop() caller forever.
+        # Cancelling skips the executor's own interrupted-submit cleanup, so
+        # the job it held is recovered by the submit-marker rule instead.
         if self._loop_task and not self._loop_task.done():
             try:
-                await asyncio.wait_for(asyncio.shield(self._loop_task), timeout=15)
+                await asyncio.wait_for(asyncio.shield(self._loop_task), timeout=STOP_GRACE_SECONDS)
             except asyncio.TimeoutError:
-                logger.warning("Autopilot loop task still running 15s after stop() request; canceling.")
+                logger.warning(
+                    "Autopilot loop task still running %.0fs after stop() request; canceling.",
+                    STOP_GRACE_SECONDS,
+                )
+                in_flight = {
+                    str(ws.current_job.get("id"))
+                    for ws in self.worker_states.values()
+                    if ws.current_job and ws.current_job.get("id")
+                }
                 self._loop_task.cancel()
+                await asyncio.wait({self._loop_task}, timeout=5)
+                # A cancelled job never reaches its own status save, so it would
+                # sit in APPLYING until the next run start or API restart.
+                if in_flight:
+                    try:
+                        await asyncio.to_thread(recover_stranded_applying_jobs, None, in_flight)
+                    except Exception:
+                        logger.exception("Could not recover the job cancelled by stop().")
             except (asyncio.CancelledError, Exception):
                 pass
         if self.active_run_id:
