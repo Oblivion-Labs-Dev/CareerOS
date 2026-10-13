@@ -123,3 +123,74 @@ def test_touch_with_loader_refreshes_in_background() -> None:
 
     assert done.wait(timeout=1)
     assert cache.get("k4", 60.0, lambda: "unused") == "v2"
+
+
+def _start_blocked_refresh(cache: ReadCache, key: str) -> threading.Event:
+    """Cache `key`, then start a refresh that reads "before-write" and is held
+    until the returned event is set — a refresh overlapping a write."""
+    cache.get(key, 60.0, lambda: "v1")
+    release = threading.Event()
+    reading = threading.Event()
+
+    def held_loader() -> str:
+        reading.set()
+        release.wait(timeout=2)
+        return "before-write"
+
+    cache.touch(key, held_loader)
+    assert reading.wait(timeout=1)
+    return release
+
+
+def _wait_for(cache: ReadCache, key: str, loader, expected: str) -> str:
+    deadline = time.monotonic() + 2
+    value = cache.get(key, 60.0, loader)
+    while value != expected and time.monotonic() < deadline:
+        time.sleep(0.02)
+        value = cache.get(key, 60.0, loader)
+    return value
+
+
+def test_write_during_a_refresh_is_not_hidden_by_it() -> None:
+    cache = ReadCache()
+    release = _start_blocked_refresh(cache, "k5")
+    old_entry = cache._entries["k5"]
+
+    cache.touch("k5")
+    release.set()
+    deadline = time.monotonic() + 2
+    while cache._entries.get("k5") is old_entry and time.monotonic() < deadline:
+        time.sleep(0.01)
+
+    assert _wait_for(cache, "k5", lambda: "after-write", "after-write") == "after-write"
+
+
+def test_invalidate_during_a_refresh_is_not_undone_by_it() -> None:
+    cache = ReadCache()
+    release = _start_blocked_refresh(cache, "k6")
+
+    cache.invalidate("k6")
+    release.set()
+    time.sleep(0.1)
+
+    assert cache.get("k6", 60.0, lambda: "after-write") == "after-write"
+
+
+def test_write_during_a_cold_load_is_not_hidden_by_it() -> None:
+    cache = ReadCache()
+    reading = threading.Event()
+    release = threading.Event()
+
+    def held_loader() -> str:
+        reading.set()
+        release.wait(timeout=2)
+        return "before-write"
+
+    first = threading.Thread(target=lambda: cache.get("k7", 60.0, held_loader))
+    first.start()
+    assert reading.wait(timeout=1)
+    cache.touch("k7")
+    release.set()
+    first.join()
+
+    assert cache.get("k7", 60.0, lambda: "after-write") == "after-write"

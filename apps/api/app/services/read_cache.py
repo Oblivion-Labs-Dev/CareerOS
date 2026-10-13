@@ -55,6 +55,10 @@ class ReadCache:
         # independently. Small, fixed key set (a handful of dashboard aggregates) so this
         # dict is never cleaned up - same tradeoff the module docstring already accepts.
         self._creation_locks: dict[str, threading.Lock] = {}
+        # Bumped by every touch/invalidate. A load that started before a write
+        # read the pre-write rows, so it must not be stored as fresh, or the
+        # write stays invisible for a whole TTL.
+        self._generations: dict[str, int] = {}
 
     def _get_creation_lock(self, key: str) -> threading.Lock:
         with self._guard:
@@ -78,13 +82,15 @@ class ReadCache:
             with self._get_creation_lock(key):
                 with self._guard:
                     entry = self._entries.get(key)
+                    generation = self._generations.get(key, 0)
                 if entry is not None:
                     return entry.value
                 value = loader()
                 with self._guard:
-                    self._entries[key] = _Entry(value=value, refreshed_at=time.monotonic())
-                    self._entries.move_to_end(key)
-                    self._evict_locked()
+                    if self._generations.get(key, 0) == generation:
+                        self._entries[key] = _Entry(value=value, refreshed_at=time.monotonic())
+                        self._entries.move_to_end(key)
+                        self._evict_locked()
                 return value
 
         if time.monotonic() - entry.refreshed_at > ttl_seconds:
@@ -101,6 +107,7 @@ class ReadCache:
         """Drop an entry so the next read rebuilds it synchronously."""
         with self._guard:
             self._entries.pop(key, None)
+            self._generations[key] = self._generations.get(key, 0) + 1
 
     def touch(self, key: str, loader: Callable[[], Any] | None = None) -> None:
         """Mark an entry stale without evicting it.
@@ -121,6 +128,7 @@ class ReadCache:
         """
         with self._guard:
             entry = self._entries.get(key)
+            self._generations[key] = self._generations.get(key, 0) + 1
         if entry is None:
             return
         entry.refreshed_at = 0.0
@@ -137,11 +145,19 @@ class ReadCache:
 
         def _run() -> None:
             try:
+                with self._guard:
+                    generation = self._generations.get(key, 0)
                 value = loader()
                 with self._guard:
-                    self._entries[key] = _Entry(value=value, refreshed_at=time.monotonic())
-                    self._entries.move_to_end(key)
-                    self._evict_locked()
+                    current = self._generations.get(key, 0) == generation
+                    if current or key in self._entries:
+                        # Written to since the load began: still newer than what
+                        # is cached, but left stale so the next get() reloads.
+                        self._entries[key] = _Entry(
+                            value=value, refreshed_at=time.monotonic() if current else 0.0
+                        )
+                        self._entries.move_to_end(key)
+                        self._evict_locked()
             except Exception:
                 # A failed refresh must never take out the endpoint. Keep serving
                 # the previous value and let the next request try again; only mark
