@@ -566,7 +566,14 @@ async def job_discover_gap_analysis(payload: JobGapAnalysisPayload, db: Session 
     }
 
 
-def _processed_autopilot_identity(db: Session) -> tuple[set[str], set[str]]:
+_ProcessedIdentity = tuple[frozenset[str], frozenset[str], frozenset[tuple[str, str]]]
+# Keyed on the read_cache job list itself, which stays the same object until the
+# cache refreshes. Rebuilding ~8,000 composite keys per request cost ~300 ms on
+# every Browse Jobs stats/list/locations call.
+_processed_identity_memo: tuple[list[dict[str, Any]], _ProcessedIdentity] | None = None
+
+
+def _processed_autopilot_identity(db: Session) -> _ProcessedIdentity:
     """Two identities for every job Autopilot already holds, in any status.
 
     Browse is for postings that have not been dealt with yet, so a job that
@@ -601,7 +608,11 @@ def _processed_autopilot_identity(db: Session) -> tuple[set[str], set[str]]:
         with session_scope() as inner_db:
             return list_autopilot_jobs(inner_db)
 
+    global _processed_identity_memo
     all_jobs = read_cache.get(AUTOPILOT_JOBS_CACHE_KEY, 30.0, _load_all_autopilot_jobs)
+    memo = _processed_identity_memo
+    if memo is not None and memo[0] is all_jobs:
+        return memo[1]
     keys: set[str] = set()
     urls: set[str] = set()
     company_titles: set[tuple[str, str]] = set()
@@ -632,7 +643,9 @@ def _processed_autopilot_identity(db: Session) -> tuple[set[str], set[str]]:
             company_titles.add((norm_c, norm_t))
 
     urls.discard("")
-    return keys, urls, company_titles
+    identity = (frozenset(keys), frozenset(urls), frozenset(company_titles))
+    _processed_identity_memo = (all_jobs, identity)
+    return identity
 
 
 def _is_unprocessed(
