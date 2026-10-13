@@ -20,6 +20,7 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.db.store import session_scope, list_entities
+from app.services.application_assistant.persistence import cached_autopilot_jobs
 from app.services.observability import (
     tracer,
     agent_tracker,
@@ -273,7 +274,7 @@ def get_autopilot_metrics(
     cutoff = now - delta
     from app.services.diagnostic_series import timestamp
 
-    all_jobs = list_entities(db, "aa_autopilot_job")
+    all_jobs = cached_autopilot_jobs()
     discovered_jobs = list_entities(db, "aa_discovered_job")
 
     # Filter by period
@@ -346,15 +347,14 @@ def get_autopilot_metrics(
 
 
 @router.get("/series")
-def get_metric_series(period: str = Query(default="24h", pattern="^(1h|24h|7d)$"), db: Session = Depends(db_session)):
+def get_metric_series(period: str = Query(default="24h", pattern="^(1h|24h|7d)$")):
     from app.services.diagnostic_series import build_series
-    return build_series(list_entities(db, "aa_autopilot_job"), period)
+    return build_series(cached_autopilot_jobs(), period)
 
 
 @router.get("/outcomes")
 def get_outcomes_report(
     period: str = Query(default="12h", pattern=r"^\d{1,3}[hdHD]$"),
-    db: Session = Depends(db_session),
 ) -> dict[str, Any]:
     """What happened in a window (1h to 30d) and why, from per-attempt checkpoints.
 
@@ -371,8 +371,7 @@ def get_outcomes_report(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     now = datetime.now(timezone.utc)
-    all_jobs = list_entities(db, "aa_autopilot_job")
-    report = build_outcomes_report(all_jobs, hours=hours, now=now)
+    report = build_outcomes_report(cached_autopilot_jobs(), hours=hours, now=now)
     report["period"] = period.lower()
     return report
 

@@ -572,6 +572,25 @@ def get_active_autopilot_run(db: Session) -> dict[str, Any] | None:
 AUTOPILOT_JOBS_CACHE_KEY = "autopilot_jobs_all"
 AUTOPILOT_STATS_CACHE_KEY = "autopilot_status_company_stats"
 
+# The job list is invalidated on every write, so this TTL only governs how
+# quickly a change made by the background runner (not by the user) appears.
+AUTOPILOT_JOBS_TTL_SECONDS = 5.0
+
+
+def cached_autopilot_jobs() -> list[dict[str, Any]]:
+    """Every autopilot job, newest first, from the shared read cache.
+
+    The rows are shared with every other reader, so callers must not mutate them.
+    """
+    from app.db.store import session_scope
+    from app.services.read_cache import read_cache
+
+    def _load() -> list[dict[str, Any]]:
+        with session_scope() as db:
+            return list_autopilot_jobs(db)
+
+    return read_cache.get(AUTOPILOT_JOBS_CACHE_KEY, AUTOPILOT_JOBS_TTL_SECONDS, _load)
+
 
 def _invalidate_autopilot_jobs_cache() -> None:
     """Mark the cached job list and precomputed stats stale so the next read
