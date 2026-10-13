@@ -87,7 +87,11 @@ def test_strict_run_still_claims_a_submittable_job(monkeypatch):
         assert get_autopilot_run(db, run_id)["status"] == "RUNNING"
 
 
-def test_default_run_still_falls_back_to_the_full_queue(monkeypatch):
+def test_strict_is_the_default():
+    assert module.AutopilotRunner().submittable_boards_strict is True
+
+
+def test_run_with_strict_off_falls_back_to_the_full_queue(monkeypatch):
     run_id, (job_id,) = _seed([OFF_BOARD_URL])
     runner, claimed = _runner(monkeypatch, run_id, strict=False)
 
