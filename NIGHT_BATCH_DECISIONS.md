@@ -6,6 +6,92 @@ exists so decision-worthy events don't need to interrupt the user overnight.
 
 ---
 
+## 2026-10-13 (night) — fresh pull, grouped answers, pause-when-starved
+
+**Setup (10:10–10:13 UTC)**
+- Fresh 24h pull started 10:10:40 UTC, finished 10:11:43: 738 roles fetched, 6742 indexed.
+- Run `aprun_529af968-e2f5-446b-bab0-67f27292e63f` started 10:12:35 UTC (`targetProcessCount` 100, concurrency 1, `submittableBoardsOnly` on).
+- Sentinel loop PID 22148 (`AGENT_LOOP_TICK_nightloop`, every 30 min).
+- Queue at start: 2454 QUEUED, 66 fresh (<24h), 1156 on company holds, 31 submittable (8 fresh). Fresh postings confirmed at the head.
+- User's choice when submittable boards run dry: **pause the run once starved**, pull every tick, restart when a pull brings submittable jobs.
+
+**Grouped answers from the user (saved to `profile.screeningAnswers`)**
+- 32 groups answered: relatives at employer = No (all employers); professional experience Yes for Kubernetes, OAuth/auth/secrets, AWS, IaC/CI-CD, observability, React+TS+Node, financial market data, client-facing consulting; No for data pipelines/ETL, FHIR/HL7, manufacturing/automotive, SIS; AI familiarity = Advanced; AI models list; export compliance = not a U.S. person; clearance = None; age group = 25-34.
+- Result: 11 jobs requeued, 31 still waiting on other questions.
+- Not saved on purpose: employer-history "No" answers (Motional, Applied Materials, Boston Scientific). Their wording overlaps the Amazon form's enough to be reused there, and the user has worked at Twitch/Amazon. Twitch questions, Dropbox (company-named option) and Neros (only "eligible for licensing, requires explanation") are left for the user.
+
+**Final (16:20 UTC, loop stopped by the user)**: 17 submitted tonight, all profile-checked, 0 wrong answers submitted. Autopilot paused, queue preparation stopped, sentinel killed. `main` pushed to GitHub (`98206fb..f527ccf`, 15 commits including tonight's three deployed fixes). Nightly Evolution PR: [#88](https://github.com/Oblivion-Labs-Dev/CareerOS/pull/88) (11 commits, open for review, not merged).
+
+**Headline** (tick 3, 11:18 UTC): run **paused, starved**. 66 min, 62 processed, 11 submitted. Fresh pull at 11:14 (726 roles, 6770 indexed) brought no submittable job, so the run was stopped gracefully at 11:18:02 between jobs. Pulling every tick; restart when a pull brings submittable Greenhouse, Lever or Ashby jobs.
+- Tick 4 (11:42 UTC): pull at 11:44 (770 roles, 6776 indexed). Queue preparation had stopped with the run at 11:18, so new postings were not being queued; started it (cycle 1 enqueued 6). One fresh submittable job, so the run restarted at 11:46 as `aprun_f1f14e6d-e805-4c62-bcd0-507317fb3ac5` (target 100, concurrency 1, submittable boards only), first job HopSkipDrive.
+- Tick 5 (12:12 UTC): HopSkipDrive went to review (essay "What encouraged you to apply?"). With no submittable job left, the runner did **not** pause: `submittableBoardsOnly` is a preference, and a starved run falls back to the whole queue. It worked 136 non-submittable jobs (77 skipped, 40 manual review, 17 review, 2 ineligible, 0 submitted) before I stopped it gracefully at 12:14:36. The earlier run very likely did the same after 11:13, which explains its 62 processed. Paused again; from now on each restart is watched and stopped as soon as the board filter falls back. Pull at 12:15 (718 roles, 6787 indexed); queue preparation had stopped with the run, restarted it, 8 enqueued, 0 submittable. Staying paused.
+- Tick 6 (12:42 UTC): pull at 12:44 (701 roles, 6791 indexed), queue preparation running, 10 enqueued since its restart, 0 submittable. Staying paused.
+- Tick 7 (13:12 UTC): pull at 13:14 (710 roles, 6794 indexed), 15 enqueued since the queue-preparation restart, 0 submittable. Staying paused.
+- Tick 8 (13:42 UTC): pull at 13:44 (733 roles, 6808 indexed), 3 fresh submittable. Run restarted 13:45 as `aprun_32e952ca-7cb7-4163-b3c5-0abd5da5e9cc` (first job Solace), with a watcher (`scratch/nightloop/fallback_watch.py`) that stops it gracefully the moment it claims a job on a non-submittable board. Result: Affirm Backend (Test Infra) submitted, 11 skipped, 3 to manual review (reCAPTCHA). The run fell back at 14:06:45 and claimed Humana (a Phenom careers site); the watcher's stop landed at 14:07:18, mid-wizard. Humana was **not submitted**: no submit marker, and the final-click log line never appeared. The stop cancelled the job after its 15 s grace and left it stranded in APPLYING; the API restart below returned it to the queue.
+- Tick 9 (14:12 UTC): fixed the cause instead of tuning the watcher. A stop from outside cancels whatever job is mid-form, so a watcher cannot pause cleanly. `8748388` (night branch; `main` `f527ccf`) adds `submittableBoardsStrict`: once only non-submittable boards remain, the run pauses between jobs, as an empty queue already does. Default unchanged; 3 tests, red without the change. Deployed while the run was stopped; new API process PID 15420 started 14:12:08 UTC. Restarts now pass `submittableBoardsStrict: true`, and the watcher stays as a backstop. Pull at 14:13 (753 roles, 6812 indexed), queue preparation restarted, 0 submittable. Staying paused.
+- Tick 10 (14:42 UTC): pull at 14:43 (729 roles, 6815 indexed), 4 submittable (1 fresh). Run restarted 14:45:30 as `aprun_4667f561-b039-43c1-804a-5c7b3f5e666c` with `submittableBoardsStrict: true` (confirmed in the run settings), watcher as backstop.
+- Tick 11 (15:12 UTC): run still on submittable boards; no fallback. Since 14:45: 3 submitted (Energyhub, Coinbase ×2), Gelber Group to review (years of C# and of C++/Java, plus four experience checkboxes), 1 manual review (reCAPTCHA), Coinbase Frontend (Consumer Payments) in progress.
+- 15:16 UTC: Coinbase Frontend (Consumer Payments) submitted at 15:16:04 (Greenhouse email code read and entered automatically). Two seconds later the run **paused itself** ("No submittable-board jobs left in the queue — run paused rather than falling back"). Strict mode works live: no fallback claim, nothing left in APPLYING. Run total: 4 submitted in 31 min.
+- Tick 12 (15:42 UTC): pull at 15:43 (765 roles, 6827 indexed; queue preparation still running, 12 enqueued), 0 submittable. Staying paused.
+- Tick 13 (16:12 UTC): pull at 16:13 (738 roles, 6842 indexed), 0 submittable. Staying paused. Evolution branch rebased onto `main` (now includes `f527ccf`); 205 focused tests pass. New IDs: Roblox `07d2310`, JS escapes `547407c`, Browse Jobs memo `38e5a5d`, readiness `fc31033`, company-cap load `2dfe0dc`, level-gate test `4c14082`, private-file skips `bbb8161`, Diagnostics cache `8f443d9`, read-cache race `0800782`, ATS-filter test `8229da8`, stop recovery `6f9d278`.
+- Fixed (`8748388`): a run could not pause when only non-submittable boards remained.
+- Daytime bug: a stop requested while a job is mid-form cancels it after 15 s and leaves it in APPLYING until the next run start or API restart sweeps it. It should return the job to the queue itself (or wait for the job to finish). Fixed on the evolution branch (`e4ef6b3`).
+- `tests/test_autopilot_ats_filter.py::test_no_ats_filter_leaves_the_list_unchanged` is flaky on `main` (passed, then failed, on two back-to-back runs of the file alone). Cause and fix are on the evolution branch (`0278bec`, `a98cb3b`).
+- Daytime bug: `/autopilot/status` reported the restarted run at 1 processed while it had handled 136 jobs. Not reproduced since: the 14:45 run's counts (6 processed, 4 submitted) match the database and the audit.
+- Queue preparation is tied to the run by design: it starts with a run and stops with it (`autopilot_runner.py`, `_ensure_queue_preprocessor` and the stop path). While the run is paused, a pull only reaches the queue if queue preparation is started by hand, which each starved tick now does. Not a bug, but the night-loop skill should say so.
+
+**Deployed at the pause**: `b290739` (prior-employer answers) and `a60e06f` (no reuse across subjects) cherry-picked onto `main`, 10 focused tests pass; API restarted, new process PID 30232 started 11:18:39 UTC.
+
+**Submissions** (profile check: name Akshay Borse, location Auburn WA, sponsorship Yes, authorized Yes; all correct):
+- Affirm, Software Engineer II, Fullstack (Ads Platform)
+- Abnormal Security, Senior Security Engineer
+- Imagine Pediatrics, Principal Software Engineer
+- Airbnb, Senior Staff Software Engineer, Marketing Technology
+- Bloomerang, Sr. Software Engineer (Tech Lead)
+- Datacor, Software Engineer ("previously employed by Datacor" = No, correct)
+- Defense Unicorns, Platform Engineer
+- Vercel, Software Engineer, Backend
+- Relativity Space, Senior Software Engineer, Agentic CAD
+- Relativity, Software Engineer
+- Affirm, Software Engineer II, Backend ("previously employed at Affirm" = not previously, correct)
+- Zeta Global, Lead Data Engineer
+- Affirm, Software Engineer II, Backend (Test Infra) (location Washington; "previously employed at Affirm" = not previously, correct)
+- Energyhub, Senior Software Engineer ("unlimited and unrestricted authorization" = No and "on a nonimmigrant visa" = Yes, both consistent with the profile: authorized, needs sponsorship, not a U.S. citizen)
+- Coinbase, Senior Software Engineer, Backend/Fullstack (Coinbase Advisor, Agentic Trading) (current company Microsoft per profile; previously at Coinbase = No)
+- Coinbase, Senior Software Engineer, Backend, Platform (Tokens & Wrapped Assets) (same answers)
+- Coinbase, Senior Software Engineer, Frontend (Consumer, Payments) (same answers)
+
+**Wrong saved answer, fixed in the profile (tick 2)**: the saved React/React Native answer carried the exact patterns of two other questions, "hands-on experience with Python and Django?" and "…production software with FHIR and HL7?". It sat ahead of the FHIR answer, so the FHIR question resolved to "I've shipped production features using both React…". Removed the two borrowed patterns and repaired the answer's mojibake ("Iâ€™ve" → "I’ve") through `POST /profile`; only that entry changed. FHIR now resolves to "No production experience with either", and no other entry borrows a pattern (0 of 83). Exposure: none submitted. Counterpart Health (tonight) and Clover Health (2026-10-11) recorded the wrong answer but both are in review. Cause: a grouped answer saves every wording in its group as a pattern, and the grouping lumped questions that differ only in the technology they name. The answer-library copy (`lib_6865471b…`) carried the same two borrowed variants; removed through the app's `upsert_answer` (only `questionVariants` and `updatedAt` changed). Even then, "Python and Django" still resolved to the React answer by word overlap alone (exactly 0.5), which led to `40f9901` below.
+
+**Check by hand**: (updated each tick)
+
+**Questions only the user can answer**: essays ("Why <company>?", "Describe…", "How do you use AI tools…") plus the Twitch, Dropbox and Neros items above.
+
+**Fixes made** (branch `night/2026-10-13-improvements`, worktree `../CareerOS-night`; the first two deployed at 11:18 as above, `8748388` at 14:12; code-quality work moved to the evolution branch `nightly/evolution-2026-10-13`, see its PR):
+- `1db8d7e` **Wrong-answer defect**: "Have you ever worked for Amazon as an employee, intern or contractor?" resolved to **No** via the saved Robinhood answer (pattern `ever\s+worked\s+for`), and "Are you a current or former Amazon employee?" to **No** via a fuzzy library entry. Saved answers are now skipped when the question asks about employment at a company in the work history. No prior-employer application was ever submitted (0 SUBMITTED), and none of the 517 queued prior-employer jobs is on a submittable board, so tonight's run is not exposed. Deploy at the starved pause.
+- `40f9901` **Wrong-answer defect**: a saved answer was reused for any question sharing half its words, so "…experience with Python and Django?" got the React answer, "How did you perform in mathematics at high school?" got the native-language answer, and "Which type of engineer best describes you?" got an AI-workflow answer. Two wordings that each name something the other does not are now different questions, in the library match and in the grouping. Measured on the live library: 11 of 99 reuses stop; work authorization, location and relocation still answer correctly through their own resolvers; "Where do you currently reside?" now goes to review instead of "United States". 599 resolver and grouping tests pass. Deploy at the starved pause with `1db8d7e`.
+- Evolution branch so far (rebased on `main` at 12:50, 895 focused tests pass): Roblox reason `0bcb86e`, executor JS escapes `fec46be`, Browse Jobs memo `884264a`, readiness latency `489652c` (keeps the distinct-subject guard), company-cap load `6fac3e2`, stale level-gate test `e646b8e`, private-file test skips `a459934`, Diagnostics cache `06a3fac`, read-cache write race `0278bec` (a refresh overlapping a write hid it for a whole TTL; the cause of the flaky ATS-filter test, fixed in `a98cb3b`), stop recovers the cancelled job `e4ef6b3`.
+- Worklist E1 is stale: all 309 tests in the previously failing files pass.
+
+**Daytime bugs**:
+- Fill bugs on requeued jobs: answers saved but the field stayed empty in the DOM. STR "relatives… provide their name(s)" (3 jobs), DAT "I accept" checkbox, Peraton First/Last Name/Email/Phone empty (4 jobs), Elend and KnowBe4 checkbox groups.
+- PatientPoint `apjob_7ee8875b…`: validator blocked "Profile state is 'Washington' but answer is 'Yes'" (a Yes/No written into a state field). Caught before submit.
+- Custom dropdowns (scanned as `div`, no options) stay empty even when the answer resolves: AI familiarity "Advanced" (Smartsheet), age group "25-34" (Postscript), FHIR (Counterpart Health). The resolver is right; the executor's fill of these widgets is not.
+- Saving a group's answer attaches every wording in the group as a pattern and library variant. `40f9901` stops different subjects from being grouped, but a bad grouping already saved can only be cleaned by hand; a check at save time would be safer.
+- "Which best describes the majority of your career?" resolves to "Computer Science" (field of study) once the library no longer answers it. Harmless on a dropdown (no option matches), wrong on a text field.
+- Test isolation (fixed on the evolution branch, `fef4ed2`): the years test read the untracked `career.json`, and the compiler tests ran without the untracked resume template.
+- "Have you ever worked for Twitch…?" still answers No: the profile lists Amazon, not Twitch, and the alias map only covers a question naming the parent. User to confirm whether they worked at Twitch itself.
+
+**Decisions for the user**:
+- `40f9901` makes answer reuse stricter than the resolver's documented "forgiving" policy (a similar-but-wrong reuse was judged cheaper than asking again). Tonight's evidence says a different-subject reuse is a wrong answer on a real application, so the stricter rule ships; revert it if you prefer more automation over fewer review questions.
+- The React/React Native answer was saved for Python/Django and FHIR too. Python/Django has no answer of its own now and will come back to review.
+- Twitch: "Have you ever worked for Twitch…?" answers No because the profile lists Amazon, not Twitch. Confirm whether you worked at Twitch itself.
+- Restarts now pass `submittableBoardsStrict: true`; consider making it the default for batch runs.
+
+**Nightly evolution**: [#88](https://github.com/Oblivion-Labs-Dev/CareerOS/pull/88). Faster dashboard reads (Browse Jobs stats 310 → 61 ms, readiness ~500–850 → ~145 ms, diagnostics outcomes 256 → 27 ms, per-job cap check 255 → 19 ms), read-cache write race and stop() stranding fixed, test suite de-flaked. Rejected: narrowing the batch-level cap load (the cooldown needs every status).
+
+---
+
 ## 2026-09-16 19:38 UTC — Diagnosed and fixed: "UI looks broken" (corrupted `.next` build cache)
 
 User reported the UI looked broken. Root cause: every Next.js asset for
@@ -4606,3 +4692,222 @@ Batch otherwise correct: SimpliSafe immediate-family attestation and Accenture F
 - Profile `workExperience` now lists all five employers from career.json (Microsoft current). Replay unchanged
   (1260/1260 answers identical). Suite 1609 passed, 16 skipped. Profile yearsExperience stays "9" while career.json
   says "8+ years" — not changed, flagged to owner.
+
+## 2026-10-11 (night) — fresh pull, run resumed (stopped by owner 23:16 UTC; 27 submitted)
+
+Run `aprun_5f5e9f81-6ade-4183-b9ee-c44c44cf078a` (resume 2, concurrency 1, `submittableBoardsOnly` on), started
+09:26 UTC after the API restart (PID 25028). The run had been orphaned since 2026-10-09 15:25 UTC (RUNNING, no worker).
+Sentinel loop PID 14592, 30-minute ticks. Fresh 24-hour pull 09:15–09:16 UTC: 731 roles fetched, 6159 indexed;
+queue preparation enqueued 184 (queue 1934 → 2150, 55 under 24 h at the head).
+
+1. **Headline**: started 09:26 UTC; baseline 73 submittable applyable jobs (1071 applyable, 1076 on company holds).
+   Tick 1 (09:57): 47 processed, 5 submitted, 12 NEEDS_REVIEW, 5 MANUAL_REVIEW (hCaptcha/reCAPTCHA), 5 INELIGIBLE.
+   Run stopped 09:58 for a wrong sponsorship answer; fix deployed; new run `aprun_f099f0a6-0926-4087-8a1e-2f218d40a85e`
+   started 10:03 UTC.
+   Tick 2 (10:28): 5 more submitted (10 total), 6 NEEDS_REVIEW, 9 MANUAL_REVIEW (reCAPTCHA/hCaptcha). Run stopped
+   10:29 for an unapproved relocation answer; fix deployed; run `aprun_c61322d9-50bb-4a72-a2e6-720d9835583d` started
+   10:31 UTC. 30 submittable applyable jobs left.
+   Tick 3 (10:58): 6 more submitted (16 total), 3 NEEDS_REVIEW, 10 MANUAL_REVIEW (reCAPTCHA). Run stopped 10:59 for
+   a wrong unrestricted-authorization answer; fix deployed; run `aprun_a152de4c-ea82-4e61-a690-e900365c7958` started
+   11:01 UTC. 8 submittable applyable jobs left (starvation close).
+   Tick 4 (11:28): 3 more submitted (19 total), 4 NEEDS_REVIEW (Workday/Phenom: no submit button), 13 MANUAL_REVIEW
+   (10 "no application form"), 36 SKIPPED, 1 FAILED (Tesla, empty lastError). **Starved at 11:28 UTC**: 0 submittable.
+   Fresh pull 11:29 UTC (712 fetched, 6251 indexed, 40 enqueued) brought 1 submittable job. Runner stopped 11:31 UTC
+   per owner choice (stop when starved); restart when a pull brings submittable jobs. Pulling every tick.
+   Tick 5 (11:58): pull 11:59 UTC (702 fetched, 6260 indexed, 7 enqueued), 0 new submittable. Path Robotics (the one
+   submittable job) had been left in APPLYING by the 11:31 stop and was not recovered by a restart; requeued via
+   `/reprocess`, run briefly, submitted 12:15 UTC; runner stopped again. 20 submitted total.
+   Tick 6 (12:28): pull 12:29 UTC (710 fetched, 6275 indexed, 4 enqueued), 0 submittable; runner stays stopped.
+   Tick 7 (12:58): pull 12:59 UTC (747 fetched, 6303 indexed, 31 enqueued), 2 submittable. Ran 13:00–13:01 UTC:
+   1 submitted (21 total), 1 NEEDS_REVIEW, 3 SKIPPED; runner stopped again once starved.
+   Tick 8 (13:28): pull 13:29 UTC (712 fetched, 6304 indexed, 1 enqueued), 0 submittable; runner stays stopped.
+   Tick 9 (13:58): pull 13:59 UTC (734 fetched, 6307 indexed, 4 enqueued), 0 submittable; runner stays stopped.
+   Tick 10 (14:28): pull 14:29 UTC (752 fetched, 6312 indexed, 8 enqueued), 1 submittable (Truckstop); staged twice
+   (see fixes and daytime bugs). 21 submitted total; runner stopped.
+   Tick 11 (14:58): pull 14:59 UTC (725 fetched, 6331 indexed, 19 enqueued), 1 submittable. Ran 15:00–15:01 UTC:
+   1 submitted (22 total), 5 SKIPPED; runner stopped.
+   Tick 12 (15:28): pull 15:29 UTC (722 fetched, 3 enqueued), 1 submittable — blocked by hCaptcha (MANUAL_REVIEW).
+   22 submitted total; runner stopped.
+   Tick 13 (15:58): pull 15:59 UTC (737 fetched, 6361 indexed, 25 enqueued), 1 submittable (Orbis) — staged for
+   owner-only questions (passport for UAE travel, technical assessment, no-AI-in-interview pledge) and an
+   anti-automation "solve for X" check (never answered). 22 submitted total; runner stopped.
+   Tick 14 (16:28): pull 16:29 UTC (689 fetched, 6361 indexed, 0 enqueued, 245 deduped), 0 submittable.
+   22 submitted total; runner stopped.
+   Tick 15 (16:58): pull 16:59 UTC (746 fetched, 6364 indexed, 1 enqueued), 0 submittable.
+   22 submitted total; runner stopped.
+   Tick 16 (17:28): pull 17:29 UTC (712 fetched, 6399 indexed, 34 enqueued), 10 submittable. Run
+   `aprun_12c6fdf1…` 17:30–17:46: 13 processed, 3 submitted (all match the profile), 5 NEEDS_REVIEW,
+   2 INELIGIBLE, 3 SKIPPED. 25 submitted total; runner stopped (no submittable jobs left).
+   Tick 17 (17:58): pull 17:59 UTC (729 fetched, 6399 indexed, 0 enqueued), 0 submittable.
+   25 submitted total; runner stopped.
+   Tick 18 (18:28): pull 18:29 UTC (758 fetched, 6401 indexed, 0 enqueued), 0 submittable.
+   25 submitted total; runner stopped.
+   Tick 19 (18:58): pull 18:59 UTC (730 fetched, 6440 indexed, 39 enqueued), 3 submittable. Run `aprun_e391589f…`:
+   8 processed, 0 submitted (2 captcha, 5 skipped, 1 NEEDS_REVIEW — Abnormal Security, a classifier defect).
+   Fixed (`f758096`), deployed, Abnormal requeued and SUBMITTED with correct answers. 26 submitted total;
+   runner stopped.
+   Tick 20 (19:28): pull 19:29 UTC (728 fetched, 6442 indexed, 0 enqueued), 0 submittable.
+   26 submitted total; runner stopped.
+   Tick 21 (19:58): pull 19:59 UTC (783 fetched, 6442 indexed, 0 enqueued), 0 submittable.
+   26 submitted total; runner stopped.
+   Tick 22 (20:28): pull 20:29 UTC (734 fetched, 6443 indexed, 0 enqueued), 0 submittable.
+   26 submitted total; runner stopped.
+   Tick 23 (20:58): pull 20:59 UTC (733 fetched, 6469 indexed, 25 enqueued), 2 submittable. Run `aprun_86d1066e…`:
+   4 processed, 0 submitted (Fivetran and Farmers Mutual Hail NEEDS_REVIEW). Fivetran's blocker was a classifier
+   gap — fixed (`74943e0`), requeued, SUBMITTED; its audit found one wrong answer (see Submissions), fixed in
+   `202f56e`. 27 submitted total; runner stopped.
+   Tick 24 (21:28): pull 21:29 UTC (753 fetched, 6469 indexed, 0 enqueued), 0 submittable.
+   27 submitted total; runner stopped.
+   Tick 25 (21:58): pull 21:59 UTC (730 fetched, 6474 indexed, 3 enqueued), 0 submittable.
+   27 submitted total; runner stopped.
+   Tick 26 (22:28): pull 22:29 UTC (744 fetched, 6474 indexed, 0 enqueued), 0 submittable.
+   27 submitted total; runner stopped.
+   Tick 27 (22:58): pull 22:59 UTC (740 fetched, 6474 indexed, 0 enqueued), 0 submittable.
+   27 submitted total; runner stopped.
+2. **Submissions** (name, location, authorization and sponsorship checked against the profile):
+   - Customer.io — Senior Software Engineer, Backend Platform: all match.
+   - Cloudflare — Senior Software Engineer, Security Platform: match ("willing to relocate"; no sponsorship question).
+   - Oura Health — Senior MLOps Engineer: match (authorized Yes; no sponsorship question).
+   - Twilio — Staff Enterprise Security Engineer, AI Security: match (authorized Yes, sponsorship Yes).
+   - **GitLab — Senior Software Engineer, Security Factory: Code Security: WRONG** — sponsorship answered
+     "Yes, Netherlands Highly Skilled Migrant Visa" (should be "Yes, but not one of the visas listed here").
+     Still says sponsorship is needed, but names the wrong visa. Owner decides whether to correct it with GitLab.
+     A scan of every SUBMITTED/SUBMISSION_UNKNOWN job found no other non-H-1B visa answer.
+   - Xometry — Senior Software Engineer: match ("None of the above" for Boston/Lexington/Bethesda; sponsorship Yes).
+   - Acryl Data — Staff/Senior Software Engineer, Data Observability: match (name and location only).
+   - **Taskrabbit — Senior Full Stack Engineer, AI Innovation: WRONG** — "If you will require relocation, what is your
+     expected timeline and would you be willing and able to relocate without employer assistance (self-funded)?"
+     answered "Yes" (the profile records no self-funded relocation or timeline). Also "please specify the type of
+     assistance you would need" (sponsorship) answered "Yes" instead of "H-1B". Owner decides whether to follow up.
+     No other submission answered a self-funded/timeline relocation question.
+   - GitLab — Staff Software Engineer, Security Factory: Static Analysis: match — sponsorship "Yes, but not one of
+     the visas listed here" (proves fix `d1f73a1` live).
+   - Mercury — Staff Software Engineer, Services Platform: match (name and location only).
+   - BeyondTrust — Staff Software Development Engineer; Cognite — AI for Industry Software Engineer; Robinhood —
+     Staff Software Engineer; Delfina — Software Engineer (MENA): match (name/location/consents only).
+   - Anthropic — Staff+ Software Engineer, Observability: match (relocation Yes, sponsorship Yes, based in Auburn).
+   - **OpenEye — Senior Software Engineer (Apex Team): WRONG** — "Do you have unlimited and unrestricted authorization
+     to work in the United States?" answered "Yes" (H-1B is restricted to the sponsoring employer → "No").
+     The same wrong "Yes" went out earlier on **Alarm.com — Principal Software Engineer (Oct 7)**,
+     **Alarm.com — Staff Software Engineer (Oct 8)** and **Blink Health — Senior Software Engineer II (Oct 9)**
+     ("the unrestricted right to work"). Owner decides whether to correct these with the employers.
+   - OpenEye — Senior Software Engineer (OWS Team): match — unrestricted authorization "No" (proves `b1d69ce` live).
+   - Brex — Senior Software Engineer, Backend: match (authorized Yes, "Yes, I plan to relocate", sponsorship H-1B).
+   - Mindbody — Sr Software Engineer: match (country United States of America).
+   - Path Robotics — Data Engineer: match (authorized Yes, sponsorship Yes).
+   - BeyondTrust — Sr Staff Software Development Engineer: match (name/location/consent only).
+   - Cresta — Senior Infrastructure Engineer/SRE: match (name/location only).
+   - Clear Street Markets — Senior Fullstack Software Engineer: match (Auburn; sponsorship Yes).
+   - ExtraHop Networks — Senior Software Engineer | Middleware: match (authorized Yes, sponsorship Yes, Auburn, WA).
+   - OpenEye — Software Engineer II: match (unrestricted authorization "No"; "currently on a nonimmigrant visa"
+     "Yes" — H-1B is a nonimmigrant visa).
+   - Abnormal Security — Software Engineer 2, Development Infrastructure: match (eligible Yes, sponsorship Yes,
+     current employee/contractor at Abnormal "No", previously worked there "No", current company Microsoft).
+   - **Fivetran — Staff Software Engineer, Metadata: WRONG** — "Have you worked for a Technical Product or Data
+     Product company?" answered "No" (a kind of company, not an employer — Microsoft arguably counts; this is the
+     candidate's call). Everything else matches: sponsorship Yes, right to work Yes, provided services to Fivetran
+     "No", Toronto "No", Auburn address. Owner decides whether to follow up. A scan of all 263 submissions found
+     no other "worked for a <kind of> company" answer (Sony/Roper/Metropolis "a <brand> company" → "No" are right).
+3. **Check by hand**:
+   - DomainTools — Principal Software Engineer (`apjob_0cea3036-c1e3-4a75-a6ec-ccad4e2fad06`, Workable
+     1E6CE8F597): SUBMISSION_UNKNOWN ("form and submit button still active"). Check email/portal. Two more
+     DomainTools "Principal Software Engineer" rows exist with different Workable ids (separate postings).
+4. **Questions only the user can answer**: carried from readiness (465 groups, mostly essays and company-specific).
+   Tick 1 NEEDS_REVIEW are experience yes/no questions (Kubernetes, Golang, Go/Ruby, on-call, SecOps years,
+   cloud years), legal birth name (Alpaca), Calendly work state, and essays (Rxsense, Canonical, Tailscale, Afresh).
+   Tick 16 NEEDS_REVIEW: Vannevar Labs Forward Deployed Engineer — Oahu (two essays; posting requires TS/SCI
+   clearance), Domino Data Lab (consent to be considered for other roles), Pantheon (4+ years pipeline design;
+   5+ years cloud and which provider), Clear Street AI Platform (minimum salary; securities licenses held).
+   Tick 23 NEEDS_REVIEW: Farmers Mutual Hail — Java Application Platform Engineer (relatives at FMH, involuntary
+   discharge in last 5 years, at-fault accidents/moving violations, salary range).
+5. **Fixes made**:
+   - `d1f73a1` — sponsorship never picks an option naming a visa the profile does not hold; prefers a catch-all
+     ("Yes, but not one of the visas listed here"), then a "Yes" naming no visa type, otherwise leaves it for review.
+     Regression test added; 511 focused tests pass. Deployed 10:02 UTC (API PID 18104, started after the commit).
+     Proven live by GitLab Static Analysis (10:2x UTC).
+   - `7415585` — relocation questions about self-funding, relocating without employer assistance or a timeline stay
+     pending for the candidate; "specify the type of assistance you would need" answers the visa type (H-1B).
+     514 focused tests pass. Deployed 10:31 UTC (API PID 11100, started after the commit).
+   - `b1d69ce` — "unlimited/unrestricted authorization" and "unrestricted right to work" classify as permanent
+     work authorization (answers "No" for H-1B). 516 focused tests pass. Deployed 11:00 UTC (API PID 12856).
+     Proven live by OpenEye (OWS Team).
+   - `2a525bf` — "require an employment visa to work in the US?" classifies as sponsorship (was UNKNOWN; staged
+     Guidepoint). 517 focused tests pass. Deployed 13:02 UTC (API PID 26404). Guidepoint not requeued: it also has
+     owner-only experience/essay questions.
+   - `6529240` — "Have you ever been employed with <company>" classifies as employment history (answers "No" for
+     employers not in the profile). 518 focused tests pass. Deployed 14:32 UTC (API PID 3816). Proven live:
+     Truckstop's employment-history field filled on the rerun.
+   - `f758096` — "Are you currently an employee or contractor at <company>? (if Yes, add your <company> email ...)"
+     classifies as employment history instead of EMAIL (the note's "email" matched first). 519 focused tests pass.
+     Deployed 19:04 UTC (API PID 2616, started after the commit; old PID 3816 gone). Proven live: Abnormal
+     answered "No" and submitted on the rerun.
+   - `74943e0` — "provided services to <company> as a consultant or independent contractor" classifies as
+     employment history (was UNKNOWN). 520 focused tests pass. Deployed 21:02 UTC (API PID 25540). Proven live:
+     Fivetran answered "No" and submitted on the rerun.
+   - `202f56e` — "Have you worked for a <kind of> company?" (a category, not a named employer) is left for the
+     candidate instead of answered "No"; "a <brand> company" (Sony, Roper, Metropolis) still answers "No".
+     526 focused tests pass. Deployed 21:13 UTC (API PID 26488, started after the commit; old PID 25540 gone).
+     Not yet seen live on a form.
+6. **Daytime bugs**:
+   - Possible duplicate queue rows: "Mwdn — Senior Data Engineer" appears 4 times near the queue head.
+   - Distantjob: required "Confirm" checkbox left empty (DOM verification); Clover Health and Trase Systems:
+     "This field is required" validation errors with no named field. Same on Red Cell Partners — Senior/Staff
+     Software Engineer (Platform and Execution Model), tick 16.
+   - Tesla — Sr. Fullstack Engineer, Robotaxi & Optimus (`apjob_b5bf18f1-1164-4870-a5b5-014b4e1cfb4e`): FAILED with
+     an empty `lastError`.
+   - **Fill bug** — Truckstop, Software Engineer III (`apjob_431af3ec-2684-4cee-988f-91696b49aec5`, Greenhouse):
+     resolver answers "authorized for any employer" → No, sponsorship → Yes, privacy → "I understand", but all
+     three stay empty in the DOM (recorded as `text` fields with Yes/No options — likely custom selects). Failed
+     identically on a rerun after `6529240`.
+   - Jobs left in APPLYING by `/autopilot/stop` are not recovered to QUEUED when a new run starts (Path Robotics,
+     DomainTools `apjob_0a3bce77-…`); a submittable job stays unreachable until `/reprocess`.
+   - PatientPoint: STATE_MISMATCH contradiction ("Profile state is 'Washington' but answer is 'Yes'") on a location
+     question — check which field produced "Yes".
+7. **Decisions for the user**: settled before leaving — stop when starved (restart when a fresh pull brings
+   submittable jobs). Owner answers saved for all employers: current role level → Senior Engineer; React/React
+   Native → shipped production features with both; AI interview recording (BrightHire) → Yes.
+
+## 2026-10-12 (day) — owner-started run, 30-minute loop resumed (in progress; 9 submitted)
+
+Servers restarted 12:41 UTC (API PID 7136, web PID 10060, HEAD `202f56e`). Pull 12:43 UTC (712 fetched, 6553
+indexed); queue 2207 → 2284, 10 submittable. Run `aprun_3f08a301…` 12:46–13:07 UTC: 15 processed, 5 submitted,
+4 NEEDS_REVIEW, 1 captcha, 5 skipped. Runner stopped (no submittable jobs left). No code changes.
+
+1. **Submissions** (profile-checked):
+   - ApartmentIQ — Senior Software Engineer, Applications; ApartmentIQ — Staff Software Engineer, Data: match
+     (sponsorship Yes, work authorization Yes).
+   - Apptegy — Senior Full Stack Platform Engineer: match (Auburn, WA; desired base $140,000 from the profile).
+   - Fleetio — Associate Software Engineer, Marketplace: match (resides in US Yes, sponsorship Yes).
+   - Samsara — Staff Software Engineer, Maps Services: matches the profile, but note — "Samsara will not provide
+     relocation assistance for this role. Do you require relocation assistance?" answered "Yes" from profile
+     `relocateAssistance: Yes`. Owner: confirm that field is still what you want (it tells employers you need help).
+2. **Questions only the user can answer**: OpenZeppelin Principal Security Engineer (four essays); Stacklok
+   (engineer type, Go, Kubernetes, agreements affecting employment); Cabin (skills checklist); GuidePoint Security
+   AI Security Engineer (travel percentage); Torc Robotics AutoTagging (export-control residency checkboxes — the
+   H-1B case is not among the options; agreement with current/former employer).
+3. **Owner decision applied**: profile `relocateAssistance` changed Yes → No at the owner's request (backup in
+   `%TEMP%\careeros-night\profile_backup_1012_113104.json`). "Do you require relocation assistance?" now answers
+   "No"; "willing to relocate" still "Yes". Samsara already went out with "Yes".
+4. **30-minute loop resumed** at the owner's request (11:31 local).
+5. **Second pull** 18:32 UTC (738 fetched, 6603 indexed; queue 2276 → 2321, 7 submittable). Run `aprun_8d59b3d7…`:
+   10 processed, 2 submitted, 4 captcha, 1 NEEDS_REVIEW, 3 skipped. Then reruns after fixes.
+   - Lionhires — Senior Application Security Engineer: match (country United States, LinkedIn).
+   - Avandra Imaging — Senior Software Engineer: match (Auburn; LinkedIn and website).
+   - Prove — Senior Software Engineer, Identity Platform: match ("authorized to work in the US for any employer"
+     "No" — correct for H-1B; sponsorship Yes; Auburn, Washington).
+   - Zeta Global — Senior Data Engineer, Healthcare Data: match (relationships with Zeta employees "No", able to
+     work in US Yes, sponsorship Yes, desired salary $140,000 from the profile). Submitted on the rerun.
+6. **Fixes made** (each with a regression test; focused suite 533 passed):
+   - `e3eec46` — "Do you have a LinkedIn/GitHub profile?" with Yes/No options answers "Yes" when the profile has
+     one (the URL matched neither option). Deployed 18:51 UTC (API PID 18472). Proven live on Onboard's rerun.
+   - `0f27c71` — "Location (City + State)" answers "Auburn, Washington" (was "Washington" alone). No past
+     submission had this wording (270 scanned). Deployed 18:55 UTC (API PID 23784). Proven live on Onboard.
+   - `531eb63` — "Which US timezone do you reside in?" is a timezone question (was a location confirmation
+     answered "Yes"); "familial or close personal relationships with a current <company> employee" is employment
+     history (was UNKNOWN). Deployed 19:06 UTC (API PID 23004, started after the commit; old PID gone). Proven
+     live: Zeta answered "No" and submitted; Charlie Health now resolves the timezone (see daytime bugs).
+7. **Daytime bugs**:
+   - Onboard — Principal Software Engineer, AI (`apjob_447500e3-…`): "This field is required" validation error
+     with no named field, on two reruns after every resolved field filled.
+   - Charlie Health — Staff Platform Engineer (`apjob_302d51ac-…`): "Which US timezone" is a custom dropdown whose
+     options were not captured, so the resolver answers "America/Los_Angeles" and the filler matches no option.
