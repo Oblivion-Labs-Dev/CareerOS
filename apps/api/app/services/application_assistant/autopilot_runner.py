@@ -2105,8 +2105,8 @@ class AutopilotRunner:
             return
 
         if not passed:
-            # The soft SKIP: a rejection the classifier does not recognise (not a
-            # Senior/Staff/Principal software role, an aggregator URL, ...). The
+            # The soft SKIP: a rejection the classifier does not recognise (an
+            # aggregator URL, an employment-type mismatch, ...). The
             # queue keeps every non-duplicate posting (#59), so this is the gate
             # that keeps them from being applied to.
             job_item["status"] = AutopilotJobStatus.SKIPPED.value

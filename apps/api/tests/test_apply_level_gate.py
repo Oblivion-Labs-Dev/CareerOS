@@ -1,4 +1,10 @@
-"""#59: the runner, not the queue, keeps non-Senior/Staff/Principal roles from being applied to."""
+"""The runner, not the queue, keeps a posting the hard filters reject from being applied to.
+
+The queue keeps every non-duplicate posting (#59), so a rejection the
+ineligibility classifier does not recognise must still end as a soft SKIP here.
+Mid-level software titles are applied to, so an aggregator listing URL
+stands in for the rejection.
+"""
 
 import asyncio
 from contextlib import contextmanager
@@ -11,7 +17,7 @@ from app.services.application_assistant import playwright_autopilot_executor as 
 from app.services.application_assistant import resume_diff_service
 
 
-def test_a_queued_role_below_senior_is_skipped_not_applied(monkeypatch):
+def test_a_hard_filter_rejection_is_skipped_not_applied(monkeypatch):
     saved = []
 
     @contextmanager
@@ -19,7 +25,7 @@ def test_a_queued_role_below_senior_is_skipped_not_applied(monkeypatch):
         yield None
 
     async def never(*args, **kwargs):
-        pytest.fail("A role below Senior must not be tailored or submitted")
+        pytest.fail("A posting the hard filters reject must not be tailored or submitted")
 
     monkeypatch.setattr(module, "session_scope", session)
     monkeypatch.setattr(module, "save_autopilot_job", lambda db, job: saved.append(dict(job)))
@@ -31,13 +37,13 @@ def test_a_queued_role_below_senior_is_skipped_not_applied(monkeypatch):
     job = {
         "id": "apjob_level",
         "company": "Example",
-        "title": "Software Engineer II",
+        "title": "Senior Software Engineer",
         "location": "Seattle, WA",
-        "applicationUrl": "https://job-boards.greenhouse.io/example/jobs/123456",
+        "applicationUrl": "https://www.linkedin.com/jobs/view/123456",
         "status": "QUEUED",
     }
     asyncio.run(module.AutopilotRunner()._execute_application_pipeline("run", job))
 
     assert job["status"] == "SKIPPED"
-    assert "not a Senior, Staff or Principal software role" in job["skipReason"]
+    assert "aggregator listing page" in job["skipReason"]
     assert saved and saved[-1]["status"] == "SKIPPED"
