@@ -136,6 +136,30 @@ async def classify_review_issue(
         return fallback
 
 
+def issues_from_error_fields(evidence: dict[str, Any]) -> list[dict[str, Any]]:
+    """Blocking issues for the fields an ATS flagged after the submit click.
+
+    A rejected submission ("This field is required.") produces no policy issues,
+    so without this the job reaches review with nothing to answer.
+    """
+    issues: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for field in evidence.get("errorFields") or []:
+        label = " ".join(str(field.get("label") or "").split())
+        if not label or label == "?" or label.lower() in seen:
+            continue
+        seen.add(label.lower())
+        issues.append({
+            "gate": "SUBMIT_VALIDATION",
+            "label": label,
+            "reason": f"Required field '{label}' was rejected as empty on submit.",
+            "issueType": "MISSING_REQUIRED",
+            "fieldType": field.get("fieldType") or "",
+            "options": field.get("options") or [],
+        })
+    return issues
+
+
 async def build_pending_questions(blocking_issues: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Classify a job's full list of policy blocking-issues into the structured,
     answerable questions the Apply-board popup renders (dropdown when `options`

@@ -2872,9 +2872,14 @@ class AutopilotRunner:
             # decides both whether it's something a candidate can answer at all and, if so,
             # phrases it as one clean question. See error_normalizer.build_pending_questions —
             # shared with the on-demand re-classification endpoint for pre-existing jobs.
-            from app.services.application_assistant.error_normalizer import build_pending_questions
+            from app.services.application_assistant.error_normalizer import (
+                build_pending_questions,
+                issues_from_error_fields,
+            )
 
-            job_item["pendingQuestions"] = await build_pending_questions(blocking_issues)
+            job_item["pendingQuestions"] = await build_pending_questions(
+                blocking_issues or issues_from_error_fields(result.get("evidence") or {})
+            )
             self._record_checkpoint(job_item, CheckpointStep.STAGED, f"Staged for Review: {review_reason}")
             
             if worker_state:
