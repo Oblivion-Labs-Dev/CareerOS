@@ -3,7 +3,7 @@
 ## Shared working agreements
 
 The owner's cross-repository rules (release safety, verification, scope, autonomous runs, UI
-quality bar) live in one shared file, `~/agent-skills/working-agreements/AGENTS.md`. Read it
+taste) live in one shared file, `~/agent-skills/working-agreements/AGENTS.md`. Read it
 before starting work. This guide wins where the two conflict. If that path does not exist on
 this machine, say so once and continue with this guide.
 
