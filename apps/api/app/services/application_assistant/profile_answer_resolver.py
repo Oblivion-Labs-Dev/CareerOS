@@ -705,6 +705,11 @@ def _resolve_answer_impl(
         r"\bany\s+(?:u\.?s\.?\s+)?employer", question_text, re.I
     ):
         screening = None
+    prior_employment = _asks_about_prior_employment(question_text, profile)
+    if screening and prior_employment:
+        # A saved "Have you ever worked for Robinhood…? No" matched the same
+        # question about Amazon, which the candidate worked for.
+        screening = None
     if screening:
         _sid, saved = screening
         answer = str(saved).strip()
@@ -813,7 +818,7 @@ def _resolve_answer_impl(
     # always come from the authoritative profile, never a fuzzy-matched library
     # entry that could in principle have been saved against a differently-worded
     # (and differently-scoped) question.
-    if not is_sensitive_factual(qtype) and answer_lib:
+    if not is_sensitive_factual(qtype) and answer_lib and not prior_employment:
         approved = _find_user_approved_answer(question_text, answer_lib)
         if approved and opts:
             approved = _match_option(opts, str(approved))
@@ -3089,6 +3094,28 @@ _KIND_OF_COMPANY = re.compile(
 )
 
 
+def _asks_about_own_employment(question: str) -> bool:
+    """True for "have you worked/been employed there" wording.
+
+    "Have you previously applied to...", relative/conflict-of-interest and
+    non-compete questions name a company too, but the profile's work history
+    holds no facts for them.
+    """
+    q_low = (question or "").lower()
+    if not any(k in q_low for k in ("employ", "work", "intern", "contract", "consult")):
+        return False
+    if re.search(r"applied|\brelat(?:ed|ive|ionship)|famil|friend|know\s+anyone", q_low):
+        return False
+    return not re.search(r"non-?\s?compete|restrictive\s+covenant|non-?\s?solicit", q_low)
+
+
+def _asks_about_prior_employment(question: str, profile: dict) -> bool:
+    """True when the question asks whether the candidate worked at a company
+    their work history says they did. The profile answers that; a saved answer
+    given for another company ("ever worked for Robinhood? No") must not."""
+    return _asks_about_own_employment(question) and bool(_question_names_a_prior_employer(question, profile))
+
+
 def _resolve_company_history(res: AnswerResolution, profile: dict, opts: list[str]) -> None:
     # Only answer "No" when the question is genuinely about a company the
     # candidate has no history with. See _question_names_a_prior_employer.
@@ -3102,13 +3129,9 @@ def _resolve_company_history(res: AnswerResolution, profile: dict, opts: list[st
         return
     prior = _question_names_a_prior_employer(res.question, profile)
     if prior:
-        # "Have you previously applied to..." and conflict-of-interest/relative
-        # questions are not employment-history questions, and the profile has no
-        # facts for them — leave those unanswered rather than guessing "Yes".
-        q_low = (res.question or "").lower()
-        if not any(k in q_low for k in ("employ", "work", "intern", "contract", "consult")):
-            return
-        if "applied" in q_low or "relative" in q_low or "family" in q_low:
+        # Leave other questions naming a prior employer unanswered rather than
+        # guessing "Yes".
+        if not _asks_about_own_employment(res.question):
             return
         answer = "Yes"
         if opts:
