@@ -63,7 +63,7 @@ def parse_period_hours(period: str) -> int:
 # misread as a posting requirement, and the named bot-protected boards sit
 # above the generic reCAPTCHA pattern that also matches Okta's message.
 _REASON_PATTERNS: list[tuple[re.Pattern[str], str]] = [
-    (re.compile(r"BOT_PROTECTED_BOARD:\s*Roblox|reliably times out in careeros", re.I), "Roblox board times out (known bot-protected)"),
+    (re.compile(r"BOT_PROTECTED_BOARD:\s*Roblox|roblox\.com refuses automated browsers|reliably times out in careeros", re.I), "Roblox refuses automated browsers (apply by hand)"),
     (re.compile(r"BOT_PROTECTED_BOARD:\s*Okta|Okta uses reCAPTCHA", re.I), "Okta reCAPTCHA (known bot-protected)"),
     (re.compile(r"DOM Verification mismatch|Required fields? remain unfilled", re.I), "Required field left blank in the browser DOM"),
     (re.compile(r"No application form", re.I), "No application form on the posting page"),
