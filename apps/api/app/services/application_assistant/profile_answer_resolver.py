@@ -190,6 +190,22 @@ def _significant_words(text: str) -> set[str]:
     return {w for w in words if w not in _STOPWORDS and len(w) > 2}
 
 
+def _distinct_subjects(left: set[str], right: set[str]) -> bool:
+    """Whether each wording names something the other does not.
+
+    "…hands-on experience with React and React Native?" and "…with Python and
+    Django?" share half their words, but they are different questions, and
+    reusing one's answer for the other is a wrong answer. A rewording only
+    adds or drops words on one side. A word cut short by a truncated label
+    still counts as the same word.
+    """
+
+    def unmatched(words: set[str], other: set[str]) -> bool:
+        return any(not any(o.startswith(w) or w.startswith(o) for o in other) for w in words - other)
+
+    return unmatched(left, right) and unmatched(right, left)
+
+
 def _find_user_approved_answer(question_text: str, answer_lib: list[dict[str, Any]]) -> str | None:
     """Look up a previously user-approved answer for a question that may be
     phrased slightly differently than when it was saved.
@@ -217,7 +233,7 @@ def _find_user_approved_answer(question_text: str, answer_lib: list[dict[str, An
         candidates = entry.get("questionVariants") or ([entry["normalizedKey"]] if entry.get("normalizedKey") else [])
         for variant in candidates:
             variant_words = _significant_words(str(variant))
-            if not variant_words:
+            if not variant_words or _distinct_subjects(target_words, variant_words):
                 continue
             overlap = len(target_words & variant_words) / max(len(target_words | variant_words), 1)
             if overlap > best_score:

@@ -28,6 +28,7 @@ from dataclasses import dataclass, field
 from typing import Any, Iterable
 
 from app.services.application_assistant.profile_answer_resolver import (
+    _distinct_subjects,
     _significant_words,
 )
 
@@ -174,6 +175,8 @@ def group_pending_questions(
             match = None
             best = threshold
             for group in groups:
+                if _distinct_subjects(words, group._words):
+                    continue
                 score = _overlap(words, group._words)
                 if score >= best:
                     best = score
