@@ -1689,7 +1689,7 @@ class AutopilotRunner:
         )
         from app.services.application_assistant.persistence import (
             is_strict_duplicate_processed,
-            list_autopilot_jobs,
+            list_company_cap_counted_jobs,
             list_submitted_duplicate_candidates,
         )
 
@@ -1737,10 +1737,10 @@ class AutopilotRunner:
             )
         if not manual_apply:
             with session_scope() as db:
-                all_db_jobs = list_autopilot_jobs(db)
+                counted_jobs = list_company_cap_counted_jobs(db)
 
             cap_release = company_cap.company_hold(
-                [j for j in all_db_jobs if j.get("id") != job_item.get("id")],
+                [j for j in counted_jobs if j.get("id") != job_item.get("id")],
                 company_raw,
                 job=job_item,
             )

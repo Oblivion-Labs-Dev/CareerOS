@@ -24,6 +24,7 @@ from app.db.store import (
 )
 
 logger = logging.getLogger("career_os.application_assistant.persistence")
+from app.services.application_assistant.company_cap import COUNTED_STATUSES
 from app.services.application_assistant.demo_data import is_demo_application, is_demo_job
 from app.services.application_assistant.domain import (
     ApplicationStatus,
@@ -1051,6 +1052,12 @@ def list_autopilot_jobs(db: Session, status: str | None = None) -> list[dict[str
         jobs = list_entities(db, ENTITY_AUTOPILOT_JOB)
     jobs.sort(key=lambda j: str(j.get("queuedAt") or j.get("discoveredAt") or ""), reverse=True)
     return jobs
+
+
+def list_company_cap_counted_jobs(db: Session) -> list[dict[str, Any]]:
+    """Only the jobs a company cap counts, so the per-job cap check reads ~5%
+    of the table. Not enough for the cooldown, which counts every attempt."""
+    return [job for status in sorted(COUNTED_STATUSES) for job in list_autopilot_jobs(db, status)]
 
 
 def _display_names(rows: Any) -> dict[str, str]:
