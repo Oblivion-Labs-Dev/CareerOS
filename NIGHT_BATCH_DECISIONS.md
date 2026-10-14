@@ -6,6 +6,33 @@ exists so decision-worthy events don't need to interrupt the user overnight.
 
 ---
 
+## 2026-10-14 (night) — fresh pull, keep-going-when-starved
+
+**Setup (04:45–04:50 UTC)**
+- Fresh 24h pull started 04:45:38 UTC, finished 04:46:23: 774 roles fetched, 7062 total indexed, 328 fresh matches.
+- Queue preparation started, enqueued 244 jobs (queue now 2,610).
+- Run `aprun_b444f0a8-755d-4a84-9fb4-a71d23f20e96` started 04:50:01 UTC (`targetProcessCount` 100, concurrency 1, `submittableBoardsOnly` on, `submittableBoardsStrict: true`).
+- Sentinel loop armed (`AGENT_LOOP_TICK_nightloop`, every 30 min).
+- User's choice when submittable boards run dry: **keep going** — runner keeps processing Workday/Phenom/aggregator postings, triaging them into MANUAL_REVIEW.
+- User's choice on pending answers: **handle deterministic from profile, flag essays for morning**.
+- Queue at start: 2,610 QUEUED, 1,227 on company holds, 66 submittable.
+
+**Submissions** (profile check: name Akshay Borse, location Auburn WA, sponsorship Yes, authorized Yes):
+
+**Check by hand**:
+
+**Questions only the user can answer**:
+
+**Fixes made**:
+
+**Daytime bugs**:
+
+**Decisions for the user**:
+
+**Nightly evolution**:
+
+---
+
 ## 2026-10-13 (night) — fresh pull, grouped answers, pause-when-starved
 
 **Setup (10:10–10:13 UTC)**

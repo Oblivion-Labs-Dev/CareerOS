@@ -300,6 +300,18 @@ Ensure `totalJobs` matches unqueued discoverable roles and does not double-count
 
 ---
 
+## Nightly Evolution slot (secondary lane, every tick)
+
+After the audit and any fix for this tick, spend what remains of the tick on the shared `nightly-evolution` skill. It works in its own worktree (`../CareerOS-worktrees/`), never touches the runner, the live database or `:4000`/`:5000`, and opens one **draft** PR in the morning. It never merges. The batch always comes first: skip this slot whenever the run needs attention.
+
+```powershell
+node "$HOME/agent-skills/nightly-evolution/scripts/evolve.mjs" tick --repo . --agent <your-agent-name>
+```
+
+Do what the printed `action` says, within this tick only: `idle`/`wait` means nothing to do; `triage` means add scored candidates; `implement`/`continue` means work in the printed worktree, then `verify` and `experiment accept|reject`. Policy, checks and protected paths live in `.evolution/policy.yaml`; the contract is in `~/agent-skills/nightly-evolution/SKILL.md`. Add the PR link from `evolve status` to the morning handoff.
+
+---
+
 ## Health Recovery & Troubleshooting
 
 ### Stale Heartbeat / Orphaned Worker
@@ -346,5 +358,6 @@ The night's real output is the handoff, not the chat. Keep **one entry per night
 5. **Fixes made**: commit, what it changes, deploy time, and the job that proved it live.
 6. **Daytime bugs**: fill bugs (board, field, example job id), FAILED jobs with an empty `lastError`, duplicate queue rows for one posting. Put anything that could submit a wrong answer first.
 7. **Decisions for the user**, e.g. turning `submittableBoardsOnly` off, or allowing a guarded answer.
+8. **Nightly evolution**: the draft PR link and its one-line headline (accepted and rejected experiments).
 
 When the user breaks the loop, give them items 1–4 and 7 in chat and point to the entry for the rest.
