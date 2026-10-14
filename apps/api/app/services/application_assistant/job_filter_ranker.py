@@ -844,43 +844,15 @@ def evaluate_hard_filters(
 
     # Exclude boards with hard bot protection that block automated headless runs
     #
-    # Live-tested 2026-09-14 rather than trusted as a static guess (see git
-    # history for the brief window this was disabled). Two lines of evidence
-    # that DISAGREE, both real:
-    #  1. CareerOS's own stealth Playwright browser hit an identical,
-    #     reproducible `Timeout 60000ms exceeded` on page.goto across 3 real
-    #     attempts against 2 queued postings, hanging with no progress until
-    #     manually recovered each time - eventually settling on "no
-    #     application form on the posting page".
-    #  2. A plain manual Chrome session (not Playwright, no stealth args) hit
-    #     a genuinely current Roblox posting - found by browsing Roblox's own
-    #     live listings, not from the queue - and its real Greenhouse-hosted
-    #     apply form (Resume/CV, Cover Letter, Legal Name...) loaded
-    #     instantly with zero CAPTCHA/Turnstile/any bot-challenge visible.
-    # So "Roblox uses Cloudflare Turnstile" (the original reason this block
-    # existed) is likely just wrong - nothing challenged a normal browser.
-    # The two automation postings tested were both from days-old discovery
-    # batches and may simply have been expired/closed (one confirmed
-    # redirecting to the generic careers page on manual navigation), which
-    # would also explain a slow/odd load rather than an active bot-wall. This
-    # was not re-isolated against a known-fresh posting through CareerOS's
-    # own automation before time ran out, so the real cause (stale queue
-    # entries vs. a genuine stealth-browser-specific load issue on this
-    # board) is still open - see NIGHT_BATCH_DECISIONS.md. Re-enabling the
-    # block for now since every real automation attempt failed, but the
-    # reason is deliberately about the *symptom*, not a false "bot
-    # protection" claim - a future session re-testing against a fresh
-    # posting id could resolve this properly.
-    # One specific, deliberate exception: job 8127056 (Senior Software
-    # Engineer - Desktop) is a known-fresh, known-open posting confirmed by
-    # hand to have no bot-challenge - added 2026-09-14 to get one clean,
-    # confound-free automation result through CareerOS's own pipeline
-    # (the earlier 3 test attempts both used likely-expired postings, so the
-    # timeout cause was never actually isolated). Remove this once that
-    # result is in - it is not meant to stand as a permanent carve-out.
-    _ROBLOX_TEST_EXCEPTION_URLS = ("careers.roblox.com/jobs/8127056",)
-    if "roblox" in norm_c and not any(u in app_url for u in _ROBLOX_TEST_EXCEPTION_URLS):
-        return False, "Roblox's Greenhouse-hosted apply form reliably times out in CareerOS's automation (verified live 2026-09-14); a manual browser hit no challenge on a current posting, so this is unconfirmed as an actual bot-wall - see NIGHT_BATCH_DECISIONS.md"
+    # careers.roblox.com refuses every automated browser at the network edge:
+    # the executor's Chromium gets ERR_CONNECTION_RESET, and plain headless
+    # Chromium or headless Chrome get ERR_HTTP2_PROTOCOL_ERROR, while curl and
+    # a person's Chrome load the same posting (verified 2026-09-15, worklist
+    # D4). Reaching the form through Greenhouse's embed instead would be
+    # evading that, so Roblox stays a hand-apply job. ineligibility.py and
+    # diagnostic_outcomes.py match this reason's wording.
+    if "roblox" in norm_c:
+        return False, "careers.roblox.com refuses automated browsers (verified 2026-09-15); apply by hand"
     if "okta" in norm_c:
         return False, "Okta uses reCAPTCHA verification"
 

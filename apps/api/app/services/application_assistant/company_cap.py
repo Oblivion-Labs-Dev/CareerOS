@@ -89,7 +89,7 @@ COMPANY_APPLICATION_CAP = next(
 #: never sent, so holding the queue against it would pace on work that never
 #: happened. SUBMISSION_UNKNOWN counts because it may well have been sent, and
 #: pacing should fail safe.
-_COUNTED_STATUSES = frozenset({"SUBMITTED", "REJECTED", "SUBMISSION_UNKNOWN"})
+COUNTED_STATUSES = frozenset({"SUBMITTED", "REJECTED", "SUBMISSION_UNKNOWN"})
 
 
 @dataclass(frozen=True)
@@ -169,7 +169,7 @@ def build_submission_index(
 
     index: dict[str, list[datetime]] = {}
     for job in jobs:
-        if (job.get("status") or "").upper() not in _COUNTED_STATUSES:
+        if (job.get("status") or "").upper() not in COUNTED_STATUSES:
             continue
         key = normalise_company(job.get("company"))
         if not key:
@@ -321,7 +321,7 @@ def last_attempt_index(jobs: Iterable[Mapping[str, Any]]) -> dict[str, datetime]
         if not key:
             continue
         when = _parse(job.get("applicationStartedAt"))
-        if (job.get("status") or "").upper() in _COUNTED_STATUSES:
+        if (job.get("status") or "").upper() in COUNTED_STATUSES:
             sent = _submitted_at(job)
             if sent is not None and (when is None or sent > when):
                 when = sent

@@ -159,6 +159,11 @@ def group_pending_questions(
     minute.
     """
     groups: list[QuestionGroup] = []
+    # word -> indexes of the groups whose words contain it. A group sharing no
+    # word with a question scores 0 and can never reach the threshold, so only
+    # groups found here are scored; they are visited in creation order so ties
+    # resolve exactly as a scan over every group would.
+    groups_by_word: dict[str, list[int]] = {}
 
     for job in jobs:
         job_id = str(job.get("id") or "")
@@ -174,13 +179,14 @@ def group_pending_questions(
 
             match = None
             best = threshold
-            for group in groups:
-                if _distinct_subjects(words, group._words):
+            candidates = sorted({i for word in words for i in groups_by_word.get(word, ())})
+            for i in candidates:
+                if _distinct_subjects(words, groups[i]._words):
                     continue
-                score = _overlap(words, group._words)
+                score = _overlap(words, groups[i]._words)
                 if score >= best:
                     best = score
-                    match = group
+                    match = groups[i]
 
             if match is None:
                 match = QuestionGroup(
@@ -189,6 +195,8 @@ def group_pending_questions(
                     options=list(entry.get("options") or []),
                     _words=words,
                 )
+                for word in words:
+                    groups_by_word.setdefault(word, []).append(len(groups))
                 groups.append(match)
             else:
                 # Keep the fullest wording and the richest option list seen for

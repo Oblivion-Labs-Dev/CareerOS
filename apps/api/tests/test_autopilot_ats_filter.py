@@ -7,7 +7,12 @@ import pytest
 from app.db.store import session_scope
 from app.routers.application_assistant.autopilot import get_autopilot_jobs_list
 from app.services.application_assistant.ats_plugin_reference import ats_from_url
-from app.services.application_assistant.persistence import delete_autopilot_job, save_autopilot_job
+from app.services.application_assistant.persistence import (
+    AUTOPILOT_JOBS_CACHE_KEY,
+    delete_autopilot_job,
+    save_autopilot_job,
+)
+from app.services.read_cache import read_cache
 
 
 @pytest.mark.parametrize(
@@ -46,6 +51,9 @@ def seeded_jobs():
     with session_scope() as db:
         for job in JOBS:
             save_autopilot_job(db, dict(job))
+    # The list is served stale-while-revalidate; these tests are about the
+    # filter, so read the rows just written rather than the previous snapshot.
+    read_cache.invalidate(AUTOPILOT_JOBS_CACHE_KEY)
     yield
     with session_scope() as db:
         for job in JOBS:

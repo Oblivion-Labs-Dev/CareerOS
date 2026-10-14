@@ -9,10 +9,17 @@ number in the question or which direction it pointed.
 
 import pytest
 
+from app.services.application_assistant import profile_answer_resolver
 from app.services.application_assistant.profile_answer_resolver import resolve_answer
 
 NINE_YEARS = {"yearsExperience": "9"}
 YES_NO = ["Yes", "No"]
+
+
+@pytest.fixture(autouse=True)
+def python_on_record(monkeypatch):
+    # Otherwise read from the owner's untracked career.json.
+    monkeypatch.setattr(profile_answer_resolver, "_career_tech_words", lambda: frozenset({"python"}))
 
 
 def answer(question: str) -> str | None:

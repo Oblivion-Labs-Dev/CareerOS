@@ -64,10 +64,8 @@ def autopilot_readiness() -> dict[str, Any]:
 
     with session_scope() as db:
         readiness = evaluate_profile_readiness(get_kv(db, "profile"))
-        review_jobs = [
-            job for job in list_autopilot_jobs(db)
-            if (job.get("status") or "") in ("NEEDS_REVIEW", "MANUAL_REVIEW")
-        ]
+        review_jobs = list_autopilot_jobs(db, "NEEDS_REVIEW") + list_autopilot_jobs(db, "MANUAL_REVIEW")
+    review_jobs.sort(key=lambda j: str(j.get("queuedAt") or j.get("discoveredAt") or ""), reverse=True)
 
     questions = summarise(group_pending_questions(review_jobs))
     return {
@@ -155,10 +153,6 @@ async def stop_queue_preparation() -> dict[str, Any]:
 # A live run's counters should still look like they are moving, so this is
 # deliberately shorter than the dashboard aggregate TTL.
 AUTOPILOT_STATUS_TTL_SECONDS = 3.0
-
-# The job list is invalidated on every write, so this TTL only governs how
-# quickly a change made by the background runner (not by the user) appears.
-AUTOPILOT_JOBS_TTL_SECONDS = 5.0
 
 # How long an assisted fill leaves the browser open for the candidate. It ends
 # as soon as they close the window, so this is only the ceiling.
@@ -386,10 +380,9 @@ def get_autopilot_jobs_list(
 ) -> dict[str, Any]:
     """List autopilot jobs, filtered and paginated server-side."""
     from app.services.application_assistant.persistence import (
-        AUTOPILOT_JOBS_CACHE_KEY,
         AUTOPILOT_STATS_CACHE_KEY,
+        cached_autopilot_jobs,
         get_autopilot_status_company_stats,
-        list_autopilot_jobs,
     )
     from app.db.store import session_scope
     from app.services.read_cache import read_cache
@@ -435,11 +428,7 @@ def get_autopilot_jobs_list(
     else:
         title_counts = {}
 
-    def _load_all_jobs() -> list[dict[str, Any]]:
-        with session_scope() as db:
-            return list_autopilot_jobs(db)
-
-    all_jobs = read_cache.get(AUTOPILOT_JOBS_CACHE_KEY, AUTOPILOT_JOBS_TTL_SECONDS, _load_all_jobs)
+    all_jobs = cached_autopilot_jobs()
     jobs = [job for job in all_jobs if not statuses or (job.get("status") or "").upper() in statuses]
 
     # Which ATS each job applies through, counted over the status selection the
@@ -614,18 +603,9 @@ def get_staged_applications() -> dict[str, Any]:
     # Shares the cached job list with /autopilot/jobs rather than re-reading the
     # table: the dashboard polls both together, so this was parsing every row a
     # second time for a filter it can do in memory.
-    from app.services.application_assistant.persistence import (
-        AUTOPILOT_JOBS_CACHE_KEY,
-        list_autopilot_jobs,
-    )
-    from app.db.store import session_scope
-    from app.services.read_cache import read_cache
+    from app.services.application_assistant.persistence import cached_autopilot_jobs
 
-    def _load_all_jobs() -> list[dict[str, Any]]:
-        with session_scope() as db:
-            return list_autopilot_jobs(db)
-
-    jobs = read_cache.get(AUTOPILOT_JOBS_CACHE_KEY, AUTOPILOT_JOBS_TTL_SECONDS, _load_all_jobs)
+    jobs = cached_autopilot_jobs()
     staged = [j for j in jobs if j.get("status") in ("STAGED", "NEEDS_REVIEW")]
     return {"staged": staged, "count": len(staged)}
 

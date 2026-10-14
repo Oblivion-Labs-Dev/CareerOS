@@ -24,6 +24,7 @@ from app.db.store import (
 )
 
 logger = logging.getLogger("career_os.application_assistant.persistence")
+from app.services.application_assistant.company_cap import COUNTED_STATUSES
 from app.services.application_assistant.demo_data import is_demo_application, is_demo_job
 from app.services.application_assistant.domain import (
     ApplicationStatus,
@@ -571,6 +572,25 @@ def get_active_autopilot_run(db: Session) -> dict[str, Any] | None:
 AUTOPILOT_JOBS_CACHE_KEY = "autopilot_jobs_all"
 AUTOPILOT_STATS_CACHE_KEY = "autopilot_status_company_stats"
 
+# The job list is invalidated on every write, so this TTL only governs how
+# quickly a change made by the background runner (not by the user) appears.
+AUTOPILOT_JOBS_TTL_SECONDS = 5.0
+
+
+def cached_autopilot_jobs() -> list[dict[str, Any]]:
+    """Every autopilot job, newest first, from the shared read cache.
+
+    The rows are shared with every other reader, so callers must not mutate them.
+    """
+    from app.db.store import session_scope
+    from app.services.read_cache import read_cache
+
+    def _load() -> list[dict[str, Any]]:
+        with session_scope() as db:
+            return list_autopilot_jobs(db)
+
+    return read_cache.get(AUTOPILOT_JOBS_CACHE_KEY, AUTOPILOT_JOBS_TTL_SECONDS, _load)
+
 
 def _invalidate_autopilot_jobs_cache() -> None:
     """Mark the cached job list and precomputed stats stale so the next read
@@ -1051,6 +1071,12 @@ def list_autopilot_jobs(db: Session, status: str | None = None) -> list[dict[str
         jobs = list_entities(db, ENTITY_AUTOPILOT_JOB)
     jobs.sort(key=lambda j: str(j.get("queuedAt") or j.get("discoveredAt") or ""), reverse=True)
     return jobs
+
+
+def list_company_cap_counted_jobs(db: Session) -> list[dict[str, Any]]:
+    """Only the jobs a company cap counts, so the per-job cap check reads ~5%
+    of the table. Not enough for the cooldown, which counts every attempt."""
+    return [job for status in sorted(COUNTED_STATUSES) for job in list_autopilot_jobs(db, status)]
 
 
 def _display_names(rows: Any) -> dict[str, str]:

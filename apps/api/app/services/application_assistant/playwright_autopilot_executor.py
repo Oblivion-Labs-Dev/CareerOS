@@ -366,15 +366,15 @@ async def _extract_dom_form_state(page: Page, expand_comboboxes: bool = False) -
             var cleanLabel = function (raw) {
                 return (raw || '')
                     .replace(/[​‌‍⁠﻿]/g, '')  // zero-width / word joiner
-                    .replace(/\s+/g, ' ')
-                    .replace(/[\s*:•\-]+$/, '')                     // trailing required markers
+                    .replace(/\\s+/g, ' ')
+                    .replace(/[\\s*:•\\-]+$/, '')                     // trailing required markers
                     .trim();
             };
             // An id-shaped token (CA_47143, QA_12203581, q_8f3a2b, 12345) is a
             // handle, not a question.
             var looksLikeId = function (text) {
                 if (!text) return true;
-                if (/^[A-Za-z]{0,4}[_-]?\d{3,}$/.test(text)) return true;
+                if (/^[A-Za-z]{0,4}[_-]?\\d{3,}$/.test(text)) return true;
                 if (/^[0-9a-f]{8,}$/i.test(text)) return true;
                 return !/[a-z]{3}/i.test(text);
             };
@@ -398,7 +398,7 @@ async def _extract_dom_form_state(page: Page, expand_comboboxes: bool = False) -
                 try {
                     var lb = el.getAttribute('aria-labelledby');
                     if (lb) {
-                        var lbEl = document.getElementById(lb.split(/\s+/)[0]);
+                        var lbEl = document.getElementById(lb.split(/\\s+/)[0]);
                         if (lbEl) better = cleanLabel(lbEl.innerText);
                     }
                 } catch (err) {}
