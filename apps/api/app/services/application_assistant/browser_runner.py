@@ -252,7 +252,9 @@ class BrowserSession:
         last_error: Exception | None = None
         for attempt in range(2):
             try:
-                launch_args = ["--disable-blink-features=AutomationControlled"]
+                from app.services.application_assistant.browser_pool import DEFAULT_POOLED_LAUNCH_ARGS
+
+                launch_args = list(DEFAULT_POOLED_LAUNCH_ARGS)
                 if self.background:
                     launch_args.extend(["--window-position=-32000,-32000", "--window-size=1280,900"])
                 else:
@@ -264,6 +266,25 @@ class BrowserSession:
                     args=launch_args,
                 )
                 self._context = self._browser
+
+                async def _abort_external(route: Any) -> None:
+                    u = route.request.url.lower()
+                    if u.startswith(("mailto:", "tel:", "callto:", "sip:", "ms-", "slack:", "zoommtg:", "teams:", "skype:")):
+                        try:
+                            await route.abort()
+                        except Exception:
+                            pass
+                    else:
+                        try:
+                            await route.continue_()
+                        except Exception:
+                            pass
+
+                try:
+                    await self._context.route("**/*", _abort_external)
+                except Exception:
+                    pass
+
                 return
             except Exception as exc:
                 last_error = exc

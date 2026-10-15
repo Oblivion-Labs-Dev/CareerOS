@@ -3518,6 +3518,8 @@ async def _execute_live_playwright_submission_impl(
         "--disable-sync",
         "--disable-external-intent-requests",
         "--no-default-browser-check",
+        "--no-first-run",
+        "--disable-default-apps",
         "--mute-audio",
     ]
     # A window a person is going to drive must open maximized, and its page
@@ -3590,6 +3592,26 @@ async def _execute_live_playwright_submission_impl(
         else:
             browser = await p.chromium.launch(headless=headless, args=launch_args)
             context = await browser.new_context(**context_opts)
+
+    # Intercept and abort any external protocol requests (mailto:, tel:, etc.) so Windows
+    # never intercepts them and never displays an OS "Pick an app" dialog.
+    async def _abort_external_schemes(route: Any) -> None:
+        req_url = route.request.url.lower()
+        if req_url.startswith(("mailto:", "tel:", "callto:", "sip:", "ms-", "slack:", "zoommtg:", "teams:", "skype:")):
+            try:
+                await route.abort()
+            except Exception:
+                pass
+        else:
+            try:
+                await route.continue_()
+            except Exception:
+                pass
+
+    try:
+        await context.route("**/*", _abort_external_schemes)
+    except Exception:
+        pass
 
     # A persistent context opens with a page already in it; reusing that one
     # keeps the window count at one instead of leaving a blank tab behind.

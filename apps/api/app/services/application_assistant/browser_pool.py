@@ -31,8 +31,11 @@ DEFAULT_POOLED_LAUNCH_ARGS = [
     "--disable-sync",
     "--disable-external-intent-requests",
     "--no-default-browser-check",
+    "--no-first-run",
+    "--disable-default-apps",
     "--mute-audio",
 ]
+
 
 
 class PlaywrightBrowserPool:
@@ -107,8 +110,29 @@ class PlaywrightBrowserPool:
 
         # Create isolated context
         context = await browser.new_context(**opts)
+
+        # Abort any external scheme navigation (mailto:, tel:, etc.) so Windows never pops up "Pick an app"
+        async def _abort_external_schemes(route: Any) -> None:
+            req_url = route.request.url.lower()
+            if req_url.startswith(("mailto:", "tel:", "callto:", "sip:", "ms-", "slack:", "zoommtg:", "teams:", "skype:")):
+                try:
+                    await route.abort()
+                except Exception:
+                    pass
+            else:
+                try:
+                    await route.continue_()
+                except Exception:
+                    pass
+
+        try:
+            await context.route("**/*", _abort_external_schemes)
+        except Exception:
+            pass
+
         self._active_contexts.add(context)
         self._uses_count += 1
+
 
         logger.debug(
             "Acquired pooled BrowserContext (active: %d, total uses: %d)",
