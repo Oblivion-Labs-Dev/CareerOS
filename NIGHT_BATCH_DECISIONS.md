@@ -40,14 +40,24 @@ exists so decision-worthy events don't need to interrupt the user overnight.
 - 06:18:37 UTC: **Zscaler** — Staff Software Engineer - AI Security (Go/Rust/Python) (`apjob_0d04a8db-1792-420d-adcb-6ad399765e16`) (Greenhouse, browser confirmed redirect; profile checked: authorization Yes, sponsorship Yes, never worked for Zscaler)
 - 06:23:37 UTC: **Twilio** — Software Engineer L2 - Cloud Infrastructure (`apjob_5b0398ce-eb5b-43f8-9b10-31212fc37904`) (Greenhouse, browser confirmed redirect; profile checked: authorization Yes, sponsorship Yes, Auburn WA)
 - 06:28:51 UTC: **Doordash** — Senior Software Engineer, Machine Learning (`apjob_b7ac02ce-1427-401a-85d3-0a83602f2fab`) (Greenhouse, browser confirmed redirect; profile checked: authorization Yes, sponsorship Yes, Auburn WA, Santa Clara Univ MS)
+- 06:33:52 UTC: **Zscaler** — Sr. Staff Software Development Engineer (`apjob_92434151-ae4d-4681-94b4-793b70cf7e57`) (Greenhouse, browser confirmed redirect; profile checked: sponsorship Yes, legal right Yes, never worked for Zscaler)
+- 06:38:41 UTC: **Cresta** — Senior Software Engineer, Backend - Platform Team (`apjob_908bac84-064c-4846-a2ab-aa359e31b1c8`) (Greenhouse, browser confirmed redirect; profile checked: Auburn WA, sponsorship Yes, LinkedIn verified)
+- 06:43:37 UTC: **Tanium** — Senior Software Engineer, DevOps (`apjob_e348513e-c835-414c-b362-e269240092d3`) (Greenhouse, browser confirmed redirect; profile checked: Auburn WA, hybrid in-person Yes)
+- 06:48:37 UTC: **Nmi** — Senior Software Engineer (`apjob_f2a43aae-6540-4c62-957c-1099c404bd52`) (Greenhouse, browser confirmed redirect; profile checked: authorization Yes, LinkedIn verified)
+- 06:53:48 UTC: **Doordash** — Senior Software Engineer, iOS (`apjob_7640e820-a97c-4d6f-84dc-69eae1fc5b6f`) (Greenhouse, browser confirmed redirect; profile checked: Auburn WA, Santa Clara Univ MS)
 
 **In flight**:
-- Processing **Zscaler** (`apjob_92434151-ae4d-4681-94b4-793b70cf7e57`). Fresh 24h pull completed at 06:32 UTC (820 roles fetched, 7,541 indexed, 405 fresh matches); Cresta Senior Backend Platform at queue head (31 submittable jobs).
+- Processing **Affirm** (`apjob_a2758d7f-f134-42af-ab52-2733e34a6067`). Submittable queue has 21 jobs remaining at head.
 
 **Check by hand**:
-- None (`SUBMISSION_UNKNOWN: 0`).
+- None (`SUBMISSION_UNKNOWN tonight: 0`).
 
 **Questions only the user can answer**:
+- **1-800 Contacts**: "Which best describes your professional experience developing backend applications using C# and .NET?*", "Which best describes your experience using AI coding agents (such as Cursor, Claude Code, or GitHub Copilot) in your software development workflow?*"
+- **Riot Games**: "Please list the names of any and all friends, family or significant others who currently (or have in the last year) work at Riot Games:*", "In which language(s) are you business fluent?*", "Have you previously applied to Riot Games?*"
+- **Canonical**: "Describe your experience with developing products/projects in the automotive and/or the industrial sectors*", "Describe your experience with safety, cybersecurity and or quality management certification...*", "Describe you Linux/open source development experience*"
+- **Black Canyon Consulting**: "List one measurable result you achieved in a recent role (include numbers if applicable).*"
+- **Tomorrow.io**: "Have you designed or implemented REST APIs used in a production application?*", "Have you built or maintained software that must continue operating reliably when services fail or data is delayed? *"
 - **Alphasense**: "Do you currently have permission to work in the UK?*", "Is your permission to work in the UK time-limited?*"
 - **Beyondtrust**: "Are you currently living in the UK? *", "How much experience do you have in Java?*", "How much experience do you have in Angular?*"
 - **Grafana Labs**: "Do you have at lest 2 years of experience with Go? *", "Which of the following best describes you?*", "Do you have experience supporting large-scale production systems...*"
