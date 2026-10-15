@@ -3591,1676 +3591,1676 @@ async def _execute_live_playwright_submission_impl(
             browser = await p.chromium.launch(headless=headless, args=launch_args)
             context = await browser.new_context(**context_opts)
 
-        # A persistent context opens with a page already in it; reusing that one
-        # keeps the window count at one instead of leaving a blank tab behind.
-        page: Page = context.pages[0] if context.pages else await context.new_page()
-        page.set_default_timeout(FIELD_ACTION_TIMEOUT_SEC * 1000)
-        page.set_default_navigation_timeout(timeout_sec * 1000)
-        # Set once the assisted hand-off loop has actually run, so the teardown
-        # below can tell "the person has had their turn with this window" from
-        # "we bailed out before they ever saw it".
-        handed_off = False
+    # A persistent context opens with a page already in it; reusing that one
+    # keeps the window count at one instead of leaving a blank tab behind.
+    page: Page = context.pages[0] if context.pages else await context.new_page()
+    page.set_default_timeout(FIELD_ACTION_TIMEOUT_SEC * 1000)
+    page.set_default_navigation_timeout(timeout_sec * 1000)
+    # Set once the assisted hand-off loop has actually run, so the teardown
+    # below can tell "the person has had their turn with this window" from
+    # "we bailed out before they ever saw it".
+    handed_off = False
 
-        # Apply Cloud Stealth Anti-Fingerprinting Profile. The identity is drawn
-        # per host so a board that challenges one fingerprint is not retried with
-        # the same one; `session_host`/`session_fingerprint` let the bot-wall
-        # detection below report it as burned.
-        from app.services.application_assistant.stealth_browser_profile import apply_stealth_profile
+    # Apply Cloud Stealth Anti-Fingerprinting Profile. The identity is drawn
+    # per host so a board that challenges one fingerprint is not retried with
+    # the same one; `session_host`/`session_fingerprint` let the bot-wall
+    # detection below report it as burned.
+    from app.services.application_assistant.stealth_browser_profile import apply_stealth_profile
 
-        session_host = (urlparse(app_url).netloc or "").lower()
-        session_fingerprint = await apply_stealth_profile(context, page, host=session_host)
+    session_host = (urlparse(app_url).netloc or "").lower()
+    session_fingerprint = await apply_stealth_profile(context, page, host=session_host)
 
+    try:
+        logger.info("Navigating to application URL: %s", app_url)
+        if log_callback:
+            log_callback(f"Navigating to {company} job URL...")
         try:
-            logger.info("Navigating to application URL: %s", app_url)
+            await asyncio.wait_for(
+                page.goto(app_url, wait_until="domcontentloaded", timeout=min(timeout_sec, 60.0) * 1000),
+                timeout=65.0,
+            )
+        except Exception as goto_err:
+            logger.warning("Initial page.goto encountered warning (%s); checking page state...", goto_err)
+        await asyncio.sleep(2.5)
+
+        # Check if job was closed / unlisted by company and redirected to generic job search / open roles
+        current_url_lower = page.url.lower()
+        page_title_lower = (await page.title()).lower()
+        url_says_expired = ("/open-roles" in current_url_lower or "/careers/search" in current_url_lower or "/jobs/search" in current_url_lower) and not any(term in current_url_lower for term in ["/jobs/", "gh_jid="]) or ("404" in page_title_lower or "not found" in page_title_lower)
+
+        # Some ATS pages (e.g. Greenhouse) keep the original job URL but render an inline
+        # banner saying the posting closed, instead of redirecting - catch that by text too.
+        EXPIRED_TEXT_PATTERNS = (
+            "is no longer open",
+            "no longer accepting applications",
+            "no longer active",
+            "position has been filled",
+            "posting has expired",
+            "this job is closed",
+            "page not found",
+            # Taleo (UnitedHealth/Optum): "The job is no longer available."
+            "job is no longer available",
+            "position is no longer available",
+            "posting is no longer available",
+        )
+        page_text_lower = ""
+        if not url_says_expired:
+            try:
+                page_text_lower = (await page.locator("body").inner_text(timeout=3000)).lower()
+            except Exception:
+                page_text_lower = ""
+        text_says_expired = any(p in page_text_lower for p in EXPIRED_TEXT_PATTERNS)
+
+        # A pulled posting most reliably announces itself by losing its own
+        # identity: we asked for one specific job id and were handed a page
+        # that no longer carries it. The path-pattern list above misses the
+        # common cross-domain case - a Pinterest posting on
+        # job-boards.greenhouse.io redirected to www.pinterestcareers.com/jobs/,
+        # whose "/jobs/" segment even matched the list's own exemption, so the
+        # run continued and typed the candidate's city into that index page's
+        # job-search filter before failing verification on it. Requiring a
+        # corroborating signal (the host changed, Greenhouse's own error flag,
+        # or a listing-index path) keeps a plain canonical-URL rewrite that
+        # still shows the form from being called expired.
+        redirect_says_expired = False
+        requested_job_id = ""
+        id_match = re.search(r"/jobs?/(\d{4,})", (app_url or "").lower()) or re.search(
+            r"(?:gh_jid|jobid|job_id)=(\d{4,})", (app_url or "").lower()
+        )
+        if id_match:
+            requested_job_id = id_match.group(1)
+        if requested_job_id and requested_job_id not in current_url_lower:
+            # Losing the id is necessary but not sufficient: a posting can
+            # legitimately hand off to an apply flow on another host whose
+            # URL drops the id but still shows a real form. Only a
+            # destination that also *looks* like a listing index - a bare
+            # /jobs, /careers or /openings, a search page, or Greenhouse's
+            # own error=true flag - is treated as a pulled posting.
+            try:
+                final_path = urlparse(page.url).path.lower().rstrip("/")
+            except Exception:
+                final_path = current_url_lower
+            if re.search(r"error=true|[?&]search", current_url_lower) or re.fullmatch(
+                r"(/[a-z0-9._-]+)?(/(jobs|careers|openings|open-roles|search|positions))?", final_path or ""
+            ):
+                redirect_says_expired = True
+
+        if url_says_expired or text_says_expired or redirect_says_expired:
+            return {
+                "submitted": False,
+                "expired": True,
+                "error": "Job posting has expired or was removed by company (redirected to general career directory)",
+                "evidence": {
+                    "finalUrl": page.url,
+                },
+                "fieldsFilled": {},
+            }
+
+        # Most of the "other job portals" in the queue - Datadog, Coinbase,
+        # Samsara, Zipline, Oscar, Ripple, Block, Fieldwire, Riot - are not
+        # separate ATSs at all. They are employer-branded wrappers that embed
+        # the real Greenhouse/Lever/Ashby form in a cross-origin iframe, or
+        # link out to it from an "Apply now" button (Coinbase does this).
+        # Driving that nested frame is what made these postings hang until the
+        # 480s watchdog fired: the frame is reachable, but interacting with it
+        # through the wrapper stalls.
+        #
+        # The iframe's own src is authoritative - it carries the correct board
+        # slug and validity token, which guessing a slug from the company name
+        # cannot reliably reproduce. So navigate the top-level page to it and
+        # drive the real form directly.
+        # Workable and Lever keep the real form behind an /apply route, and
+        # Workable links to it with a RELATIVE href, so a host-only pattern
+        # never matched it. A bare /apply suffix is only trusted on the SAME
+        # host as the posting: matching it anywhere made an unrelated
+        # content.googleapis.com proxy iframe on a Greenhouse page look like
+        # an application form.
+        try:
+            embed_src = await page.evaluate(
+                "() => {"
+                "  const hosted = /greenhouse[.]io|lever[.]co|ashbyhq[.]com|oneclick-ui|workable[.]com/;"
+                "  const here = location.host;"
+                "  const ats = u => { try { return hosted.test(u) || (new URL(u, location.href).host === here && /[/]apply[/]?$/.test(new URL(u, location.href).pathname)); } catch (e) { return false; } };"
+                "  const framed = [...document.querySelectorAll('iframe')]"
+                "    .map(el => el.src || '').find(src => src && ats(src));"
+                "  if (framed) return framed;"
+                "  const links = [...document.querySelectorAll('a[href]')].map(a => a.href || '')"
+                "    .filter(href => href && ats(href));"
+                "  const apply = [...document.querySelectorAll('a[href]')]"
+                "    .filter(a => a.href && ats(a.href) && /apply|interested/i.test(a.textContent || ''));"
+                "  return (apply[0] && apply[0].href) || links[0] || '';"
+                "}"
+            )
+        except Exception:
+            embed_src = ""
+        # SmartRecruiters hides its form behind an "I'm interested" link to a
+        # oneclick-ui page, so the posting URL itself never has one.
+        #
+        # Being ON the ATS host is not the same as being ON its form.
+        # Greenhouse renders the form inline on the posting URL, but Lever
+        # and Workable serve a job DESCRIPTION there and keep the form at
+        # /apply. Short-circuiting on the hostname meant the /apply URL this
+        # code had just resolved was thrown away, the description page had
+        # zero inputs, and the run died as "No application form on the
+        # posting page" - on boards whose forms are perfectly fillable.
+        # Verified live: jobs.lever.co/<co>/<id>/apply exposes 15 text
+        # inputs and a file input with no bot wall.
+        on_form_already = await _page_has_form_inputs(page)
+        already_on_ats = on_form_already or "oneclick-ui" in page.url
+        # Greenhouse's /embed/job_app endpoint usually only works while it is
+        # framed by the employer's page. Opened as a top-level document it
+        # returns a stub: a few inputs and NO submit control at all. Measured
+        # on two postings, in-frame vs. the identical URL standalone:
+        #
+        #   Databricks  47 inputs + "Submit application"  ->  3 inputs, none
+        #   Datadog     26 inputs + "Submit application"  ->  1 input,  none
+        #
+        # So navigating to it usually throws away the real form. An
+        # autonomous run then reports "Application form and submit button
+        # not found" (that is the Datadog failure), and an assisted hand-off
+        # leaves the candidate staring at a form with no Apply button -
+        # reported live on the Databricks posting.
+        #
+        # BUT: some boards (Roblox confirmed live 2026-09-14) sign the framed
+        # embed URL with a `validityToken` query param — or, verified live
+        # on Coinbase 2026-09-16, a plain `token` param carrying the same
+        # kind of signed value (?token=...&for=coinbase&gh_jid=...). Either
+        # name means the link is signed, so *that* variant
+        # renders the complete standalone form - 33 inputs including resume
+        # upload and a working "Submit application" button, verified by
+        # direct top-level navigation with no employer page involved at all.
+        # That token is presumably what the stub-vs-full-form check on
+        # Greenhouse's side actually keys on; boards without it (Databricks/
+        # Datadog above) fall back to the stub. So only stay framed when the
+        # embed URL lacks that signed token - when it's present, following it
+        # directly sidesteps whatever makes driving the cross-origin iframe
+        # itself hang (the actual cause of Roblox's automation timeouts is
+        # still unconfirmed - see NIGHT_BATCH_DECISIONS.md).
+        #
+        # Standalone ATS URLs (jobs.lever.co/.../apply, a real Greenhouse
+        # job page, Ashby application URLs) are unaffected: they are proper
+        # top-level pages and are still followed.
+        has_signed_embed_token = bool(re.search(r"[?&](?:validityToken|token)=", embed_src))
+        if embed_src and "/embed/job_app" in embed_src and not has_signed_embed_token:
+            logger.info(
+                "Not following %s: Greenhouse's embed endpoint only renders a "
+                "submittable form while framed (no signing token present). "
+                "Staying on %s and driving the form through its iframe instead.",
+                embed_src, page.url,
+            )
             if log_callback:
-                log_callback(f"Navigating to {company} job URL...")
+                log_callback(
+                    "Staying on the employer's page — its embedded form only works there.",
+                )
+            embed_src = ""
+        elif embed_src and "/embed/job_app" in embed_src and has_signed_embed_token:
+            logger.info(
+                "Following signed embed URL directly (signing token present, "
+                "renders full form standalone): %s", embed_src,
+            )
+            if log_callback:
+                log_callback(
+                    "Following the signed application form link directly (bypassing the iframe)...",
+                )
+
+        if embed_src and not already_on_ats:
+            logger.info("Employer page points at an ATS form; navigating directly to %s", embed_src)
+            if log_callback:
+                log_callback("Following embedded application form to its ATS host...")
             try:
                 await asyncio.wait_for(
-                    page.goto(app_url, wait_until="domcontentloaded", timeout=min(timeout_sec, 60.0) * 1000),
-                    timeout=65.0,
+                    page.goto(embed_src, wait_until="domcontentloaded", timeout=45000),
+                    timeout=50.0,
                 )
-            except Exception as goto_err:
-                logger.warning("Initial page.goto encountered warning (%s); checking page state...", goto_err)
-            await asyncio.sleep(2.5)
+                await asyncio.sleep(2.0)
+            except Exception as embed_err:
+                logger.warning("Could not open embedded form %s: %s", embed_src, embed_err)
 
-            # Check if job was closed / unlisted by company and redirected to generic job search / open roles
-            current_url_lower = page.url.lower()
-            page_title_lower = (await page.title()).lower()
-            url_says_expired = ("/open-roles" in current_url_lower or "/careers/search" in current_url_lower or "/jobs/search" in current_url_lower) and not any(term in current_url_lower for term in ["/jobs/", "gh_jid="]) or ("404" in page_title_lower or "not found" in page_title_lower)
+        # Check for iframe (e.g. Greenhouse or Lever embeds)
+        target_frame: Any = page
+        for frame in page.frames:
+            if frame != page and any(term in frame.url for term in ["greenhouse.io", "lever.co", "ashby"]):
+                target_frame = frame
+                if log_callback:
+                    log_callback(f"Switched to application iframe ({frame.url[:40]}...)")
+                break
 
-            # Some ATS pages (e.g. Greenhouse) keep the original job URL but render an inline
-            # banner saying the posting closed, instead of redirecting - catch that by text too.
-            EXPIRED_TEXT_PATTERNS = (
-                "is no longer open",
-                "no longer accepting applications",
-                "no longer active",
-                "position has been filled",
-                "posting has expired",
-                "this job is closed",
-                "page not found",
-                # Taleo (UnitedHealth/Optum): "The job is no longer available."
-                "job is no longer available",
-                "position is no longer available",
-                "posting is no longer available",
-            )
-            page_text_lower = ""
-            if not url_says_expired:
-                try:
-                    page_text_lower = (await page.locator("body").inner_text(timeout=3000)).lower()
-                except Exception:
-                    page_text_lower = ""
-            text_says_expired = any(p in page_text_lower for p in EXPIRED_TEXT_PATTERNS)
-
-            # A pulled posting most reliably announces itself by losing its own
-            # identity: we asked for one specific job id and were handed a page
-            # that no longer carries it. The path-pattern list above misses the
-            # common cross-domain case - a Pinterest posting on
-            # job-boards.greenhouse.io redirected to www.pinterestcareers.com/jobs/,
-            # whose "/jobs/" segment even matched the list's own exemption, so the
-            # run continued and typed the candidate's city into that index page's
-            # job-search filter before failing verification on it. Requiring a
-            # corroborating signal (the host changed, Greenhouse's own error flag,
-            # or a listing-index path) keeps a plain canonical-URL rewrite that
-            # still shows the form from being called expired.
-            redirect_says_expired = False
-            requested_job_id = ""
-            id_match = re.search(r"/jobs?/(\d{4,})", (app_url or "").lower()) or re.search(
-                r"(?:gh_jid|jobid|job_id)=(\d{4,})", (app_url or "").lower()
-            )
-            if id_match:
-                requested_job_id = id_match.group(1)
-            if requested_job_id and requested_job_id not in current_url_lower:
-                # Losing the id is necessary but not sufficient: a posting can
-                # legitimately hand off to an apply flow on another host whose
-                # URL drops the id but still shows a real form. Only a
-                # destination that also *looks* like a listing index - a bare
-                # /jobs, /careers or /openings, a search page, or Greenhouse's
-                # own error=true flag - is treated as a pulled posting.
-                try:
-                    final_path = urlparse(page.url).path.lower().rstrip("/")
-                except Exception:
-                    final_path = current_url_lower
-                if re.search(r"error=true|[?&]search", current_url_lower) or re.fullmatch(
-                    r"(/[a-z0-9._-]+)?(/(jobs|careers|openings|open-roles|search|positions))?", final_path or ""
-                ):
-                    redirect_says_expired = True
-
-            if url_says_expired or text_says_expired or redirect_says_expired:
-                return {
-                    "submitted": False,
-                    "expired": True,
-                    "error": "Job posting has expired or was removed by company (redirected to general career directory)",
-                    "evidence": {
-                        "finalUrl": page.url,
-                    },
-                    "fieldsFilled": {},
-                }
-
-            # Most of the "other job portals" in the queue - Datadog, Coinbase,
-            # Samsara, Zipline, Oscar, Ripple, Block, Fieldwire, Riot - are not
-            # separate ATSs at all. They are employer-branded wrappers that embed
-            # the real Greenhouse/Lever/Ashby form in a cross-origin iframe, or
-            # link out to it from an "Apply now" button (Coinbase does this).
-            # Driving that nested frame is what made these postings hang until the
-            # 480s watchdog fired: the frame is reachable, but interacting with it
-            # through the wrapper stalls.
-            #
-            # The iframe's own src is authoritative - it carries the correct board
-            # slug and validity token, which guessing a slug from the company name
-            # cannot reliably reproduce. So navigate the top-level page to it and
-            # drive the real form directly.
-            # Workable and Lever keep the real form behind an /apply route, and
-            # Workable links to it with a RELATIVE href, so a host-only pattern
-            # never matched it. A bare /apply suffix is only trusted on the SAME
-            # host as the posting: matching it anywhere made an unrelated
-            # content.googleapis.com proxy iframe on a Greenhouse page look like
-            # an application form.
+        if target_frame == page:
             try:
-                embed_src = await page.evaluate(
-                    "() => {"
-                    "  const hosted = /greenhouse[.]io|lever[.]co|ashbyhq[.]com|oneclick-ui|workable[.]com/;"
-                    "  const here = location.host;"
-                    "  const ats = u => { try { return hosted.test(u) || (new URL(u, location.href).host === here && /[/]apply[/]?$/.test(new URL(u, location.href).pathname)); } catch (e) { return false; } };"
-                    "  const framed = [...document.querySelectorAll('iframe')]"
-                    "    .map(el => el.src || '').find(src => src && ats(src));"
-                    "  if (framed) return framed;"
-                    "  const links = [...document.querySelectorAll('a[href]')].map(a => a.href || '')"
-                    "    .filter(href => href && ats(href));"
-                    "  const apply = [...document.querySelectorAll('a[href]')]"
-                    "    .filter(a => a.href && ats(a.href) && /apply|interested/i.test(a.textContent || ''));"
-                    "  return (apply[0] && apply[0].href) || links[0] || '';"
-                    "}"
-                )
+                iframe_elem = page.locator('iframe[src*="greenhouse.io"], iframe[src*="lever.co"], iframe[src*="ashby"]').first
+                if await iframe_elem.count() > 0:
+                    content_fr = await iframe_elem.content_frame()
+                    if content_fr:
+                        target_frame = content_fr
+                        if log_callback:
+                            log_callback(f"Switched to application frame via element locator ({target_frame.url[:40]}...)")
             except Exception:
-                embed_src = ""
-            # SmartRecruiters hides its form behind an "I'm interested" link to a
-            # oneclick-ui page, so the posting URL itself never has one.
-            #
-            # Being ON the ATS host is not the same as being ON its form.
-            # Greenhouse renders the form inline on the posting URL, but Lever
-            # and Workable serve a job DESCRIPTION there and keep the form at
-            # /apply. Short-circuiting on the hostname meant the /apply URL this
-            # code had just resolved was thrown away, the description page had
-            # zero inputs, and the run died as "No application form on the
-            # posting page" - on boards whose forms are perfectly fillable.
-            # Verified live: jobs.lever.co/<co>/<id>/apply exposes 15 text
-            # inputs and a file input with no bot wall.
-            on_form_already = await _page_has_form_inputs(page)
-            already_on_ats = on_form_already or "oneclick-ui" in page.url
-            # Greenhouse's /embed/job_app endpoint usually only works while it is
-            # framed by the employer's page. Opened as a top-level document it
-            # returns a stub: a few inputs and NO submit control at all. Measured
-            # on two postings, in-frame vs. the identical URL standalone:
-            #
-            #   Databricks  47 inputs + "Submit application"  ->  3 inputs, none
-            #   Datadog     26 inputs + "Submit application"  ->  1 input,  none
-            #
-            # So navigating to it usually throws away the real form. An
-            # autonomous run then reports "Application form and submit button
-            # not found" (that is the Datadog failure), and an assisted hand-off
-            # leaves the candidate staring at a form with no Apply button -
-            # reported live on the Databricks posting.
-            #
-            # BUT: some boards (Roblox confirmed live 2026-09-14) sign the framed
-            # embed URL with a `validityToken` query param — or, verified live
-            # on Coinbase 2026-09-16, a plain `token` param carrying the same
-            # kind of signed value (?token=...&for=coinbase&gh_jid=...). Either
-            # name means the link is signed, so *that* variant
-            # renders the complete standalone form - 33 inputs including resume
-            # upload and a working "Submit application" button, verified by
-            # direct top-level navigation with no employer page involved at all.
-            # That token is presumably what the stub-vs-full-form check on
-            # Greenhouse's side actually keys on; boards without it (Databricks/
-            # Datadog above) fall back to the stub. So only stay framed when the
-            # embed URL lacks that signed token - when it's present, following it
-            # directly sidesteps whatever makes driving the cross-origin iframe
-            # itself hang (the actual cause of Roblox's automation timeouts is
-            # still unconfirmed - see NIGHT_BATCH_DECISIONS.md).
-            #
-            # Standalone ATS URLs (jobs.lever.co/.../apply, a real Greenhouse
-            # job page, Ashby application URLs) are unaffected: they are proper
-            # top-level pages and are still followed.
-            has_signed_embed_token = bool(re.search(r"[?&](?:validityToken|token)=", embed_src))
-            if embed_src and "/embed/job_app" in embed_src and not has_signed_embed_token:
-                logger.info(
-                    "Not following %s: Greenhouse's embed endpoint only renders a "
-                    "submittable form while framed (no signing token present). "
-                    "Staying on %s and driving the form through its iframe instead.",
-                    embed_src, page.url,
-                )
-                if log_callback:
-                    log_callback(
-                        "Staying on the employer's page — its embedded form only works there.",
-                    )
-                embed_src = ""
-            elif embed_src and "/embed/job_app" in embed_src and has_signed_embed_token:
-                logger.info(
-                    "Following signed embed URL directly (signing token present, "
-                    "renders full form standalone): %s", embed_src,
-                )
-                if log_callback:
-                    log_callback(
-                        "Following the signed application form link directly (bypassing the iframe)...",
-                    )
+                pass
 
-            if embed_src and not already_on_ats:
-                logger.info("Employer page points at an ATS form; navigating directly to %s", embed_src)
-                if log_callback:
-                    log_callback("Following embedded application form to its ATS host...")
-                try:
-                    await asyncio.wait_for(
-                        page.goto(embed_src, wait_until="domcontentloaded", timeout=45000),
-                        timeout=50.0,
-                    )
-                    await asyncio.sleep(2.0)
-                except Exception as embed_err:
-                    logger.warning("Could not open embedded form %s: %s", embed_src, embed_err)
-
-            # Check for iframe (e.g. Greenhouse or Lever embeds)
-            target_frame: Any = page
-            for frame in page.frames:
-                if frame != page and any(term in frame.url for term in ["greenhouse.io", "lever.co", "ashby"]):
-                    target_frame = frame
-                    if log_callback:
-                        log_callback(f"Switched to application iframe ({frame.url[:40]}...)")
-                    break
-
-            if target_frame == page:
-                try:
-                    iframe_elem = page.locator('iframe[src*="greenhouse.io"], iframe[src*="lever.co"], iframe[src*="ashby"]').first
-                    if await iframe_elem.count() > 0:
-                        content_fr = await iframe_elem.content_frame()
-                        if content_fr:
-                            target_frame = content_fr
-                            if log_callback:
-                                log_callback(f"Switched to application frame via element locator ({target_frame.url[:40]}...)")
-                except Exception:
-                    pass
-
-            # Dismiss any cookie / GDPR consent overlays immediately so inputs and frames are reachable
-            for consent_sel in (
-                'button:has-text("Accept All")',
-                'button:has-text("Accept all")',
-                'button:has-text("Accept Cookies")',
-                'button:has-text("I Accept")',
-                'button:has-text("Accept")',
-                '.cky-btn-accept',
-                '#onetrust-accept-btn-handler',
-            ):
-                try:
-                    consent_btn = page.locator(consent_sel).first
-                    if await consent_btn.count() > 0 and await consent_btn.is_visible():
-                        await consent_btn.click(timeout=1500)
-                        await asyncio.sleep(0.3)
-                        break
-                except Exception:
-                    pass
-
-            # If application form is not yet visible, check for matching job links or "Apply" buttons
-            # A bare `form` element is not evidence of an application form: every
-            # careers page has a site-search form, and matching it meant the
-            # "Apply" button below never got clicked on a job-description page.
-            # Look for inputs only a real application has.
-            #
-            # A bare file input is NOT enough evidence either: Microsoft's job
-            # description page (apply.careers.microsoft.com) has a standalone
-            # "Upload your resume" quick-upload widget with nothing else on it,
-            # which satisfied `input[type="file"]` alone and made every attempt
-            # skip the Apply-link click below, permanently stalling on the
-            # description page ("Submit button not found") no matter what the
-            # click selectors further down could match. A real application form
-            # reliably has at least one identity field (name/email/candidate);
-            # a lone upload widget does not.
-            APPLICATION_FORM_SELECTOR = (
-                '#first_name, #email, input[id*="first_name" i], '
-                'input[name*="first_name" i], input[name*="last_name" i], '
-                'input[name$=".firstName"], input[name$=".lastName"], '
-                'input[autocomplete="given-name"], input[id*="candidate" i]'
-            )
+        # Dismiss any cookie / GDPR consent overlays immediately so inputs and frames are reachable
+        for consent_sel in (
+            'button:has-text("Accept All")',
+            'button:has-text("Accept all")',
+            'button:has-text("Accept Cookies")',
+            'button:has-text("I Accept")',
+            'button:has-text("Accept")',
+            '.cky-btn-accept',
+            '#onetrust-accept-btn-handler',
+        ):
             try:
-                # Checked live against Microsoft's page: a bare file-input +
-                # single-text-input fallback was tried here and immediately
-                # false-positived too (the page header's job search box is
-                # itself one text input), so identity fields are the only
-                # reliable signal - no fallback.
-                form_present = await target_frame.locator(APPLICATION_FORM_SELECTOR).count() > 0
-                if not form_present:
-                    # Check for direct link to specific job if gh_jid was in the URL
-                    if "gh_jid=" in app_url:
-                        import urllib.parse
-                        parsed = urllib.parse.urlparse(app_url)
-                        qs = urllib.parse.parse_qs(parsed.query)
-                        jid = qs.get("gh_jid", [""])[0]
-                        if jid:
-                            matching_link = page.locator(f'a[href*="{jid}"], a[href*="gh_jid={jid}"], a[href*="job-detail?gh_jid={jid}"]').first
-                            if await matching_link.count() > 0 and await matching_link.is_visible():
-                                logger.info("Navigating to specific job link for gh_jid=%s...", jid)
-                                if log_callback:
-                                    log_callback(f"Opening specific job posting for gh_jid={jid}...")
-                                await matching_link.click()
-                                await asyncio.sleep(3.0)
-                                for frame in page.frames:
-                                    if frame != page and any(term in frame.url for term in ["greenhouse.io", "lever.co", "ashby"]):
-                                        target_frame = frame
-                                        break
+                consent_btn = page.locator(consent_sel).first
+                if await consent_btn.count() > 0 and await consent_btn.is_visible():
+                    await consent_btn.click(timeout=1500)
+                    await asyncio.sleep(0.3)
+                    break
+            except Exception:
+                pass
 
-                    apply_btn_selectors = [
-                        'a[href*="#apply"]',
-                        'a[href*="#application"]',
-                        'a:has-text("Apply for this job")',
-                        'a:has-text("Apply")',
-                        'button:has-text("Apply for this job")',
-                        'button:has-text("Apply")',
-                        '[data-qa="apply-button"]',
-                        '.btn-apply',
-                        # Microsoft's careers site (apply.careers.microsoft.com)
-                        # renders "Apply now" as an <a> whose visible label is
-                        # not exposed as matchable text content (a custom-
-                        # rendered/ARIA-managed label), so every :has-text()
-                        # selector above silently misses it and the run stalls
-                        # on the job-description page with no form. The link
-                        # target itself is stable and site-specific.
-                        'a[href*="/careers/apply?"]',
-                        # Apple's careers site (jobs.apple.com) labels its link
-                        # "Submit Resume" rather than "Apply" at all, so no
-                        # text-based selector above ever matches it. The href
-                        # itself is a stable "/apply/<job id>" pattern, and
-                        # this generic form (rather than Apple's exact path)
-                        # also covers other ATS/career sites using the same
-                        # "/apply/" URL convention with non-"Apply" wording.
-                        'a:has-text("Submit Resume")',
-                        'a[href*="/apply/"]',
-                        # Taleo Enterprise: <input type="button" value="Apply Online">.
-                        'input[type="button"][value*="Apply" i]',
-                    ]
-                    for ab_sel in apply_btn_selectors:
-                        ab = page.locator(ab_sel).first
-                        if await ab.count() > 0 and await ab.is_visible():
-                            logger.info("Clicking initial Apply button (%s) to open application form...", ab_sel)
+        # If application form is not yet visible, check for matching job links or "Apply" buttons
+        # A bare `form` element is not evidence of an application form: every
+        # careers page has a site-search form, and matching it meant the
+        # "Apply" button below never got clicked on a job-description page.
+        # Look for inputs only a real application has.
+        #
+        # A bare file input is NOT enough evidence either: Microsoft's job
+        # description page (apply.careers.microsoft.com) has a standalone
+        # "Upload your resume" quick-upload widget with nothing else on it,
+        # which satisfied `input[type="file"]` alone and made every attempt
+        # skip the Apply-link click below, permanently stalling on the
+        # description page ("Submit button not found") no matter what the
+        # click selectors further down could match. A real application form
+        # reliably has at least one identity field (name/email/candidate);
+        # a lone upload widget does not.
+        APPLICATION_FORM_SELECTOR = (
+            '#first_name, #email, input[id*="first_name" i], '
+            'input[name*="first_name" i], input[name*="last_name" i], '
+            'input[name$=".firstName"], input[name$=".lastName"], '
+            'input[autocomplete="given-name"], input[id*="candidate" i]'
+        )
+        try:
+            # Checked live against Microsoft's page: a bare file-input +
+            # single-text-input fallback was tried here and immediately
+            # false-positived too (the page header's job search box is
+            # itself one text input), so identity fields are the only
+            # reliable signal - no fallback.
+            form_present = await target_frame.locator(APPLICATION_FORM_SELECTOR).count() > 0
+            if not form_present:
+                # Check for direct link to specific job if gh_jid was in the URL
+                if "gh_jid=" in app_url:
+                    import urllib.parse
+                    parsed = urllib.parse.urlparse(app_url)
+                    qs = urllib.parse.parse_qs(parsed.query)
+                    jid = qs.get("gh_jid", [""])[0]
+                    if jid:
+                        matching_link = page.locator(f'a[href*="{jid}"], a[href*="gh_jid={jid}"], a[href*="job-detail?gh_jid={jid}"]').first
+                        if await matching_link.count() > 0 and await matching_link.is_visible():
+                            logger.info("Navigating to specific job link for gh_jid=%s...", jid)
                             if log_callback:
-                                log_callback(f"Clicking '{ab_sel}' to expose application form...")
-                            await ab.click()
-                            await asyncio.sleep(2.0)
+                                log_callback(f"Opening specific job posting for gh_jid={jid}...")
+                            await matching_link.click()
+                            await asyncio.sleep(3.0)
                             for frame in page.frames:
                                 if frame != page and any(term in frame.url for term in ["greenhouse.io", "lever.co", "ashby"]):
                                     target_frame = frame
                                     break
-                            break
-            except Exception as nav_err:
-                logger.debug("Initial form exposure navigation warning: %s", nav_err)
 
-            # Client-rendered application forms (Ashby, Lever, SmartRecruiters)
-            # mount their inputs after an async fetch, so a fixed sleep after
-            # navigation is a race. Observed on Ashby: field discovery ran
-            # against an empty page, the deterministic review declared "0 missing
-            # required" because it had found no fields at all, and the run went
-            # on to click Submit on a form nothing had filled. Wait for real
-            # inputs to exist before reading the form.
-            # A lone text input is usually the header's job-search box, which
-            # Phenom's apply page shows seconds before its SPA mounts the form
-            # (Fiserv: filling began against the search box and found nothing).
-            for _ in range(30):
-                try:
-                    identity = await target_frame.locator(APPLICATION_FORM_SELECTOR).count()
-                    ready = await target_frame.locator(
-                        'input[type="text"], input[type="email"], input[type="tel"], textarea'
-                    ).count()
-                except Exception:
-                    identity, ready = 0, 0
-                if identity or ready >= 3:
-                    break
-                await asyncio.sleep(0.5)
-
-            # Some postings render only a job description at the application URL
-            # (observed on Pinterest and Brex links that live on greenhouse.io but
-            # hand the actual apply flow to the employer's own site). Filling a
-            # page that has no application form does not fail - it stalls, and the
-            # job burned the full 480s watchdog before being marked FAILED with a
-            # timeout that says nothing about the real cause. Detect it here and
-            # say so immediately.
-            # ── Workday: get past the chooser before deciding there is no form ──
-            #
-            # A Workday posting's /apply URL is not a form at all. It is a menu -
-            # "Autofill with Resume", "Apply Manually", "Use My Last Application" -
-            # with zero inputs on it, so the check below concluded "no application
-            # form on the posting page" and gave up on a perfectly live posting.
-            # Verified on Blue Origin's tenant.
-            #
-            # Choosing "Apply Manually" advances to step 1 of 8, which is
-            # Create Account / Sign In. That account is a hard gate: the seven
-            # steps that hold the actual application are behind it, and creating
-            # it (or typing a password) is not something this automation does.
-            # So the goal here is narrow and honest - drive the posting as far as
-            # it legitimately can go, then say precisely what is blocking it.
-            if "myworkdayjobs.com" in (page.url or "").lower():
-                workday_state = await _advance_workday_to_form(page, log_callback)
-                if workday_state == "needs_account":
-                    reason = (
-                        "Workday requires a candidate account on this employer's tenant, and "
-                        "the application form is behind that sign-in. Sign in once in this "
-                        "window and the account is remembered for next time."
-                    )
-                    if fill_only:
-                        # The window is handed over below by the teardown path;
-                        # the candidate signs in and completes the wizard.
+                apply_btn_selectors = [
+                    'a[href*="#apply"]',
+                    'a[href*="#application"]',
+                    'a:has-text("Apply for this job")',
+                    'a:has-text("Apply")',
+                    'button:has-text("Apply for this job")',
+                    'button:has-text("Apply")',
+                    '[data-qa="apply-button"]',
+                    '.btn-apply',
+                    # Microsoft's careers site (apply.careers.microsoft.com)
+                    # renders "Apply now" as an <a> whose visible label is
+                    # not exposed as matchable text content (a custom-
+                    # rendered/ARIA-managed label), so every :has-text()
+                    # selector above silently misses it and the run stalls
+                    # on the job-description page with no form. The link
+                    # target itself is stable and site-specific.
+                    'a[href*="/careers/apply?"]',
+                    # Apple's careers site (jobs.apple.com) labels its link
+                    # "Submit Resume" rather than "Apply" at all, so no
+                    # text-based selector above ever matches it. The href
+                    # itself is a stable "/apply/<job id>" pattern, and
+                    # this generic form (rather than Apple's exact path)
+                    # also covers other ATS/career sites using the same
+                    # "/apply/" URL convention with non-"Apply" wording.
+                    'a:has-text("Submit Resume")',
+                    'a[href*="/apply/"]',
+                    # Taleo Enterprise: <input type="button" value="Apply Online">.
+                    'input[type="button"][value*="Apply" i]',
+                ]
+                for ab_sel in apply_btn_selectors:
+                    ab = page.locator(ab_sel).first
+                    if await ab.count() > 0 and await ab.is_visible():
+                        logger.info("Clicking initial Apply button (%s) to open application form...", ab_sel)
                         if log_callback:
-                            log_callback(reason, lvl="warning")
-                    else:
-                        return {
-                            "submitted": False,
-                            "error": reason,
-                            "evidence": {"atsPlatform": "workday", "workdayStep": "sign-in"},
-                            "fieldsFilled": {},
-                        }
-                # "form" falls through to the normal filling path below: the
-                # profile is already signed in and the wizard is reachable.
+                            log_callback(f"Clicking '{ab_sel}' to expose application form...")
+                        await ab.click()
+                        await asyncio.sleep(2.0)
+                        for frame in page.frames:
+                            if frame != page and any(term in frame.url for term in ["greenhouse.io", "lever.co", "ashby"]):
+                                target_frame = frame
+                                break
+                        break
+        except Exception as nav_err:
+            logger.debug("Initial form exposure navigation warning: %s", nav_err)
 
+        # Client-rendered application forms (Ashby, Lever, SmartRecruiters)
+        # mount their inputs after an async fetch, so a fixed sleep after
+        # navigation is a race. Observed on Ashby: field discovery ran
+        # against an empty page, the deterministic review declared "0 missing
+        # required" because it had found no fields at all, and the run went
+        # on to click Submit on a form nothing had filled. Wait for real
+        # inputs to exist before reading the form.
+        # A lone text input is usually the header's job-search box, which
+        # Phenom's apply page shows seconds before its SPA mounts the form
+        # (Fiserv: filling began against the search box and found nothing).
+        for _ in range(30):
             try:
-                has_form = await target_frame.locator(APPLICATION_FORM_SELECTOR).count() > 0
+                identity = await target_frame.locator(APPLICATION_FORM_SELECTOR).count()
+                ready = await target_frame.locator(
+                    'input[type="text"], input[type="email"], input[type="tel"], textarea'
+                ).count()
             except Exception:
-                has_form = True  # never block a submission on a probe that errored
-            if has_form and await _only_talent_network_forms(target_frame, APPLICATION_FORM_SELECTOR):
-                logger.warning("Only a talent-network signup form at %s - not an application", page.url)
-                return {
-                    "submitted": False,
-                    "error": (
-                        "No application form on the posting page - only a talent-network / job-alert "
-                        "signup form is here; the application starts from the employer's Apply link"
-                    ),
-                    "evidence": {"finalUrl": page.url},
-                    "fieldsFilled": {},
-                }
-            if _TALEO_ENTERPRISE.search(page.url or "") or await _has_visible_password_field(target_frame):
+                identity, ready = 0, 0
+            if identity or ready >= 3:
+                break
+            await asyncio.sleep(0.5)
+
+        # Some postings render only a job description at the application URL
+        # (observed on Pinterest and Brex links that live on greenhouse.io but
+        # hand the actual apply flow to the employer's own site). Filling a
+        # page that has no application form does not fail - it stalls, and the
+        # job burned the full 480s watchdog before being marked FAILED with a
+        # timeout that says nothing about the real cause. Detect it here and
+        # say so immediately.
+        # ── Workday: get past the chooser before deciding there is no form ──
+        #
+        # A Workday posting's /apply URL is not a form at all. It is a menu -
+        # "Autofill with Resume", "Apply Manually", "Use My Last Application" -
+        # with zero inputs on it, so the check below concluded "no application
+        # form on the posting page" and gave up on a perfectly live posting.
+        # Verified on Blue Origin's tenant.
+        #
+        # Choosing "Apply Manually" advances to step 1 of 8, which is
+        # Create Account / Sign In. That account is a hard gate: the seven
+        # steps that hold the actual application are behind it, and creating
+        # it (or typing a password) is not something this automation does.
+        # So the goal here is narrow and honest - drive the posting as far as
+        # it legitimately can go, then say precisely what is blocking it.
+        if "myworkdayjobs.com" in (page.url or "").lower():
+            workday_state = await _advance_workday_to_form(page, log_callback)
+            if workday_state == "needs_account":
                 reason = (
-                    "This employer's apply flow requires a candidate account (the form asks for a "
-                    "password), which Autopilot does not create - apply by hand."
+                    "Workday requires a candidate account on this employer's tenant, and "
+                    "the application form is behind that sign-in. Sign in once in this "
+                    "window and the account is remembered for next time."
                 )
                 if fill_only:
+                    # The window is handed over below by the teardown path;
+                    # the candidate signs in and completes the wizard.
                     if log_callback:
                         log_callback(reason, lvl="warning")
                 else:
-                    logger.warning("Account-creation form at %s - not filling", page.url)
                     return {
                         "submitted": False,
                         "error": reason,
-                        "evidence": {"finalUrl": page.url},
+                        "evidence": {"atsPlatform": "workday", "workdayStep": "sign-in"},
                         "fieldsFilled": {},
                     }
-            if not has_form:
-                # A page with no form may simply be a job description, or it may
-                # be a form that never rendered because a bot challenge is
-                # standing in front of it - SmartRecruiters' apply flow serves a
-                # DataDome captcha and an otherwise empty document. Those are
-                # very different outcomes for the user: one is a dead end, the
-                # other is a posting they can finish by hand.
-                try:
-                    wall = await page.evaluate(
-                        "() => { const s = [...document.querySelectorAll('iframe')].map(f => f.src || '').join(' '); "
-                        "if (/captcha-delivery|datadome/i.test(s)) return 'DataDome'; "
-                        "if (/recaptcha/i.test(s)) return 'reCAPTCHA'; "
-                        "if (/turnstile/i.test(s)) return 'Cloudflare Turnstile'; "
-                        "if (/hcaptcha/i.test(s)) return 'hCaptcha'; "
-                        "return ''; }"
-                    )
-                except Exception:
-                    wall = ""
-                if wall:
-                    logger.warning("%s bot protection is blocking the form at %s", wall, page.url)
-                    # Burn this identity for this host so the next attempt does
-                    # not walk into the same wall wearing the same face.
-                    if session_fingerprint is not None and session_host:
-                        try:
-                            from app.services.application_assistant.browser_fingerprint import (
-                                fingerprint_pool,
-                            )
+            # "form" falls through to the normal filling path below: the
+            # profile is already signed in and the wizard is reachable.
 
-                            fingerprint_pool.report_blocked(session_host, session_fingerprint)
-                        except Exception:
-                            logger.debug("Could not record blocked fingerprint", exc_info=True)
-                    return {
-                        "submitted": False,
-                        "error": (
-                            f"{wall} bot protection on this board blocked the application form - "
-                            "this posting has to be completed by hand"
-                        ),
-                        "evidence": {"finalUrl": page.url},
-                        "fieldsFilled": {},
-                    }
-                logger.warning("No application form found at %s - nothing to fill", page.url)
+        try:
+            has_form = await target_frame.locator(APPLICATION_FORM_SELECTOR).count() > 0
+        except Exception:
+            has_form = True  # never block a submission on a probe that errored
+        if has_form and await _only_talent_network_forms(target_frame, APPLICATION_FORM_SELECTOR):
+            logger.warning("Only a talent-network signup form at %s - not an application", page.url)
+            return {
+                "submitted": False,
+                "error": (
+                    "No application form on the posting page - only a talent-network / job-alert "
+                    "signup form is here; the application starts from the employer's Apply link"
+                ),
+                "evidence": {"finalUrl": page.url},
+                "fieldsFilled": {},
+            }
+        if _TALEO_ENTERPRISE.search(page.url or "") or await _has_visible_password_field(target_frame):
+            reason = (
+                "This employer's apply flow requires a candidate account (the form asks for a "
+                "password), which Autopilot does not create - apply by hand."
+            )
+            if fill_only:
+                if log_callback:
+                    log_callback(reason, lvl="warning")
+            else:
+                logger.warning("Account-creation form at %s - not filling", page.url)
+                return {
+                    "submitted": False,
+                    "error": reason,
+                    "evidence": {"finalUrl": page.url},
+                    "fieldsFilled": {},
+                }
+        if not has_form:
+            # A page with no form may simply be a job description, or it may
+            # be a form that never rendered because a bot challenge is
+            # standing in front of it - SmartRecruiters' apply flow serves a
+            # DataDome captcha and an otherwise empty document. Those are
+            # very different outcomes for the user: one is a dead end, the
+            # other is a posting they can finish by hand.
+            try:
+                wall = await page.evaluate(
+                    "() => { const s = [...document.querySelectorAll('iframe')].map(f => f.src || '').join(' '); "
+                    "if (/captcha-delivery|datadome/i.test(s)) return 'DataDome'; "
+                    "if (/recaptcha/i.test(s)) return 'reCAPTCHA'; "
+                    "if (/turnstile/i.test(s)) return 'Cloudflare Turnstile'; "
+                    "if (/hcaptcha/i.test(s)) return 'hCaptcha'; "
+                    "return ''; }"
+                )
+            except Exception:
+                wall = ""
+            if wall:
+                logger.warning("%s bot protection is blocking the form at %s", wall, page.url)
+                # Burn this identity for this host so the next attempt does
+                # not walk into the same wall wearing the same face.
+                if session_fingerprint is not None and session_host:
+                    try:
+                        from app.services.application_assistant.browser_fingerprint import (
+                            fingerprint_pool,
+                        )
+
+                        fingerprint_pool.report_blocked(session_host, session_fingerprint)
+                    except Exception:
+                        logger.debug("Could not record blocked fingerprint", exc_info=True)
                 return {
                     "submitted": False,
                     "error": (
-                        "No application form on the posting page - this employer's apply flow "
-                        "starts elsewhere and cannot be driven from this URL"
+                        f"{wall} bot protection on this board blocked the application form - "
+                        "this posting has to be completed by hand"
                     ),
                     "evidence": {"finalUrl": page.url},
                     "fieldsFilled": {},
                 }
+            logger.warning("No application form found at %s - nothing to fill", page.url)
+            return {
+                "submitted": False,
+                "error": (
+                    "No application form on the posting page - this employer's apply flow "
+                    "starts elsewhere and cannot be driven from this URL"
+                ),
+                "evidence": {"finalUrl": page.url},
+                "fieldsFilled": {},
+            }
 
-            # ─── DISCOVER & PERSIST FIELDS BEFORE RESOLUTION ─────────────────
-            discovered_options: dict[str, list[str]] = {}
-            try:
-                # Discovery opens each custom dropdown so the resolver sees its
-                # real options. The later verification pass deliberately does
-                # not - it reads what was filled and must not touch the form.
-                discovered_dom_fields, _ = await _extract_dom_form_state(target_frame, expand_comboboxes=True)
-                discovered_options = _options_by_field(discovered_dom_fields)
-                if discovered_dom_fields:
-                    persist_discovered_form(
-                        application_id=str(job_id),
-                        job_id=str(job_id),
-                        ats="greenhouse" if "greenhouse" in app_url.lower() else "ats",
-                        fields=discovered_dom_fields,
-                        page_url=page.url,
-                    )
-            except Exception as disc_err:
-                logger.debug("Field discovery persistence error: %s", disc_err)
+        # ─── DISCOVER & PERSIST FIELDS BEFORE RESOLUTION ─────────────────
+        discovered_options: dict[str, list[str]] = {}
+        try:
+            # Discovery opens each custom dropdown so the resolver sees its
+            # real options. The later verification pass deliberately does
+            # not - it reads what was filled and must not touch the form.
+            discovered_dom_fields, _ = await _extract_dom_form_state(target_frame, expand_comboboxes=True)
+            discovered_options = _options_by_field(discovered_dom_fields)
+            if discovered_dom_fields:
+                persist_discovered_form(
+                    application_id=str(job_id),
+                    job_id=str(job_id),
+                    ats="greenhouse" if "greenhouse" in app_url.lower() else "ats",
+                    fields=discovered_dom_fields,
+                    page_url=page.url,
+                )
+        except Exception as disc_err:
+            logger.debug("Field discovery persistence error: %s", disc_err)
 
-            # Initial Form Filling
-            filled_fields, filled_field_ids = await _fill_standard_and_react_fields(
-                page=target_frame,
+        # Initial Form Filling
+        filled_fields, filled_field_ids = await _fill_standard_and_react_fields(
+            page=target_frame,
+            profile=profile,
+            answer_lib=answer_lib,
+            company=company,
+            title=title,
+            resume_file=resume_file,
+            log_cb=log_callback,
+        )
+
+        # ─── PRE-SUBMISSION VERIFICATION & HEALING ─────────────────
+        max_healing_rounds = 2
+        qwen_approved = False
+
+        for round_num in range(1, max_healing_rounds + 1):
+            dom_fields, validation_errors = await _extract_dom_form_state(target_frame)
+
+            # Fast deterministic check: if form is clean and error-free, approve in <5ms
+            missing_req = [
+                f for f in dom_fields
+                if (f.get("required") or "*" in f.get("label", ""))
+                and not f.get("value")
+                and (f.get("type") or "").lower() != "file"
+            ]
+
+            # A choice group whose requiredness the DOM never states (see
+            # requirednessUnknown in _extract_dom_form_state) cannot be
+            # waved through just because nothing marked it required. An
+            # entirely unanswered question is not a verified form, so it
+            # goes to the healing round that already resolves questions
+            # from the profile - and, failing that, stages for review
+            # instead of being submitted into a validation error.
+            unanswered_unknown = [
+                f for f in dom_fields
+                if f.get("requirednessUnknown")
+                and not f.get("value")
+                and not _is_voluntary_disclosure(f.get("label", ""))
+            ]
+            if unanswered_unknown:
+                logger.info(
+                    "Pre-submission audit: %d unanswered question(s) with no requiredness "
+                    "signal in the DOM — routing to healing rather than fast-approving: %s",
+                    len(unanswered_unknown),
+                    [f.get("label", "")[:60] for f in unanswered_unknown][:5],
+                )
+
+            if not validation_errors and not missing_req and not unanswered_unknown:
+                logger.info("Deterministic Pre-Submission Review: 100% APPROVED (0 errors, 0 missing required)")
+                if log_callback:
+                    log_callback(f"Deterministic Pre-Submission Audit: 100% PASS [OK] (Instant <5ms)")
+                qwen_approved = True
+                break
+
+            logger.info("Form requires review/healing (Round %d/%d)...", round_num, max_healing_rounds)
+            if log_callback:
+                log_callback(f"Form Review & Healing (Round {round_num}/{max_healing_rounds})...")
+
+            review_res = await review_and_heal_form_state(
+                form_state=dom_fields,
+                validation_errors=validation_errors,
                 profile=profile,
-                answer_lib=answer_lib,
                 company=company,
                 title=title,
-                resume_file=resume_file,
-                log_cb=log_callback,
             )
 
-            # ─── PRE-SUBMISSION VERIFICATION & HEALING ─────────────────
-            max_healing_rounds = 2
-            qwen_approved = False
-
-            for round_num in range(1, max_healing_rounds + 1):
-                dom_fields, validation_errors = await _extract_dom_form_state(target_frame)
-
-                # Fast deterministic check: if form is clean and error-free, approve in <5ms
-                missing_req = [
-                    f for f in dom_fields
-                    if (f.get("required") or "*" in f.get("label", ""))
-                    and not f.get("value")
-                    and (f.get("type") or "").lower() != "file"
-                ]
-
-                # A choice group whose requiredness the DOM never states (see
-                # requirednessUnknown in _extract_dom_form_state) cannot be
-                # waved through just because nothing marked it required. An
-                # entirely unanswered question is not a verified form, so it
-                # goes to the healing round that already resolves questions
-                # from the profile - and, failing that, stages for review
-                # instead of being submitted into a validation error.
-                unanswered_unknown = [
-                    f for f in dom_fields
-                    if f.get("requirednessUnknown")
-                    and not f.get("value")
-                    and not _is_voluntary_disclosure(f.get("label", ""))
-                ]
-                if unanswered_unknown:
-                    logger.info(
-                        "Pre-submission audit: %d unanswered question(s) with no requiredness "
-                        "signal in the DOM — routing to healing rather than fast-approving: %s",
-                        len(unanswered_unknown),
-                        [f.get("label", "")[:60] for f in unanswered_unknown][:5],
-                    )
-
-                if not validation_errors and not missing_req and not unanswered_unknown:
-                    logger.info("Deterministic Pre-Submission Review: 100% APPROVED (0 errors, 0 missing required)")
-                    if log_callback:
-                        log_callback(f"Deterministic Pre-Submission Audit: 100% PASS [OK] (Instant <5ms)")
-                    qwen_approved = True
-                    break
-
-                logger.info("Form requires review/healing (Round %d/%d)...", round_num, max_healing_rounds)
+            if review_res.get("readyToSubmit") and not validation_errors:
+                logger.info("Form Review: 100% APPROVED [OK]")
                 if log_callback:
-                    log_callback(f"Form Review & Healing (Round {round_num}/{max_healing_rounds})...")
+                    log_callback(f"Form Review: 100% APPROVED [OK] (Round {round_num})")
+                qwen_approved = True
+                break
 
-                review_res = await review_and_heal_form_state(
-                    form_state=dom_fields,
-                    validation_errors=validation_errors,
+            # Self-Healing Action: Repair missing or invalid fields
+            missing_fields = review_res.get("missingOrInvalidFields", [])
+            logger.warning("Qwen Review detected %d items requiring self-healing in round %d", len(missing_fields), round_num)
+            if log_callback:
+                log_callback(f"Auto-healing {len(missing_fields)} field(s) (Round {round_num})...", lvl="warning")
+
+            dom_fields_by_id = {f.get("id"): f for f in dom_fields if f.get("id")}
+
+            heal_started = time.monotonic()
+            for heal_index, item in enumerate(missing_fields):
+                f_id = item.get("fieldId")
+                f_label = item.get("label", "")
+                if time.monotonic() - heal_started > HEAL_ROUND_BUDGET_SEC:
+                    left = [str(i.get("label") or i.get("fieldId") or "?")[:50] for i in missing_fields[heal_index:]]
+                    logger.warning("Healing round %d over its %.0fs budget; leaving %d field(s): %s",
+                                   round_num, HEAL_ROUND_BUDGET_SEC, len(left), left)
+                    if log_callback:
+                        log_callback(
+                            f"Healing stopped after {HEAL_ROUND_BUDGET_SEC:.0f}s; {len(left)} field(s) left for review: "
+                            + "; ".join(left[:5]),
+                            lvl="warning",
+                        )
+                    break
+                f_label_lower = f_label.lower()
+                fix_val = item.get("suggestedFixValue")
+
+                # The LLM review returns fieldId/label pairs it read off the
+                # same dom_fields list, but it can misattribute an id to the
+                # wrong question in its own output (e.g. suggesting fieldId
+                # "candidate-location" - a different field entirely - for
+                # what it meant as the fix for a hybrid-work Yes/No
+                # question). Blindly trusting fieldId then writes the fix
+                # value into a completely unrelated field (observed live: a
+                # "Yes" fix landing in the Location autocomplete while the
+                # actual target question stayed empty). Cross-check the
+                # LLM's claimed label against that id's real DOM label
+                # before applying anything - if they share no meaningful
+                # words, the pairing is unreliable and the fix is skipped
+                # rather than corrupting the wrong field.
+                if f_id and f_id in dom_fields_by_id:
+                    actual_label = dom_fields_by_id[f_id].get("label", "")
+                    actual_words = {w for w in re.findall(r"[a-z]+", actual_label.lower()) if len(w) > 2}
+                    claimed_words = {w for w in re.findall(r"[a-z]+", f_label_lower) if len(w) > 2}
+                    if actual_words and claimed_words and not (actual_words & claimed_words):
+                        logger.warning(
+                            "Skipping self-heal fix: LLM label %r doesn't match actual DOM label %r for fieldId %r",
+                            f_label, actual_label, f_id,
+                        )
+                        continue
+
+                # ── Use centralized resolver instead of if/elif heuristics ──
+                #
+                # Always ask the resolver, even when the review already
+                # suggested a value. A fact the profile states outright is
+                # not the LLM's to revise: Discord asks "Are you currently
+                # based in or willing to relocate to the Bay Area for this
+                # position?", the profile says the candidate is willing, and
+                # the review's "No" was submitted over it — an answer the
+                # candidate never gave, on a question that decides the
+                # application.
+                # The owner's rule: only approved answers (profile, saved
+                # screening answers, confirmed manifest) are ever written.
+                # The review model's suggestion is never used; a question
+                # the resolver cannot answer stays blank, which stages the
+                # application when the question is required.
+                heal_resolution = resolve_answer(
+                    question_text=f_label,
                     profile=profile,
-                    company=company,
-                    title=title,
+                    options=_known_field_options(discovered_options, f_id, f_label) or None,
+                    answer_lib=answer_lib,
                 )
-
-                if review_res.get("readyToSubmit") and not validation_errors:
-                    logger.info("Form Review: 100% APPROVED [OK]")
-                    if log_callback:
-                        log_callback(f"Form Review: 100% APPROVED [OK] (Round {round_num})")
-                    qwen_approved = True
-                    break
-
-                # Self-Healing Action: Repair missing or invalid fields
-                missing_fields = review_res.get("missingOrInvalidFields", [])
-                logger.warning("Qwen Review detected %d items requiring self-healing in round %d", len(missing_fields), round_num)
-                if log_callback:
-                    log_callback(f"Auto-healing {len(missing_fields)} field(s) (Round {round_num})...", lvl="warning")
-
-                dom_fields_by_id = {f.get("id"): f for f in dom_fields if f.get("id")}
-
-                heal_started = time.monotonic()
-                for heal_index, item in enumerate(missing_fields):
-                    f_id = item.get("fieldId")
-                    f_label = item.get("label", "")
-                    if time.monotonic() - heal_started > HEAL_ROUND_BUDGET_SEC:
-                        left = [str(i.get("label") or i.get("fieldId") or "?")[:50] for i in missing_fields[heal_index:]]
-                        logger.warning("Healing round %d over its %.0fs budget; leaving %d field(s): %s",
-                                       round_num, HEAL_ROUND_BUDGET_SEC, len(left), left)
-                        if log_callback:
-                            log_callback(
-                                f"Healing stopped after {HEAL_ROUND_BUDGET_SEC:.0f}s; {len(left)} field(s) left for review: "
-                                + "; ".join(left[:5]),
-                                lvl="warning",
-                            )
-                        break
-                    f_label_lower = f_label.lower()
-                    fix_val = item.get("suggestedFixValue")
-
-                    # The LLM review returns fieldId/label pairs it read off the
-                    # same dom_fields list, but it can misattribute an id to the
-                    # wrong question in its own output (e.g. suggesting fieldId
-                    # "candidate-location" - a different field entirely - for
-                    # what it meant as the fix for a hybrid-work Yes/No
-                    # question). Blindly trusting fieldId then writes the fix
-                    # value into a completely unrelated field (observed live: a
-                    # "Yes" fix landing in the Location autocomplete while the
-                    # actual target question stayed empty). Cross-check the
-                    # LLM's claimed label against that id's real DOM label
-                    # before applying anything - if they share no meaningful
-                    # words, the pairing is unreliable and the fix is skipped
-                    # rather than corrupting the wrong field.
-                    if f_id and f_id in dom_fields_by_id:
-                        actual_label = dom_fields_by_id[f_id].get("label", "")
-                        actual_words = {w for w in re.findall(r"[a-z]+", actual_label.lower()) if len(w) > 2}
-                        claimed_words = {w for w in re.findall(r"[a-z]+", f_label_lower) if len(w) > 2}
-                        if actual_words and claimed_words and not (actual_words & claimed_words):
-                            logger.warning(
-                                "Skipping self-heal fix: LLM label %r doesn't match actual DOM label %r for fieldId %r",
-                                f_label, actual_label, f_id,
-                            )
-                            continue
-
-                    # ── Use centralized resolver instead of if/elif heuristics ──
-                    #
-                    # Always ask the resolver, even when the review already
-                    # suggested a value. A fact the profile states outright is
-                    # not the LLM's to revise: Discord asks "Are you currently
-                    # based in or willing to relocate to the Bay Area for this
-                    # position?", the profile says the candidate is willing, and
-                    # the review's "No" was submitted over it — an answer the
-                    # candidate never gave, on a question that decides the
-                    # application.
-                    # The owner's rule: only approved answers (profile, saved
-                    # screening answers, confirmed manifest) are ever written.
-                    # The review model's suggestion is never used; a question
-                    # the resolver cannot answer stays blank, which stages the
-                    # application when the question is required.
-                    heal_resolution = resolve_answer(
-                        question_text=f_label,
-                        profile=profile,
-                        options=_known_field_options(discovered_options, f_id, f_label) or None,
-                        answer_lib=answer_lib,
+                if fix_val and str(fix_val).strip() != str(heal_resolution.answer or "").strip():
+                    logger.info(
+                        "Ignoring review suggestion %r for %r (approved answer: %r)",
+                        str(fix_val)[:40], f_label[:60], str(heal_resolution.answer or "")[:40],
                     )
-                    if fix_val and str(fix_val).strip() != str(heal_resolution.answer or "").strip():
-                        logger.info(
-                            "Ignoring review suggestion %r for %r (approved answer: %r)",
-                            str(fix_val)[:40], f_label[:60], str(heal_resolution.answer or "")[:40],
-                        )
-                    fix_val = heal_resolution.answer or ""
+                fix_val = heal_resolution.answer or ""
 
-                    # A prose box wants prose. Both the LLM's suggested fix and
-                    # the resolver will happily hand back a one-word answer for
-                    # a question whose text merely starts like a Yes/No, and it
-                    # gets typed in verbatim: "What is your experience with
-                    # backend development in a team production environment
-                    # using Python? Please explain." was submitted answering
-                    # "Yes", and "Have you recently worked at a FinTech or
-                    # FinServ company? If yes, please state where." answering
-                    # "Washington". Dropping the token here lets the generator
-                    # below write a real answer, or sends the job to review.
-                    if fix_val and _is_token_answer_in_prose_box(
-                        dom_fields_by_id.get(f_id or ""), f_label, fix_val
-                    ):
-                        logger.info(
-                            "Discarding token answer %r for the prose question %r",
-                            str(fix_val)[:40], f_label[:70],
-                        )
-                        fix_val = ""
+                # A prose box wants prose. Both the LLM's suggested fix and
+                # the resolver will happily hand back a one-word answer for
+                # a question whose text merely starts like a Yes/No, and it
+                # gets typed in verbatim: "What is your experience with
+                # backend development in a team production environment
+                # using Python? Please explain." was submitted answering
+                # "Yes", and "Have you recently worked at a FinTech or
+                # FinServ company? If yes, please state where." answering
+                # "Washington". Dropping the token here lets the generator
+                # below write a real answer, or sends the job to review.
+                if fix_val and _is_token_answer_in_prose_box(
+                    dom_fields_by_id.get(f_id or ""), f_label, fix_val
+                ):
+                    logger.info(
+                        "Discarding token answer %r for the prose question %r",
+                        str(fix_val)[:40], f_label[:70],
+                    )
+                    fix_val = ""
 
-                    # Open-ended questions ("Why do you want to work at X?") are
-                    # not AI-written: the owner's rule is approved answers only.
-                    # An optional essay stays blank; a required one leaves a
-                    # required field empty, which stages the application.
-                    if (
-                        AI_WRITTEN_ESSAYS_ENABLED
-                        and not fix_val
-                        and _is_open_ended_question(dom_fields_by_id.get(f_id or ""), f_label)
-                    ):
+                # Open-ended questions ("Why do you want to work at X?") are
+                # not AI-written: the owner's rule is approved answers only.
+                # An optional essay stays blank; a required one leaves a
+                # required field empty, which stages the application.
+                if (
+                    AI_WRITTEN_ESSAYS_ENABLED
+                    and not fix_val
+                    and _is_open_ended_question(dom_fields_by_id.get(f_id or ""), f_label)
+                ):
+                    try:
+                        from app.services.application_assistant.llm_answer_generator import (
+                            generate_theory_answer,
+                        )
+
+                        generated = await generate_theory_answer(
+                            f_label,
+                            company=company,
+                            role=title,
+                            profile=profile,
+                            settings=await _load_settings_for_generation(),
+                        )
+                        if generated.get("success") and generated.get("answer"):
+                            fix_val = str(generated["answer"]).strip()
+                            logger.info(
+                                "Generated an answer for the open question %r (%d chars)",
+                                f_label[:60], len(fix_val),
+                            )
+                            if log_callback:
+                                log_callback(
+                                    f"Wrote an answer for \"{f_label[:58]}\" from your own experience.",
+                                )
+                    except Exception:
+                        logger.exception("Could not generate an answer for %r", f_label[:60])
+                if f_id:
+                    elem = target_frame.locator(f'[id="{f_id}"]').first
+                    if await elem.count() > 0:
                         try:
-                            from app.services.application_assistant.llm_answer_generator import (
-                                generate_theory_answer,
+                            is_cb = False
+                            # One evaluate, not four, and with a short explicit
+                            # timeout. Locator.evaluate auto-waits for the element
+                            # to be attached, so four separate calls against a
+                            # field that the form has since re-rendered away burned
+                            # 4 x the default timeout - for two such fields that is
+                            # the entire 480s submission watchdog, which is exactly
+                            # how the Coinbase and Samsara runs died without ever
+                            # reaching the submit click.
+                            probe = await elem.evaluate(
+                                "el => ({"
+                                "  type: (el.type || el.getAttribute('type') || '').toLowerCase(),"
+                                "  tag: (el.tagName || '').toLowerCase(),"
+                                "  role: (el.getAttribute('role') || '').toLowerCase(),"
+                                "  cls: (typeof el.className === 'string' ? el.className : '').toLowerCase()"
+                                "})",
+                                timeout=5000,
                             )
-
-                            generated = await generate_theory_answer(
-                                f_label,
-                                company=company,
-                                role=title,
-                                profile=profile,
-                                settings=await _load_settings_for_generation(),
-                            )
-                            if generated.get("success") and generated.get("answer"):
-                                fix_val = str(generated["answer"]).strip()
-                                logger.info(
-                                    "Generated an answer for the open question %r (%d chars)",
-                                    f_label[:60], len(fix_val),
-                                )
-                                if log_callback:
-                                    log_callback(
-                                        f"Wrote an answer for \"{f_label[:58]}\" from your own experience.",
-                                    )
-                        except Exception:
-                            logger.exception("Could not generate an answer for %r", f_label[:60])
-                    if f_id:
-                        elem = target_frame.locator(f'[id="{f_id}"]').first
-                        if await elem.count() > 0:
-                            try:
-                                is_cb = False
-                                # One evaluate, not four, and with a short explicit
-                                # timeout. Locator.evaluate auto-waits for the element
-                                # to be attached, so four separate calls against a
-                                # field that the form has since re-rendered away burned
-                                # 4 x the default timeout - for two such fields that is
-                                # the entire 480s submission watchdog, which is exactly
-                                # how the Coinbase and Samsara runs died without ever
-                                # reaching the submit click.
-                                probe = await elem.evaluate(
-                                    "el => ({"
-                                    "  type: (el.type || el.getAttribute('type') || '').toLowerCase(),"
-                                    "  tag: (el.tagName || '').toLowerCase(),"
-                                    "  role: (el.getAttribute('role') || '').toLowerCase(),"
-                                    "  cls: (typeof el.className === 'string' ? el.className : '').toLowerCase()"
-                                    "})",
-                                    timeout=5000,
-                                )
-                                el_type = probe.get("type") or ""
-                                tag_name = probe.get("tag") or ""
-                                role = probe.get("role") or ""
-                                cls = probe.get("cls") or ""
-                                if role == "combobox" or "select__control" in cls:
+                            el_type = probe.get("type") or ""
+                            tag_name = probe.get("tag") or ""
+                            role = probe.get("role") or ""
+                            cls = probe.get("cls") or ""
+                            if role == "combobox" or "select__control" in cls:
+                                is_cb = True
+                            if tag_name in ("div", "fieldset", "section") and not is_cb and el_type not in ("file", "checkbox"):
+                                inner_cb = elem.locator('div.select__control, div[class*="control"], [role="combobox"]').first
+                                inner_radio = elem.locator('input[type="radio"]').first
+                                inner_sel = elem.locator('select').first
+                                if await inner_cb.count() > 0:
                                     is_cb = True
-                                if tag_name in ("div", "fieldset", "section") and not is_cb and el_type not in ("file", "checkbox"):
-                                    inner_cb = elem.locator('div.select__control, div[class*="control"], [role="combobox"]').first
-                                    inner_radio = elem.locator('input[type="radio"]').first
-                                    inner_sel = elem.locator('select').first
-                                    if await inner_cb.count() > 0:
-                                        is_cb = True
-                                    elif await inner_radio.count() > 0:
-                                        el_type = "radio"
-                                    elif await inner_sel.count() > 0:
-                                        el_type = "select"
+                                elif await inner_radio.count() > 0:
+                                    el_type = "radio"
+                                elif await inner_sel.count() > 0:
+                                    el_type = "select"
 
-                                if el_type == "file":
-                                    if resume_file and os.path.exists(resume_file):
-                                        try:
-                                            await elem.set_input_files(resume_file)
-                                            filled_fields[f_label or f_id] = os.path.basename(resume_file)
-                                            filled_field_ids[f_label or f_id] = f_id
-                                            if log_callback:
-                                                log_callback(f"Attached file for [{f_label or f_id}] ({os.path.basename(resume_file)})")
-                                        except Exception as f_err:
-                                            logger.warning("File attachment error on %s: %s", f_id, f_err)
-                                elif is_cb:
-                                    if fix_val and str(fix_val).lower() not in ("none", "null", "undefined", ""):
-                                        # Record whatever _select_react_combobox actually
-                                        # clicked, not the guessed fix_val - it can decline
-                                        # to select anything (empty return) when fix_val
-                                        # doesn't match any real option, and trusting the
-                                        # guess instead of the outcome records an "intended"
-                                        # answer that doesn't match what's really in the DOM.
-                                        actually_selected = await _select_react_combobox(target_frame, f_id, str(fix_val))
-                                        if actually_selected:
-                                            filled_fields[f_label or f_id] = actually_selected
-                                            filled_field_ids[f_label or f_id] = f_id
-                                            if log_callback:
-                                                log_callback(f"Self-healed [{f_label or f_id}] -> '{actually_selected}'")
-                                elif el_type == "select":
-                                    inner_sel = elem if tag_name == "select" else elem.locator("select").first
-                                    if await inner_sel.count() > 0 and fix_val:
-                                        opt_data = await inner_sel.evaluate("sel => Array.from(sel.options).map(o => ({ value: o.value, text: o.text }))")
-                                        clean_f = str(fix_val).strip().lower()
-                                        for opt in opt_data:
-                                            if clean_f and (opt["text"].strip().lower() == clean_f or opt["value"].strip().lower() == clean_f):
-                                                await inner_sel.select_option(value=opt["value"])
-                                                filled_fields[f_label or f_id] = opt["text"]
-                                                filled_field_ids[f_label or f_id] = f_id
-                                                if log_callback:
-                                                    log_callback(f"Self-healed [{f_label or f_id}] -> '{opt['text']}'")
-                                                break
-                                elif el_type == "radio":
-                                    if fix_val and str(fix_val).lower() not in ("none", "null", "undefined", "") and await _select_radio_option(target_frame, f_id, str(fix_val)):
-                                        filled_fields[f_label or f_id] = str(fix_val)
+                            if el_type == "file":
+                                if resume_file and os.path.exists(resume_file):
+                                    try:
+                                        await elem.set_input_files(resume_file)
+                                        filled_fields[f_label or f_id] = os.path.basename(resume_file)
                                         filled_field_ids[f_label or f_id] = f_id
                                         if log_callback:
-                                            log_callback(f"Self-healed [{f_label or f_id}] -> '{fix_val}'")
-                                elif el_type == "checkbox":
-                                    if await _is_choice_group_checkbox(elem):
-                                        logger.info(
-                                            "Not healing %r: it is one option of a choice group",
-                                            (f_label or f_id)[:60],
-                                        )
-                                    elif _affirms_checkbox(fix_val) and await _tick_checkbox(elem):
-                                        filled_fields[f_label or f_id] = "checked"
+                                            log_callback(f"Attached file for [{f_label or f_id}] ({os.path.basename(resume_file)})")
+                                    except Exception as f_err:
+                                        logger.warning("File attachment error on %s: %s", f_id, f_err)
+                            elif is_cb:
+                                if fix_val and str(fix_val).lower() not in ("none", "null", "undefined", ""):
+                                    # Record whatever _select_react_combobox actually
+                                    # clicked, not the guessed fix_val - it can decline
+                                    # to select anything (empty return) when fix_val
+                                    # doesn't match any real option, and trusting the
+                                    # guess instead of the outcome records an "intended"
+                                    # answer that doesn't match what's really in the DOM.
+                                    actually_selected = await _select_react_combobox(target_frame, f_id, str(fix_val))
+                                    if actually_selected:
+                                        filled_fields[f_label or f_id] = actually_selected
                                         filled_field_ids[f_label or f_id] = f_id
                                         if log_callback:
-                                            log_callback(f"Self-healed checkbox [{f_label or f_id}] -> checked")
-                                elif el_type in ("select-one", "select-multiple"):
-                                    # Native <select> elements don't support .fill() - Playwright raises on
-                                    # them, which the broad except below was silently swallowing, leaving
-                                    # the field empty despite a resolved fix_val (e.g. Country, Yes/No drops).
-                                    if fix_val and str(fix_val).lower() not in ("none", "null", "undefined", ""):
-                                        opt_texts = await elem.locator("option").all_inner_texts()
-                                        wanted = str(fix_val).strip().lower()
-                                        matched_opt = None
-                                        # Exact match first: "male" is literally a substring
-                                        # of "female", so a bare containment check can pick
-                                        # the wrong option when the wrong one happens to come
-                                        # first in the dropdown's order.
+                                            log_callback(f"Self-healed [{f_label or f_id}] -> '{actually_selected}'")
+                            elif el_type == "select":
+                                inner_sel = elem if tag_name == "select" else elem.locator("select").first
+                                if await inner_sel.count() > 0 and fix_val:
+                                    opt_data = await inner_sel.evaluate("sel => Array.from(sel.options).map(o => ({ value: o.value, text: o.text }))")
+                                    clean_f = str(fix_val).strip().lower()
+                                    for opt in opt_data:
+                                        if clean_f and (opt["text"].strip().lower() == clean_f or opt["value"].strip().lower() == clean_f):
+                                            await inner_sel.select_option(value=opt["value"])
+                                            filled_fields[f_label or f_id] = opt["text"]
+                                            filled_field_ids[f_label or f_id] = f_id
+                                            if log_callback:
+                                                log_callback(f"Self-healed [{f_label or f_id}] -> '{opt['text']}'")
+                                            break
+                            elif el_type == "radio":
+                                if fix_val and str(fix_val).lower() not in ("none", "null", "undefined", "") and await _select_radio_option(target_frame, f_id, str(fix_val)):
+                                    filled_fields[f_label or f_id] = str(fix_val)
+                                    filled_field_ids[f_label or f_id] = f_id
+                                    if log_callback:
+                                        log_callback(f"Self-healed [{f_label or f_id}] -> '{fix_val}'")
+                            elif el_type == "checkbox":
+                                if await _is_choice_group_checkbox(elem):
+                                    logger.info(
+                                        "Not healing %r: it is one option of a choice group",
+                                        (f_label or f_id)[:60],
+                                    )
+                                elif _affirms_checkbox(fix_val) and await _tick_checkbox(elem):
+                                    filled_fields[f_label or f_id] = "checked"
+                                    filled_field_ids[f_label or f_id] = f_id
+                                    if log_callback:
+                                        log_callback(f"Self-healed checkbox [{f_label or f_id}] -> checked")
+                            elif el_type in ("select-one", "select-multiple"):
+                                # Native <select> elements don't support .fill() - Playwright raises on
+                                # them, which the broad except below was silently swallowing, leaving
+                                # the field empty despite a resolved fix_val (e.g. Country, Yes/No drops).
+                                if fix_val and str(fix_val).lower() not in ("none", "null", "undefined", ""):
+                                    opt_texts = await elem.locator("option").all_inner_texts()
+                                    wanted = str(fix_val).strip().lower()
+                                    matched_opt = None
+                                    # Exact match first: "male" is literally a substring
+                                    # of "female", so a bare containment check can pick
+                                    # the wrong option when the wrong one happens to come
+                                    # first in the dropdown's order.
+                                    for opt_t in opt_texts:
+                                        clean = opt_t.strip()
+                                        if not clean or clean.lower() in ("select...", "select", "--", "choose"):
+                                            continue
+                                        if wanted == clean.lower():
+                                            matched_opt = clean
+                                            break
+                                    if matched_opt is None:
                                         for opt_t in opt_texts:
                                             clean = opt_t.strip()
-                                            if not clean or clean.lower() in ("select...", "select", "--", "choose"):
+                                            clean_lower = clean.lower()
+                                            if not clean or clean_lower in ("select...", "select", "--", "choose"):
                                                 continue
-                                            if wanted == clean.lower():
+                                            is_gender_collision = (
+                                                (wanted == "male" and "female" in clean_lower)
+                                                or (wanted == "female" and clean_lower == "male")
+                                            )
+                                            if is_gender_collision:
+                                                continue
+                                            if wanted in clean_lower or clean_lower in wanted:
                                                 matched_opt = clean
                                                 break
-                                        if matched_opt is None:
-                                            for opt_t in opt_texts:
-                                                clean = opt_t.strip()
-                                                clean_lower = clean.lower()
-                                                if not clean or clean_lower in ("select...", "select", "--", "choose"):
-                                                    continue
-                                                is_gender_collision = (
-                                                    (wanted == "male" and "female" in clean_lower)
-                                                    or (wanted == "female" and clean_lower == "male")
-                                                )
-                                                if is_gender_collision:
-                                                    continue
-                                                if wanted in clean_lower or clean_lower in wanted:
-                                                    matched_opt = clean
-                                                    break
-                                        if matched_opt:
-                                            await elem.select_option(label=matched_opt)
-                                            filled_fields[f_label or f_id] = matched_opt
-                                            filled_field_ids[f_label or f_id] = f_id
-                                            if log_callback:
-                                                log_callback(f"Self-healed [{f_label or f_id}] -> '{matched_opt}'")
-                                        elif log_callback:
-                                            log_callback(f"Self-heal: no matching option for [{f_label or f_id}] wanting '{fix_val}'", lvl="warning")
-                                else:
-                                    # Never coerce an unknown field to the literal string "None"
-                                    if fix_val and str(fix_val).lower() not in ("none", "null", "undefined", ""):
-                                        await elem.fill(str(fix_val))
-                                        filled_fields[f_label or f_id] = str(fix_val)
+                                    if matched_opt:
+                                        await elem.select_option(label=matched_opt)
+                                        filled_fields[f_label or f_id] = matched_opt
                                         filled_field_ids[f_label or f_id] = f_id
                                         if log_callback:
-                                            log_callback(f"Self-healed [{f_label or f_id}] -> '{fix_val}'")
-                            except Exception as fill_err:
-                                logger.warning("Fill error on %s: %s", f_id, fill_err)
-                                # Surfaced, not swallowed: a field that times out or
-                                # vanished is the first thing to look at in a stalled
-                                # run (#81).
+                                            log_callback(f"Self-healed [{f_label or f_id}] -> '{matched_opt}'")
+                                    elif log_callback:
+                                        log_callback(f"Self-heal: no matching option for [{f_label or f_id}] wanting '{fix_val}'", lvl="warning")
+                            else:
+                                # Never coerce an unknown field to the literal string "None"
+                                if fix_val and str(fix_val).lower() not in ("none", "null", "undefined", ""):
+                                    await elem.fill(str(fix_val))
+                                    filled_fields[f_label or f_id] = str(fix_val)
+                                    filled_field_ids[f_label or f_id] = f_id
+                                    if log_callback:
+                                        log_callback(f"Self-healed [{f_label or f_id}] -> '{fix_val}'")
+                        except Exception as fill_err:
+                            logger.warning("Fill error on %s: %s", f_id, fill_err)
+                            # Surfaced, not swallowed: a field that times out or
+                            # vanished is the first thing to look at in a stalled
+                            # run (#81).
+                            if log_callback:
+                                log_callback(
+                                    f"Could not heal [{(f_label or f_id)[:60]}]: "
+                                    f"{type(fill_err).__name__}: {str(fill_err).splitlines()[0][:120] if str(fill_err) else ''}",
+                                    lvl="warning",
+                                )
+
+
+
+            await asyncio.sleep(0.5)
+
+        # ─── VERIFIED AUTONOMY SUBMISSION POLICY GATE ─────────────────────
+        # 1. Collect all answer resolutions from form filling
+        #
+        # resolve_answer() is called again here only to get question_type
+        # classification for cross-field validation below - NOT to
+        # re-derive the answer. It's called with no `options` (the actual
+        # live dropdown/radio options aren't available anymore at this
+        # point), so for a Yes/No-style question it can classify and
+        # resolve differently than the original fill-time call did (which
+        # saw the real options) and return a different answer entirely.
+        # Verification then compares that fresh, options-blind guess
+        # against the live DOM value under the field's own label - an
+        # unrelated field can share enough of that label as a substring to
+        # get matched, so a wrong guess here surfaces as a nonsensical
+        # mismatch on a completely different question (observed live: a
+        # location answer flagged as conflicting with an office-days
+        # Yes/No field's selected value). The fix is field_id: every fill
+        # site above now records the live DOM element id it actually
+        # wrote into (filled_field_ids), so verification can pair each
+        # resolution back to its own element by id instead of by fuzzy
+        # label/substring matching. The answer itself is also overwritten
+        # with `ans` - the real value this function wrote into the DOM -
+        # rather than trusting a fresh re-resolution's guess.
+        form_resolutions: list[AnswerResolution] = []
+        for lbl, ans in filled_fields.items():
+            res = resolve_answer(
+                question_text=lbl,
+                profile=profile,
+                answer_lib=answer_lib,
+                field_id=filled_field_ids.get(lbl, ""),
+            )
+            res.answer = ans
+            form_resolutions.append(res)
+
+        # 2. Run cross-field deterministic validation
+        cross_field_report = validate_answers(form_resolutions, profile)
+
+        # 2b. Record any NEW high-risk contradictions as persistent blocks.
+        # These persist on the job_item so retries cannot bypass them.
+        from app.services.application_assistant.cross_field_validator import RULE_DOMAIN_MAP
+        from app.services.application_assistant.submission_policy import HIGH_RISK_CONTRADICTION_DOMAINS
+        existing_contradictions: list[dict[str, Any]] = list(job_item.get("blockingContradictions") or [])
+        existing_rules = {bc.get("rule") for bc in existing_contradictions}
+        for err in cross_field_report.blocking_errors:
+            domain = getattr(err, 'domain', '') or RULE_DOMAIN_MAP.get(err.rule, '')
+            if domain in HIGH_RISK_CONTRADICTION_DOMAINS and err.rule not in existing_rules:
+                existing_contradictions.append({
+                    "domain": domain,
+                    "rule": err.rule,
+                    "fieldId": err.field_id,
+                    "question": err.question,
+                    "reason": err.reason,
+                    "answer": str(err.answer) if hasattr(err, 'answer') else "",
+                    "recordedAt": now_iso(),
+                })
+                existing_rules.add(err.rule)
+        if existing_contradictions:
+            job_item["blockingContradictions"] = existing_contradictions
+            logger.warning(
+                "Recorded %d blocking contradiction(s) on job %s",
+                len(existing_contradictions), job_id,
+            )
+
+        # 2c. Surface this attempt's jurisdiction compliance warnings (the
+        # employer's own question, not CareerOS's answer — see
+        # jurisdiction_compliance.py). Non-blocking and never persisted
+        # across retries: it reflects the current attempt's form, not a
+        # standing flag the user must clear.
+        from app.services.application_assistant.jurisdiction_compliance import (
+            collect_job_compliance_warnings,
+        )
+        compliance_warnings = collect_job_compliance_warnings(form_resolutions)
+        if compliance_warnings:
+            job_item["complianceWarnings"] = compliance_warnings
+        else:
+            job_item.pop("complianceWarnings", None)
+
+        # 3. Read back live browser DOM state
+        dom_verification = await verify_browser_dom_state(
+            target_frame, form_resolutions, profile, known_options=discovered_options,
+        )
+
+        # 3b. Compute field verification status from DOM read-back
+        field_verification_status = "FIELD_VALUES_VERIFIED"
+        if dom_verification and (not dom_verification.passed or dom_verification.issues):
+            has_blocking_dom = any(i.severity == "BLOCKING" for i in (dom_verification.issues or []))
+            field_verification_status = "FIELD_VALUES_MISMATCH" if has_blocking_dom else "FIELD_VALUES_VERIFIED"
+
+        # 4. Evaluate centralized SubmissionPolicy (with persistent blocks)
+        policy_result = SubmissionPolicy.evaluate(
+            resolutions=form_resolutions,
+            validation_report=cross_field_report,
+            dom_verification=dom_verification,
+            profile=profile,
+            blocking_contradictions=job_item.get("blockingContradictions"),
+        )
+
+        # 5. Persist pre-submit audit report
+        persist_pre_submit_report(
+            application_id=str(job_id),
+            report=cross_field_report,
+            resolutions=form_resolutions,
+        )
+
+        # 6a. Assisted hand-off: everything is typed in, and the human takes
+        # it from here. This is what makes a CAPTCHA-guarded board worth
+        # keeping - the candidate solves the one thing automation must not,
+        # instead of re-typing the whole form. The submit click is never
+        # made here, whatever the policy gates say.
+        if fill_only:
+            # Leave the window showing the button the candidate needs.
+            #
+            # A filled Greenhouse application is a very long document - the
+            # Robinhood posting measures 6178px against a 900px viewport -
+            # and "Submit application" sits at the very bottom. Handing the
+            # window over at whatever scroll position the last field write
+            # happened to leave shows the middle of a form with no visible
+            # way to send it, which reads as a broken page. The button is
+            # there; it is simply thousands of pixels below the fold.
+            # Ordered, not a set: the form frame is where the real submit
+            # control lives, and a set would search them in arbitrary order.
+            frames_to_search = [target_frame]
+            if page is not target_frame:
+                frames_to_search.append(page)
+            for frame in frames_to_search:
+                try:
+                    submit = frame.locator(
+                        'button[type="submit"], input[type="submit"], '
+                        'button:has-text("Submit application"), button:has-text("Submit")'
+                    ).last
+                    if await submit.count() > 0:
+                        await submit.scroll_into_view_if_needed(timeout=4000)
+                        if log_callback:
+                            log_callback("Scrolled the window to the Submit button — press it when you are ready.")
+                        break
+                except Exception:
+                    continue
+            else:
+                try:
+                    await page.evaluate("() => window.scrollTo(0, document.body.scrollHeight)")
+                except Exception:
+                    pass
+
+            hand_off_shot = SCREENSHOTS_DIR / f"{job_id}_assisted.png"
+            try:
+                await page.screenshot(path=str(hand_off_shot), full_page=True, timeout=5000)
+            except Exception:
+                pass
+            logger.info(
+                "Assisted fill complete for %s - %d field(s) filled; handing over for %.0fs",
+                company, len(filled_fields), hand_off_seconds,
+            )
+            if log_callback:
+                log_callback(
+                    f"Filled {len(filled_fields)} field(s) on the {company} form. "
+                    "Solve any challenge and press Submit in the open browser window.",
+                )
+            # Watch the handed-over window. If the candidate submits it
+            # themselves, the ATS says so - and the job should mark itself
+            # submitted rather than making them come back and click
+            # "Mark submitted" for something they already did.
+            handed_off = True
+            confirmed_by_user = ""
+            # `None` means wait for as long as the window is open. A
+            # wall-clock deadline here closed the browser out from under
+            # the candidate mid-application - the one thing an assisted
+            # hand-off must never do, since the whole point is that a
+            # person finishes the form at their own pace. The window
+            # closing is the real end signal, so that is what is waited on.
+            if hand_off_seconds is None or hand_off_seconds > 0:
+                deadline = (
+                    None
+                    if hand_off_seconds is None
+                    else asyncio.get_running_loop().time() + hand_off_seconds
+                )
+                while deadline is None or asyncio.get_running_loop().time() < deadline:
+                    if page.is_closed():
+                        break
+                    try:
+                        current = page.url or ""
+                        if not confirmed_by_user:
+                            if "confirmation" in current.lower() or "thank" in current.lower():
+                                confirmed_by_user = current
+                            else:
+                                body_text = (
+                                    await page.locator("body").inner_text(timeout=2000)
+                                ).lower()
+                                if re.search(
+                                    r"application (was |has been )?(successfully )?(submitted|received)"
+                                    r"|thank you for applying|thanks for applying",
+                                    body_text,
+                                ):
+                                    confirmed_by_user = current or "confirmation text on page"
+                            if confirmed_by_user:
                                 if log_callback:
                                     log_callback(
-                                        f"Could not heal [{(f_label or f_id)[:60]}]: "
-                                        f"{type(fill_err).__name__}: {str(fill_err).splitlines()[0][:120] if str(fill_err) else ''}",
-                                        lvl="warning",
+                                        f"Saw a confirmation on the {company} form. Recording it "
+                                        "now; the window stays open until you close it.",
                                     )
-
-
-
-                await asyncio.sleep(0.5)
-
-            # ─── VERIFIED AUTONOMY SUBMISSION POLICY GATE ─────────────────────
-            # 1. Collect all answer resolutions from form filling
-            #
-            # resolve_answer() is called again here only to get question_type
-            # classification for cross-field validation below - NOT to
-            # re-derive the answer. It's called with no `options` (the actual
-            # live dropdown/radio options aren't available anymore at this
-            # point), so for a Yes/No-style question it can classify and
-            # resolve differently than the original fill-time call did (which
-            # saw the real options) and return a different answer entirely.
-            # Verification then compares that fresh, options-blind guess
-            # against the live DOM value under the field's own label - an
-            # unrelated field can share enough of that label as a substring to
-            # get matched, so a wrong guess here surfaces as a nonsensical
-            # mismatch on a completely different question (observed live: a
-            # location answer flagged as conflicting with an office-days
-            # Yes/No field's selected value). The fix is field_id: every fill
-            # site above now records the live DOM element id it actually
-            # wrote into (filled_field_ids), so verification can pair each
-            # resolution back to its own element by id instead of by fuzzy
-            # label/substring matching. The answer itself is also overwritten
-            # with `ans` - the real value this function wrote into the DOM -
-            # rather than trusting a fresh re-resolution's guess.
-            form_resolutions: list[AnswerResolution] = []
-            for lbl, ans in filled_fields.items():
-                res = resolve_answer(
-                    question_text=lbl,
-                    profile=profile,
-                    answer_lib=answer_lib,
-                    field_id=filled_field_ids.get(lbl, ""),
-                )
-                res.answer = ans
-                form_resolutions.append(res)
-
-            # 2. Run cross-field deterministic validation
-            cross_field_report = validate_answers(form_resolutions, profile)
-
-            # 2b. Record any NEW high-risk contradictions as persistent blocks.
-            # These persist on the job_item so retries cannot bypass them.
-            from app.services.application_assistant.cross_field_validator import RULE_DOMAIN_MAP
-            from app.services.application_assistant.submission_policy import HIGH_RISK_CONTRADICTION_DOMAINS
-            existing_contradictions: list[dict[str, Any]] = list(job_item.get("blockingContradictions") or [])
-            existing_rules = {bc.get("rule") for bc in existing_contradictions}
-            for err in cross_field_report.blocking_errors:
-                domain = getattr(err, 'domain', '') or RULE_DOMAIN_MAP.get(err.rule, '')
-                if domain in HIGH_RISK_CONTRADICTION_DOMAINS and err.rule not in existing_rules:
-                    existing_contradictions.append({
-                        "domain": domain,
-                        "rule": err.rule,
-                        "fieldId": err.field_id,
-                        "question": err.question,
-                        "reason": err.reason,
-                        "answer": str(err.answer) if hasattr(err, 'answer') else "",
-                        "recordedAt": now_iso(),
-                    })
-                    existing_rules.add(err.rule)
-            if existing_contradictions:
-                job_item["blockingContradictions"] = existing_contradictions
-                logger.warning(
-                    "Recorded %d blocking contradiction(s) on job %s",
-                    len(existing_contradictions), job_id,
-                )
-
-            # 2c. Surface this attempt's jurisdiction compliance warnings (the
-            # employer's own question, not CareerOS's answer — see
-            # jurisdiction_compliance.py). Non-blocking and never persisted
-            # across retries: it reflects the current attempt's form, not a
-            # standing flag the user must clear.
-            from app.services.application_assistant.jurisdiction_compliance import (
-                collect_job_compliance_warnings,
-            )
-            compliance_warnings = collect_job_compliance_warnings(form_resolutions)
-            if compliance_warnings:
-                job_item["complianceWarnings"] = compliance_warnings
-            else:
-                job_item.pop("complianceWarnings", None)
-
-            # 3. Read back live browser DOM state
-            dom_verification = await verify_browser_dom_state(
-                target_frame, form_resolutions, profile, known_options=discovered_options,
-            )
-
-            # 3b. Compute field verification status from DOM read-back
-            field_verification_status = "FIELD_VALUES_VERIFIED"
-            if dom_verification and (not dom_verification.passed or dom_verification.issues):
-                has_blocking_dom = any(i.severity == "BLOCKING" for i in (dom_verification.issues or []))
-                field_verification_status = "FIELD_VALUES_MISMATCH" if has_blocking_dom else "FIELD_VALUES_VERIFIED"
-
-            # 4. Evaluate centralized SubmissionPolicy (with persistent blocks)
-            policy_result = SubmissionPolicy.evaluate(
-                resolutions=form_resolutions,
-                validation_report=cross_field_report,
-                dom_verification=dom_verification,
-                profile=profile,
-                blocking_contradictions=job_item.get("blockingContradictions"),
-            )
-
-            # 5. Persist pre-submit audit report
-            persist_pre_submit_report(
-                application_id=str(job_id),
-                report=cross_field_report,
-                resolutions=form_resolutions,
-            )
-
-            # 6a. Assisted hand-off: everything is typed in, and the human takes
-            # it from here. This is what makes a CAPTCHA-guarded board worth
-            # keeping - the candidate solves the one thing automation must not,
-            # instead of re-typing the whole form. The submit click is never
-            # made here, whatever the policy gates say.
-            if fill_only:
-                # Leave the window showing the button the candidate needs.
-                #
-                # A filled Greenhouse application is a very long document - the
-                # Robinhood posting measures 6178px against a 900px viewport -
-                # and "Submit application" sits at the very bottom. Handing the
-                # window over at whatever scroll position the last field write
-                # happened to leave shows the middle of a form with no visible
-                # way to send it, which reads as a broken page. The button is
-                # there; it is simply thousands of pixels below the fold.
-                # Ordered, not a set: the form frame is where the real submit
-                # control lives, and a set would search them in arbitrary order.
-                frames_to_search = [target_frame]
-                if page is not target_frame:
-                    frames_to_search.append(page)
-                for frame in frames_to_search:
-                    try:
-                        submit = frame.locator(
-                            'button[type="submit"], input[type="submit"], '
-                            'button:has-text("Submit application"), button:has-text("Submit")'
-                        ).last
-                        if await submit.count() > 0:
-                            await submit.scroll_into_view_if_needed(timeout=4000)
-                            if log_callback:
-                                log_callback("Scrolled the window to the Submit button — press it when you are ready.")
-                            break
-                    except Exception:
-                        continue
-                else:
-                    try:
-                        await page.evaluate("() => window.scrollTo(0, document.body.scrollHeight)")
+                                # Record it the moment it is seen.
+                                #
+                                # Keeping the window open, so the candidate
+                                # is not thrown out of their own
+                                # application, must not also delay the
+                                # bookkeeping: waiting for the window to
+                                # close meant a submission they had just
+                                # made still showed as unsubmitted in the
+                                # app. Detection and persistence are
+                                # separate concerns and now happen
+                                # separately.
+                                if on_confirmed is not None:
+                                    try:
+                                        await on_confirmed({
+                                            "confirmationUrl": confirmed_by_user,
+                                            "fieldsFilled": filled_fields,
+                                        })
+                                    except Exception:
+                                        logger.exception(
+                                            "Could not record the assisted submission for %s", company,
+                                        )
                     except Exception:
                         pass
+                    await asyncio.sleep(1.5)
 
-                hand_off_shot = SCREENSHOTS_DIR / f"{job_id}_assisted.png"
-                try:
-                    await page.screenshot(path=str(hand_off_shot), full_page=True, timeout=5000)
-                except Exception:
-                    pass
-                logger.info(
-                    "Assisted fill complete for %s - %d field(s) filled; handing over for %.0fs",
-                    company, len(filled_fields), hand_off_seconds,
-                )
+            if confirmed_by_user:
+                logger.info("Assisted hand-off confirmed by the candidate for %s", company)
                 if log_callback:
-                    log_callback(
-                        f"Filled {len(filled_fields)} field(s) on the {company} form. "
-                        "Solve any challenge and press Submit in the open browser window.",
-                    )
-                # Watch the handed-over window. If the candidate submits it
-                # themselves, the ATS says so - and the job should mark itself
-                # submitted rather than making them come back and click
-                # "Mark submitted" for something they already did.
-                handed_off = True
-                confirmed_by_user = ""
-                # `None` means wait for as long as the window is open. A
-                # wall-clock deadline here closed the browser out from under
-                # the candidate mid-application - the one thing an assisted
-                # hand-off must never do, since the whole point is that a
-                # person finishes the form at their own pace. The window
-                # closing is the real end signal, so that is what is waited on.
-                if hand_off_seconds is None or hand_off_seconds > 0:
-                    deadline = (
-                        None
-                        if hand_off_seconds is None
-                        else asyncio.get_running_loop().time() + hand_off_seconds
-                    )
-                    while deadline is None or asyncio.get_running_loop().time() < deadline:
-                        if page.is_closed():
-                            break
-                        try:
-                            current = page.url or ""
-                            if not confirmed_by_user:
-                                if "confirmation" in current.lower() or "thank" in current.lower():
-                                    confirmed_by_user = current
-                                else:
-                                    body_text = (
-                                        await page.locator("body").inner_text(timeout=2000)
-                                    ).lower()
-                                    if re.search(
-                                        r"application (was |has been )?(successfully )?(submitted|received)"
-                                        r"|thank you for applying|thanks for applying",
-                                        body_text,
-                                    ):
-                                        confirmed_by_user = current or "confirmation text on page"
-                                if confirmed_by_user:
-                                    if log_callback:
-                                        log_callback(
-                                            f"Saw a confirmation on the {company} form. Recording it "
-                                            "now; the window stays open until you close it.",
-                                        )
-                                    # Record it the moment it is seen.
-                                    #
-                                    # Keeping the window open, so the candidate
-                                    # is not thrown out of their own
-                                    # application, must not also delay the
-                                    # bookkeeping: waiting for the window to
-                                    # close meant a submission they had just
-                                    # made still showed as unsubmitted in the
-                                    # app. Detection and persistence are
-                                    # separate concerns and now happen
-                                    # separately.
-                                    if on_confirmed is not None:
-                                        try:
-                                            await on_confirmed({
-                                                "confirmationUrl": confirmed_by_user,
-                                                "fieldsFilled": filled_fields,
-                                            })
-                                        except Exception:
-                                            logger.exception(
-                                                "Could not record the assisted submission for %s", company,
-                                            )
-                        except Exception:
-                            pass
-                        await asyncio.sleep(1.5)
-
-                if confirmed_by_user:
-                    logger.info("Assisted hand-off confirmed by the candidate for %s", company)
-                    if log_callback:
-                        log_callback(f"You submitted the {company} application - marking it submitted.")
-                    return {
-                        "submitted": True,
-                        "assisted": True,
-                        "submissionSource": "manual-assisted",
-                        "evidence": {
-                            "confirmationText": "Confirmed on screen after assisted hand-off",
-                            "confirmationUrl": confirmed_by_user,
-                            "assistedScreenshotPath": str(hand_off_shot.resolve()) if hand_off_shot.exists() else "",
-                        },
-                        "fieldsFilled": filled_fields,
-                    }
-
+                    log_callback(f"You submitted the {company} application - marking it submitted.")
                 return {
-                    "submitted": False,
+                    "submitted": True,
                     "assisted": True,
-                    "status": "MANUAL_REVIEW",
-                    "error": "",
+                    "submissionSource": "manual-assisted",
                     "evidence": {
+                        "confirmationText": "Confirmed on screen after assisted hand-off",
+                        "confirmationUrl": confirmed_by_user,
                         "assistedScreenshotPath": str(hand_off_shot.resolve()) if hand_off_shot.exists() else "",
-                        "domVerification": dom_verification.to_dict(),
                     },
                     "fieldsFilled": filled_fields,
                 }
 
-            # 6. Policy Check: If not READY_TO_SUBMIT, stage for review (never force submit)
-            if not policy_result.can_auto_submit:
-                reasons_str = "; ".join(policy_result.reasons)
-                logger.warning("Verified Autonomy Policy Decision: NEEDS_REVIEW. Reason(s): %s", reasons_str)
-                if log_callback:
-                    log_callback(f"Submission Staged for Review: {policy_result.reasons[0] if policy_result.reasons else 'Ambiguity detected'}", lvl="warning")
+            return {
+                "submitted": False,
+                "assisted": True,
+                "status": "MANUAL_REVIEW",
+                "error": "",
+                "evidence": {
+                    "assistedScreenshotPath": str(hand_off_shot.resolve()) if hand_off_shot.exists() else "",
+                    "domVerification": dom_verification.to_dict(),
+                },
+                "fieldsFilled": filled_fields,
+            }
 
-                pre_screenshot_path = SCREENSHOTS_DIR / f"{job_id}_needs_review.png"
-                try:
-                    await page.screenshot(path=str(pre_screenshot_path), full_page=True, timeout=5000)
-                except Exception:
-                    pass
-
-                return {
-                    "submitted": False,
-                    "stagedForReview": True,
-                    "status": "NEEDS_REVIEW",
-                    "error": reasons_str,
-                    "evidence": {
-                        "policyEvaluation": policy_result.to_dict(),
-                        "domVerification": dom_verification.to_dict(),
-                        "preScreenshotPath": str(pre_screenshot_path.resolve()) if pre_screenshot_path.exists() else "",
-                    },
-                    "fieldsFilled": filled_fields,
-                }
-
-            logger.info("Verified Autonomy Policy Decision: READY_TO_SUBMIT (All gates passed)")
+        # 6. Policy Check: If not READY_TO_SUBMIT, stage for review (never force submit)
+        if not policy_result.can_auto_submit:
+            reasons_str = "; ".join(policy_result.reasons)
+            logger.warning("Verified Autonomy Policy Decision: NEEDS_REVIEW. Reason(s): %s", reasons_str)
             if log_callback:
-                log_callback("Verified Autonomy: 100% verified against profile and live DOM. Submitting...")
+                log_callback(f"Submission Staged for Review: {policy_result.reasons[0] if policy_result.reasons else 'Ambiguity detected'}", lvl="warning")
 
-            # Pre-submit screenshot
-            pre_screenshot_path = SCREENSHOTS_DIR / f"{job_id}_presubmit.png"
+            pre_screenshot_path = SCREENSHOTS_DIR / f"{job_id}_needs_review.png"
             try:
                 await page.screenshot(path=str(pre_screenshot_path), full_page=True, timeout=5000)
             except Exception:
                 pass
 
-            # A cookie-consent overlay left on screen blocks every subsequent
-            # click with "intercepts pointer events" (observed live on NICE's
-            # careers page, a CookieYes-style ".cky-overlay") - dismiss it
-            # before attempting the submit click rather than only discovering
-            # the block after the click has already started retrying.
-            for consent_sel in (
-                'button:has-text("Accept All")',
-                'button:has-text("Accept all")',
-                'button:has-text("Accept Cookies")',
-                'button:has-text("I Accept")',
-                'button:has-text("Accept")',
-                '.cky-btn-accept',
-                '#onetrust-accept-btn-handler',
-            ):
-                try:
-                    consent_btn = page.locator(consent_sel).first
-                    if await consent_btn.count() > 0 and await consent_btn.is_visible():
-                        await consent_btn.click(timeout=2000)
-                        await asyncio.sleep(0.3)
-                        break
-                except Exception:
-                    pass
-
-            # ─── FINAL SUBMIT CLICK ─────────────────────────────────────────────
-            submit_selectors = [
-                '#submit_app',
-                'button[type="submit"]',
-                'input[type="submit"][value*="Submit" i]',
-                'button[data-qa="submit-application"]',
-                'button[data-qa="btn-submit"]',
-                'button:has-text("Submit Application")',
-                'button:has-text("Submit application")',
-                'button:has-text("Submit")',
-                'input[type="submit"]',
-                'a:has-text("Submit Application")',
-                '[role="button"]:has-text("Submit")',
-            ]
-
-            async def _find_real_submit_button(scope: Any) -> Any:
-                for sel in submit_selectors:
-                    candidates = scope.locator(sel)
-                    for idx in range(await candidates.count()):
-                        candidate = candidates.nth(idx)
-                        if not await candidate.is_visible():
-                            continue
-                        # A bare button[type="submit"] selector matches ANY
-                        # submit button on the page, not just the
-                        # application form's - observed live: it grabbed a
-                        # site-wide header search icon (title="Search",
-                        # class="header-search-icon") on NICE's careers
-                        # page, clicked it instead of ever finding the real
-                        # submit button, and the run timed out waiting for
-                        # that irrelevant button to become clickable.
-                        title = (await candidate.get_attribute("title") or "").lower()
-                        aria = (await candidate.get_attribute("aria-label") or "").lower()
-                        cls = (await candidate.get_attribute("class") or "").lower()
-                        if any("search" in v for v in (title, aria, cls)):
-                            continue
-                        return candidate
-                return None
-
-            submit_button = None
-            if _is_phenom_apply_url(page.url):
-                # The first page's Next is a type=submit button too; clicking
-                # it as the final submit recorded an application never sent.
-                try:
-                    stuck, submit_button = await _advance_phenom_wizard(
-                        page, profile, answer_lib, company, title,
-                        filled_fields, filled_field_ids, log_callback,
-                    )
-                except Exception as wizard_err:
-                    stuck, submit_button = f"Phenom {_phenom_step_name(page.url)}: {wizard_err}", None
-                if stuck:
-                    logger.warning("Phenom wizard stopped for %s: %s", company, stuck)
-                    if log_callback:
-                        log_callback(f"Submission Staged for Review: {stuck}", lvl="warning")
-                    stuck_shot = SCREENSHOTS_DIR / f"{job_id}_needs_review.png"
-                    try:
-                        await page.screenshot(path=str(stuck_shot), full_page=True, timeout=5000)
-                    except Exception:
-                        pass
-                    return {
-                        "submitted": False,
-                        "stagedForReview": True,
-                        "status": "NEEDS_REVIEW",
-                        "error": stuck,
-                        "evidence": {
-                            "phenomStep": _phenom_step_name(page.url),
-                            "preScreenshotPath": str(stuck_shot.resolve()) if stuck_shot.exists() else "",
-                        },
-                        "fieldsFilled": filled_fields,
-                    }
-                try:
-                    await page.screenshot(path=str(pre_screenshot_path), full_page=True, timeout=5000)
-                except Exception:
-                    pass
-            if not submit_button:
-                submit_button = await _find_real_submit_button(target_frame)
-            if not submit_button:
-                submit_button = await _find_real_submit_button(page)
-
-            if not submit_button:
-                # "Submit button not found" is misleading when the page never
-                # had an application form to begin with - observed live on two
-                # postings: a Greenhouse URL that now 302s to the company's
-                # careers homepage (posting pulled), and a job *description*
-                # page whose form only mounts after an "Apply" click. Both
-                # reported as submit-button failures and looked like selector
-                # bugs. Distinguish them so a dead posting is triaged as
-                # expired instead of retried against a page that can never
-                # submit.
-                form_present = False
-                try:
-                    for probe in ('form', 'input[type="file"]', 'input[name*="resume" i]'):
-                        for scope in (target_frame, page):
-                            try:
-                                if await scope.locator(probe).count() > 0:
-                                    form_present = True
-                                    break
-                            except Exception:
-                                continue
-                        if form_present:
-                            break
-                except Exception:
-                    pass
-
-                if form_present:
-                    error_msg = "Submit button not found on application page"
-                else:
-                    try:
-                        landed_url = page.url
-                    except Exception:
-                        landed_url = ""
-                    error_msg = (
-                        "No application form on the page - the posting appears to be closed or "
-                        f"redirected (landed on {landed_url or 'an unknown URL'})"
-                    )
-
-                return {
-                    "submitted": False,
-                    "error": error_msg,
-                    "noApplicationForm": not form_present,
-                    "evidence": {
-                        "preScreenshotPath": str(pre_screenshot_path.resolve()),
-                    },
-                    "fieldsFilled": filled_fields,
-                }
-
-            # From the click on, a slow ATS is legitimate (confirmation pages,
-            # verification redirects): give it the whole budget again (#81).
-            page.set_default_timeout(timeout_sec * 1000)
-            logger.info("Executing final submission click via Playwright...")
-            if log_callback:
-                log_callback(f"Clicking final Submit button on {company}...")
-            await submit_button.scroll_into_view_if_needed()
-
-            # Record the intent to submit *before* clicking, and durably.
-            #
-            # Everything after this line may be lost — the confirmation page may
-            # never render, the browser may die, the process may be killed — and
-            # in every one of those cases the employer may still have received
-            # the application. This marker is the only evidence that separates
-            # "we never sent anything, retry freely" from "we may have sent it,
-            # never retry automatically". Writing it after the click, or only in
-            # memory, would lose exactly the cases it exists for.
-            if on_submit_attempt is not None:
-                try:
-                    await on_submit_attempt()
-                except Exception:
-                    logger.exception(
-                        "Could not record the submit attempt for %s; refusing to "
-                        "click, because an unrecorded click cannot be told apart "
-                        "from a failure that sent nothing.",
-                        company,
-                    )
-                    return {
-                        "submitted": False,
-                        "error": (
-                            "Could not durably record the submit attempt before clicking. "
-                            "Stopped rather than risk an unrecoverable duplicate."
-                        ),
-                        "preSubmitValidationErrors": ["submit-intent-not-recorded"],
-                        "evidence": {
-                            "preScreenshotPath": str(pre_screenshot_path.resolve()),
-                            "preSubmitValidationErrors": ["submit-intent-not-recorded"],
-                        },
-                        "fieldsFilled": filled_fields,
-                    }
-
-            await submit_button.click()
-            await asyncio.sleep(4.0)
-
-            # ─── GREENHOUSE EMAIL VERIFICATION FLOW ─────────────────────────────
-            from app.services.application_assistant.greenhouse_verification_service import handle_greenhouse_verification_flow
-            candidate_email = derive_contact_email(profile.get("email") or "")
-            try:
-                verification_handled = await handle_greenhouse_verification_flow(
-                    page=page,
-                    target_frame=target_frame,
-                    company=company,
-                    candidate_email=candidate_email,
-                    # Explicitly generous: this call site's own 45s ceiling was
-                    # what stranded submissions whose code email took longer to
-                    # show up in Gmail than that. Still well inside the 480s
-                    # per-job watchdog in autopilot_runner.
-                    timeout_sec=150.0,
-                    log_callback=log_callback,
-                )
-                if verification_handled:
-                    logger.info("Greenhouse verification flow executed successfully.")
-            except Exception as v_ex:
-                logger.warning("Greenhouse verification flow check encountered: %s", v_ex)
-
-            # ─── WAIT FOR SUBMISSION RESOLUTION (CONFIRMATION OR ERRORS) ───────
-            conf_phrases = [
-                "thank you for applying",
-                "thank you for your application",
-                "we have received your application",
-                "your application was submitted",
-                "your application has been received",
-                "your application has been submitted to",
-                "we've received your application",
-                "thank you for taking the time to apply",
-                "successfully submitted",
-                "submission successful",
-                "your response has been recorded",
-                "thanks for applying",
-                "thank you for your interest",
-            ]
-            
-            logger.info("Waiting for external site submission confirmation...")
-            start_wait = asyncio.get_event_loop().time()
-            # Same lesson as the verification flow's own 150s timeout above, one
-            # stage later: Block's real "Thank you for applying" confirmation
-            # (from no-reply@block.xyz, separate from Greenhouse's code email)
-            # arrived 41-44s after the code-verification round trip completed -
-            # inside the old 45s ceiling on a good run, but not with any margin.
-            # Two consecutive Block jobs timed out here, got marked FAILED with
-            # "no confirmation page or confirmation message was detected", and
-            # both had a real ATS confirmation email waiting in Gmail minutes
-            # later - a false negative on an application that had already gone
-            # through.
-            max_wait_sec = 90.0
-            submission_resolved = False
-
-            while (asyncio.get_event_loop().time() - start_wait) < max_wait_sec:
-                cur_url = page.url.lower()
-                if any(x in cur_url for x in ["/confirmation", "/thank_you", "/thank-you", "/applied", "/success", "submitted=true", "thanks"]):
-                    logger.info("Submission confirmed via URL redirect: %s", page.url)
-                    submission_resolved = True
-                    break
-
-                # Check page body
-                try:
-                    p_text = (await page.inner_text("body", timeout=1000)).lower()
-                    if any(ph in p_text for ph in conf_phrases):
-                        logger.info("Submission confirmed via page DOM text.")
-                        submission_resolved = True
-                        break
-                except Exception:
-                    pass
-
-                # Check frame body if different
-                if target_frame and target_frame != page:
-                    try:
-                        f_text = (await target_frame.inner_text("body", timeout=1000)).lower()
-                        if any(ph in f_text for ph in conf_phrases):
-                            logger.info("Submission confirmed via frame DOM text.")
-                            submission_resolved = True
-                            break
-                    except Exception:
-                        pass
-
-                # Check confirmation elements
-                try:
-                    conf_el = page.locator('[data-qa="application-success"], [data-qa="confirmation"], #application_confirmation, .application-confirmation, [class*="ApplicationConfirmation"], [class*="confirmation"]')
-                    if await conf_el.count() > 0 and await conf_el.first.is_visible():
-                        logger.info("Submission confirmed via confirmation element.")
-                        submission_resolved = True
-                        break
-                except Exception:
-                    pass
-
-                # Check if validation errors appeared
-                _, active_errs = await _extract_dom_form_state(target_frame)
-                if active_errs:
-                    logger.warning("Submission rejected with validation errors: %s", active_errs)
-                    break
-
-                await asyncio.sleep(2.0)
-
-            await asyncio.sleep(1.0)
-
-            # Post-submission screenshot
-            confirmation_url = page.url
-            post_screenshot_path = SCREENSHOTS_DIR / f"{job_id}_confirmation.png"
-            try:
-                await page.screenshot(path=str(post_screenshot_path), full_page=True, timeout=10000)
-            except Exception:
-                pass
-
-            # ─── STRICT QWEN POST-SUBMISSION PROOF VALIDATION ───────────────────
-            body_text = await page.inner_text("body")
-            
-            # Check for visible validation errors and whether form/submit button is still present on page
-            _, active_errors = await _extract_dom_form_state(target_frame)
-            
-            form_still_visible = False
-            submit_btn_still_visible = False
-            try:
-                form_el = target_frame.locator('form, #application_form, #apply_form').first
-                form_still_visible = await form_el.count() > 0 and await form_el.is_visible()
-                if submit_button:
-                    submit_btn_still_visible = await submit_button.count() > 0 and await submit_button.is_visible()
-            except Exception:
-                pass
-
-            from app.services.application_assistant.qwen_form_reviewer import verify_submission_confirmation
-
-            qwen_confirmation = await verify_submission_confirmation(
-                body_text=body_text,
-                confirmation_url=confirmation_url,
-                active_errors=active_errors,
-                company=company,
-                title=title,
-                form_still_visible=form_still_visible,
-                submit_button_visible=submit_btn_still_visible,
-            )
-
-            is_genuine_submission = qwen_confirmation.get("submissionConfirmed", False)
-
-            if not is_genuine_submission:
-                err_msg = qwen_confirmation.get("reason") or "ATS rejected submission or required fields remain incomplete"
-                # A form that stays on screen after a clean submit click is the
-                # signature of bot protection refusing the post. Only look for it
-                # here, after a real failure: plenty of boards that submit fine
-                # also embed an invisible reCAPTCHA, so presence alone must never
-                # block a board that works. Naming it turns an opaque "submit
-                # button is still active" into a reason that classifies as
-                # BOT_PROTECTED_BOARD and stops the job being retried forever.
-                try:
-                    bot_wall = await target_frame.evaluate(_VISIBLE_BOT_CHALLENGE_JS)
-                except Exception:
-                    bot_wall = ""
-                # A form still on screen because it is asking for the emailed
-                # security code is not a board refusing automation - it is the
-                # normal Greenhouse flow, one step from done. Blaming the
-                # reCAPTCHA that every Greenhouse page embeds sent a perfectly
-                # submittable application to manual review with a reason that
-                # was simply untrue. Check for the code prompt first and say
-                # what is actually outstanding.
-                awaiting_code = False
-                try:
-                    body_low = (body_text or "").lower()
-                    awaiting_code = (
-                        "verification code was sent to" in body_low
-                        or "enter the 8-character code" in body_low
-                        or "security code" in body_low
-                    )
-                except Exception:
-                    awaiting_code = False
-
-                if awaiting_code:
-                    err_msg = (
-                        "The application was filled and submitted, but Greenhouse's emailed "
-                        "security code was never entered, so it is still waiting on that step"
-                    )
-                elif bot_wall and form_still_visible:
-                    err_msg = (
-                        f"{bot_wall} bot protection on this board blocked the submission - "
-                        "this posting has to be completed by hand"
-                    )
-                is_staged = bool(active_errors) or "missing entry for required field" in err_msg.lower() or "active validation errors" in err_msg.lower()
-                logger.error("Submission unconfirmed by Qwen verification: %s", err_msg)
-                # "This field is required." alone does not say which field. Name
-                # them in the log and evidence - deliberately not in err_msg:
-                # it becomes lastError, which classify_ineligibility scans, and a
-                # label like "Do you require visa sponsorship?" would misfile the
-                # job as ineligible.
-                error_fields = await _labelled_validation_errors(target_frame) if active_errors else []
-                if error_fields and log_callback:
-                    log_callback(
-                        "Form still flags: " + "; ".join(
-                            f"[{(f.get('label') or '?')[:70]}] {f.get('message', '')}" for f in error_fields[:5]
-                        ),
-                        lvl="warning",
-                    )
-                return {
-                    "submitted": False,
-                    "stagedForReview": is_staged,
-                    "status": "NEEDS_REVIEW" if is_staged else "FAILED",
-                    "error": err_msg,
-                    "evidence": {
-                        "confirmationUrl": confirmation_url,
-                        "screenshotPath": str(post_screenshot_path.resolve()),
-                        "preScreenshotPath": str(pre_screenshot_path.resolve()),
-                        "errorsFound": active_errors,
-                        "errorFields": error_fields,
-                        "qwenReview": qwen_confirmation,
-                    },
-                    "fieldsFilled": filled_fields,
-                }
-
-            conf_msg = qwen_confirmation.get("confirmationMessage") or "Application submitted successfully"
-
-            # Archive immutable submission receipt
-            from app.services.application_assistant.submission_receipt_service import create_submission_receipt
-            receipt = create_submission_receipt(
-                job_id=job_id,
-                company=company,
-                title=title,
-                application_url=app_url,
-                confirmation_url=confirmation_url,
-                confirmation_text=conf_msg,
-                fields_filled=filled_fields,
-                presubmit_screenshot_path=str(pre_screenshot_path.resolve()) if pre_screenshot_path.exists() else "",
-                confirmation_screenshot_path=str(post_screenshot_path.resolve()) if post_screenshot_path.exists() else "",
-                qwen_review=qwen_confirmation,
-                tailoring_mode=job_item.get("tailoringMode"),
-                resume_file_used=job_item.get("resumeFileUsed"),
-                match_score_at_submission=job_item.get("matchScoreAtSubmission"),
-                field_verification_status=field_verification_status,
-            )
-
             return {
-                "submitted": True,
+                "submitted": False,
+                "stagedForReview": True,
+                "status": "NEEDS_REVIEW",
+                "error": reasons_str,
                 "evidence": {
-                    "confirmationText": conf_msg,
-                    "confirmationUrl": confirmation_url,
-                    "screenshotPath": str(post_screenshot_path.resolve()),
-                    "preScreenshotPath": str(pre_screenshot_path.resolve()),
-                    "qwenPreApproved": qwen_approved,
-                    "qwenPostApproved": True,
-                    "qwenReview": qwen_confirmation,
-                    "receipt": receipt,
+                    "policyEvaluation": policy_result.to_dict(),
+                    "domVerification": dom_verification.to_dict(),
+                    "preScreenshotPath": str(pre_screenshot_path.resolve()) if pre_screenshot_path.exists() else "",
                 },
                 "fieldsFilled": filled_fields,
             }
 
-        except Exception as e:
-            # exc_info=True so a bare exception (e.g. NotImplementedError with no
-            # message) still leaves a full traceback in the logs instead of just
-            # an unhelpful empty string.
-            logger.error("Playwright submission failed: %s", e, exc_info=True)
-            err_screenshot = SCREENSHOTS_DIR / f"{job_id}_error.png"
+        logger.info("Verified Autonomy Policy Decision: READY_TO_SUBMIT (All gates passed)")
+        if log_callback:
+            log_callback("Verified Autonomy: 100% verified against profile and live DOM. Submitting...")
+
+        # Pre-submit screenshot
+        pre_screenshot_path = SCREENSHOTS_DIR / f"{job_id}_presubmit.png"
+        try:
+            await page.screenshot(path=str(pre_screenshot_path), full_page=True, timeout=5000)
+        except Exception:
+            pass
+
+        # A cookie-consent overlay left on screen blocks every subsequent
+        # click with "intercepts pointer events" (observed live on NICE's
+        # careers page, a CookieYes-style ".cky-overlay") - dismiss it
+        # before attempting the submit click rather than only discovering
+        # the block after the click has already started retrying.
+        for consent_sel in (
+            'button:has-text("Accept All")',
+            'button:has-text("Accept all")',
+            'button:has-text("Accept Cookies")',
+            'button:has-text("I Accept")',
+            'button:has-text("Accept")',
+            '.cky-btn-accept',
+            '#onetrust-accept-btn-handler',
+        ):
             try:
-                await page.screenshot(path=str(err_screenshot), full_page=True, timeout=5000)
+                consent_btn = page.locator(consent_sel).first
+                if await consent_btn.count() > 0 and await consent_btn.is_visible():
+                    await consent_btn.click(timeout=2000)
+                    await asyncio.sleep(0.3)
+                    break
             except Exception:
                 pass
-            return {
-                "submitted": False,
-                "error": str(e),
-                "evidence": {
-                    "errorScreenshot": str(err_screenshot.resolve()) if err_screenshot.exists() else "",
-                },
-                "fieldsFilled": {},
-            }
-        finally:
-            # An assisted run must hand its window over no matter what the
-            # automation concluded, and every bucket gets the same treatment.
-            #
-            # The hand-off loop lives deep inside the happy path, so every early
-            # return above it - a bot wall, a page with no form, a navigation
-            # error - fell straight through to this teardown and the window the
-            # user had just asked for vanished as soon as it appeared. Reported
-            # live on a ZoomInfo posting, and it is worst exactly where assisted
-            # fill matters most: a board behind a CAPTCHA is the case where only
-            # a human can finish, and closing the window is what stops them.
-            #
-            # Whatever happened, if the person is expecting a window, they get
-            # one, and it stays until they close it.
-            if fill_only and not handed_off and not page.is_closed():
-                logger.info(
-                    "Assisted run ended early (%s) but the window stays open for the "
-                    "candidate to finish by hand.", company,
+
+        # ─── FINAL SUBMIT CLICK ─────────────────────────────────────────────
+        submit_selectors = [
+            '#submit_app',
+            'button[type="submit"]',
+            'input[type="submit"][value*="Submit" i]',
+            'button[data-qa="submit-application"]',
+            'button[data-qa="btn-submit"]',
+            'button:has-text("Submit Application")',
+            'button:has-text("Submit application")',
+            'button:has-text("Submit")',
+            'input[type="submit"]',
+            'a:has-text("Submit Application")',
+            '[role="button"]:has-text("Submit")',
+        ]
+
+        async def _find_real_submit_button(scope: Any) -> Any:
+            for sel in submit_selectors:
+                candidates = scope.locator(sel)
+                for idx in range(await candidates.count()):
+                    candidate = candidates.nth(idx)
+                    if not await candidate.is_visible():
+                        continue
+                    # A bare button[type="submit"] selector matches ANY
+                    # submit button on the page, not just the
+                    # application form's - observed live: it grabbed a
+                    # site-wide header search icon (title="Search",
+                    # class="header-search-icon") on NICE's careers
+                    # page, clicked it instead of ever finding the real
+                    # submit button, and the run timed out waiting for
+                    # that irrelevant button to become clickable.
+                    title = (await candidate.get_attribute("title") or "").lower()
+                    aria = (await candidate.get_attribute("aria-label") or "").lower()
+                    cls = (await candidate.get_attribute("class") or "").lower()
+                    if any("search" in v for v in (title, aria, cls)):
+                        continue
+                    return candidate
+            return None
+
+        submit_button = None
+        if _is_phenom_apply_url(page.url):
+            # The first page's Next is a type=submit button too; clicking
+            # it as the final submit recorded an application never sent.
+            try:
+                stuck, submit_button = await _advance_phenom_wizard(
+                    page, profile, answer_lib, company, title,
+                    filled_fields, filled_field_ids, log_callback,
                 )
+            except Exception as wizard_err:
+                stuck, submit_button = f"Phenom {_phenom_step_name(page.url)}: {wizard_err}", None
+            if stuck:
+                logger.warning("Phenom wizard stopped for %s: %s", company, stuck)
                 if log_callback:
-                    log_callback(
-                        "Automation could not complete this form. The window is yours — "
-                        "finish it and submit there; it stays open until you close it.",
-                    )
+                    log_callback(f"Submission Staged for Review: {stuck}", lvl="warning")
+                stuck_shot = SCREENSHOTS_DIR / f"{job_id}_needs_review.png"
                 try:
-                    while not page.is_closed():
-                        await asyncio.sleep(1.5)
+                    await page.screenshot(path=str(stuck_shot), full_page=True, timeout=5000)
                 except Exception:
                     pass
-            if use_pool:
-                from app.services.application_assistant.browser_pool import PlaywrightBrowserPool
-                await PlaywrightBrowserPool.get_instance().release_context(context)
+                return {
+                    "submitted": False,
+                    "stagedForReview": True,
+                    "status": "NEEDS_REVIEW",
+                    "error": stuck,
+                    "evidence": {
+                        "phenomStep": _phenom_step_name(page.url),
+                        "preScreenshotPath": str(stuck_shot.resolve()) if stuck_shot.exists() else "",
+                    },
+                    "fieldsFilled": filled_fields,
+                }
+            try:
+                await page.screenshot(path=str(pre_screenshot_path), full_page=True, timeout=5000)
+            except Exception:
+                pass
+        if not submit_button:
+            submit_button = await _find_real_submit_button(target_frame)
+        if not submit_button:
+            submit_button = await _find_real_submit_button(page)
+
+        if not submit_button:
+            # "Submit button not found" is misleading when the page never
+            # had an application form to begin with - observed live on two
+            # postings: a Greenhouse URL that now 302s to the company's
+            # careers homepage (posting pulled), and a job *description*
+            # page whose form only mounts after an "Apply" click. Both
+            # reported as submit-button failures and looked like selector
+            # bugs. Distinguish them so a dead posting is triaged as
+            # expired instead of retried against a page that can never
+            # submit.
+            form_present = False
+            try:
+                for probe in ('form', 'input[type="file"]', 'input[name*="resume" i]'):
+                    for scope in (target_frame, page):
+                        try:
+                            if await scope.locator(probe).count() > 0:
+                                form_present = True
+                                break
+                        except Exception:
+                            continue
+                    if form_present:
+                        break
+            except Exception:
+                pass
+
+            if form_present:
+                error_msg = "Submit button not found on application page"
             else:
-                await context.close()
-                # A persistent context owns its browser process, so there is no
-                # separate Browser handle to close in that case.
-                if browser is not None:
-                    await browser.close()
-                if p is not None:
-                    await p.stop()
+                try:
+                    landed_url = page.url
+                except Exception:
+                    landed_url = ""
+                error_msg = (
+                    "No application form on the page - the posting appears to be closed or "
+                    f"redirected (landed on {landed_url or 'an unknown URL'})"
+                )
+
+            return {
+                "submitted": False,
+                "error": error_msg,
+                "noApplicationForm": not form_present,
+                "evidence": {
+                    "preScreenshotPath": str(pre_screenshot_path.resolve()),
+                },
+                "fieldsFilled": filled_fields,
+            }
+
+        # From the click on, a slow ATS is legitimate (confirmation pages,
+        # verification redirects): give it the whole budget again (#81).
+        page.set_default_timeout(timeout_sec * 1000)
+        logger.info("Executing final submission click via Playwright...")
+        if log_callback:
+            log_callback(f"Clicking final Submit button on {company}...")
+        await submit_button.scroll_into_view_if_needed()
+
+        # Record the intent to submit *before* clicking, and durably.
+        #
+        # Everything after this line may be lost — the confirmation page may
+        # never render, the browser may die, the process may be killed — and
+        # in every one of those cases the employer may still have received
+        # the application. This marker is the only evidence that separates
+        # "we never sent anything, retry freely" from "we may have sent it,
+        # never retry automatically". Writing it after the click, or only in
+        # memory, would lose exactly the cases it exists for.
+        if on_submit_attempt is not None:
+            try:
+                await on_submit_attempt()
+            except Exception:
+                logger.exception(
+                    "Could not record the submit attempt for %s; refusing to "
+                    "click, because an unrecorded click cannot be told apart "
+                    "from a failure that sent nothing.",
+                    company,
+                )
+                return {
+                    "submitted": False,
+                    "error": (
+                        "Could not durably record the submit attempt before clicking. "
+                        "Stopped rather than risk an unrecoverable duplicate."
+                    ),
+                    "preSubmitValidationErrors": ["submit-intent-not-recorded"],
+                    "evidence": {
+                        "preScreenshotPath": str(pre_screenshot_path.resolve()),
+                        "preSubmitValidationErrors": ["submit-intent-not-recorded"],
+                    },
+                    "fieldsFilled": filled_fields,
+                }
+
+        await submit_button.click()
+        await asyncio.sleep(4.0)
+
+        # ─── GREENHOUSE EMAIL VERIFICATION FLOW ─────────────────────────────
+        from app.services.application_assistant.greenhouse_verification_service import handle_greenhouse_verification_flow
+        candidate_email = derive_contact_email(profile.get("email") or "")
+        try:
+            verification_handled = await handle_greenhouse_verification_flow(
+                page=page,
+                target_frame=target_frame,
+                company=company,
+                candidate_email=candidate_email,
+                # Explicitly generous: this call site's own 45s ceiling was
+                # what stranded submissions whose code email took longer to
+                # show up in Gmail than that. Still well inside the 480s
+                # per-job watchdog in autopilot_runner.
+                timeout_sec=150.0,
+                log_callback=log_callback,
+            )
+            if verification_handled:
+                logger.info("Greenhouse verification flow executed successfully.")
+        except Exception as v_ex:
+            logger.warning("Greenhouse verification flow check encountered: %s", v_ex)
+
+        # ─── WAIT FOR SUBMISSION RESOLUTION (CONFIRMATION OR ERRORS) ───────
+        conf_phrases = [
+            "thank you for applying",
+            "thank you for your application",
+            "we have received your application",
+            "your application was submitted",
+            "your application has been received",
+            "your application has been submitted to",
+            "we've received your application",
+            "thank you for taking the time to apply",
+            "successfully submitted",
+            "submission successful",
+            "your response has been recorded",
+            "thanks for applying",
+            "thank you for your interest",
+        ]
+        
+        logger.info("Waiting for external site submission confirmation...")
+        start_wait = asyncio.get_event_loop().time()
+        # Same lesson as the verification flow's own 150s timeout above, one
+        # stage later: Block's real "Thank you for applying" confirmation
+        # (from no-reply@block.xyz, separate from Greenhouse's code email)
+        # arrived 41-44s after the code-verification round trip completed -
+        # inside the old 45s ceiling on a good run, but not with any margin.
+        # Two consecutive Block jobs timed out here, got marked FAILED with
+        # "no confirmation page or confirmation message was detected", and
+        # both had a real ATS confirmation email waiting in Gmail minutes
+        # later - a false negative on an application that had already gone
+        # through.
+        max_wait_sec = 90.0
+        submission_resolved = False
+
+        while (asyncio.get_event_loop().time() - start_wait) < max_wait_sec:
+            cur_url = page.url.lower()
+            if any(x in cur_url for x in ["/confirmation", "/thank_you", "/thank-you", "/applied", "/success", "submitted=true", "thanks"]):
+                logger.info("Submission confirmed via URL redirect: %s", page.url)
+                submission_resolved = True
+                break
+
+            # Check page body
+            try:
+                p_text = (await page.inner_text("body", timeout=1000)).lower()
+                if any(ph in p_text for ph in conf_phrases):
+                    logger.info("Submission confirmed via page DOM text.")
+                    submission_resolved = True
+                    break
+            except Exception:
+                pass
+
+            # Check frame body if different
+            if target_frame and target_frame != page:
+                try:
+                    f_text = (await target_frame.inner_text("body", timeout=1000)).lower()
+                    if any(ph in f_text for ph in conf_phrases):
+                        logger.info("Submission confirmed via frame DOM text.")
+                        submission_resolved = True
+                        break
+                except Exception:
+                    pass
+
+            # Check confirmation elements
+            try:
+                conf_el = page.locator('[data-qa="application-success"], [data-qa="confirmation"], #application_confirmation, .application-confirmation, [class*="ApplicationConfirmation"], [class*="confirmation"]')
+                if await conf_el.count() > 0 and await conf_el.first.is_visible():
+                    logger.info("Submission confirmed via confirmation element.")
+                    submission_resolved = True
+                    break
+            except Exception:
+                pass
+
+            # Check if validation errors appeared
+            _, active_errs = await _extract_dom_form_state(target_frame)
+            if active_errs:
+                logger.warning("Submission rejected with validation errors: %s", active_errs)
+                break
+
+            await asyncio.sleep(2.0)
+
+        await asyncio.sleep(1.0)
+
+        # Post-submission screenshot
+        confirmation_url = page.url
+        post_screenshot_path = SCREENSHOTS_DIR / f"{job_id}_confirmation.png"
+        try:
+            await page.screenshot(path=str(post_screenshot_path), full_page=True, timeout=10000)
+        except Exception:
+            pass
+
+        # ─── STRICT QWEN POST-SUBMISSION PROOF VALIDATION ───────────────────
+        body_text = await page.inner_text("body")
+        
+        # Check for visible validation errors and whether form/submit button is still present on page
+        _, active_errors = await _extract_dom_form_state(target_frame)
+        
+        form_still_visible = False
+        submit_btn_still_visible = False
+        try:
+            form_el = target_frame.locator('form, #application_form, #apply_form').first
+            form_still_visible = await form_el.count() > 0 and await form_el.is_visible()
+            if submit_button:
+                submit_btn_still_visible = await submit_button.count() > 0 and await submit_button.is_visible()
+        except Exception:
+            pass
+
+        from app.services.application_assistant.qwen_form_reviewer import verify_submission_confirmation
+
+        qwen_confirmation = await verify_submission_confirmation(
+            body_text=body_text,
+            confirmation_url=confirmation_url,
+            active_errors=active_errors,
+            company=company,
+            title=title,
+            form_still_visible=form_still_visible,
+            submit_button_visible=submit_btn_still_visible,
+        )
+
+        is_genuine_submission = qwen_confirmation.get("submissionConfirmed", False)
+
+        if not is_genuine_submission:
+            err_msg = qwen_confirmation.get("reason") or "ATS rejected submission or required fields remain incomplete"
+            # A form that stays on screen after a clean submit click is the
+            # signature of bot protection refusing the post. Only look for it
+            # here, after a real failure: plenty of boards that submit fine
+            # also embed an invisible reCAPTCHA, so presence alone must never
+            # block a board that works. Naming it turns an opaque "submit
+            # button is still active" into a reason that classifies as
+            # BOT_PROTECTED_BOARD and stops the job being retried forever.
+            try:
+                bot_wall = await target_frame.evaluate(_VISIBLE_BOT_CHALLENGE_JS)
+            except Exception:
+                bot_wall = ""
+            # A form still on screen because it is asking for the emailed
+            # security code is not a board refusing automation - it is the
+            # normal Greenhouse flow, one step from done. Blaming the
+            # reCAPTCHA that every Greenhouse page embeds sent a perfectly
+            # submittable application to manual review with a reason that
+            # was simply untrue. Check for the code prompt first and say
+            # what is actually outstanding.
+            awaiting_code = False
+            try:
+                body_low = (body_text or "").lower()
+                awaiting_code = (
+                    "verification code was sent to" in body_low
+                    or "enter the 8-character code" in body_low
+                    or "security code" in body_low
+                )
+            except Exception:
+                awaiting_code = False
+
+            if awaiting_code:
+                err_msg = (
+                    "The application was filled and submitted, but Greenhouse's emailed "
+                    "security code was never entered, so it is still waiting on that step"
+                )
+            elif bot_wall and form_still_visible:
+                err_msg = (
+                    f"{bot_wall} bot protection on this board blocked the submission - "
+                    "this posting has to be completed by hand"
+                )
+            is_staged = bool(active_errors) or "missing entry for required field" in err_msg.lower() or "active validation errors" in err_msg.lower()
+            logger.error("Submission unconfirmed by Qwen verification: %s", err_msg)
+            # "This field is required." alone does not say which field. Name
+            # them in the log and evidence - deliberately not in err_msg:
+            # it becomes lastError, which classify_ineligibility scans, and a
+            # label like "Do you require visa sponsorship?" would misfile the
+            # job as ineligible.
+            error_fields = await _labelled_validation_errors(target_frame) if active_errors else []
+            if error_fields and log_callback:
+                log_callback(
+                    "Form still flags: " + "; ".join(
+                        f"[{(f.get('label') or '?')[:70]}] {f.get('message', '')}" for f in error_fields[:5]
+                    ),
+                    lvl="warning",
+                )
+            return {
+                "submitted": False,
+                "stagedForReview": is_staged,
+                "status": "NEEDS_REVIEW" if is_staged else "FAILED",
+                "error": err_msg,
+                "evidence": {
+                    "confirmationUrl": confirmation_url,
+                    "screenshotPath": str(post_screenshot_path.resolve()),
+                    "preScreenshotPath": str(pre_screenshot_path.resolve()),
+                    "errorsFound": active_errors,
+                    "errorFields": error_fields,
+                    "qwenReview": qwen_confirmation,
+                },
+                "fieldsFilled": filled_fields,
+            }
+
+        conf_msg = qwen_confirmation.get("confirmationMessage") or "Application submitted successfully"
+
+        # Archive immutable submission receipt
+        from app.services.application_assistant.submission_receipt_service import create_submission_receipt
+        receipt = create_submission_receipt(
+            job_id=job_id,
+            company=company,
+            title=title,
+            application_url=app_url,
+            confirmation_url=confirmation_url,
+            confirmation_text=conf_msg,
+            fields_filled=filled_fields,
+            presubmit_screenshot_path=str(pre_screenshot_path.resolve()) if pre_screenshot_path.exists() else "",
+            confirmation_screenshot_path=str(post_screenshot_path.resolve()) if post_screenshot_path.exists() else "",
+            qwen_review=qwen_confirmation,
+            tailoring_mode=job_item.get("tailoringMode"),
+            resume_file_used=job_item.get("resumeFileUsed"),
+            match_score_at_submission=job_item.get("matchScoreAtSubmission"),
+            field_verification_status=field_verification_status,
+        )
+
+        return {
+            "submitted": True,
+            "evidence": {
+                "confirmationText": conf_msg,
+                "confirmationUrl": confirmation_url,
+                "screenshotPath": str(post_screenshot_path.resolve()),
+                "preScreenshotPath": str(pre_screenshot_path.resolve()),
+                "qwenPreApproved": qwen_approved,
+                "qwenPostApproved": True,
+                "qwenReview": qwen_confirmation,
+                "receipt": receipt,
+            },
+            "fieldsFilled": filled_fields,
+        }
+
+    except Exception as e:
+        # exc_info=True so a bare exception (e.g. NotImplementedError with no
+        # message) still leaves a full traceback in the logs instead of just
+        # an unhelpful empty string.
+        logger.error("Playwright submission failed: %s", e, exc_info=True)
+        err_screenshot = SCREENSHOTS_DIR / f"{job_id}_error.png"
+        try:
+            await page.screenshot(path=str(err_screenshot), full_page=True, timeout=5000)
+        except Exception:
+            pass
+        return {
+            "submitted": False,
+            "error": str(e),
+            "evidence": {
+                "errorScreenshot": str(err_screenshot.resolve()) if err_screenshot.exists() else "",
+            },
+            "fieldsFilled": {},
+        }
+    finally:
+        # An assisted run must hand its window over no matter what the
+        # automation concluded, and every bucket gets the same treatment.
+        #
+        # The hand-off loop lives deep inside the happy path, so every early
+        # return above it - a bot wall, a page with no form, a navigation
+        # error - fell straight through to this teardown and the window the
+        # user had just asked for vanished as soon as it appeared. Reported
+        # live on a ZoomInfo posting, and it is worst exactly where assisted
+        # fill matters most: a board behind a CAPTCHA is the case where only
+        # a human can finish, and closing the window is what stops them.
+        #
+        # Whatever happened, if the person is expecting a window, they get
+        # one, and it stays until they close it.
+        if fill_only and not handed_off and not page.is_closed():
+            logger.info(
+                "Assisted run ended early (%s) but the window stays open for the "
+                "candidate to finish by hand.", company,
+            )
+            if log_callback:
+                log_callback(
+                    "Automation could not complete this form. The window is yours — "
+                    "finish it and submit there; it stays open until you close it.",
+                )
+            try:
+                while not page.is_closed():
+                    await asyncio.sleep(1.5)
+            except Exception:
+                pass
+        if use_pool:
+            from app.services.application_assistant.browser_pool import PlaywrightBrowserPool
+            await PlaywrightBrowserPool.get_instance().release_context(context)
+        else:
+            await context.close()
+            # A persistent context owns its browser process, so there is no
+            # separate Browser handle to close in that case.
+            if browser is not None:
+                await browser.close()
+            if p is not None:
+                await p.stop()
