@@ -45,9 +45,15 @@ exists so decision-worthy events don't need to interrupt the user overnight.
 - 06:43:37 UTC: **Tanium** — Senior Software Engineer, DevOps (`apjob_e348513e-c835-414c-b362-e269240092d3`) (Greenhouse, browser confirmed redirect; profile checked: Auburn WA, hybrid in-person Yes)
 - 06:48:37 UTC: **Nmi** — Senior Software Engineer (`apjob_f2a43aae-6540-4c62-957c-1099c404bd52`) (Greenhouse, browser confirmed redirect; profile checked: authorization Yes, LinkedIn verified)
 - 06:53:48 UTC: **Doordash** — Senior Software Engineer, iOS (`apjob_7640e820-a97c-4d6f-84dc-69eae1fc5b6f`) (Greenhouse, browser confirmed redirect; profile checked: Auburn WA, Santa Clara Univ MS)
+- 07:03:38 UTC: **Affirm** — Senior Software Engineer, Fullstack (App Experience) (`apjob_a2758d7f-f134-42af-ab52-2733e34a6067`) (Greenhouse, browser confirmed redirect; profile checked: sponsorship Yes, Washington)
+- 07:08:53 UTC: **Doordash** — Staff Software Engineer, Machine Learning (`apjob_eedb35ba-27a9-4ef4-b41b-1352d3c7595b`) (Greenhouse, browser confirmed redirect; profile checked: Auburn WA, Santa Clara Univ MS)
+- 07:13:48 UTC: **Coinbase** — Senior Software Engineer - Data Platform (`apjob_8849ad3f-cec9-424f-acc8-97f0724f5648`) (Greenhouse, browser confirmed redirect; profile checked: sponsorship Yes, Microsoft current)
+- 07:18:39 UTC: **Affirm** — Staff Software Engineer, Backend (Fraud Decisioning) (`apjob_a616a280-cff4-417a-8386-1d195f5003fe`) (Greenhouse, browser confirmed redirect; profile checked: sponsorship Yes, Washington)
+- 07:23:48 UTC: **Doordash** — Software Engineer, Data and AI Platform (`apjob_fb4e7f65-092f-42b4-bcba-3d58f4a0540f`) (Greenhouse, browser confirmed redirect; profile checked: Auburn WA, Santa Clara Univ MS)
+- 07:28:47 UTC: **Coinbase** — Senior Software Engineer, Simple Trade Experience (`apjob_013fbb26-1c23-4312-b6d1-0ae6216e279f`) (Greenhouse, browser confirmed redirect; profile checked: sponsorship Yes, Microsoft current)
 
 **In flight**:
-- Processing **Affirm** (`apjob_a2758d7f-f134-42af-ab52-2733e34a6067`). Submittable queue has 21 jobs remaining at head.
+- Pacing delay / claiming next eligible queue item. Fresh 24h pull completed at 07:25 UTC (802 roles fetched, 7,564 indexed, 414 fresh matches). 1 submittable job remaining at queue head (`Coinbase Payments Platform`); runner will keep processing according to user policy (triaging unfinishable boards to MANUAL_REVIEW).
 
 **Check by hand**:
 - None (`SUBMISSION_UNKNOWN tonight: 0`).
