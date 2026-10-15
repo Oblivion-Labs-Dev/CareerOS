@@ -57,10 +57,11 @@ exists so decision-worthy events don't need to interrupt the user overnight.
 - 08:13:22 UTC: **Gemini** — Senior Software Engineer, Predictions (Mobile) (`apjob_049bd790-08b1-412a-8d5d-2f53941e0e52`) (Greenhouse, browser confirmed redirect; receipt rcpt_482c65821fb54ba70716c2b0, profile checked: sponsorship Yes, authorized Yes, Auburn WA, Master's Degree)
 
 **In flight**:
-- Active run `aprun_d05d9fc2-db42-46ea-a9df-08baa62db2eb`: 127 / 197 processed. Keep-going triage pass active (currently evaluating Jpmorganchase, 59 enterprise/Workday postings triaged to MANUAL_REVIEW, 6 to NEEDS_REVIEW). 34 submittable queued jobs remaining. Total verified submissions tonight: 36 (57 cumulative across runs). Pacing intervals intact.
+- Active run `aprun_d05d9fc2-db42-46ea-a9df-08baa62db2eb`: status RUNNING. Keep-going triage pass active (currently evaluating Mastercard, 48 enterprise/Workday postings triaged to MANUAL_REVIEW, 4 to NEEDS_REVIEW, 26 SKIPPED). Total verified submissions tonight: 36 (57 cumulative across runs). Pacing intervals intact.
 
 **Check by hand**:
 - None (`SUBMISSION_UNKNOWN tonight: 0`).
+  - *Incident resolved during Tick 9 audit*: Meeru Ai Inc (`apjob_ded04f9f`) on Workable had entered SUBMISSION_UNKNOWN when the final submit click left the form and submit button active on `/apply/`. Inspection confirmed Qwen review confidence 0.95 and no confirmation redirect; deterministically resolved to `MANUAL_REVIEW` with full evidence logged.
 
 **Questions only the user can answer**:
 - **1-800 Contacts**: "Which best describes your professional experience developing backend applications using C# and .NET?*", "Which best describes your experience using AI coding agents (such as Cursor, Claude Code, or GitHub Copilot) in your software development workflow?*"
@@ -84,6 +85,9 @@ exists so decision-worthy events don't need to interrupt the user overnight.
 - **Dept®**: "What's your oral english level?*", "Do you have experience at a senior level working with Airflow, GCP, Python or R? *"
 - **Seated**: Custom technical application questions (Workable textarea prompts QA_12619682 - QA_12619684)
 - **Autodesk**: Custom qualification confirmation selection (`apjob_8ed461c7`)
+- **Ascend Analytics**: "Describe a time you helped your team navigate a disagreement or a tough call. What was at stake, how did you make sure other perspectives were genuinely considered, what did you decide, and what came of it?*", "Do you have a cumulative GPA of 3.0 or higher?*", "Are you currently bound by any non-compete, non-disclosure, or other contractual agreements with previous employers..."
+- **Paypal**: "Do you or your spouse have, or plan to have, a role on a board, advisory group, management team, or any business interest in a company or organization that competes, or could be perceived to compete, with PayPal?", "Please confirm your visa type?", "Have you worked in an enterprise software environment before?"
+- **Grainger**: "*Your friend's email address:" (Required employee referral email)
 
 **Fixes made**:
 - Clean dev server restart and session recovery: 1 stranded APPLYING job (Twilio) safely requeued; fresh 24h intake performed.
