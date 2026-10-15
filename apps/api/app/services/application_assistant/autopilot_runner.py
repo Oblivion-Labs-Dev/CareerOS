@@ -775,6 +775,12 @@ class AutopilotRunner:
                         logger.exception("Could not recover the job cancelled by stop().")
             except (asyncio.CancelledError, Exception):
                 pass
+        try:
+            from app.services.application_assistant.browser_pool import PlaywrightBrowserPool
+
+            await PlaywrightBrowserPool.get_instance().close()
+        except Exception as exc:
+            logger.debug("Could not close browser pool on runner stop: %s", exc)
         if self.active_run_id:
             with session_scope() as local_db:
                 run = get_autopilot_run(local_db, self.active_run_id)

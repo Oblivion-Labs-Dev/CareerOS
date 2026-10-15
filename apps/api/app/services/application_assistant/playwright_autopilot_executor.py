@@ -3478,43 +3478,59 @@ async def _execute_live_playwright_submission_impl(
     # not accumulate or share state between postings.
     use_profile = fill_only and not headless
 
-    async with async_playwright() as p:
-        browser: Browser | None = None
-        launch_args = [
-            "--disable-blink-features=AutomationControlled",
-            "--no-sandbox",
-            "--disable-dev-shm-usage",
-            # Some Greenhouse-hosted boards reset the HTTP/2 connection mid-
-            # handshake, which Chromium surfaces as a hard
-            # net::ERR_HTTP2_PROTOCOL_ERROR on page.goto and which retrying
-            # never clears - observed deterministically on all three Roblox
-            # postings, whose URLs load fine over HTTP/1.1. Forcing HTTP/1.1
-            # costs a little connection reuse and makes those pages reachable.
-            "--disable-http2",
-        ]
-        # A window a person is going to drive must open maximized, and its page
-        # viewport must track the real window (no_viewport below). With a fixed
-        # 1280x900 viewport and no window size, Chromium opens a smaller window
-        # and renders the page into a surface larger than what is visible, so
-        # the bottom of a long application form - the Submit button - sits
-        # outside the window and cannot be scrolled to normally.
-        if not headless:
-            launch_args.append("--start-maximized")
+    browser: Browser | None = None
+    p = None
+    context: BrowserContext
 
-        # Headless runs keep a fixed viewport so form geometry is
-        # deterministic; a visible window takes its size from the window
-        # itself, which is the only way scrolling behaves for the person
-        # who has to finish the form.
-        context_opts: dict[str, Any] = {
-            "no_viewport": not headless,
-            "viewport": None if not headless else {"width": 1280, "height": 900},
-            "user_agent": (
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-                "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
-            ),
-        }
+    launch_args = [
+        "--disable-blink-features=AutomationControlled",
+        "--no-sandbox",
+        "--disable-dev-shm-usage",
+        # Some Greenhouse-hosted boards reset the HTTP/2 connection mid-
+        # handshake, which Chromium surfaces as a hard
+        # net::ERR_HTTP2_PROTOCOL_ERROR on page.goto and which retrying
+        # never clears - observed deterministically on all three Roblox
+        # postings, whose URLs load fine over HTTP/1.1. Forcing HTTP/1.1
+        # costs a little connection reuse and makes those pages reachable.
+        "--disable-http2",
+        "--disable-gpu",
+        "--disable-extensions",
+        "--disable-background-networking",
+        "--disable-component-update",
+        "--disable-sync",
+        "--mute-audio",
+    ]
+    # A window a person is going to drive must open maximized, and its page
+    # viewport must track the real window (no_viewport below). With a fixed
+    # 1280x900 viewport and no window size, Chromium opens a smaller window
+    # and renders the page into a surface larger than what is visible, so
+    # the bottom of a long application form - the Submit button - sits
+    # outside the window and cannot be scrolled to normally.
+    if not headless:
+        launch_args.append("--start-maximized")
 
-        context: BrowserContext
+    # Headless runs keep a fixed viewport so form geometry is
+    # deterministic; a visible window takes its size from the window
+    # itself, which is the only way scrolling behaves for the person
+    # who has to finish the form.
+    context_opts: dict[str, Any] = {
+        "no_viewport": not headless,
+        "viewport": None if not headless else {"width": 1280, "height": 900},
+        "user_agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+            "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+        ),
+    }
+
+    from app.services.application_assistant.browser_pool import PlaywrightBrowserPool
+    use_pool = not use_profile and headless and PlaywrightBrowserPool.is_pool_enabled()
+
+    if use_pool:
+        pool = PlaywrightBrowserPool.get_instance()
+        context = await pool.acquire_context(context_opts=context_opts, launch_args=launch_args)
+    else:
+        from playwright.async_api import async_playwright
+        p = await async_playwright().start()
         if use_profile:
             ASSISTED_PROFILE_DIR.mkdir(parents=True, exist_ok=True)
             try:
@@ -5217,8 +5233,14 @@ async def _execute_live_playwright_submission_impl(
                         await asyncio.sleep(1.5)
                 except Exception:
                     pass
-            await context.close()
-            # A persistent context owns its browser process, so there is no
-            # separate Browser handle to close in that case.
-            if browser is not None:
-                await browser.close()
+            if use_pool:
+                from app.services.application_assistant.browser_pool import PlaywrightBrowserPool
+                await PlaywrightBrowserPool.get_instance().release_context(context)
+            else:
+                await context.close()
+                # A persistent context owns its browser process, so there is no
+                # separate Browser handle to close in that case.
+                if browser is not None:
+                    await browser.close()
+                if p is not None:
+                    await p.stop()
