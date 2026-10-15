@@ -4052,7 +4052,11 @@ async def _execute_live_playwright_submission_impl(
                 "evidence": {"finalUrl": page.url},
                 "fieldsFilled": {},
             }
-        if _TALEO_ENTERPRISE.search(page.url or "") or await _has_visible_password_field(target_frame):
+        has_password = await _has_visible_password_field(target_frame)
+        if not has_password and page is not target_frame:
+            has_password = await _has_visible_password_field(page)
+
+        if _TALEO_ENTERPRISE.search(page.url or "") or has_password:
             reason = (
                 "This employer's apply flow requires a candidate account (the form asks for a "
                 "password), which Autopilot does not create - apply by hand."
@@ -4061,10 +4065,13 @@ async def _execute_live_playwright_submission_impl(
                 if log_callback:
                     log_callback(reason, lvl="warning")
             else:
-                logger.warning("Account-creation form at %s - not filling", page.url)
+                logger.warning("Account-creation form at %s - staging for review", page.url)
                 return {
                     "submitted": False,
+                    "stagedForReview": True,
+                    "status": "NEEDS_REVIEW",
                     "error": reason,
+                    "reviewReason": reason,
                     "evidence": {"finalUrl": page.url},
                     "fieldsFilled": {},
                 }

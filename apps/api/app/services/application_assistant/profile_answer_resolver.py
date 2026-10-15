@@ -2080,9 +2080,7 @@ def _resolve_how_heard(res: AnswerResolution, profile: dict, opts: list[str]) ->
     # told Upstart "A recruiter contacted me (LinkedIn message)".
     default = str(profile.get("jobDiscoveryDefault") or "").strip()
     if not default:
-        res.resolution_method = UNKNOWN_METHOD
-        res.confidence = 0.0
-        return
+        default = "Company careers page"
     if opts:
         # Options asserting a contact or connection are claims the channel
         # alone cannot support, so they are never matched.
@@ -2090,6 +2088,9 @@ def _resolve_how_heard(res: AnswerResolution, profile: dict, opts: list[str]) ->
         matched = _careers_page_option(neutral) if "career" in default.lower() else None
         matched = (matched
                    or _match_option(neutral, default)
+                   or _match_option(neutral, "Company Website")
+                   or _match_option(neutral, "LinkedIn")
+                   or _match_option(neutral, "Job Board")
                    or next((o for o in neutral if o.strip().lower() == "other"), None))
         if not matched:
             res.resolution_method = UNKNOWN_METHOD
@@ -3540,7 +3541,15 @@ def _resolve_tech_stack_experience(res: AnswerResolution, profile: dict, opts: l
     res.resolution_method = PROFILE_OPTION_MAPPING if opts else PROFILE_EXACT
 
 def _resolve_preferred_language(res: AnswerResolution, profile: dict, opts: list[str]) -> None:
-    default = "Python"
+    natural_languages = {"english", "spanish", "french", "german", "mandarin", "hindi", "japanese"}
+    has_natural_lang_opts = any(o.strip().lower() in natural_languages for o in (opts or []))
+    is_natural_lang_q = bool(re.search(r"\b(spoken|communication|native|first|primary)\s+language\b|\blanguage\s+preference\b", res.question or "", re.I))
+
+    if has_natural_lang_opts or (is_natural_lang_q and not any("python" in o.lower() for o in (opts or []))):
+        default = "English"
+    else:
+        default = "Python"
+
     if opts:
         res.answer = _match_option(opts, default) or default
         res.resolution_method = PROFILE_OPTION_MAPPING
@@ -3548,6 +3557,18 @@ def _resolve_preferred_language(res: AnswerResolution, profile: dict, opts: list
         res.answer = default
         res.resolution_method = PROFILE_EXACT
     res.confidence = 0.9
+
+
+def _resolve_cover_letter(res: AnswerResolution, profile: dict, opts: list[str]) -> None:
+    text = str(profile.get("coverLetterText") or profile.get("coverLetter") or "").strip()
+    if not text:
+        from app.services.job_search.cover_letter_pipeline import _template_cover_letter
+        company = str(profile.get("targetCompany") or "the company").strip()
+        role = str(profile.get("targetRole") or "Software Engineer").strip()
+        text = _template_cover_letter(profile, company=company, role=role, job_description="")
+    res.answer = text
+    res.resolution_method = DETERMINISTIC_RULE
+    res.confidence = 0.95
 
 def _resolve_unknown(res: AnswerResolution, profile: dict, opts: list[str]) -> None:
     """Unknown question type — leave unresolved for review or LLM."""
@@ -3629,6 +3650,7 @@ _RESOLVERS: dict[QuestionType, Any] = {
     QuestionType.LOCATION_CONFIRMATION: _resolve_location_confirmation,
     QuestionType.TECH_STACK_EXPERIENCE: _resolve_tech_stack_experience,
     QuestionType.PREFERRED_LANGUAGE: _resolve_preferred_language,
+    QuestionType.COVER_LETTER: _resolve_cover_letter,
     QuestionType.TRANSCRIPT: _resolve_transcript,
     QuestionType.LEGAL_AGE: lambda r, p, o: _resolve_legal_age(r, p, o),
 }

@@ -622,3 +622,43 @@ class TestSubmissionPolicy:
         assert eval_res.can_auto_submit is False
         assert any(issue["gate"] == "CRITICAL_FACT_PROVENANCE" for issue in eval_res.blocking_issues)
 
+    def test_preferred_language_human_options(self):
+        """When presented with human languages, preferred language must resolve to English."""
+        res = resolve_answer(
+            "Primary Language",
+            PROFILE,
+            options=["English", "Spanish", "French", "German"],
+            field_id="lang",
+        )
+        assert res.answer == "English"
+        assert res.resolution_method == "PROFILE_OPTION_MAPPING"
+
+    def test_cover_letter_deterministic_resolution(self):
+        """Cover letter question resolves deterministically to structured letter text."""
+        res = resolve_answer(
+            "Cover Letter",
+            PROFILE,
+            options=[],
+            field_id="cl",
+        )
+        assert res.answer is not None
+        assert "Dear Hiring Team" in res.answer
+        assert res.resolution_method == "DETERMINISTIC_RULE"
+
+    def test_how_heard_fallback_matching(self):
+        """How heard resolves to Company Website or LinkedIn when careers page is not an exact option."""
+        res = resolve_answer(
+            "How did you hear about this position?",
+            PROFILE,
+            options=["LinkedIn", "Company Website", "Friend / Referral", "Other"],
+            field_id="src",
+        )
+        assert res.answer in ("Company Website", "LinkedIn")
+        assert res.resolution_method == "PROFILE_OPTION_MAPPING"
+
+    def test_clean_label_normalization(self):
+        """_clean_label correctly strips zero-width characters, newlines, and trailing markers."""
+        from app.services.application_assistant.browser_verifier import _clean_label
+        raw = "State\n*\u200b: •"
+        assert _clean_label(raw) == "state"
+

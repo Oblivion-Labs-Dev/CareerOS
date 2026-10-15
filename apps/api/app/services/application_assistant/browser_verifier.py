@@ -232,6 +232,18 @@ def _state_confirmed_in_sibling_field(dom_by_label: dict[str, dict[str, Any]], p
     return False
 
 
+def _clean_label(raw: str) -> str:
+    """Normalize label for robust comparison.
+    Strips zero-width characters, collapses whitespace, removes trailing asterisks/colons/bullets.
+    """
+    if not raw:
+        return ""
+    s = re.sub(r"[\u200b\u200c\u200d\u2060\ufeff]", "", raw)
+    s = re.sub(r"\s+", " ", s)
+    s = re.sub(r"[\s*:•\-]+$", "", s)
+    return s.strip().lower()
+
+
 def _match_dom_field(
     res_lbl: str,
     field_id: str,
@@ -239,21 +251,19 @@ def _match_dom_field(
     dom_by_label: dict[str, dict[str, Any]],
 ) -> dict[str, Any] | None:
     """Pair a resolved answer with its live DOM field: field id, then exact
-    label, then a label that one of the two begins with or substantially
-    covers. A short label buried inside a long sentence ("Resume" inside an
-    attestation that mentions "this application and resume") is a different
-    question, not the same one."""
+    label, then normalized cleaned label, then prefix/containment match."""
     matching = dom_by_id.get(field_id) if field_id else None
     if matching is None:
         matching = dom_by_label.get(res_lbl)
+    if matching is None:
+        cleaned_res = _clean_label(res_lbl)
+        matching = dom_by_label.get(cleaned_res)
     if matching is not None or not res_lbl:
         return matching
-    # "Phone" is a prefix of both "Phone Device Type" and "Phone Number *";
-    # the label with the fewest extra words is the same question.
-    norm_res = re.sub(r"[\s*:]+", " ", res_lbl).strip()
+    norm_res = _clean_label(res_lbl)
     best: tuple[int, dict[str, Any]] | None = None
     for d_lbl, d_field in dom_by_label.items():
-        norm_d = re.sub(r"[\s*:]+", " ", d_lbl or "").strip()
+        norm_d = _clean_label(d_lbl)
         if not norm_d:
             continue
         shorter, longer = sorted((norm_res, norm_d), key=len)
@@ -290,6 +300,29 @@ async def verify_browser_dom_state(
             const fields = [];
             const elements = document.querySelectorAll('input:not([type="hidden"]), select, textarea, div.select__control, div[class*="select__control"]');
             
+            const cleanLabel = (raw) => {
+                return (raw || '')
+                    .replace(/[​‌‍⁠﻿]/g, '')  // zero-width / word joiner
+                    .replace(/\\s+/g, ' ')
+                    .replace(/[\\s*:•\\-]+$/, '')
+                    .trim();
+            };
+            const looksLikeId = (text) => {
+                if (!text) return true;
+                if (/^[A-Za-z]{0,4}[_-]?\\d{3,}$/.test(text)) return true;
+                if (/^[0-9a-f]{8,}$/i.test(text)) return true;
+                return !/[a-z]{3}/i.test(text);
+            };
+            const isOptionText = (text, ownVal) => {
+                if (!text) return false;
+                const t = text.toLowerCase().trim();
+                const own = (ownVal || '').toLowerCase().trim();
+                if (own && own !== 'on' && own === t) return true;
+                return ['yes', 'no', 'other', 'true', 'false', 'n/a', 'select...',
+                        'prefer not to say', 'decline to answer',
+                        'i decline to answer'].indexOf(t) !== -1;
+            };
+
             elements.forEach(el => {
                 if (el.getAttribute('aria-hidden') === 'true' || (el.className && typeof el.className === 'string' && el.className.includes('requiredInput'))) {
                     return;
@@ -313,7 +346,7 @@ async def verify_browser_dom_state(
                 // Label lookup
                 if (id) {
                     try {
-                        const lbl = document.querySelector(`label[for="${id}"]`);
+                        const lbl = document.querySelector(`label[for="${CSS.escape(id)}"]`);
                         if (lbl && lbl.innerText && lbl.innerText.trim()) label = lbl.innerText.trim();
                     } catch(e) {}
                 }
@@ -332,6 +365,33 @@ async def verify_browser_dom_state(
                     }
                 }
                 if (!label) label = el.getAttribute('aria-label') || el.getAttribute('placeholder') || name || id;
+
+                // Sanitize and normalize label
+                const rawLabel = label;
+                let cleaned = cleanLabel(label);
+                if (!cleaned || isOptionText(cleaned, el.value) || looksLikeId(cleaned)) {
+                    let better = '';
+                    try {
+                        const lb = el.getAttribute('aria-labelledby');
+                        if (lb) {
+                            const lbEl = document.getElementById(lb.split(/\\s+/)[0]);
+                            if (lbEl) better = cleanLabel(lbEl.innerText);
+                        }
+                    } catch(e) {}
+                    if ((!better || isOptionText(better, el.value)) && el.closest) {
+                        const grp = el.closest('fieldset, [role="group"], [role="radiogroup"], div.field, div.custom-question, div[class*="question"]');
+                        if (grp) {
+                            const lg = grp.querySelector('legend, .question-label, .field__label, label');
+                            if (lg) better = cleanLabel(lg.innerText);
+                        }
+                    }
+                    if (!better || isOptionText(better, el.value) || looksLikeId(better)) {
+                        better = cleanLabel(el.getAttribute('aria-label')) || better;
+                    }
+                    label = (better && !isOptionText(better, el.value) && !looksLikeId(better)) ? better : cleaned;
+                } else {
+                    label = cleaned;
+                }
 
                 // Value lookup
                 let val = '';
@@ -384,9 +444,11 @@ async def verify_browser_dom_state(
                         const legend = parentQuestion.querySelector('legend, label, .field__label, [class*="label"]');
                         group = legend ? legend.innerText.trim() : parentQuestion.innerText.split('\\n')[0].trim();
                     }
+                    const rawGroup = group;
+                    group = cleanLabel(group);
                     // Element is only required if explicitly marked or if its question group has an asterisk
                     const isExplicitlyRequired = el.required || el.getAttribute('aria-required') === 'true';
-                    const groupRequired = group.includes('*');
+                    const groupRequired = rawGroup.includes('*') || rawLabel.includes('*');
                     // For radios: only mark required if no radio in the group is checked
                     if (type === 'radio' && val) {
                         required = false;
@@ -395,7 +457,12 @@ async def verify_browser_dom_state(
                     }
                 } else {
                     const isExplicitlyRequired = el.required || el.getAttribute('aria-required') === 'true' || (innerInput && (innerInput.required || innerInput.getAttribute('aria-required') === 'true'));
-                    required = isExplicitlyRequired || label.includes('*');
+                    required = isExplicitlyRequired || rawLabel.includes('*');
+                }
+
+                // A password field belongs to candidate account creation, not the job application itself
+                if (type === 'password') {
+                    required = false;
                 }
 
                 // A disabled input cannot be filled and the form will not enforce
@@ -437,13 +504,16 @@ async def verify_browser_dom_state(
     dom_by_label: dict[str, dict[str, Any]] = {}
     dom_by_id: dict[str, dict[str, Any]] = {}
     for f in dom_state:
-        lbl = (f.get("label") or "").strip().lower()
-        if lbl:
-            dom_by_label[lbl] = f
+        raw_lbl = (f.get("label") or "").strip()
+        cleaned_lbl = _clean_label(raw_lbl)
+        if raw_lbl:
+            dom_by_label[raw_lbl.lower()] = f
+        if cleaned_lbl:
+            dom_by_label[cleaned_lbl] = f
         fid = f.get("id")
         if fid:
             dom_by_id[fid] = f
-        result.dom_values[f.get("label") or f.get("id")] = f.get("value", "")
+        result.dom_values[raw_lbl or f.get("id")] = f.get("value", "")
 
     # Group checkboxes/radios by label and group to check if at least one in the group is selected
     checkbox_groups_satisfied: set[str] = set()
@@ -467,6 +537,9 @@ async def verify_browser_dom_state(
         grp_low = (f.get("group") or "").strip().lower()
         name_low = (f.get("name") or "").strip().lower()
         
+        if f_type == "password":
+            continue
+        
         if f.get("required") and not f_val and f_type != "file":
             # For checkboxes and radios, if any item with the same group/name was selected, it's satisfied
             if f_type in ("checkbox", "radio") and (lbl_low in checkbox_groups_satisfied or grp_low in checkbox_groups_satisfied or name_low in checkbox_groups_satisfied):
@@ -482,7 +555,8 @@ async def verify_browser_dom_state(
                 )
             )
             if not is_voluntary and not any(opt in lbl_low or opt in grp_low for opt in ["optional", "if applicable", "if willing"]):
-                display_name = f.get("label") or f.get("group") or f.get("name") or f.get("id") or "an unlabeled field"
+                raw_name = f.get("label") or f.get("group") or f.get("name") or f.get("id") or "an unlabeled field"
+                display_name = _clean_label(raw_name).title() if raw_name else "an unlabeled field"
                 result.unresolved_required_fields.append(display_name)
                 result.issues.append(
                     DOMVerificationIssue(

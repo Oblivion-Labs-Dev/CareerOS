@@ -736,10 +736,14 @@ _CLASSIFICATION_RULES: list[tuple[QuestionType, list[str]]] = [
         r"if\s+you\s+answered\s+.?yes.?\s+to\s+the\s+question\s+above,\s+please\s+list\s+the\s+company\s+or\s+partner\s+agency",
     ]),
     (QuestionType.PREFERRED_LANGUAGE, [
-        r"preferred\s+programming\s+language",
+        r"preferred\s+(?:programming\s+|coding\s+|spoken\s+)?language",
         r"favorite\s+programming\s+language",
         r"which\s+programming\s+language.*prefer",
-        r"primary\s+(coding|programming)\s+language",
+        r"primary\s+(?:coding\s+|programming\s+|spoken\s+)?language",
+        r"language\s+preference",
+        r"spoken\s+language",
+        r"native\s+language",
+        r"first\s+language",
         # Anthropic: "Which programming language would you likely use for a
         # coding interview?"
         r"which\s+programming\s+language.*(coding\s+interview|interview)",
