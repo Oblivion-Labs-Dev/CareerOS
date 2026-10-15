@@ -198,6 +198,14 @@ async def _drain_in_flight_work(grace_seconds: float) -> None:
     except Exception:
         logger.exception("Playwright worker did not shut down cleanly.")
 
+    # Close shared headless browser pool
+    try:
+        from app.services.application_assistant.browser_pool import PlaywrightBrowserPool
+
+        await PlaywrightBrowserPool.get_instance().close()
+    except Exception:
+        logger.exception("PlaywrightBrowserPool did not shut down cleanly.")
+
 
 def _warn_if_multi_worker() -> None:
     """Say so loudly if this process was started alongside siblings.
