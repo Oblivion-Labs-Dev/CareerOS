@@ -55,12 +55,14 @@ exists so decision-worthy events don't need to interrupt the user overnight.
 - 08:03:22 UTC: **Esri** — Sr. Software Development Engineer – National Imagery (`apjob_4525a2d2-f1c5-42e8-93ea-222086c2a49c`) (Greenhouse, browser confirmed redirect; receipt rcpt_2d4aa5cbc7979c76aec0eea0, profile checked: sponsorship Yes, authorized Yes, Auburn WA, Asian, Male, $140,000)
 - 08:08:26 UTC: **Honor** — Senior Backend Engineer (`apjob_16c13f2a-e7b8-4649-82e0-1f905e98b172`) (Greenhouse, browser confirmed redirect; receipt rcpt_09f24ba584f168c1a2c63ee2, profile checked: sponsorship Yes, Auburn WA)
 - 08:13:22 UTC: **Gemini** — Senior Software Engineer, Predictions (Mobile) (`apjob_049bd790-08b1-412a-8d5d-2f53941e0e52`) (Greenhouse, browser confirmed redirect; receipt rcpt_482c65821fb54ba70716c2b0, profile checked: sponsorship Yes, authorized Yes, Auburn WA, Master's Degree)
+- 09:45:01 UTC: **Chainguard** — Staff Software Engineer, Containers (`apjob_a6d5bb58-bd9b-41dc-a869-257d7fe2058d`) (Greenhouse, browser confirmed redirect; receipt rcpt_da56acbf4bbf1299b33256fa, profile checked: sponsorship Yes, authorized Yes, Auburn WA, Microsoft current)
 
 **In flight**:
-- Active run `aprun_d05d9fc2-db42-46ea-a9df-08baa62db2eb`: status RUNNING. Keep-going triage pass active (currently evaluating Mastercard, 48 enterprise/Workday postings triaged to MANUAL_REVIEW, 4 to NEEDS_REVIEW, 26 SKIPPED). Total verified submissions tonight: 36 (57 cumulative across runs). Pacing intervals intact.
+- Active run `aprun_d05d9fc2-db42-46ea-a9df-08baa62db2eb`: status RUNNING (70 / 197 processed in current pass). Keep-going triage pass active (currently evaluating Diversified Services Network, 34 enterprise/Workday postings triaged to MANUAL_REVIEW, 17 SKIPPED, 1 to NEEDS_REVIEW). Total verified submissions tonight: 37 (58 cumulative across runs). Pacing intervals intact.
 
 **Check by hand**:
 - None (`SUBMISSION_UNKNOWN tonight: 0`).
+  - *Incidents resolved during Tick 10 audit*: 4 jobs (Mastercard Phenom/Workday `apjob_0e818d6a`, Redwire Space `apjob_87fc812f`, Universal Instruments Higherme `apjob_b54fa27c`, Cwill Workable `apjob_af2f9234`) were briefly staged as SUBMISSION_UNKNOWN after form submit left forms on unauthenticated/unsubmitted steps. Verified evidence (Qwen confidence, lack of confirmation redirect) and deterministically resolved all 4 to `MANUAL_REVIEW`.
   - *Incident resolved during Tick 9 audit*: Meeru Ai Inc (`apjob_ded04f9f`) on Workable had entered SUBMISSION_UNKNOWN when the final submit click left the form and submit button active on `/apply/`. Inspection confirmed Qwen review confidence 0.95 and no confirmation redirect; deterministically resolved to `MANUAL_REVIEW` with full evidence logged.
 
 **Questions only the user can answer**:
@@ -88,6 +90,7 @@ exists so decision-worthy events don't need to interrupt the user overnight.
 - **Ascend Analytics**: "Describe a time you helped your team navigate a disagreement or a tough call. What was at stake, how did you make sure other perspectives were genuinely considered, what did you decide, and what came of it?*", "Do you have a cumulative GPA of 3.0 or higher?*", "Are you currently bound by any non-compete, non-disclosure, or other contractual agreements with previous employers..."
 - **Paypal**: "Do you or your spouse have, or plan to have, a role on a board, advisory group, management team, or any business interest in a company or organization that competes, or could be perceived to compete, with PayPal?", "Please confirm your visa type?", "Have you worked in an enterprise software environment before?"
 - **Grainger**: "*Your friend's email address:" (Required employee referral email)
+- **Omada Health (Data & AI Platform)**: "Do you have professional, hands-on experience using both Python and SQL to build production-grade data systems?*", "Do you have hands-on experience with modern data architectures, such as data lakes, lakehouses, data warehouses, analytical datastores, and/or batch or real-time processing systems?*", "Do you have hands-on experience with infrastructure-as-code tools, such as Terraform, Pulumi, CloudFormation, or CDK?*", "Have you applied Generative AI tools or technologies in a professional setting to improve engineering workflows...*"
 
 **Fixes made**:
 - Clean dev server restart and session recovery: 1 stranded APPLYING job (Twilio) safely requeued; fresh 24h intake performed.
