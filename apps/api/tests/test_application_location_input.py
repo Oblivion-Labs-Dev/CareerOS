@@ -25,22 +25,14 @@ PAGE = """
 """
 
 
+from tests.browser_test_utils import eval_in_pooled_page
+
+
 def _matched_ids(html: str) -> list[str]:
-    async def go():
-        from playwright.async_api import async_playwright
-
-        async with async_playwright() as p:
-            browser = await p.chromium.launch(headless=True)
-            try:
-                page = await browser.new_page()
-                await page.set_content(html)
-                return await page.locator(_APPLICATION_LOCATION_INPUT).evaluate_all(
-                    "els => els.map(e => e.id)"
-                )
-            finally:
-                await browser.close()
-
-    return asyncio.run(go())
+    return eval_in_pooled_page(
+        html,
+        lambda page: page.locator(_APPLICATION_LOCATION_INPUT).evaluate_all("els => els.map(e => e.id)"),
+    )
 
 
 def test_only_the_application_location_field_matches():

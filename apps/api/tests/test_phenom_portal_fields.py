@@ -55,20 +55,11 @@ PHONE_CODES = [
 ]
 
 
+from tests.browser_test_utils import eval_in_pooled_page
+
+
 def _in_chromium(html: str, check):
-    async def go():
-        from playwright.async_api import async_playwright
-
-        async with async_playwright() as p:
-            browser = await p.chromium.launch(headless=True)
-            try:
-                page = await browser.new_page()
-                await page.set_content(html)
-                return await check(page)
-            finally:
-                await browser.close()
-
-    return asyncio.run(go())
+    return eval_in_pooled_page(html, check)
 
 
 @pytest.mark.parametrize(

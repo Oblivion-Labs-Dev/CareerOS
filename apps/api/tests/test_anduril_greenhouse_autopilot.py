@@ -2,9 +2,9 @@
 
 import os
 import pytest
-from playwright.async_api import async_playwright
 from app.services.application_assistant.playwright_autopilot_executor import _fill_standard_and_react_fields, _extract_dom_form_state
 from app.services.application_assistant.field_fill_engine import fill_field
+from tests.browser_test_utils import eval_in_pooled_page
 
 
 @pytest.fixture(autouse=True)
@@ -159,22 +159,13 @@ document.querySelectorAll('.select__option').forEach(opt => {
 </html>
 """
 
-import anyio
-
-@pytest.mark.anyio
-async def test_greenhouse_anduril_form_filling_and_file_safety():
+def test_greenhouse_anduril_form_filling_and_file_safety(tmp_path):
     """Verify that file inputs are never filled with text and all custom comboboxes are selected."""
-    async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=True)
-        page = await browser.new_page()
+    tmp_resume = str(tmp_path / "test_sample_resume.pdf")
+    with open(tmp_resume, "wb") as f:
+        f.write(b"%PDF-1.4 dummy content")
 
-        await page.set_content(GREENHOUSE_SAMPLE_HTML)
-
-        # Create a dummy resume file for attachment test
-        tmp_resume = "test_sample_resume.pdf"
-        with open(tmp_resume, "wb") as f:
-            f.write(b"%PDF-1.4 dummy content")
-
+    async def _action(page):
         profile = {
             "firstName": "Akshay",
             "lastName": "Borse",
@@ -187,10 +178,6 @@ async def test_greenhouse_anduril_form_filling_and_file_safety():
         }
 
         # 1. Run standard and custom filling
-        # Returns (filled, filled_ids): filled_ids (label -> live DOM element
-        # id) is what verification needs to confirm a combobox was actually
-        # selected rather than just typed into as text — see
-        # _fill_standard_and_react_fields's own docstring.
         filled, filled_ids = await _fill_standard_and_react_fields(
             page=page,
             profile=profile,
@@ -201,8 +188,6 @@ async def test_greenhouse_anduril_form_filling_and_file_safety():
         )
 
         assert filled.get("First Name") == "Akshay"
-        # A taggable +career variant of the candidate's own email, not the
-        # bare address — see derive_contact_email / profile_answer_resolver.py.
         assert filled.get("Email") == "candidate+career@example.com"
         assert filled.get("Resume") == "test_sample_resume.pdf"
 
@@ -211,10 +196,10 @@ async def test_greenhouse_anduril_form_filling_and_file_safety():
             "selector": "#question_12409844007",
             "selectorHint": "#question_12409844007",
             "fieldLabel": "Transcripts",
-            "fieldType": "text", # Misclassified on purpose
+            "fieldType": "text",  # Misclassified on purpose
             "fileName": "test_sample_resume.pdf",
         }
-        
+
         # Must not raise "Locator.fill: Error: Input of type 'file' cannot be filled"
         ok, reason = await fill_field(page, file_action, tmp_resume, profile=profile)
         assert ok is True
@@ -225,8 +210,5 @@ async def test_greenhouse_anduril_form_filling_and_file_safety():
         recaptcha_fields = [f for f in fields if "recaptcha" in f.get("id", "").lower()]
         assert len(recaptcha_fields) == 0, "reCAPTCHA textarea must be filtered out"
 
-        # Cleanup
-        if os.path.exists(tmp_resume):
-            os.remove(tmp_resume)
+    eval_in_pooled_page(GREENHOUSE_SAMPLE_HTML, _action, timeout=30)
 
-        await browser.close()

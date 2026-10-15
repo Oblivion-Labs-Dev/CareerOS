@@ -34,6 +34,7 @@ class PlaywrightCareerPageSource(JobSource):
 
         try:
             from playwright.async_api import async_playwright
+            from app.services.application_assistant.browser_pool import DEFAULT_POOLED_LAUNCH_ARGS
         except ImportError:
             return []
 
@@ -42,7 +43,7 @@ class PlaywrightCareerPageSource(JobSource):
 
         try:
             async with async_playwright() as p:
-                browser = await p.chromium.launch(headless=True)
+                browser = await p.chromium.launch(headless=True, args=DEFAULT_POOLED_LAUNCH_ARGS)
                 page = await browser.new_page()
 
                 def handle_response(response):

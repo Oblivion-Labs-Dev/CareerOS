@@ -34,20 +34,14 @@ GREENHOUSE = """
 """
 
 
+from tests.browser_test_utils import eval_in_pooled_page
+
+
 def _talent_only(html: str) -> bool:
-    async def go():
-        from playwright.async_api import async_playwright
-
-        async with async_playwright() as p:
-            browser = await p.chromium.launch(headless=True)
-            try:
-                page = await browser.new_page()
-                await page.set_content(f"<html><body>{html}</body></html>")
-                return await _only_talent_network_forms(page, SEL)
-            finally:
-                await browser.close()
-
-    return asyncio.run(go())
+    return eval_in_pooled_page(
+        f"<html><body>{html}</body></html>",
+        lambda page: _only_talent_network_forms(page, SEL),
+    )
 
 
 def test_radancy_job_alert_signup_is_not_an_application():
@@ -117,19 +111,10 @@ HIDDEN_PASSWORD = """
 
 
 def _has_password(html: str) -> bool:
-    async def go():
-        from playwright.async_api import async_playwright
-
-        async with async_playwright() as p:
-            browser = await p.chromium.launch(headless=True)
-            try:
-                page = await browser.new_page()
-                await page.set_content(f"<html><body>{html}</body></html>")
-                return await _has_visible_password_field(page)
-            finally:
-                await browser.close()
-
-    return asyncio.run(go())
+    return eval_in_pooled_page(
+        f"<html><body>{html}</body></html>",
+        lambda page: _has_visible_password_field(page),
+    )
 
 
 def test_account_creation_form_is_detected():

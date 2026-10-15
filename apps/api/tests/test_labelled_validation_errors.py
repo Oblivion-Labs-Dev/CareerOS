@@ -29,20 +29,11 @@ FORM = """
 """
 
 
+from tests.browser_test_utils import eval_in_pooled_page
+
+
 def _run(html: str):
-    async def go():
-        from playwright.async_api import async_playwright
-
-        async with async_playwright() as p:
-            browser = await p.chromium.launch(headless=True)
-            try:
-                page = await browser.new_page()
-                await page.set_content(html)
-                return await _labelled_validation_errors(page)
-            finally:
-                await browser.close()
-
-    return asyncio.run(go())
+    return eval_in_pooled_page(html, lambda page: _labelled_validation_errors(page))
 
 
 def test_each_required_message_is_paired_with_its_field():

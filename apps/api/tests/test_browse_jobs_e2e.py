@@ -17,6 +17,7 @@ import sys
 import os
 import time
 from playwright.sync_api import sync_playwright
+from app.services.application_assistant.browser_pool import DEFAULT_POOLED_LAUNCH_ARGS
 
 def run_browse_jobs_e2e():
     print("[E2E] Starting Playwright test against CareerOS portal...")
@@ -25,7 +26,7 @@ def run_browse_jobs_e2e():
     screenshot_path = os.path.join(artifacts_dir, "browse_jobs_cards_portal.png")
 
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
+        browser = p.chromium.launch(headless=True, args=DEFAULT_POOLED_LAUNCH_ARGS)
         context = browser.new_context(viewport={"width": 1440, "height": 900})
         page = context.new_page()
 

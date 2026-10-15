@@ -20,6 +20,19 @@ export default defineConfig({
     baseURL: BASE_URL,
     trace: "on-first-retry",
     screenshot: "only-on-failure",
+    launchOptions: {
+      args: [
+        "--disable-blink-features=AutomationControlled",
+        "--no-sandbox",
+        "--disable-dev-shm-usage",
+        "--disable-gpu",
+        "--disable-extensions",
+        "--disable-background-networking",
+        "--disable-component-update",
+        "--disable-sync",
+        "--mute-audio",
+      ],
+    },
   },
   projects: [
     // Logs in once (no-op when the instance has no password configured) so page

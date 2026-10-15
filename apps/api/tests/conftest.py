@@ -73,10 +73,21 @@ def initialize_database() -> None:
     yield
 
     try:
-        from app.services.application_assistant.browser_runner import shutdown_playwright_worker
+        from app.services.application_assistant.browser_pool import PlaywrightBrowserPool
+        from app.services.application_assistant.browser_runner import (
+            run_playwright,
+            shutdown_playwright_worker,
+        )
 
+        async def _close_browser_pool():
+            await PlaywrightBrowserPool.get_instance().close()
+
+        try:
+            run_playwright(_close_browser_pool(), timeout=10)
+        except Exception:
+            pass
         shutdown_playwright_worker()
-    except ImportError:
+    except (ImportError, Exception):
         pass
     engine.dispose()
     for key, previous in _PREVIOUS_ENV.items():

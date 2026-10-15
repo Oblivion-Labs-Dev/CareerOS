@@ -368,9 +368,13 @@ class BrowserProbe:
                 return False
             try:
                 from playwright.async_api import async_playwright
+                from app.services.application_assistant.browser_pool import DEFAULT_POOLED_LAUNCH_ARGS
 
                 self._playwright = await async_playwright().start()
-                self._browser = await self._playwright.chromium.launch(headless=True)
+                self._browser = await self._playwright.chromium.launch(
+                    headless=True,
+                    args=DEFAULT_POOLED_LAUNCH_ARGS,
+                )
                 return True
             except Exception as exc:  # missing browsers, sandbox, etc.
                 self.unavailable_reason = f"Browser unavailable: {exc}"

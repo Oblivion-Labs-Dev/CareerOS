@@ -12,15 +12,15 @@ FIXTURE = Path(__file__).parent / "fixtures" / "greenhouse" / "application_form.
 
 
 def test_fill_page_fast_replay_batch_text_fields() -> None:
-    import asyncio
-
     pytest.importorskip("playwright")
-    from playwright.async_api import async_playwright
+    from app.services.application_assistant.browser_pool import PlaywrightBrowserPool
+    from app.services.application_assistant.browser_runner import run_playwright
 
     async def _run() -> None:
-        async with async_playwright() as p:
-            browser = await p.chromium.launch(headless=True)
-            page = await browser.new_page()
+        pool = PlaywrightBrowserPool.get_instance()
+        context = await pool.acquire_context()
+        try:
+            page = await context.new_page()
             await page.goto(FIXTURE.as_uri())
 
             actions = [
@@ -63,21 +63,22 @@ def test_fill_page_fast_replay_batch_text_fields() -> None:
             assert await page.input_value("#first_name") == "Jane"
             assert await page.input_value("#last_name") == "Doe"
             assert await page.input_value("#email") == "jane@example.com"
-            await browser.close()
+        finally:
+            await pool.release_context(context)
 
-    asyncio.run(_run())
+    run_playwright(_run())
 
 
 def test_fill_page_fast_replay_misclassified_greenhouse_text_fields() -> None:
-    import asyncio
-
     pytest.importorskip("playwright")
-    from playwright.async_api import async_playwright
+    from app.services.application_assistant.browser_pool import PlaywrightBrowserPool
+    from app.services.application_assistant.browser_runner import run_playwright
 
     async def _run() -> None:
-        async with async_playwright() as p:
-            browser = await p.chromium.launch(headless=True)
-            page = await browser.new_page()
+        pool = PlaywrightBrowserPool.get_instance()
+        context = await pool.acquire_context()
+        try:
+            page = await context.new_page()
             await page.goto(FIXTURE.as_uri())
 
             actions = [
@@ -101,6 +102,7 @@ def test_fill_page_fast_replay_misclassified_greenhouse_text_fields() -> None:
             assert len(result["filled"]) == 2
             assert await page.input_value("#first_name") == "Akshay"
             assert await page.input_value("#email") == "ada@example.com"
-            await browser.close()
+        finally:
+            await pool.release_context(context)
 
-    asyncio.run(_run())
+    run_playwright(_run())

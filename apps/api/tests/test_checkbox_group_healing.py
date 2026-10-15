@@ -35,23 +35,17 @@ FORM = """
 """
 
 
+from tests.browser_test_utils import eval_in_pooled_page
+
+
 def _groups(ids: list[str]) -> dict[str, bool]:
-    async def go():
-        from playwright.async_api import async_playwright
+    async def _check(page):
+        return {
+            i: await _is_choice_group_checkbox(page.locator(f'[id="{i}"]').first)
+            for i in ids
+        }
 
-        async with async_playwright() as p:
-            browser = await p.chromium.launch(headless=True)
-            try:
-                page = await browser.new_page()
-                await page.set_content(FORM)
-                return {
-                    i: await _is_choice_group_checkbox(page.locator(f'[id="{i}"]').first)
-                    for i in ids
-                }
-            finally:
-                await browser.close()
-
-    return asyncio.run(go())
+    return eval_in_pooled_page(FORM, _check)
 
 
 def test_options_of_a_choice_group_are_recognised():

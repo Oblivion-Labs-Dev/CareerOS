@@ -28,26 +28,17 @@ from app.services.application_assistant.playwright_autopilot_executor import (
 pytestmark = pytest.mark.usefixtures("initialize_database")
 
 
+from tests.browser_test_utils import eval_in_pooled_page
+
+
 def _detect(html: str) -> str:
     """Render `html` in Chromium and run the detector against it."""
-
-    async def _run() -> str:
-        from playwright.async_api import async_playwright
-
-        async with async_playwright() as p:
-            browser = await p.chromium.launch(headless=True)
-            try:
-                page = await browser.new_page(viewport={"width": 1280, "height": 900})
-                # The samples reference Google's and Cloudflare's real scripts.
-                # The detector reads only the DOM, so nothing is fetched: one
-                # test otherwise spent 5 s loading reCAPTCHA from the internet.
-                await page.route("**/*", lambda route: route.abort())
-                await page.set_content(html)
-                return await page.evaluate(_VISIBLE_BOT_CHALLENGE_JS)
-            finally:
-                await browser.close()
-
-    return asyncio.run(_run())
+    return eval_in_pooled_page(
+        html,
+        lambda page: page.evaluate(_VISIBLE_BOT_CHALLENGE_JS),
+        viewport={"width": 1280, "height": 900},
+        abort_network=True,
+    )
 
 
 # A stand-in for what Greenhouse actually serves: the reCAPTCHA script is on the
