@@ -51,9 +51,10 @@ exists so decision-worthy events don't need to interrupt the user overnight.
 - 07:18:39 UTC: **Affirm** — Staff Software Engineer, Backend (Fraud Decisioning) (`apjob_a616a280-cff4-417a-8386-1d195f5003fe`) (Greenhouse, browser confirmed redirect; profile checked: sponsorship Yes, Washington)
 - 07:23:48 UTC: **Doordash** — Software Engineer, Data and AI Platform (`apjob_fb4e7f65-092f-42b4-bcba-3d58f4a0540f`) (Greenhouse, browser confirmed redirect; profile checked: Auburn WA, Santa Clara Univ MS)
 - 07:28:47 UTC: **Coinbase** — Senior Software Engineer, Simple Trade Experience (`apjob_013fbb26-1c23-4312-b6d1-0ae6216e279f`) (Greenhouse, browser confirmed redirect; profile checked: sponsorship Yes, Microsoft current)
+- 07:40:50 UTC: **Coinbase** — Senior Machine Learning Platform Engineer (`apjob_37711f92-3c00-4d5f-b5c6-5ffe65b204ed`) (Greenhouse, verification code 'CBWA7BnF' auto-entered, browser confirmed redirect; profile checked: sponsorship Yes, authorized Yes, Microsoft current)
 
 **In flight**:
-- Pacing delay / claiming next eligible queue item. Fresh 24h pull completed at 07:25 UTC (802 roles fetched, 7,564 indexed, 414 fresh matches). 1 submittable job remaining at queue head (`Coinbase Payments Platform`); runner will keep processing according to user policy (triaging unfinishable boards to MANUAL_REVIEW).
+- Cleanly restarted with `{"targetProcessCount": 100, "concurrency": 1, "submittableBoardsOnly": false, "submittableBoardsStrict": false}` per user keep-going preference (status: RUNNING, target: 197). Fresh 24h pull completed at 08:01 UTC (789 roles fetched, 7,579 indexed, 426 fresh matches). Runner is actively triaging queue backlog and processing jobs in pacing intervals.
 
 **Check by hand**:
 - None (`SUBMISSION_UNKNOWN tonight: 0`).
