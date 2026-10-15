@@ -52,9 +52,12 @@ exists so decision-worthy events don't need to interrupt the user overnight.
 - 07:23:48 UTC: **Doordash** — Software Engineer, Data and AI Platform (`apjob_fb4e7f65-092f-42b4-bcba-3d58f4a0540f`) (Greenhouse, browser confirmed redirect; profile checked: Auburn WA, Santa Clara Univ MS)
 - 07:28:47 UTC: **Coinbase** — Senior Software Engineer, Simple Trade Experience (`apjob_013fbb26-1c23-4312-b6d1-0ae6216e279f`) (Greenhouse, browser confirmed redirect; profile checked: sponsorship Yes, Microsoft current)
 - 07:40:50 UTC: **Coinbase** — Senior Machine Learning Platform Engineer (`apjob_37711f92-3c00-4d5f-b5c6-5ffe65b204ed`) (Greenhouse, verification code 'CBWA7BnF' auto-entered, browser confirmed redirect; profile checked: sponsorship Yes, authorized Yes, Microsoft current)
+- 08:03:22 UTC: **Esri** — Sr. Software Development Engineer – National Imagery (`apjob_4525a2d2-f1c5-42e8-93ea-222086c2a49c`) (Greenhouse, browser confirmed redirect; receipt rcpt_2d4aa5cbc7979c76aec0eea0, profile checked: sponsorship Yes, authorized Yes, Auburn WA, Asian, Male, $140,000)
+- 08:08:26 UTC: **Honor** — Senior Backend Engineer (`apjob_16c13f2a-e7b8-4649-82e0-1f905e98b172`) (Greenhouse, browser confirmed redirect; receipt rcpt_09f24ba584f168c1a2c63ee2, profile checked: sponsorship Yes, Auburn WA)
+- 08:13:22 UTC: **Gemini** — Senior Software Engineer, Predictions (Mobile) (`apjob_049bd790-08b1-412a-8d5d-2f53941e0e52`) (Greenhouse, browser confirmed redirect; receipt rcpt_482c65821fb54ba70716c2b0, profile checked: sponsorship Yes, authorized Yes, Auburn WA, Master's Degree)
 
 **In flight**:
-- Cleanly restarted with `{"targetProcessCount": 100, "concurrency": 1, "submittableBoardsOnly": false, "submittableBoardsStrict": false}` per user keep-going preference (status: RUNNING, target: 197). Fresh 24h pull completed at 08:01 UTC (789 roles fetched, 7,579 indexed, 426 fresh matches). Runner is actively triaging queue backlog and processing jobs in pacing intervals.
+- Active run `aprun_d05d9fc2-db42-46ea-a9df-08baa62db2eb`: 54 / 197 processed. Fresh 24h pull at 08:01 UTC yielded 426 fresh matches. Currently applying / triaging (Global Payments, Wonder routed to MANUAL_REVIEW). Pacing intervals intact. Total submissions tonight: 36 verified (57 cumulative across runs).
 
 **Check by hand**:
 - None (`SUBMISSION_UNKNOWN tonight: 0`).
