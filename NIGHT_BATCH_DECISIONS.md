@@ -8,28 +8,53 @@ exists so decision-worthy events don't need to interrupt the user overnight.
 
 ## 2026-10-14 (night) — fresh pull, keep-going-when-starved
 
-**Setup (04:45–04:50 UTC)**
-- Fresh 24h pull started 04:45:38 UTC, finished 04:46:23: 774 roles fetched, 7062 total indexed, 328 fresh matches.
-- Queue preparation started, enqueued 244 jobs (queue now 2,610).
-- Run `aprun_b444f0a8-755d-4a84-9fb4-a71d23f20e96` started 04:50:01 UTC (`targetProcessCount` 100, concurrency 1, `submittableBoardsOnly` on, `submittableBoardsStrict: true`).
-- Sentinel loop armed (`AGENT_LOOP_TICK_nightloop`, every 30 min).
+**Setup (04:45–04:50 UTC, 14:15–14:17 UTC & 05:15–05:20 UTC restart)**
+- Consolidated branches and worktrees onto `main` (`9ed25e4`), dev servers cleanly running on port 4000 (PID 12384) & 5000.
+- Fresh 24h pull started 05:17:56 UTC, finished 05:19:02 UTC: 814 roles fetched, 7478 total indexed, 364 fresh matches.
+- Run `aprun_d05d9fc2-db42-46ea-a9df-08baa62db2eb` active (`targetProcessCount` 114, concurrency 1, `submittableBoardsOnly` on).
+- Sentinel loop armed (PID 976, `AGENT_LOOP_TICK_nightloop`, every 30 min) + cron schedule `*/30 * * * *`.
 - User's choice when submittable boards run dry: **keep going** — runner keeps processing Workday/Phenom/aggregator postings, triaging them into MANUAL_REVIEW.
 - User's choice on pending answers: **handle deterministic from profile, flag essays for morning**.
-- Queue at start: 2,610 QUEUED, 1,227 on company holds, 66 submittable.
+- Queue status: 2,701 queued, 61 fresh (<24h), 1,262 on company holds, 19 submittable.
 
 **Submissions** (profile check: name Akshay Borse, location Auburn WA, sponsorship Yes, authorized Yes):
+- 14:19:20 UTC: **Attain Talent** — Senior Software Engineer – Data Focused (`apjob_fcef4b1b-b644-4d22-a1a8-893dc125456e`) (Greenhouse, browser confirmed; profile checked: sponsorship Yes, Auburn WA)
+- 14:26:01 UTC: **Kunai** — Senior Cloud Data Engineer (`apjob_2922e45b-254b-41a8-ba13-8c5f6d810619`) (Greenhouse, browser confirmed; profile checked: sponsorship Yes)
+- 14:28:44 UTC: **Zocdoc** — Senior Staff Security Engineer, Vulnerability Management (`apjob_27fcbe7a-6cc1-4a7e-850b-f239422e631c`) (Greenhouse, browser confirmed; profile checked: sponsorship Yes, Washington)
+- 14:34:40 UTC: **Affirm** — Senior Staff Software Engineer, Backend (Cards) (`apjob_05f9e6c1-ff6f-4cd3-8789-2c4f81492ffd`) (Greenhouse, browser confirmed)
+- 14:39:21 UTC: **Anthropic** — Staff+ Software Engineer, Platform Acceleration (`apjob_76eabe11-7c91-467d-bbf8-9b4ecfa8db7d`) (Greenhouse, browser confirmed)
+- 14:44:24 UTC: **Partnerize** — Site Reliability Engineer - Fully Remote (`apjob_6791afde-7711-407d-aecb-c62385c9d15d`) (Greenhouse, browser confirmed)
+- 14:49:35 UTC: **Bloomerang** — Sr. Software Engineer (Tech Lead) - .NET/C# (`apjob_a65b2e2e-b0b9-4d7b-8d58-08021777ac20`) (Greenhouse, verification code auto-entered, browser confirmed)
+- 05:23:39 UTC: **Coinbase** — Senior Software Engineer (Institutional, Client Lifecycle) (`apjob_51e48ba0-cce8-4ecc-b0b5-a1fbfc0ad33f`) (Greenhouse, verification code 'qpesMRPX' auto-entered, confirmed redirect; profile checked: sponsorship Yes, authorized Yes, Auburn WA, Microsoft current)
+- 05:28:43 UTC: **Imagine Pediatrics** — Senior Fullstack Engineer (`apjob_8c266a77-e752-4d57-8771-4e0d776dfd64`) (Greenhouse, verification code 'fmg5bSgW' auto-entered, confirmed redirect; profile checked: sponsorship Yes, authorized Yes, Auburn WA, $140,000)
+- 05:33:38 UTC: **LaunchDarkly** — Senior Backend Engineer, Identity & Access Management (`apjob_d7728df3-c93c-4e86-8691-e35f28c49461`) (Greenhouse, verification code 'G45YWR6o' auto-entered, confirmed redirect; profile checked: sponsorship Yes, authorized Yes, Auburn WA, permanent location Auburn WA, no referral)
+
+**In flight**:
+- Pacing delay / claiming next eligible queue item (Trueml cleanly routed to MANUAL_REVIEW due to hCaptcha bot protection).
 
 **Check by hand**:
+- None (`SUBMISSION_UNKNOWN: 0`).
 
 **Questions only the user can answer**:
+- **Lendingtree**: "LendingTree is committed to providing reasonable support and accommodations in our recruiting processes for qualified candidates who require such. If you need support, please indicate below..."
+- **Omada Health**: "Describe a production Python system, service, data pipeline, or automation you personally built or substantially maintained. In 4–6 sentences..."
+- **Defense Unicorns**: "Link 1–3 repositories you’ve contributed to...", "Which area of our platform are you most interested in...", "Describe a time you worked in a constrained environment..."
+- **Dept®**: "What's your oral english level?*", "Do you have experience at a senior level working with Airflow, GCP, Python or R? *"
 
 **Fixes made**:
+- Clean dev server restart and session recovery: 1 stranded APPLYING job (Twilio) safely requeued; fresh 24h intake performed.
 
 **Daytime bugs**:
+- None.
 
 **Decisions for the user**:
+- None.
 
 **Nightly evolution**:
+- Nightly Evolution complete on isolated branch `nightly/evolution-2026-10-14` (worktree `../CareerOS-worktrees/evolution-2026-10-14`). PR opened: [#90](https://github.com/Oblivion-Labs-Dev/CareerOS/pull/90) (Draft, open for human review; never auto-merged).
+- Accepted: `18f7ade` refactor(job_discover): extract shared US location filter and deduplicate scrapers (`location_filter.py`), reducing duplication from 4.122% to 4.035% (-2.11% delta, improved); 7 new location unit tests and all 18 safety regression checks passed.
+- Rejected: `c2` (neutral 0% delta on duplication metric) and `c3` (metric mismatch).
+- Baseline: Next.js production build (`@career-os/web`) compiled 43 static/dynamic routes in 50.3s (693.2 kB gzip chunks) after resolving `@career-os/ui` worktree build setup.
 
 ---
 
