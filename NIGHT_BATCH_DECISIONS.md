@@ -34,17 +34,30 @@ exists so decision-worthy events don't need to interrupt the user overnight.
 - 05:48:29 UTC: **Affirm** — Senior Software Engineer, Backend (Lakehouse Infra) (`apjob_285fcaa8-a285-47d8-a6ee-36e147a8a738`) (Greenhouse, browser confirmed redirect; profile checked: sponsorship Yes, Washington)
 - 05:53:24 UTC: **Alphasense** — Principal Cloud DX Software Engineer (CI/CD) (`apjob_7cd42b3a-4681-41ca-9531-33bfdc945793`) (Greenhouse, browser confirmed redirect; profile checked: sponsorship Yes, authorized Yes)
 - 05:58:24 UTC: **Flex** — Senior Staff Software Engineer, Partner Integrations (`apjob_14b9e4bb-360b-4364-bb57-a9c94459dd2e`) (Greenhouse, browser confirmed redirect; profile checked: sponsorship Yes, authorized Yes, Auburn WA)
+- 06:03:34 UTC: **Doordash** — Software Engineer, ML Infrastructure (MDX) (`apjob_e91c2b22-6461-468c-9405-4cb97f9d55ef`) (Greenhouse, browser confirmed redirect; profile checked: sponsorship Yes, authorized Yes, Auburn WA, Santa Clara Univ MS)
+- 06:08:39 UTC: **Highnote** — Principal Software Engineer (`apjob_aa0b5f06-7b4e-48ac-a05b-43377e6463be`) (Greenhouse, browser confirmed redirect; profile checked: Auburn WA, relocate Yes)
+- 06:13:37 UTC: **Verkada** — Senior-Staff Software Engineer, Tooling (`apjob_82eb6d4b-2659-40b5-bc6e-994e3d331948`) (Greenhouse, browser confirmed redirect; profile checked: Auburn WA, sponsorship Yes)
+- 06:18:37 UTC: **Zscaler** — Staff Software Engineer - AI Security (Go/Rust/Python) (`apjob_0d04a8db-1792-420d-adcb-6ad399765e16`) (Greenhouse, browser confirmed redirect; profile checked: authorization Yes, sponsorship Yes, never worked for Zscaler)
+- 06:23:37 UTC: **Twilio** — Software Engineer L2 - Cloud Infrastructure (`apjob_5b0398ce-eb5b-43f8-9b10-31212fc37904`) (Greenhouse, browser confirmed redirect; profile checked: authorization Yes, sponsorship Yes, Auburn WA)
+- 06:28:51 UTC: **Doordash** — Senior Software Engineer, Machine Learning (`apjob_b7ac02ce-1427-401a-85d3-0a83602f2fab`) (Greenhouse, browser confirmed redirect; profile checked: authorization Yes, sponsorship Yes, Auburn WA, Santa Clara Univ MS)
 
 **In flight**:
-- Processing **Doordash** (`apjob_e91c2b22-6461-468c-9405-4cb97f9d55ef`). Queue remains healthy with 55 submittable jobs at head (Alphasense, Beyondtrust, Anduril, Temporal, Grafana Labs next).
+- Processing **Zscaler** (`apjob_92434151-ae4d-4681-94b4-793b70cf7e57`). Fresh 24h pull completed at 06:32 UTC (820 roles fetched, 7,541 indexed, 405 fresh matches); Cresta Senior Backend Platform at queue head (31 submittable jobs).
 
 **Check by hand**:
 - None (`SUBMISSION_UNKNOWN: 0`).
 
 **Questions only the user can answer**:
+- **Alphasense**: "Do you currently have permission to work in the UK?*", "Is your permission to work in the UK time-limited?*"
+- **Beyondtrust**: "Are you currently living in the UK? *", "How much experience do you have in Java?*", "How much experience do you have in Angular?*"
+- **Grafana Labs**: "Do you have at lest 2 years of experience with Go? *", "Which of the following best describes you?*", "Do you have experience supporting large-scale production systems...*"
+- **Innodata**: "What is your highest level of education?*", "Do you currently hold an active DoD security clearance?*"
+- **Altana AI**: "Do you live within commuting distance to our NYC hub? *"
+- **Crunchyroll**: "Are you able and willing to work from our Los Angeles office 3x per week? *"
+- **Doordash (All Teams)**: Select target level: "Early Career (E3)", "Mid-Level (E4)", "Senior (E5)", "Staff (E6)", "Senior Staff (E7)"
 - **Wikimedia Foundation**: "How many years of professional experience do you have building production Android applications?*"
 - **Rstudio**: "Just to ensure that you're human, on https://p3m.dev, what are there sixteen thousand of?*"
-- **Array**: "Have you worked as an engineer for at least 5 years (career cumulative) at a startup?*", "What style of management do you prefer from your supervisor?*", "What programing language are you most proficient in?*", "What AI tool / LLM are you most familiar with?*"
+- **Array**: "Have you worked as an engineer for at least 5 years (career cumulative) at a startup?*", "What style of management do you prefer from your supervisor?*"
 - **Lendingtree**: "LendingTree is committed to providing reasonable support and accommodations in our recruiting processes for qualified candidates who require such. If you need support, please indicate below..."
 - **Omada Health**: "Describe a production Python system, service, data pipeline, or automation you personally built or substantially maintained. In 4–6 sentences..."
 - **Defense Unicorns**: "Link 1–3 repositories you’ve contributed to...", "Which area of our platform are you most interested in...", "Describe a time you worked in a constrained environment..."
