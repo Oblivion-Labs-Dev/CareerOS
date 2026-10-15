@@ -57,7 +57,7 @@ exists so decision-worthy events don't need to interrupt the user overnight.
 - 08:13:22 UTC: **Gemini** — Senior Software Engineer, Predictions (Mobile) (`apjob_049bd790-08b1-412a-8d5d-2f53941e0e52`) (Greenhouse, browser confirmed redirect; receipt rcpt_482c65821fb54ba70716c2b0, profile checked: sponsorship Yes, authorized Yes, Auburn WA, Master's Degree)
 
 **In flight**:
-- Active run `aprun_d05d9fc2-db42-46ea-a9df-08baa62db2eb`: 54 / 197 processed. Fresh 24h pull at 08:01 UTC yielded 426 fresh matches. Currently applying / triaging (Global Payments, Wonder routed to MANUAL_REVIEW). Pacing intervals intact. Total submissions tonight: 36 verified (57 cumulative across runs).
+- Active run `aprun_d05d9fc2-db42-46ea-a9df-08baa62db2eb`: 127 / 197 processed. Keep-going triage pass active (currently evaluating Jpmorganchase, 59 enterprise/Workday postings triaged to MANUAL_REVIEW, 6 to NEEDS_REVIEW). 34 submittable queued jobs remaining. Total verified submissions tonight: 36 (57 cumulative across runs). Pacing intervals intact.
 
 **Check by hand**:
 - None (`SUBMISSION_UNKNOWN tonight: 0`).
@@ -82,6 +82,8 @@ exists so decision-worthy events don't need to interrupt the user overnight.
 - **Omada Health**: "Describe a production Python system, service, data pipeline, or automation you personally built or substantially maintained. In 4–6 sentences..."
 - **Defense Unicorns**: "Link 1–3 repositories you’ve contributed to...", "Which area of our platform are you most interested in...", "Describe a time you worked in a constrained environment..."
 - **Dept®**: "What's your oral english level?*", "Do you have experience at a senior level working with Airflow, GCP, Python or R? *"
+- **Seated**: Custom technical application questions (Workable textarea prompts QA_12619682 - QA_12619684)
+- **Autodesk**: Custom qualification confirmation selection (`apjob_8ed461c7`)
 
 **Fixes made**:
 - Clean dev server restart and session recovery: 1 stranded APPLYING job (Twilio) safely requeued; fresh 24h intake performed.
