@@ -175,7 +175,7 @@ SUBMITTABLE_ATS_HOSTS = (
 def _is_submittable_board(job: dict[str, Any]) -> bool:
     """True when the posting lives on a board a batch can finish unattended."""
     url = str(job.get("applicationUrl") or "").lower()
-    if not url:
+    if not url or url.startswith("mailto:") or not url.startswith(("http://", "https://")):
         return False
     # Roblox career pages start their apply flow externally/SSO and have no embedded form
     if "roblox.com" in url:
@@ -2153,6 +2153,23 @@ class AutopilotRunner:
                     if r:
                         r["skippedCount"] = (r.get("skippedCount") or 0) + 1
                         save_autopilot_run(db, r)
+            return
+
+        # An email application link (mailto:) cannot be driven by browser automation
+        # and delegating it to Chromium causes Windows OS to trigger "Pick an app" popups.
+        if app_url and app_url.lower().startswith("mailto:"):
+            skip_msg = f"Direct email application ({app_url}); requires email submission, not web browser automation"
+            job_item["status"] = AutopilotJobStatus.MANUAL_REVIEW.value
+            job_item["reviewReason"] = skip_msg
+            self.log_event(
+                f"{w_prefix}Routed {company} — {title} to MANUAL_REVIEW: {skip_msg}",
+                level="info",
+                metadata={"slot": slot_idx, "company": company, "title": title, "reason": skip_msg},
+            )
+            self._record_checkpoint(job_item, CheckpointStep.SKIPPED, skip_msg)
+            with self._run_update_lock:
+                with session_scope() as db:
+                    save_autopilot_job(db, job_item)
             return
 
         self.log_event(

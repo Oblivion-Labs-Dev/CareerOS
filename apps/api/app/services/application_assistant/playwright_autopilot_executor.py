@@ -3430,6 +3430,24 @@ async def _execute_live_playwright_submission_impl(
     if not app_url:
         return {"submitted": False, "error": "Missing application URL", "evidence": {}}
 
+    if app_url.lower().startswith("mailto:"):
+        logger.info("Application URL is a mailto: email link (%s); cannot be submitted via web automation", app_url)
+        return {
+            "submitted": False,
+            "error": f"Email application (mailto:); requires direct email contact, not web browser automation ({app_url})",
+            "evidence": {},
+            "reviewReason": f"Direct email application: {app_url}",
+        }
+
+    if not app_url.lower().startswith(("http://", "https://")):
+        logger.info("Application URL scheme is unsupported (%s); skipping browser execution", app_url)
+        return {
+            "submitted": False,
+            "error": f"Unsupported application URL scheme: {app_url}",
+            "evidence": {},
+            "reviewReason": f"Unsupported URL scheme: {app_url}",
+        }
+
     # If URL is a career hub containing gh_jid parameter, resolve to direct Greenhouse embed/job URL for 100% reliable submission
     if "gh_jid=" in app_url and not ("greenhouse.io" in app_url and "/jobs/" in app_url):
         import urllib.parse
@@ -3498,6 +3516,8 @@ async def _execute_live_playwright_submission_impl(
         "--disable-background-networking",
         "--disable-component-update",
         "--disable-sync",
+        "--disable-external-intent-requests",
+        "--no-default-browser-check",
         "--mute-audio",
     ]
     # A window a person is going to drive must open maximized, and its page

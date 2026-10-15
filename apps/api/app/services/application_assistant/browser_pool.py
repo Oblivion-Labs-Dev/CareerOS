@@ -29,6 +29,8 @@ DEFAULT_POOLED_LAUNCH_ARGS = [
     "--disable-background-networking",
     "--disable-component-update",
     "--disable-sync",
+    "--disable-external-intent-requests",
+    "--no-default-browser-check",
     "--mute-audio",
 ]
 
