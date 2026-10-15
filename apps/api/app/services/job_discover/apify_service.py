@@ -22,63 +22,10 @@ from pathlib import Path
 import httpx
 import yaml
 
-# ── US-only location filter ─────────────────────────────────────────────────
-
-US_STATES_ABBR = {
-    "AL", "AK", "AZ", "AR", "CA", "CO", "CT", "DE", "FL", "GA",
-    "HI", "ID", "IL", "IN", "IA", "KS", "KY", "LA", "ME", "MD",
-    "MA", "MI", "MN", "MS", "MO", "MT", "NE", "NV", "NH", "NJ",
-    "NM", "NY", "NC", "ND", "OH", "OK", "OR", "PA", "RI", "SC",
-    "SD", "TN", "TX", "UT", "VT", "VA", "WA", "WV", "WI", "WY", "DC",
-}
-
-_US_PAT = re.compile(
-    r"\b(?:united\s+states|usa|u\.s\.a\.?|u\.s\.)\b", re.IGNORECASE
+from app.services.job_discover.location_filter import (
+    US_STATES_ABBR,
+    is_us_location,
 )
-_STATE_NAMES_PAT = re.compile(
-    r"\b(?:alabama|alaska|arizona|arkansas|california|colorado|connecticut|"
-    r"delaware|florida|georgia|hawaii|idaho|illinois|indiana|iowa|kansas|"
-    r"kentucky|louisiana|maine|maryland|massachusetts|michigan|minnesota|"
-    r"mississippi|missouri|montana|nebraska|nevada|new\s+hampshire|"
-    r"new\s+jersey|new\s+mexico|new\s+york|north\s+carolina|north\s+dakota|"
-    r"ohio|oklahoma|oregon|pennsylvania|rhode\s+island|south\s+carolina|"
-    r"south\s+dakota|tennessee|texas|utah|vermont|virginia|washington|"
-    r"west\s+virginia|wisconsin|wyoming|district\s+of\s+columbia)\b",
-    re.IGNORECASE,
-)
-_FOREIGN_PAT = re.compile(
-    r"\b(?:canada|uk|united\s+kingdom|india|germany|france|japan|australia|"
-    r"singapore|ireland|netherlands|brazil|mexico|china|hong\s+kong|taiwan|"
-    r"south\s+korea|israel|sweden|switzerland|spain|italy|poland|czech|"
-    r"austria|belgium|denmark|norway|finland|portugal|london|toronto|"
-    r"vancouver|berlin|munich|paris|dublin|amsterdam|tokyo|sydney|"
-    r"melbourne|bangalore|hyderabad|tel\s+aviv|stockholm|zurich|madrid|"
-    r"warsaw|prague|vienna|brussels|copenhagen|oslo|helsinki|lisbon|"
-    r"mumbai|pune|delhi|chennai|gurgaon|noida|ontario|british\s+columbia|"
-    r"quebec|alberta|manila|bangkok|jakarta|buenos\s+aires|bogot[aá]|"
-    r"s[aã]o\s+paulo|shanghai|beijing|shenzhen)\b",
-    re.IGNORECASE,
-)
-
-
-def is_us_location(location: str) -> bool:
-    """Check if a location string appears to be in the United States."""
-    if not location or not location.strip():
-        return True
-    loc = location.strip()
-    if _US_PAT.search(loc):
-        return True
-    if _STATE_NAMES_PAT.search(loc):
-        return True
-    parts = [p.strip() for p in loc.replace("|", ",").split(",")]
-    for part in parts:
-        if part.upper() in US_STATES_ABBR:
-            return True
-    if re.search(r"\bremote\b", loc, re.IGNORECASE) and not _FOREIGN_PAT.search(loc):
-        return True
-    if _FOREIGN_PAT.search(loc):
-        return False
-    return True
 
 CONFIG_FILE = Path(__file__).resolve().parents[3] / "data" / "job_discover" / "apify_config.yaml"
 APIFY_BASE = "https://api.apify.com/v2"
