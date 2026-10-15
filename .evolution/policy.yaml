@@ -1,0 +1,255 @@
+# Nightly Evolution policy (shared skill: nightly-evolution).
+# Edit freely; `evolve validate` checks it. Unknown keys are ignored.
+# Generated from discovery, then tailored to AGENTS.md and the dev-server-restart and
+# autopilot-night-batch-loop skills. Repository decisions outrank anything here.
+version: 1
+repo:
+  name: CareerOS
+  default_branch: main
+  remote: origin
+schedule:
+  window: "22:00-07:00"
+  finalize_before_end_minutes: 45
+  host_loops: [.agents/skills/autopilot-night-batch-loop/SKILL.md]
+worktree:
+  # A sibling of the checkout, like CareerOS-night: the live dev servers never see it.
+  dir: ../CareerOS-worktrees
+  setup:
+    - pnpm install --frozen-lockfile --prefer-offline
+    - pnpm --filter @career-os/core build
+budgets:
+  max_experiments: 6
+  max_accepted: 4
+  max_tick_minutes: 10
+  max_attempt_minutes: 45
+ai:
+  paid_allowed: false
+  max_paid_usd: 0
+  max_tokens: 800000
+  routing_policy: null
+priorities:
+  reliability: 5
+  product_intelligence: 5
+  performance: 4
+  ui_ux: 4
+  security: 4
+  ai_efficiency: 3
+  code_quality: 3
+  architecture: 3
+  developer_experience: 3
+  creative: 3
+  cost: 2
+  modernization: 2
+focus:
+  - area: job-discovery
+    paths:
+      - "apps/api/app/services/job_discover/**"
+      - "apps/api/app/services/job_search/**"
+      - "apps/api/app/services/target_company_jobs.py"
+    goals:
+      - More relevant, fresher postings per run; fewer duplicates and dead links
+      - Discovery latency and resilience to portal failures
+  - area: matching
+    paths:
+      - "apps/api/app/services/intelligence/**"
+      - "apps/api/app/services/career_compiler/**"
+      - "apps/api/app/services/markets/**"
+    goals:
+      - Match precision - rank the jobs the candidate would actually apply to first
+      - Explainable scores
+  - area: resume-quality
+    paths:
+      - "apps/api/app/services/resume_intelligence/**"
+      - "apps/api/app/services/resume_*.py"
+      - "apps/api/app/services/story_index.py"
+      - "templates/**"
+    goals:
+      - Tailored resumes that stay truthful to the corpus and pass ATS parsing
+  - area: application-workflows
+    paths:
+      - "apps/api/app/services/application_assistant/**"
+      - "apps/api/app/services/answer_engine.py"
+      - "apps/api/app/services/tracker/**"
+      - "apps/extension/**"
+    goals:
+      - Fewer stuck or review-bound applications without weakening any safeguard
+      - Faster per-application cycle time
+  - area: api-latency
+    paths: ["apps/api/app/routers/**", "apps/api/app/services/read_cache.py"]
+    goals:
+      - Lower p95 on the dashboard, jobs and applications endpoints
+  - area: web-ux
+    paths: ["apps/web/**", "packages/career-ui/**"]
+    goals:
+      - Premium, consistent UI on the shared design language
+      - Accessibility (WCAG 2.2 AA) and reduced-motion parity
+      - Smaller client bundles and faster first render
+checks:
+  - name: typecheck
+    run: pnpm ci:typecheck
+    when:
+      - "**/*.{ts,tsx}"
+      - "**/tsconfig*.json"
+    timeout_minutes: 15
+  - name: eslint-changed
+    run: pnpm exec eslint --no-warn-ignored --no-error-on-unmatched-pattern {changed_files}
+    when:
+      - "**/*.{ts,tsx,js,mjs,cjs}"
+    timeout_minutes: 10
+  - name: unit-tests
+    run: pnpm test
+    when:
+      - "packages/**"
+      - "apps/extension/**"
+    timeout_minutes: 20
+  - name: pytest-related
+    # conftest.py isolates the database, browser profile, discovery data and models, so a
+    # focused run is safe while the night batch is live.
+    run: '"{main}/apps/api/.venv/Scripts/python.exe" -m pytest -q -p no:cacheprovider -m "not network" {related_tests}'
+    cwd: apps/api
+    when: ["apps/api/**/*.py"]
+    timeout_minutes: 20
+  - name: pytest-safety
+    # The application-safety regressions AGENTS.md names; they run on every API change.
+    run: '"{main}/apps/api/.venv/Scripts/python.exe" -m pytest -q -p no:cacheprovider tests/test_autopilot_run_handoff.py tests/test_autopilot_tailoring_mode.py tests/test_healing_response.py'
+    cwd: apps/api
+    when: ["apps/api/app/**/*.py"]
+    required: true
+    timeout_minutes: 15
+  - name: pytest-full
+    # dev-server-restart: never run the whole suite while the dev backend holds :4000.
+    run: '"{main}/apps/api/.venv/Scripts/python.exe" -m pytest -q -p no:cacheprovider -m "not network"'
+    cwd: apps/api
+    when: ["apps/api/**/*.py"]
+    requires_port_free: 4000
+    timeout_minutes: 45
+metrics:
+  - name: web_build_ms
+    kind: duration
+    run: pnpm --filter @career-os/web build
+    better: lower
+    tolerance_pct: 20
+    timeout_minutes: 15
+    when:
+      - "apps/web/**"
+      - "packages/**"
+  - name: web_js_gzip
+    kind: size
+    path: apps/web/.next/static/chunks
+    glob: "**/*.js"
+    gzip: true
+    better: lower
+    tolerance_pct: 3
+    when:
+      - "apps/web/**"
+      - "packages/**"
+  - name: duplication_pct
+    kind: duplication
+    paths:
+      - "apps/api/app/**"
+      - "apps/web/**"
+      - "apps/extension/**"
+      - "packages/**"
+    better: lower
+    tolerance_pct: 2
+    quick: true
+  - name: source_loc
+    kind: loc
+    paths:
+      - "apps/api/app/**"
+      - "apps/web/**"
+      - "apps/extension/**"
+      - "packages/**"
+    better: lower
+    tolerance_pct: 5
+    gate: false
+    quick: true
+survey:
+  commands:
+    - name: dependency-audit
+      run: pnpm audit --json
+      timeout_minutes: 5
+      dimension: security
+  hotspot_days: 30
+ui:
+  viewport: [1440, 900]
+  playwright_from: apps/web
+  serve:
+    # The worktree's own Next dev server on a spare port; it reads the live API on :4000 (GET
+    # only). Keep to the pages below: none of them start runs or submit anything.
+    run: pnpm exec next dev --port 5100
+    cwd: apps/web
+    url: http://localhost:5100
+    env:
+      NEXT_PUBLIC_API_URL: http://localhost:4000
+    ready_timeout_seconds: 180
+  pages:
+    - name: landing
+      path: /
+      reference: docs/screenshots/ui-audit-baseline/landing.png
+      max_diff_ratio: 0.3
+    - name: jobs
+      path: /jobs
+      reference: docs/screenshots/ui-audit-baseline/jobs.png
+      max_diff_ratio: 0.4
+    - name: applications
+      path: /applications
+      reference: docs/screenshots/ui-audit-baseline/applications.png
+      max_diff_ratio: 0.4
+    - name: analytics
+      path: /analytics
+      reference: docs/screenshots/ui-audit-baseline/analytics.png
+      max_diff_ratio: 0.4
+    - name: roadmap
+      path: /roadmap
+      reference: docs/screenshots/ui-audit-baseline/roadmap.png
+      max_diff_ratio: 0.4
+  references:
+    - docs/screenshots/ui-audit-baseline/landing.png
+    - docs/screenshots/ui-audit-baseline/jobs.png
+    - docs/screenshots/ui-audit-baseline/applications.png
+    - docs/screenshots/ui-audit-baseline/analytics.png
+    - docs/screenshots/ui-audit-baseline/roadmap.png
+  max_diff_ratio: 0.02
+protected_paths:
+  - "data/**"
+  - "apps/api/data/**"
+  - "backups/**"
+  - "logs/**"
+  - "career-os-repairs/**"
+  - "apps/api/app/db/**"
+  - "apps/api/app/middleware/**"
+  - "apps/api/app/services/auth.py"
+  - "apps/api/app/services/gmail_*.py"
+  - "apps/api/app/services/tracking_email.py"
+  - "apps/api/.env*"
+  - "apps/web/.env*"
+  - "docker-compose*.{yml,yaml}"
+  - "**/Dockerfile*"
+  - ".github/workflows/**"
+  - ".githooks/**"
+  - "scripts/*.ps1"
+  - "*.bat"
+  - "setup.sh"
+  - "NIGHT_BATCH_DECISIONS.md"
+  - ".agents/**"
+conflicts:
+  open_prs: true
+  other_worktrees: true
+  ignore_branches: []
+  commands: []
+pr:
+  enabled: true
+  push: true
+  draft: true
+  labels: []
+  base: main
+instructions:
+  - "Work tracking (AGENTS.md section 0): reference one GitHub issue for the night in every commit and the PR (create it if none exists); never mark unverified work Done."
+  - "Application safety: never submit an application, set CAREEROS_LIVE_APPLY, edit approved job IDs or add recipients. Preserve duplicate-submission guards, the selected resume mode and human review of unresolved answers; never weaken a safeguard to make a test pass."
+  - "The autopilot night batch and dev servers (:4000 API, :5000 web) are live: never stop or restart them, never write to the live database, data/ or profile answers, and leave the CareerOS-night worktree alone."
+  - "Meaningful architectural or product decisions need approval (AGENTS.md section 1B): record them as an opportunity with a recommendation instead of implementing them."
+  - "Every reproducible bug fix ships with a regression test that failed before the fix."
+  - "UI: shared visual rules live in apps/web/app/design-language.css and component rules in CSS modules; reuse theme tokens and honour reduced motion."
+  - "No paid model calls: Gemini stays optional and off in tests, local models are faked in tests, and no @arsenal/* dependency may be added."
+  - "Never commit credentials, browser sessions, private resumes or application logs."
