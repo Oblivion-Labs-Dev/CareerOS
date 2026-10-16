@@ -50,6 +50,7 @@ exists so decision-worthy events don't need to interrupt the user overnight.
 - **Block** — Security Engineer - Network Edge Security (`apjob_997a066d-ffee-41a3-bfdf-12b4a60c8381`): Greenhouse embed on `block.xyz/careers/jobs/5427855008`. Submit click executed but URL remained on posting page without confirmation redirect; check candidate email.
 
 **Remaining in review (essays / subjective candidate choices):**
+- **Doordash** (`apjob_6398ae8c-e609-4352-996f-aad2107d6a76`): Tech stack experience requirement ("You have at least 3 years of experience in web technologies using JavaScript on the frontend and JVM backend experience...").
 - **Doordash** (`apjob_61a5e3a9-cfba-45f5-993b-676e72b30307`): Race dropdown selection DOM verification mismatch (Intended 'Asian' conflicted with live DOM value 'Hispanic or Latino') caught before submit.
 - **Marketech** (`apjob_7d3aeba1-cb9d-48be-8636-a8d6576858ba`): Mandarin language proficiency requirement.
 - **Jrc Integrated Systems** (`apjob_eb3e27e5-304b-4889-965b-2b3e822b01b9`): Salary expectations prompt.
@@ -63,6 +64,12 @@ exists so decision-worthy events don't need to interrupt the user overnight.
 - **Nansen** (`apjob_0599b2d9-126f-4c5c-8e31-02f0fb0ef6c5`): Free-text essays ("Why are you the right candidate for this role?", "What interests you about Nansen?").
 - **TurbineOne** (`apjob_f98c9d6a-346e-4f52-8c1b-506410ab445c`): Essay ("What aspect of TurbineOne's mission excites you most?").
 - **Scout Motors** (`apjob_97ee8f20-411f-489f-a25e-785aedcf9573`): iOS Swift/SwiftUI experience & travel requirements.
+
+**Queue starvation & replenishment:**
+- At 10:46:40 UTC: Active run `aprun_74f69116` safely paused on submittable board exhaustion (strict mode). 69 processed, 18 submitted (20 cumulative tonight), 0 jobs stranded in APPLYING.
+- DoorDash reached company cap.
+- 72h ATS scrape started at 11:03 UTC (`hours: 72, roles: 'swe', mode: 'ats'`) to ingest fresh submittable postings. Queue preprocessor actively cycling.
+- Runner will automatically resume once newly enqueued submittable roles land.
 
 **Nightly evolution**:
 - Nightly Evolution completed on branch `nightly/evolution-2026-10-15` (worktree `../CareerOS-worktrees/evolution-2026-10-15`). PR opened: [#93](https://github.com/Oblivion-Labs-Dev/CareerOS/pull/93) (Draft, open for human review; never auto-merged).
