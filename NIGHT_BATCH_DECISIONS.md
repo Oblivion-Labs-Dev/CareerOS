@@ -84,18 +84,29 @@ exists so decision-worthy events don't need to interrupt the user overnight.
   - Queue preprocessor active and cycling (2,689 queued, 1,405 applyable, 1,284 on company caps).
   - 15 review-held applications (10 CAPTCHA challenges + 5 subjective essays) cleanly preserved for morning handoff.
   - Nightly evolution active on branch `nightly/evolution-2026-10-15` in worktree `../CareerOS-worktrees/evolution-2026-10-15`, PR #93 awaiting human review.
+- Tick 12 (13:30–13:45 UTC / 06:30–06:45 local):
+  - Audit: 21 total submitted applications verified tonight. 0 false answers, 0 fabricated responses, 0 applications stranded in APPLYING.
+  - Active run `aprun_74f69116` safely PAUSED on submittable board exhaustion (strict mode). Queue preprocessor continuously resolving aggregator URLs into canonical Greenhouse/Ashby boards.
+  - **Nightly Evolution**:
+    - Schedule window extended to 12:00 in `.evolution/policy.yaml` per user instruction to keep evolution running through the morning.
+    - Candidate `c5`: Extracted reusable `FacetFilterDropdown` (`facet-filter-dropdown.tsx` + `facet-filter-dropdown.module.css`), eliminating over 400 duplicated lines across `CompanyFilterDropdown` and `TitleFilterDropdown`.
+    - Verification: `duplication_pct` plummeted from 4.048% to 3.735% (-0.313% absolute delta, -7.73% relative reduction, gate passed). Full workspace typecheck and ESLint passed cleanly (exit 0).
+    - Candidate `c5` accepted (`827c0c3`) and pushed to `origin/nightly/evolution-2026-10-15`, updating draft PR [#93](https://github.com/Oblivion-Labs-Dev/CareerOS/pull/93) (2 improvements accepted tonight: c2 and c5).
+    - Background evolution scheduler armed as persistent daemon (`task-1905`) running every 30 minutes.
 
 
 
 
 **Nightly evolution**:
 - Nightly Evolution active on branch `nightly/evolution-2026-10-15` (worktree `../CareerOS-worktrees/evolution-2026-10-15`). PR opened: [#93](https://github.com/Oblivion-Labs-Dev/CareerOS/pull/93) (Draft, open for human review; never auto-merged).
-- Accepted: `bd45ed3` + `7831179` `refactor(providers): implement default map_fields and fill_page in ProviderAdapter base (c2)`, reducing codebase duplication from 4.111% to 4.048% (-1.53% delta, improved); 55 provider tests and all safety regression checks passed.
+- Accepted tonight (2 improvements):
+  - `c2` (`bd45ed3` + `7831179`): `refactor(providers): implement default map_fields and fill_page in ProviderAdapter base`, reducing codebase duplication from 4.111% to 4.048% (-1.53% delta); 55 provider tests and all safety regression checks passed.
+  - `c5` (`827c0c3`): `refactor(web): extract reusable FacetFilterDropdown to deduplicate CompanyFilterDropdown and TitleFilterDropdown`, eliminating >400 duplicate lines and reducing duplication from 4.048% to 3.735% (-0.313% delta, -7.73% relative reduction); full workspace typecheck and ESLint passed cleanly.
 - Attempted / Rejected:
   - `c1`: Extract common reconciliation logic across submission reconcilers (neutral delta vs threshold).
   - `c3`: Extract reusable text filling and validation into ApplicationAdapter base (`-0.44%` delta vs 2% threshold; cleanly reverted).
   - `c4`: Share browser launch arguments and scheme abort route across browser_pool and executor (`-0.67%` delta vs 2% threshold; cleanly reverted).
-- All worktree changes cleanly reset to verified HEAD `7831179` (c2 accepted).
+- Background evolution scheduler active as daemon (`task-1905`) with 30-minute interval loop.
 
 **In-Review Applications Triage**:
 - Full audit of all in-review jobs in database:

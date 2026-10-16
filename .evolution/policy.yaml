@@ -8,7 +8,7 @@ repo:
   default_branch: main
   remote: origin
 schedule:
-  window: "22:00-07:00"
+  window: "22:00-12:00"
   finalize_before_end_minutes: 45
   host_loops: [.agents/skills/autopilot-night-batch-loop/SKILL.md]
 worktree:
