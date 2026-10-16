@@ -72,9 +72,21 @@ exists so decision-worthy events don't need to interrupt the user overnight.
 - Runner will automatically resume once newly enqueued submittable roles land.
 
 **Nightly evolution**:
-- Nightly Evolution completed on branch `nightly/evolution-2026-10-15` (worktree `../CareerOS-worktrees/evolution-2026-10-15`). PR opened: [#93](https://github.com/Oblivion-Labs-Dev/CareerOS/pull/93) (Draft, open for human review; never auto-merged).
+- Nightly Evolution active on branch `nightly/evolution-2026-10-15` (worktree `../CareerOS-worktrees/evolution-2026-10-15`). PR opened: [#93](https://github.com/Oblivion-Labs-Dev/CareerOS/pull/93) (Draft, open for human review; never auto-merged).
 - Accepted: `bd45ed3` + `7831179` `refactor(providers): implement default map_fields and fill_page in ProviderAdapter base (c2)`, reducing codebase duplication from 4.111% to 4.048% (-1.53% delta, improved); 55 provider tests and all safety regression checks passed.
-- Rejected: `c1` (neutral delta vs threshold).
+- Attempted / Rejected:
+  - `c1`: Extract common reconciliation logic across submission reconcilers (neutral delta vs threshold).
+  - `c3`: Extract reusable text filling and validation into ApplicationAdapter base (`-0.44%` delta vs 2% threshold; cleanly reverted).
+  - `c4`: Share browser launch arguments and scheme abort route across browser_pool and executor (`-0.67%` delta vs 2% threshold; cleanly reverted).
+- All worktree changes cleanly reset to verified HEAD `7831179` (c2 accepted).
+
+**In-Review Applications Triage**:
+- Full audit of all in-review jobs in database:
+  - 10 jobs blocked by anti-bot challenge (reCAPTCHA / hCaptcha on Supabase, Sprinter Health, Neighborly, Onebrief, Basis, Netspend, Crusoe, Lambda, Tin Can, Ramp, Gallatin, Metabase) — staged cleanly for human completion per safety policy.
+  - 5 jobs require subjective candidate essays (6Sense, Scotch, Pie Insurance, Audioeye, Jrc) — safely preserved in review without fabricating candidate responses.
+  - 2 jobs have eligibility / language constraints (Axios permanent work auth free-text; Marketech Mandarin fluency) — correctly staged for human review.
+  - 1 job (Justworks `apjob_10e87d20`) had been blocked by the `BACKGROUND_CHECK` vs `RESUME` precedence bug; dev servers restarted with commit `bb5d45d` to pick up the fix.
+- Dev servers restarted as daemon `task-1321` via `restart-dev.ps1 -SkipOllamaCheck`. Both API (:4000) and Web (:5000) fully healthy. Autopilot active and running sequentially (`concurrency=1`). Queue preprocessor actively resolving and enriching aggregator URLs to canonical Greenhouse and Ashby boards.
 
 ---
 
