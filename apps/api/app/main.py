@@ -97,6 +97,7 @@ from app.routers.matcher_benchmark import router as matcher_benchmark_router
 from app.routers.story_map import router as story_map_router
 from app.routers.career_compiler import router as career_compiler_router
 from app.routers.markets import router as markets_router
+from app.routers.onboarding import router as onboarding_router
 from app.services.error_fix_tracker import error_fix_tracker, reconcile_error_history_on_startup, seed_error_fix_history_if_empty
 
 log_dir = Path(__file__).resolve().parent.parent / "data" / "logs"
@@ -421,6 +422,7 @@ app.include_router(matcher_benchmark_router)
 app.include_router(gmail_archive_router)
 app.include_router(gemini_router)
 app.include_router(diagnostic_router)
+app.include_router(onboarding_router)
 
 
 @app.exception_handler(Exception)

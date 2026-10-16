@@ -47,7 +47,10 @@ from app.services.resume_intelligence.tailoring import (
     build_tailoring_diff,
     passthrough_diff,
 )
-from app.services.resume_parser import parse_resume_into_profile
+from app.services.resume_parser import (
+    parse_resume_into_profile,
+    parse_resume_into_profile_async,
+)
 from app.services.runtime_metrics import metrics_snapshot_with_logs
 from app.services.tracker import inbox as tracker_inbox
 from app.services.tracker import pipeline as tracker_pipeline
@@ -1335,7 +1338,7 @@ async def parse_resume_route(payload: ParseResumePayload | None = None, db: Sess
     profile = get_kv(db, "profile") or {}
     documents = get_kv(db, "documents") or {}
     try:
-        result = parse_resume_into_profile(profile, documents, force=bool(payload and payload.force))
+        result = await parse_resume_into_profile_async(profile, documents, force=bool(payload and payload.force))
         set_kv(db, "profile", result["profile"])
         db.commit()
         tier1 = await job_discover.start_tier1_rescore_background(force=True)
