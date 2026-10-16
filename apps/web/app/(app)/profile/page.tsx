@@ -11,6 +11,7 @@ import { ProfileDocumentsSection } from "@/components/profile/profile-documents-
 import { ResumeProfileSwitcher } from "@/components/profile/resume-profile-switcher";
 import { ResumeTailoringPanel } from "@/components/profile/resume-tailoring-panel";
 import { ResumeScannerDashboard } from "@/components/resume-scanner/resume-scanner-dashboard";
+import { OnboardingWizardModal } from "@/components/profile/onboarding-wizard-modal";
 import { WorkflowPage } from "@/components/scaffold-page";
 import { useCareerWorkspace } from "@/hooks/use-career-workspace";
 import { getClientApiBaseUrl } from "@/lib/api";
@@ -141,6 +142,7 @@ function ProfileDataGrid({ profile }: { profile: ApplyPilotProfile }) {
 export default function ProfilePage() {
   const { snapshot, prefs, targetLabel } = useCareerWorkspace();
   const [activeResumeProfile, setActiveResumeProfile] = useState<ResumeProfile | null>(null);
+  const [onboardingOpen, setOnboardingOpen] = useState(false);
   const profileUrl = `${getClientApiBaseUrl()}/profile`;
   const cached = getCachedStale<{ profile: ApplyPilotProfile | null }>(profileUrl);
   const [profile, setProfile] = useState<ApplyPilotProfile>(() => cached?.profile ?? {});
@@ -209,6 +211,23 @@ export default function ProfilePage() {
         ]}
       >
         <CareerWorkspaceStrip active="profile" />
+
+        <section className="workflow-panel" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "1rem", flexWrap: "wrap", border: "1px solid var(--accent, #38bdf8)" }}>
+          <div style={{ maxWidth: "700px" }}>
+            <span className="toc-card-kicker">Autopilot Readiness Setup</span>
+            <h2 style={{ fontSize: "1.1rem", margin: "0.2rem 0" }}>Candidate Onboarding Questionnaire</h2>
+            <p className="muted" style={{ margin: 0, fontSize: "0.875rem" }}>
+              Configure work authorization, sponsorship requirements, target compensation, and standard ATS screening answers in one place to enable 100% automated applications.
+            </p>
+          </div>
+          <button
+            type="button"
+            className="btn btn-primary"
+            onClick={() => setOnboardingOpen(true)}
+          >
+            Launch Setup Wizard →
+          </button>
+        </section>
 
         {!loading && (snapshot?.profileCompleteness ?? 0) < 100 ? (
           <section className="workflow-panel profile-connected-panel" aria-label="Profile impact">
@@ -334,6 +353,12 @@ export default function ProfilePage() {
           </>
         )}
       </WorkflowPage>
+
+      <OnboardingWizardModal
+        open={onboardingOpen}
+        onClose={() => setOnboardingOpen(false)}
+        onSaved={reloadProfile}
+      />
     </>
   );
 }
