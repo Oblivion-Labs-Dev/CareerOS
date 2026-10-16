@@ -178,6 +178,15 @@ export default function ProfilePage() {
     const target = document.getElementById(hash);
     if (target) target.scrollIntoView({ behavior: "smooth", block: "start" });
   }, [loading]);
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get("onboard") === "1") {
+        setOnboardingOpen(true);
+      }
+    }
+  }, []);
   const screeningAnswers = profile.screeningAnswers || [];
   const workExperience = profile.workExperience || [];
   const rawJson = JSON.stringify(profile, null, 2);

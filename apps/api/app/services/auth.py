@@ -75,6 +75,13 @@ def create_session_token(username: str) -> str:
 def verify_session_token(token: str | None) -> dict[str, Any] | None:
     if not token:
         return None
+
+    # Check if token is a valid JWT (candidate multi-tenant session)
+    jwt_claims = verify_jwt_token(token)
+    if jwt_claims:
+        uid = str(jwt_claims.get("sub") or jwt_claims.get("email") or "candidate")
+        return {"username": uid, "userId": uid, "expiresAt": jwt_claims.get("exp", 0), "isCandidate": True}
+
     # rsplit, not split: an email-address username (the common case) contains
     # its own "."s, so a plain split() would over-fragment the token instead
     # of cleanly separating username / expiry / signature.
