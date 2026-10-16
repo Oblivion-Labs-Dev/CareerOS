@@ -21,7 +21,11 @@ QUESTS = [
 
 
 def week_key(date, zone):
-    local = date.astimezone(ZoneInfo(zone)).date()
+    try:
+        tz = ZoneInfo(zone)
+    except Exception:
+        tz = UTC
+    local = date.astimezone(tz).date()
     return (local - timedelta(days=local.weekday())).isoformat()
 
 
@@ -44,7 +48,10 @@ def preferences(db):
 
 
 def save_preferences(db, goal, timezone):
-    ZoneInfo(timezone)
+    try:
+        ZoneInfo(timezone)
+    except Exception:
+        timezone = "UTC"
     set_kv(db, "career_progress_preferences", {"weeklyGoal": goal, "timezone": timezone})
 
 

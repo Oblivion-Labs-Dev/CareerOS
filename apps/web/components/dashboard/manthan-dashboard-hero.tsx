@@ -23,10 +23,10 @@ export function ManthanDashboardHero({
   const firstName = candidateName ? candidateName.split(" ")[0] : null;
 
   return (
-    <section className={styles.hero} aria-label="CareerOS Intelligence Overview">
+    <section className={styles.hero} aria-label="CareerOS Autonomous Discovery Overview">
       <div className={styles.copy}>
         <p className={styles.eyebrow}>
-          <span className={styles.eyebrowSanskrit} lang="sa">मन्थन</span>
+          <span className={styles.eyebrowBadge}>CAREEROS</span>
           <span className={styles.eyebrowDot} />
           <span>AUTONOMOUS CAREER DISCOVERY</span>
         </p>
@@ -35,12 +35,6 @@ export function ManthanDashboardHero({
           Hundreds of roles scouted overnight.{" "}
           <em>Targeted applications by morning.</em>
         </h1>
-
-        <p className={styles.lede}>
-          {firstName ? `Welcome, ${firstName}. ` : ""}
-          Every night CareerOS sweeps live engineering portals, evaluates ATS relevancy against your
-          verified experience, and queues tailored applications with precision.
-        </p>
 
         <div className={styles.actions}>
           <Link href="/autopilot" className={styles.primaryBtn}>
@@ -64,16 +58,11 @@ export function ManthanDashboardHero({
       </div>
 
       <div className={styles.stageFlow}>
-        <div className={styles.lightStream}>
-          <span className={styles.lightPulse} />
-        </div>
-
         <div className={styles.flowTrack}>
           {/* Stage 1: Sources & Discovery */}
           <div className={styles.stageCard}>
             <span className={styles.stageIndex}>01 · SCOUTED</span>
             <h3 className={styles.stageHeading}>Discovery</h3>
-            <p className={styles.stageDetail}>DocuSign, Oracle, Ashby & Greenhouse</p>
             <div className={styles.stageMetric}>{discoverTotal} roles</div>
           </div>
 
@@ -81,7 +70,6 @@ export function ManthanDashboardHero({
           <div className={styles.stageCard}>
             <span className={styles.stageIndex}>02 · FIT MATRIX</span>
             <h3 className={styles.stageHeading}>Intelligence</h3>
-            <p className={styles.stageDetail}>ATS & accomplishments weighted</p>
             <div className={styles.stageMetric}>{strongMatches} strong fits</div>
           </div>
 
@@ -89,14 +77,13 @@ export function ManthanDashboardHero({
           <div className={styles.stageCard}>
             <span className={styles.stageIndex}>03 · PIPELINE</span>
             <h3 className={styles.stageHeading}>Action</h3>
-            <p className={styles.stageDetail}>Verified submissions & active queue</p>
             <div className={styles.stageMetric}>{applicationsCount} applications</div>
           </div>
         </div>
 
-        <div className={styles.caption}>
+        <p className={styles.caption}>
           Target: <strong style={{ color: "var(--hero-fg)" }}>{targetRole}</strong> · Paced live submissions
-        </div>
+        </p>
       </div>
     </section>
   );
