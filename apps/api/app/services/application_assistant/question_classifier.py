@@ -562,7 +562,7 @@ _CLASSIFICATION_RULES: list[tuple[QuestionType, list[str]]] = [
         r"state\s+(of\s+)?residen",
         r"state\s+you\s+reside",
         r"current\s+state",
-        r"\bstate\b(?!.*ment)",
+        r"\bstate\b(?!.*?\bstatements?\b)",
         r"\bprovince\b",
     ]),
     (QuestionType.CITY, [r"\bcity\b", r"municipality"]),

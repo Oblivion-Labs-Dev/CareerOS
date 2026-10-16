@@ -1127,3 +1127,11 @@ def test_approved_answer_that_names_no_offered_option_is_not_returned():
     from app.services.application_assistant.profile_answer_resolver import resolve_answer
     lib = [{"questionVariants": ["Are you currently located in the US?"], "value": "United States"}]
     assert resolve_answer("Are you currently located in the US?*", _AUBURN, ["Yes", "No"], answer_lib=lib).answer == "Yes"
+ 
+ 
+def test_state_question_with_employment_word():
+    # Extend: "What state will you be based in at the start of your employment?"
+    # The negative lookahead (?!.*ment) meant to avoid "statement" previously rejected any
+    # state question containing "employment", "department", "government", etc.
+    assert _t("What state will you be based in at the start of your employment?") == QuestionType.STATE
+    assert _t("Please state your thesis statement") != QuestionType.STATE
