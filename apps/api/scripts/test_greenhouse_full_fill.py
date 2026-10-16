@@ -10,6 +10,8 @@ from app.services.application_assistant.persistence import list_answer_library
 from app.services.application_assistant.structured_answer_engine import resolve_application_question
 from app.services.application_assistant.ats_plugin_reference import classify_canonical_key
 
+__test__ = False
+
 async def test_fill():
     with session_scope() as db:
         profile = get_kv(db, "profile") or {}
