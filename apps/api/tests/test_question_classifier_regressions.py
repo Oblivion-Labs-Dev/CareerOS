@@ -1135,3 +1135,11 @@ def test_state_question_with_employment_word():
     # state question containing "employment", "department", "government", etc.
     assert _t("What state will you be based in at the start of your employment?") == QuestionType.STATE
     assert _t("Please state your thesis statement") != QuestionType.STATE
+
+
+def test_education_employment_documentation_on_resume_classified_as_background_check():
+    # Justworks: "If requested, would you be able to provide documentation reflecting the education and employment history listed on your resume?"
+    # Question ends in "resume" which previously matched RESUME and attempted file upload into a Yes/No div.
+    q = "If requested, would you be able to provide documentation reflecting the education and employment history listed on your resume?"
+    assert _t(q) == QuestionType.BACKGROUND_CHECK
+

@@ -765,6 +765,16 @@ _CLASSIFICATION_RULES: list[tuple[QuestionType, list[str]]] = [
         r"other\s*social",
     ]),
 
+    # ── Compliance checks before Documents ──
+    # Justworks asks "If requested, would you be able to provide documentation reflecting
+    # the education and employment history listed on your resume?" — which ends in "resume"
+    # and was swallowed by bare RESUME matching, trying to upload a file into a Yes/No div.
+    (QuestionType.BACKGROUND_CHECK, [
+        r"background\s*check",
+        r"provide\s+documentation\s+reflecting",
+        r"documentation\s+reflecting\s+(?:the\s+)?(?:education|employment)",
+    ]),
+
     # ── Documents ──
     (QuestionType.RESUME, [r"resume", r"\bcv\b", r"curriculum\s*vitae"]),
     (QuestionType.COVER_LETTER, [r"cover\s*letter", r"writing\s*sample"]),
@@ -940,7 +950,6 @@ _CLASSIFICATION_RULES: list[tuple[QuestionType, list[str]]] = [
         r"read\s+and\s+acknowledge\s+the\s+following",
     ]),
     (QuestionType.ENGLISH_PROFICIENCY, [r"english\s*proficiency", r"english\s*language", r"fluent\s*in\s*english"]),
-    (QuestionType.BACKGROUND_CHECK, [r"background\s*check"]),
     (QuestionType.COMPANY_HISTORY, [
         # Personal/familial relationship and IP-retention disclosures. The
         # profile records no relatives at these employers and no IP the

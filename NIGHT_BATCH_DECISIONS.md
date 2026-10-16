@@ -6,6 +6,44 @@ exists so decision-worthy events don't need to interrupt the user overnight.
 
 ---
 
+## 2026-10-16 (night) — fresh pull, keep-going-when-starved
+
+**Setup (00:39–00:47 local / 07:39–07:47 UTC)**
+- Dev servers restarted cleanly via `scripts/restart-dev.ps1` (API PID 21532 child listening on 4000, Web on 5000).
+- Fresh 24h ATS scrape executed (07:43:43–07:44:34 UTC): 743 roles fetched, 7,845 total indexed, 370 fresh matches. Target company refresh completed (17 roles for Oracle & DocuSign).
+- Run `aprun_d05d9fc2-db42-46ea-a9df-08baa62db2eb` active (`targetProcessCount` 275, concurrency 1, `submittableBoardsOnly` on).
+- Sentinel loop armed (PID 3152, `AGENT_LOOP_TICK_nightloop`, every 30 min) + recurring cron schedule `*/30 * * * *`.
+- Default policy when submittable boards run dry: **keep going** — runner keeps processing Workday/Phenom/aggregator postings, triaging them into MANUAL_REVIEW.
+- Default policy on pending answers: **handle deterministic from profile, flag essays for morning**.
+- Initial queue status: 2,521 queued, 1,237 on company holds, 1,284 applyable, 12 submittable.
+- Active initial job: Sprouts Farmers Market — Principal Software Engineer (`apjob_b53db7bf-e4a9-40c6-80df-6fcdd7df073d`).
+
+**Submissions** (profile check: name Akshay Borse, location Auburn WA, sponsorship Yes, authorized Yes):
+- 08:00:28 UTC: **Reddit** — Senior Backend Engineer, Compliance Engineering (`apjob_05e35076-b4ad-4b1b-aa0d-8a5ef629d0f7`) (Greenhouse, browser confirmed; profile checked: sponsorship Yes, authorized Yes, Auburn WA, South Asian, Male, Microsoft current)
+- 08:08:24 UTC: **Docugami** — Back End Software Engineer (`apjob_acab103a-a5b4-45b5-8310-5a6d234af59a`) (Greenhouse, verification code 'w0Bl7nPM' auto-entered, confirmed redirect; receipt `rcpt_b8e215e6ce6e2fb9aeb709e1`; profile checked: Santa Clara University MS, Auburn WA, sponsorship Yes)
+- 08:13:26 UTC: **Extend** — Software Engineer II - Fulfillments Team (`apjob_3a5a1cfa-85a2-4e04-af0b-664f656729f6`) (Greenhouse, browser confirmed; unblocked by commit `20f2fb5`; profile checked: location Auburn WA, state Washington, authorized Yes, sponsorship Yes)
+- 08:18:46 UTC: **Earnest** — Staff Software Engineer (`apjob_31516b07-6317-4619-8859-27e39cfe2a02`) (Greenhouse, browser confirmed; unblocked by profile pronoun fix; profile checked: Auburn WA, pronouns He/him/his, sponsorship Yes, Santa Clara University MS)
+- 08:23:22 UTC: **Kikoff** — Senior Backend Engineer - Growth (`apjob_95b5636f-3d02-43df-8a44-267cacb8027d`) (Greenhouse, browser confirmed; profile checked: Auburn WA, authorized Yes, sponsorship Yes)
+- 08:28:25 UTC: **Chaos Industries** — Senior Software Engineer (Backend) (`apjob_d099368f-b5be-47af-89ce-7ee7557789e3`) (Greenhouse, browser confirmed; profile checked: sponsorship Yes, authorized Yes, Auburn WA, not a U.S. Person, no clearance)
+- 08:33:46 UTC: **Digicert** — Senior Software Engineer (`apjob_5b2543ee-f2a3-4456-8da3-577eafc1dbd3`) (Greenhouse, browser confirmed; profile checked: sponsorship Yes, authorized Yes, Auburn WA, Washington, Masters Degree, $140,000)
+
+**Fixes deployed mid-run:**
+- `20f2fb5`: `fix(classifier): narrow STATE regex negative lookahead to statement only` — resolved bug where state questions containing "employment" (e.g. Extend: *"What state will you be based in at the start of your employment?"*) classified as UNKNOWN. Reprocessed Extend (`apjob_3a5a1cfa-85a2-4e04-af0b-664f656729f6`).
+- Profile update: Added `"pronouns": "He/him/his"` to candidate profile in `kv_store`. Unblocks required pronoun checkbox groups (e.g. Earnest: *"What are your pronouns?"*). Reprocessed Earnest (`apjob_31516b07-6317-4619-8859-27e39cfe2a02`).
+
+**Check by hand (`SUBMISSION_UNKNOWN`):**
+- **Cwill** — Loyalty & Referrals R&D Trainee - Full-Stack Engineer (`apjob_c6e03e1a-f757-4431-b5dc-6dbea4d13c35`): Form remained active on page post-click; check candidate email.
+
+**Remaining in review (essays / subjective candidate choices):**
+- **Pie Insurance** (`apjob_b835d875-a3f7-47eb-aba6-7adb78dee2fb`): Essay ("Describe A Specific Aws Cdk Construct Or Ci/Cd Pipeline You Built Or Significantly Improved. What Problem Did It Solve, And What Made It Effective?").
+- **Omada Health** (`apjob_42a1c5bb-4db7-43ae-973c-f5021dfafddd`): Ruby on Rails experience in last 5 years (Yes/No) & Product collaboration style.
+- **Fleetio** (`apjob_68fe462f-9402-41c2-8967-850bc2b45ba9`): Free-text essays ("Tell us about a time you delivered a time-sensitive feature...").
+- **Nansen** (`apjob_0599b2d9-126f-4c5c-8e31-02f0fb0ef6c5`): Free-text essays ("Why are you the right candidate for this role?", "What interests you about Nansen?").
+- **TurbineOne** (`apjob_f98c9d6a-346e-4f52-8c1b-506410ab445c`): Essay ("What aspect of TurbineOne's mission excites you most?").
+- **Scout Motors** (`apjob_97ee8f20-411f-489f-a25e-785aedcf9573`): iOS Swift/SwiftUI experience & travel requirements.
+
+---
+
 ## 2026-10-14 (night) — fresh pull, keep-going-when-starved
 
 **Setup (04:45–04:50 UTC, 14:15–14:17 UTC & 05:15–05:20 UTC restart)**
