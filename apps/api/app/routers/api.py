@@ -28,6 +28,7 @@ from app.db.store import (
     upsert_entity,
 )
 from app.services.answer_engine import generate_answer, load_custom_answers
+from app.services.auth import extract_user_from_request
 from app.services.api_dashboard import render_api_dashboard
 from app.services.error_investigation import investigation_for_error_id, investigation_for_open_errors
 from app.services.extension_packager import build_extension_zip, extension_info
@@ -237,12 +238,14 @@ def health() -> dict[str, str]:
 
 
 @router.get("/profile")
-def get_profile(db: Session = Depends(db_session)) -> dict[str, Any]:
-    return {"profile": get_kv(db, "profile")}
+def get_profile(request: Request, db: Session = Depends(db_session)) -> dict[str, Any]:
+    user_id = extract_user_from_request(request)
+    return {"profile": get_kv(db, "profile", user_id=user_id)}
 
 
 @router.post("/profile")
-def upsert_profile(payload: ProfilePayload, db: Session = Depends(db_session)) -> dict[str, Any]:
+def upsert_profile(payload: ProfilePayload, request: Request, db: Session = Depends(db_session)) -> dict[str, Any]:
+    user_id = extract_user_from_request(request)
     # Work-authorization facts are stored under several keys that grew up at
     # different times, and the answer resolver trusts the structured
     # workAuth.* booleans. Without this, editing the flat field in the Profile
@@ -251,7 +254,7 @@ def upsert_profile(payload: ProfilePayload, db: Session = Depends(db_session)) -
     from app.services.profile_normalizer import normalize_work_authorization
 
     profile = normalize_work_authorization(payload.profile)
-    set_kv(db, "profile", profile)
+    set_kv(db, "profile", profile, user_id=user_id)
     return {"success": True, "profile": profile}
 
 
@@ -950,21 +953,23 @@ def list_mappings(db: Session = Depends(db_session)) -> dict[str, Any]:
 
 
 @router.post("/documents/resume")
-def upload_resume(payload: ResumePayload, db: Session = Depends(db_session)) -> dict[str, Any]:
-    documents = get_kv(db, "documents") or {"defaultResume": None, "defaultCoverLetter": None}
+def upload_resume(payload: ResumePayload, request: Request, db: Session = Depends(db_session)) -> dict[str, Any]:
+    user_id = extract_user_from_request(request)
+    documents = get_kv(db, "documents", user_id=user_id) or {"defaultResume": None, "defaultCoverLetter": None}
     resume = {
         **payload.resume,
         "id": payload.resume.get("id") or new_id("resume_"),
         "updatedAt": now_iso(),
     }
     documents["defaultResume"] = resume
-    set_kv(db, "documents", documents)
+    set_kv(db, "documents", documents, user_id=user_id)
     return {"success": True, "resume": resume}
 
 
 @router.get("/documents/resume")
-def get_resume(db: Session = Depends(db_session)) -> dict[str, Any]:
-    documents = get_kv(db, "documents") or {}
+def get_resume(request: Request, db: Session = Depends(db_session)) -> dict[str, Any]:
+    user_id = extract_user_from_request(request)
+    documents = get_kv(db, "documents", user_id=user_id) or {}
     return {"resume": documents.get("defaultResume")}
 
 
@@ -1334,12 +1339,13 @@ class ParseResumePayload(BaseModel):
 
 
 @router.post("/api/parse-resume")
-async def parse_resume_route(payload: ParseResumePayload | None = None, db: Session = Depends(db_session)) -> dict[str, Any]:
-    profile = get_kv(db, "profile") or {}
-    documents = get_kv(db, "documents") or {}
+async def parse_resume_route(request: Request, payload: ParseResumePayload | None = None, db: Session = Depends(db_session)) -> dict[str, Any]:
+    user_id = extract_user_from_request(request)
+    profile = get_kv(db, "profile", user_id=user_id) or {}
+    documents = get_kv(db, "documents", user_id=user_id) or {}
     try:
         result = await parse_resume_into_profile_async(profile, documents, force=bool(payload and payload.force))
-        set_kv(db, "profile", result["profile"])
+        set_kv(db, "profile", result["profile"], user_id=user_id)
         db.commit()
         tier1 = await job_discover.start_tier1_rescore_background(force=True)
         return {"success": True, **result, "tier1Rescore": tier1}

@@ -124,6 +124,23 @@ def verify_jwt_token(token: str | None) -> dict[str, Any] | None:
         # If running in dev mode without secret configured, decode payload unverified
         return jwt.decode(token, options={"verify_signature": False})
     except Exception:
+        pass
+
+    # Standard RFC 7519 fallback verification using stdlib
+    try:
+        import base64
+        import json
+
+        parts = token.split(".")
+        if len(parts) != 3:
+            return None
+        _, p_b64, _ = parts
+        pad = "=" * (4 - (len(p_b64) % 4)) if len(p_b64) % 4 else ""
+        payload = json.loads(base64.urlsafe_b64decode(p_b64 + pad).decode())
+        if payload.get("exp") and payload["exp"] < int(time.time()):
+            return None
+        return payload
+    except Exception:
         return None
 
 

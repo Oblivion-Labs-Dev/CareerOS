@@ -8,13 +8,14 @@ answers upfront rather than failing during live autopilot application runs.
 from __future__ import annotations
 
 from typing import Any
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.db.store import get_kv, set_kv
 from app.routers.api import db_session
 from app.services.application_assistant.profile_readiness import evaluate_profile_readiness
+from app.services.auth import extract_user_from_request
 from app.services.profile_normalizer import normalize_work_authorization
 
 router = APIRouter(prefix="/api/onboarding", tags=["onboarding"])
@@ -236,9 +237,10 @@ class OnboardingAnswersPayload(BaseModel):
 
 
 @router.get("/questions")
-def get_onboarding_questions(db: Session = Depends(db_session)) -> dict[str, Any]:
+def get_onboarding_questions(request: Request, db: Session = Depends(db_session)) -> dict[str, Any]:
     """Return the structured questionnaire with candidate's current values pre-filled."""
-    profile = get_kv(db, "profile") or {}
+    user_id = extract_user_from_request(request)
+    profile = get_kv(db, "profile", user_id=user_id) or {}
     readiness = evaluate_profile_readiness(profile)
 
     # Flatten questions to check for missing items
@@ -255,9 +257,10 @@ def get_onboarding_questions(db: Session = Depends(db_session)) -> dict[str, Any
 
 
 @router.post("/answers")
-def save_onboarding_answers(payload: OnboardingAnswersPayload, db: Session = Depends(db_session)) -> dict[str, Any]:
+def save_onboarding_answers(payload: OnboardingAnswersPayload, request: Request, db: Session = Depends(db_session)) -> dict[str, Any]:
     """Save answers from onboarding questionnaire into the candidate profile."""
-    profile = get_kv(db, "profile") or {}
+    user_id = extract_user_from_request(request)
+    profile = get_kv(db, "profile", user_id=user_id) or {}
 
     # Merge answers into profile
     for k, v in payload.answers.items():
@@ -267,7 +270,7 @@ def save_onboarding_answers(payload: OnboardingAnswersPayload, db: Session = Dep
     # Normalize work authorization structure
     profile = normalize_work_authorization(profile)
 
-    set_kv(db, "profile", profile)
+    set_kv(db, "profile", profile, user_id=user_id)
     db.commit()
 
     readiness = evaluate_profile_readiness(profile)

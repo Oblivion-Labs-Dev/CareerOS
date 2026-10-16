@@ -28,18 +28,17 @@ import re
 from typing import Any
 
 #: Section headings as résumés actually write them. Matched on a line of its own
-#: (optionally styled with punctuation or caps), never mid-sentence — "my
-#: education" inside a summary paragraph must not open the education section.
+#: (optionally styled with punctuation, underscores or caps), never mid-sentence.
 _SECTION_PATTERNS: dict[str, re.Pattern[str]] = {
     "experience": re.compile(
-        r"^\W*(work\s+|professional\s+|employment\s+|relevant\s+)?"
-        r"(experience|history|employment)\W*$",
+        r"^[\W_]*(work\s+|professional\s+|employment\s+|relevant\s+)?"
+        r"(experience|history|employment)[\W_]*$",
         re.I,
     ),
-    "education": re.compile(r"^\W*education(\s+(and|&)\s+training)?\W*$", re.I),
-    "skills": re.compile(r"^\W*(technical\s+)?(skills|technologies|competencies)\W*$", re.I),
-    "projects": re.compile(r"^\W*(personal\s+|side\s+)?projects\W*$", re.I),
-    "summary": re.compile(r"^\W*(summary|profile|objective|about)\W*$", re.I),
+    "education": re.compile(r"^[\W_]*education(\s+(and|&)\s+training)?[\W_]*$", re.I),
+    "skills": re.compile(r"^[\W_]*(technical\s+)?(skills|technologies|competencies)[\W_]*$", re.I),
+    "projects": re.compile(r"^[\W_]*(personal\s+|side\s+)?projects[\W_]*$", re.I),
+    "summary": re.compile(r"^[\W_]*(summary|profile|objective|about)[\W_]*$", re.I),
 }
 
 _MONTHS = (
@@ -64,17 +63,17 @@ _MONTH_NUMBER = {
 }
 
 _DEGREE = re.compile(
-    r"\b(ph\.?d|doctorate|m\.?b\.?a|master'?s?|m\.?s(?:c)?|m\.?eng|m\.?tech"
-    r"|bachelor'?s?|b\.?s(?:c)?|b\.?e(?:ng)?|b\.?tech|b\.?a|associate'?s?)\b",
+    r"\b(ph\.?d|doctorate|m\.?b\.?a|master(?:'?s?|[’']s)?|m\.?s(?:c)?|m\.?eng|m\.?tech"
+    r"|bachelor(?:'?s?|[’']s)?|b\.?s(?:c)?|b\.?e(?:ng)?|b\.?tech|b\.?a|associate(?:'?s?|[’']s)?)\b",
     re.I,
 )
 
 _DEGREE_CANONICAL = (
     ("phd", "Doctorate"), ("doctorate", "Doctorate"),
     ("mba", "MBA"),
-    ("master", "Master's Degree"), ("ms", "Master's Degree"), ("msc", "Master's Degree"),
+    ("master", "Master's Degree"), ("masters", "Master's Degree"), ("ms", "Master's Degree"), ("msc", "Master's Degree"),
     ("meng", "Master's Degree"), ("mtech", "Master's Degree"),
-    ("bachelor", "Bachelor's Degree"), ("bs", "Bachelor's Degree"),
+    ("bachelor", "Bachelor's Degree"), ("bachelors", "Bachelor's Degree"), ("bs", "Bachelor's Degree"),
     ("bsc", "Bachelor's Degree"), ("be", "Bachelor's Degree"),
     ("beng", "Bachelor's Degree"), ("btech", "Bachelor's Degree"),
     ("ba", "Bachelor's Degree"),
@@ -164,32 +163,28 @@ def parse_education(lines: list[str]) -> list[dict[str, Any]]:
     entries: list[dict[str, Any]] = []
 
     for index, line in enumerate(lines):
-        if _NOISE.match(line) or not _SCHOOL_HINT.search(line):
+        clean_line = re.sub(r"[\u2018\u2019\u201b\ufffd]", "'", line)
+        if _NOISE.match(clean_line) or not _SCHOOL_HINT.search(clean_line):
             continue
 
         # The entry's own line, plus continuation lines beneath it — but never
-        # into the next entry. A fixed three-line window bled the following
-        # school's field of study onto this one, which is a factual error on an
-        # application rather than a cosmetic one.
-        window_lines = [line]
+        # into the next entry.
+        window_lines = [clean_line]
         for following in lines[index + 1 : index + 3]:
-            if _SCHOOL_HINT.search(following) or _NOISE.match(following):
+            clean_following = re.sub(r"[\u2018\u2019\u201b\ufffd]", "'", following)
+            if _SCHOOL_HINT.search(clean_following) or _NOISE.match(clean_following):
                 break
-            window_lines.append(following)
+            window_lines.append(clean_following)
         window = " | ".join(window_lines)
 
-        # The school is one field on a line that often also carries the degree
-        # and the dates, separated by any of several punctuation styles. Split
-        # on all of them and keep the fragment that actually names a school,
-        # rather than assuming it comes first.
         fragments = [
             fragment.strip()
-            for fragment in re.split(r"\s{2,}|\s*[|,]\s*|\s+[-–—]\s+", line)
+            for fragment in re.split(r"\s{2,}|\s*[|,]\s*|\s+[-–—]\s+", clean_line)
             if fragment.strip()
         ]
         school = next(
             (fragment for fragment in fragments if _SCHOOL_HINT.search(fragment)),
-            fragments[0] if fragments else line,
+            fragments[0] if fragments else clean_line,
         )
         entry: dict[str, Any] = {"school": school}
 
@@ -197,12 +192,6 @@ def parse_education(lines: list[str]) -> list[dict[str, Any]]:
         if degree:
             entry["degree"] = degree
 
-        # Ends at punctuation, a run of spaces, or the start of a date - a field
-        # of study is never followed directly by a digit, and without that last
-        # case "Computer Science    2017 - 2019" swallowed the years.
-        # The *last* "in/of X", not the first. "Master of Science in Computer
-        # Science" has two, and the first one yields "Science in Computer
-        # Science" — the degree's own name swallowing the field of study.
         field_matches = list(
             re.finditer(
                 r"\b(?:in|of)\s+([A-Z][A-Za-z&\s]{2,40}?)"
@@ -212,10 +201,6 @@ def parse_education(lines: list[str]) -> list[dict[str, Any]]:
         )
         if field_matches:
             discipline = field_matches[-1].group(1).strip()
-            # "Master of Science in Computer Science" matches once, from "of",
-            # and the capture swallows the "in" clause — finditer cannot return
-            # the inner match because it overlaps. The field of study is what
-            # follows the last "in".
             tail = re.split(r"\s+\bin\b\s+", discipline)
             entry["discipline"] = tail[-1].strip()
 
@@ -241,11 +226,16 @@ def parse_experience(lines: list[str]) -> list[dict[str, Any]]:
     """Employment entries.
 
     Anchored on a line carrying a date range, because that is what reliably
-    separates one role from the next — bullet points, titles and company names
-    are all styled too variably to key on. The company and title are then read
-    from that line and the one above it.
+    separates one role from the next. The company, title, and location are then
+    read from that line and the one above it.
     """
     entries: list[dict[str, Any]] = []
+    title_keywords = (
+        "engineer", "developer", "architect", "manager", "lead", "director",
+        "specialist", "intern", "consultant", "analyst", "scientist", "designer",
+        "administrator", "vp", "president", "officer", "coordinator", "associate",
+        "member", "fellow", "sde", "swe", "mts"
+    )
 
     for index, line in enumerate(lines):
         if _NOISE.match(line):
@@ -261,10 +251,6 @@ def parse_experience(lines: list[str]) -> list[dict[str, Any]]:
         remainder = _DATE_RANGE.sub("", line).strip(" |,-–—\t")
         parts = [p.strip() for p in re.split(r"\s{2,}|\s*[|·•]\s*|\s+[-–—]\s+", remainder) if p.strip()]
 
-        # Only look upward when the date line did not already carry both the
-        # company and the title. Otherwise the line above is a bullet belonging
-        # to the *previous* role, and prepending it made "- Built things" the
-        # employer on the next one.
         if len(parts) < 2:
             previous = lines[index - 1].strip() if index > 0 else ""
             is_bullet = bool(re.match(r"^[-–—•*·]\s+", previous))
@@ -279,11 +265,28 @@ def parse_experience(lines: list[str]) -> list[dict[str, Any]]:
                     p.strip() for p in re.split(r"\s{2,}|\s*[|·•]\s*", previous) if p.strip()
                 ] + parts
 
-        entry: dict[str, Any] = {}
-        if parts:
-            entry["company"] = parts[0]
+        company = parts[0] if parts else ""
+        title = parts[1] if len(parts) > 1 else ""
+        location = parts[2] if len(parts) > 2 else ""
+
+        # Intelligently swap if parts[0] is clearly a job title and parts[1] is a company
         if len(parts) > 1:
-            entry["title"] = parts[1]
+            p0_lower = parts[0].lower()
+            p1_lower = parts[1].lower()
+            p0_has_title = any(kw in p0_lower for kw in title_keywords)
+            p1_has_title = any(kw in p1_lower for kw in title_keywords)
+            if p0_has_title and not p1_has_title:
+                title = parts[0]
+                company = parts[1]
+
+        entry: dict[str, Any] = {}
+        if company:
+            entry["company"] = company
+        if title:
+            entry["jobTitle"] = title
+            entry["title"] = title
+        if location:
+            entry["location"] = location
         if start:
             entry["startDate"] = start
         if end and end != "Present":

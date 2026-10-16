@@ -151,3 +151,64 @@ def test_parse_resume_fields_with_structured_llm_data() -> None:
     assert len(updated["education"]) == 1
     assert "Distributed Systems" in updated["skills"]
 
+
+def test_resume_structure_decorated_sections_and_inverted_roles() -> None:
+    from app.services.resume_parser import parse_resume_fields
+
+    sample_resume = """
+Akshay Borse
+425-336-9852 | akshay@example.com | Bellevue, WA
+
+EXPERIENCE __________________________________________________
+Lead AI Architect | OpenAI | San Francisco, CA
+Jan 2023 to Present
+- Designed scalable multi-agent systems.
+
+Software Engineer | Google | Mountain View, CA
+Jun 2018 to Dec 2022
+- Built core infrastructure.
+
+EDUCATION ___________________________________________________
+Stanford University | Master’s in Computer Science
+Sep 2016 to Jun 2018
+
+SKILLS ______________________________________________________
+Python, PyTorch, TypeScript, FastAPI, PostgreSQL
+"""
+    updated, extracted = parse_resume_fields(sample_resume, {})
+
+    # Contact & Location
+    assert updated["fullName"] == "Akshay Borse"
+    assert updated["email"] == "akshay@example.com"
+    assert updated["phone"] == "425-336-9852"
+    assert updated["location"] == "Bellevue, WA"
+    assert updated["city"] == "Bellevue"
+    assert updated["state"] == "WA"
+
+    # Work experience with inverted [Title] | [Company] disambiguation
+    assert len(updated["workExperience"]) == 2
+    assert updated["workExperience"][0]["company"] == "OpenAI"
+    assert updated["workExperience"][0]["jobTitle"] == "Lead AI Architect"
+    assert updated["workExperience"][0]["location"] == "San Francisco, CA"
+    assert updated["workExperience"][0].get("currentlyEmployed") is True
+
+    assert updated["workExperience"][1]["company"] == "Google"
+    assert updated["workExperience"][1]["jobTitle"] == "Software Engineer"
+
+    # Inferred current company and title
+    assert updated["currentCompany"] == "OpenAI"
+    assert updated["currentTitle"] == "Lead AI Architect"
+    assert updated["targetRole"] == "Lead AI Architect"
+
+    # Education with unicode apostrophe normalization
+    assert len(updated["education"]) == 1
+    assert updated["education"][0]["school"] == "Stanford University"
+    assert updated["education"][0]["degree"] == "Master's Degree"
+    assert updated["education"][0]["discipline"] == "Computer Science"
+
+    # Skills from decorated header
+    assert len(updated["skills"]) >= 5
+    assert "Python" in updated["skills"]
+    assert "FastAPI" in updated["skills"]
+
+

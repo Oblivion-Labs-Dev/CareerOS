@@ -191,6 +191,20 @@ def parse_resume_fields(
             updated["lastName"] = " ".join(parts[1:])
         extracted["fullName"] = updated["fullName"]
 
+    # Extract location from the header lines if missing
+    if not updated.get("location"):
+        header_text = " | ".join(lines[:6])
+        loc_match = re.search(r"\b([A-Z][a-zA-Z\s]{1,25}),\s*([A-Z]{2})\b", header_text)
+        if loc_match:
+            city = loc_match.group(1).strip()
+            state = loc_match.group(2).strip()
+            updated["city"] = city
+            updated["state"] = state
+            updated["location"] = f"{city}, {state}"
+            extracted["city"] = city
+            extracted["state"] = state
+            extracted["location"] = updated["location"]
+
     # 3. Deterministic structure fallback (experience, education, skills)
     from app.services.resume_structure import parse_structure
 
@@ -201,6 +215,20 @@ def parse_resume_fields(
             extracted[key] = value
         if not updated.get(key):
             updated[key] = value
+
+    # Infer current title/company and target role from first work experience if unset
+    if updated.get("workExperience") and isinstance(updated["workExperience"], list) and updated["workExperience"]:
+        first_role = updated["workExperience"][0]
+        if not updated.get("currentCompany") and first_role.get("company"):
+            updated["currentCompany"] = first_role["company"]
+            extracted["currentCompany"] = updated["currentCompany"]
+        first_title = first_role.get("jobTitle") or first_role.get("title")
+        if not updated.get("currentTitle") and first_title:
+            updated["currentTitle"] = first_title
+            extracted["currentTitle"] = updated["currentTitle"]
+        if not updated.get("targetRole") and first_title:
+            updated["targetRole"] = first_title
+            extracted["targetRole"] = updated["targetRole"]
 
     # 4. Normalize work authorization flags
     updated = normalize_work_authorization(updated)

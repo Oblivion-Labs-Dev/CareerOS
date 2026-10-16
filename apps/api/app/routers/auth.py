@@ -62,7 +62,8 @@ def _verify_password(password: str, hashed: str, salt: str) -> bool:
 
 
 def _create_jwt_token(user_id: str, email: str) -> str:
-    import jwt
+    import base64
+    import json
     from app.config import settings
     from app.services.auth import _get_or_create_secret
 
@@ -73,7 +74,18 @@ def _create_jwt_token(user_id: str, email: str) -> str:
         "role": "candidate",
         "exp": int(time.time()) + SESSION_TTL_SECONDS,
     }
-    return jwt.encode(payload, secret, algorithm="HS256")
+    try:
+        import jwt
+
+        return jwt.encode(payload, secret, algorithm="HS256")
+    except Exception:
+        # Standard RFC 7519 HS256 JWT implementation using python stdlib
+        h_b64 = base64.urlsafe_b64encode(json.dumps({"alg": "HS256", "typ": "JWT"}).encode()).decode().rstrip("=")
+        p_b64 = base64.urlsafe_b64encode(json.dumps(payload).encode()).decode().rstrip("=")
+        sig = base64.urlsafe_b64encode(
+            hmac.new(secret.encode(), f"{h_b64}.{p_b64}".encode(), hashlib.sha256).digest()
+        ).decode().rstrip("=")
+        return f"{h_b64}.{p_b64}.{sig}"
 
 
 @router.get("/status")
