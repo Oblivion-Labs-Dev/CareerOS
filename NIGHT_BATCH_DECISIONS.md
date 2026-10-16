@@ -65,11 +65,14 @@ exists so decision-worthy events don't need to interrupt the user overnight.
 - **TurbineOne** (`apjob_f98c9d6a-346e-4f52-8c1b-506410ab445c`): Essay ("What aspect of TurbineOne's mission excites you most?").
 - **Scout Motors** (`apjob_97ee8f20-411f-489f-a25e-785aedcf9573`): iOS Swift/SwiftUI experience & travel requirements.
 
-**Queue starvation & replenishment:**
-- At 10:46:40 UTC: Active run `aprun_74f69116` safely paused on submittable board exhaustion (strict mode). 69 processed, 18 submitted (20 cumulative tonight), 0 jobs stranded in APPLYING.
-- DoorDash reached company cap.
-- 72h ATS scrape started at 11:03 UTC (`hours: 72, roles: 'swe', mode: 'ats'`) to ingest fresh submittable postings. Queue preprocessor actively cycling.
-- Runner will automatically resume once newly enqueued submittable roles land.
+- Tick 9 (12:00 UTC / 05:00 local):
+  - Audit: 20 total submitted applications verified tonight. 0 false answers, 0 fabricated responses.
+  - Submittable runway dry (`submittable=0`). Strict pause active between jobs, runner awaiting fresh postings.
+  - Top 10 target companies live pull completed: 384 Senior SWE roles discovered (Amazon 199, Stripe 10, Databricks 69, Anthropic 58, Airbnb 31, DocuSign 17). DocuSign & Oracle database snapshot refreshed.
+  - Background 24h ATS scrape started via `POST /jobs/discover/scrape` (`mode: ats`, `hours: 24`).
+  - Queue preprocessor continuously cycling and enriching aggregator postings into canonical Greenhouse/Ashby boards.
+  - Runner will automatically claim and process newly queued submittable roles as soon as indexed.
+
 
 **Nightly evolution**:
 - Nightly Evolution active on branch `nightly/evolution-2026-10-15` (worktree `../CareerOS-worktrees/evolution-2026-10-15`). PR opened: [#93](https://github.com/Oblivion-Labs-Dev/CareerOS/pull/93) (Draft, open for human review; never auto-merged).
