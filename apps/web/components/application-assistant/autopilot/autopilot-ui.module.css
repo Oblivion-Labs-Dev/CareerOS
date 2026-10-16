@@ -873,18 +873,16 @@
   position: relative;
   isolation: isolate;
   overflow: hidden;
-  border-radius: 16px;
-  border: 1px solid var(--border);
-  background:
-    radial-gradient(ellipse at 92% -30%, color-mix(in srgb, var(--accent) 13%, transparent), transparent 62%),
-    var(--card);
-  box-shadow: var(--shadow-sm);
-  transition: border-color .25s var(--ease-out, ease), box-shadow .25s var(--ease-out, ease);
+  border-radius: 10px;
+  border: 1px solid var(--card-edge, rgba(255, 255, 255, 0.08));
+  background: var(--surface-1, #121b27);
+  box-shadow: var(--elev-1);
+  transition: border-color .2s var(--ease-out, ease), box-shadow .2s var(--ease-out, ease);
 }
 
 .quickAdd:has(.quickAddReveal[data-open="true"]) {
   border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
-  box-shadow: 0 6px 26px color-mix(in srgb, var(--accent) 14%, transparent);
+  box-shadow: 0 4px 18px color-mix(in srgb, var(--accent) 14%, transparent);
 }
 
 .quickAddToggle {
@@ -892,7 +890,7 @@
   width: 100%;
   align-items: center;
   justify-content: space-between;
-  padding: 0.9rem 1.25rem;
+  padding: 0.5rem 0.85rem;
   text-align: left;
   cursor: pointer;
   background: transparent;
@@ -907,21 +905,21 @@
 .quickAddToggleLabel {
   display: flex;
   align-items: center;
-  gap: 0.55rem;
-  font-size: 0.72rem;
-  font-weight: 800;
+  gap: 0.45rem;
+  font-size: 0.65rem;
+  font-weight: 750;
   text-transform: uppercase;
-  letter-spacing: 0.09em;
+  letter-spacing: 0.08em;
   color: var(--accent);
 }
 
 .quickAddTogglePlus {
   display: grid;
   place-items: center;
-  width: 1.25rem;
-  height: 1.25rem;
-  border-radius: 7px;
-  font-size: 0.95rem;
+  width: 1.05rem;
+  height: 1.05rem;
+  border-radius: 5px;
+  font-size: 0.85rem;
   line-height: 1;
   color: var(--accent);
   background: var(--accent-soft);

@@ -430,68 +430,61 @@
 .metricGrid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.75rem;
+  gap: 0.65rem;
 }
 
 @media (min-width: 900px) {
   .metricGrid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 }
 
-/* Raised plane, not an outlined box. Four bordered rectangles in a row read as
-   a table; four lifted surfaces read as cards. */
+/* Compact, sleek surface inspired by Sutra & Manthan */
 .metric {
   --m: var(--accent);
-  padding: var(--space-4);
-  border-radius: var(--radius-md);
-  /* Hairline that flips with the theme — light on dark, dark on light. */
-  border: 1px solid var(--card-edge, var(--border));
-  background: var(--surface-1, var(--card));
+  padding: 0.6rem 0.85rem;
+  border-radius: var(--radius-md, 10px);
+  border: 1px solid var(--card-edge, rgba(255, 255, 255, 0.08));
+  background: var(--surface-1, #121b27);
   box-shadow: var(--elev-1);
+  transition: transform 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
-/* Metric tones follow the role split. "info" was --accent (teal), but teal is
-   reserved for things you can click — a read-only count drawn in the action
-   colour invites a click that does nothing. Both submitted counts are
-   outcomes, so both are the success role; the neutral one stays --text. */
-.metric[data-tone="success"] { --m: var(--success); }
-.metric[data-tone="info"] { --m: var(--success); }
-/* A derived ratio, not an action and not model output: neutral. */
-.metric[data-tone="active"] { --m: var(--text); }
-.metric[data-tone="attention"] { --m: var(--warning); }
-.metric[data-tone="danger"] { --m: var(--danger); }
+.metric:hover {
+  transform: translateY(-1px);
+  border-color: rgba(46, 232, 201, 0.3);
+  box-shadow: var(--elev-2);
+}
 
-/* The headline figures. JetBrains Mono at 600 rather than a sans at 800: the
-   weight was doing the work of making numbers feel important, which reads as
-   shouting. A monospaced face with real tabular figures carries that on its
-   own, and the digits stop reflowing as the counts animate. */
+.metric[data-tone="success"] { --m: #34d399; }
+.metric[data-tone="info"] { --m: #2ee8c9; }
+.metric[data-tone="active"] { --m: #fff; }
+.metric[data-tone="attention"] { --m: #e2ba7d; }
+.metric[data-tone="danger"] { --m: #f87171; }
+
 .metricValue {
-  font-family: var(--font-figure);
-  font-size: var(--text-xl);
-  font-weight: 600;
+  font-family: var(--font-figure, monospace);
+  font-size: 1.35rem;
+  font-weight: 700;
   line-height: 1;
-  letter-spacing: -0.03em;
+  letter-spacing: -0.02em;
   color: var(--m);
   font-variant-numeric: tabular-nums;
   font-feature-settings: "tnum" 1, "zero" 1;
 }
 
-/* Micro-label in the body face, uppercase and tracked out. The contrast
-   between a wide-tracked small label and a tight-tracked large figure is what
-   makes a metric read as designed rather than just stacked. */
 .metricLabel {
-  margin-top: var(--space-2);
-  font-family: var(--font-body);
-  font-size: var(--text-2xs);
-  font-weight: 550;
-  letter-spacing: 0.06em;
+  margin-top: 0.25rem;
+  font-family: var(--font-body, var(--font-sans));
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
   text-transform: uppercase;
-  color: var(--muted);
+  color: var(--muted, #94a3b8);
 }
 
 .metricHint {
-  margin-top: 0.15rem;
-  font-size: var(--text-2xs);
-  color: var(--muted-dim);
+  margin-top: 0.1rem;
+  font-size: 0.625rem;
+  color: var(--muted-dim, #64748b);
 }
 
 

@@ -388,7 +388,7 @@ export function AutopilotApplicationsView({
       {/* Add Job by URL lived only on ApplyBoard, which the control-center
           redesign stopped rendering — so there was no way to queue a specific
           posting from the UI at all. */}
-      <div style={{ marginBottom: "1rem" }}>
+      <div style={{ marginBottom: "0.5rem" }}>
         <QuickAddJobPanel onAdded={() => { pages.refresh(); onJobsChanged(); }} />
       </div>
 

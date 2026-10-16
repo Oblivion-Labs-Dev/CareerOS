@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { ManthanDashboardHero } from "./manthan-dashboard-hero";
 import { ApplicationAnalytics } from "@/components/dashboard/application-analytics";
 import { ApplicationInsights } from "@/components/dashboard/application-insights";
 import { SearchIntelligence } from "./search-intelligence";
@@ -110,16 +109,6 @@ export function EnhancedDashboard({ initialTopJobs }: EnhancedDashboardProps) {
             Fits cleanly in a single screen without requiring scrolling
             ============================================================ */}
         <div className={styles.primaryViewport}>
-          {/* Compact Editorial Hero */}
-          <ManthanDashboardHero
-            discoverTotal={discoverTotal}
-            strongMatches={strongMatches}
-            applicationsCount={applicationsCount}
-            candidateName={candidateName}
-            targetRole={targetRole}
-            onLaunchOnboarding={() => setOnboardingOpen(true)}
-          />
-
           {error ? <p className={minimalStyles.errorBanner}>{error}</p> : null}
 
           {/* 3 Sleek, Compact Status Tiles */}
