@@ -1,0 +1,280 @@
+/* Enhanced Dashboard: Clean, simplified, and crafted following UI Taste standards */
+
+.dashboard {
+  display: flex;
+  flex-direction: column;
+  gap: 1.75rem;
+  width: 100%;
+}
+
+/* 3-Column Compact Grid */
+.cardGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1.25rem;
+}
+
+.card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 1.4rem;
+  border-radius: var(--radius-lg, 16px);
+  background: var(--surface-1, #121b27);
+  border: 1px solid var(--card-edge, rgba(255, 255, 255, 0.08));
+  box-shadow: var(--elev-1);
+  transition: transform 0.2s cubic-bezier(0.2, 0.8, 0.2, 1), border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.card:hover {
+  transform: translateY(-2px);
+  border-color: rgba(46, 232, 201, 0.25);
+  box-shadow: var(--elev-2);
+}
+
+.cardHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.85rem;
+}
+
+.cardTitle {
+  font-size: var(--text-sm, 0.875rem);
+  font-weight: 600;
+  color: var(--text-muted, #94a3b8);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin: 0;
+}
+
+/* Status Chips inspired by Sutra Kriya */
+.statusChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.2rem 0.55rem;
+  border-radius: 999px;
+  font-size: var(--text-2xs, 0.6875rem);
+  font-weight: 600;
+  background: rgba(52, 211, 153, 0.12);
+  border: 1px solid rgba(52, 211, 153, 0.3);
+  color: #34d399;
+}
+
+.chipPulse {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #34d399;
+  box-shadow: 0 0 8px #34d399;
+  animation: pulseChip 2s infinite ease-in-out;
+}
+
+@keyframes pulseChip {
+  0%, 100% { opacity: 0.4; transform: scale(0.85); }
+  50% { opacity: 1; transform: scale(1.2); }
+}
+
+.cardBody {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  flex: 1;
+}
+
+.bigMetric {
+  font-family: var(--font-figure, monospace);
+  font-size: 2.25rem;
+  font-weight: 700;
+  line-height: 1;
+  color: #fff;
+  letter-spacing: -0.03em;
+}
+
+.metricSubtext {
+  font-size: 0.8125rem;
+  color: var(--text-muted, #94a3b8);
+  line-height: 1.45;
+}
+
+.roleTitleMetric {
+  font-family: var(--font-sans);
+  font-size: 1.35rem;
+  font-weight: 650;
+  line-height: 1.25;
+  color: #fff;
+  letter-spacing: -0.015em;
+}
+
+.miniStatsRow {
+  display: flex;
+  align-items: center;
+  gap: 1.25rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.miniStat {
+  display: flex;
+  flex-direction: column;
+}
+
+.miniStatValue {
+  font-family: var(--font-figure, monospace);
+  font-size: 1.15rem;
+  font-weight: 600;
+  color: #fff;
+}
+
+.miniStatLabel {
+  font-size: var(--text-3xs, 0.5625rem);
+  color: var(--text-muted, #94a3b8);
+  text-transform: uppercase;
+}
+
+.cardAction {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  margin-top: 1rem;
+  padding-top: 0.85rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  color: var(--accent, #2ee8c9);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  text-decoration: none;
+  transition: color 0.15s ease;
+}
+
+.cardAction:hover {
+  color: #6effea;
+}
+
+/* Compact Job Match Rows */
+.matchList {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.matchItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.55rem 0.7rem;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  transition: background 0.15s ease;
+}
+
+.matchItem:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.matchItemInfo {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  min-width: 0;
+}
+
+.companyBadge {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  background: #1a2936;
+  color: #2ee8c9;
+  font-size: 0.75rem;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.jobTitleText {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: #fff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin: 0;
+}
+
+.jobCompanyText {
+  font-size: 0.7rem;
+  color: var(--text-muted, #94a3b8);
+  margin: 0;
+}
+
+.matchScoreBadge {
+  padding: 0.18rem 0.45rem;
+  border-radius: 4px;
+  font-family: var(--font-figure, monospace);
+  font-size: 0.72rem;
+  font-weight: 700;
+  background: rgba(52, 211, 153, 0.15);
+  color: #34d399;
+  flex-shrink: 0;
+}
+
+/* Deep Dive Tab Section */
+.deepDiveSection {
+  margin-top: 0.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.tabBar {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  border-bottom: 1px solid var(--card-edge, rgba(255, 255, 255, 0.08));
+  padding-bottom: 0.5rem;
+}
+
+.tabBtn {
+  background: none;
+  border: none;
+  padding: 0.5rem 1rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--text-muted, #94a3b8);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.tabBtn:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.tabBtnActive {
+  color: var(--accent, #2ee8c9);
+  background: rgba(46, 232, 201, 0.08);
+  font-weight: 600;
+}
+
+.tabContent {
+  animation: fadeIn 0.3s ease;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@media (max-width: 1024px) {
+  .cardGrid {
+    grid-template-columns: 1fr;
+  }
+}
