@@ -30,7 +30,7 @@ export function AppProviders({ children }: { children: React.ReactNode }) {
   }, []);
 
   return (
-    <ThemeProvider attribute="data-theme" defaultTheme="dark" enableSystem disableTransitionOnChange>
+    <ThemeProvider attribute="data-theme" defaultTheme="dark" enableSystem>
       <BackendStatusInit />
       {children}
     </ThemeProvider>

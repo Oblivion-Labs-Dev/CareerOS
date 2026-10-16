@@ -440,30 +440,36 @@
 /* Compact, sleek surface inspired by Sutra & Manthan */
 .metric {
   --m: var(--accent);
-  padding: 0.6rem 0.85rem;
-  border-radius: var(--radius-md, 10px);
+  padding: 0.8rem 1rem;
+  border-radius: var(--radius-md, 12px);
   border: 1px solid var(--card-edge, rgba(255, 255, 255, 0.08));
   background: var(--surface-1, #121b27);
-  box-shadow: var(--elev-1);
-  transition: transform 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.05) inset, var(--elev-1);
+  transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+[data-theme="light"] .metric {
+  background: #ffffff;
+  border-color: rgba(15, 23, 42, 0.08);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.9) inset, 0 4px 12px rgba(15, 23, 42, 0.04);
 }
 
 .metric:hover {
-  transform: translateY(-1px);
-  border-color: rgba(46, 232, 201, 0.3);
-  box-shadow: var(--elev-2);
+  transform: translateY(-2px);
+  border-color: rgba(46, 232, 201, 0.35);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.1) inset, 0 8px 24px rgba(0, 0, 0, 0.25);
 }
 
 .metric[data-tone="success"] { --m: #34d399; }
 .metric[data-tone="info"] { --m: #2ee8c9; }
-.metric[data-tone="active"] { --m: #fff; }
+.metric[data-tone="active"] { --m: var(--text, #fff); }
 .metric[data-tone="attention"] { --m: #e2ba7d; }
 .metric[data-tone="danger"] { --m: #f87171; }
 
 .metricValue {
   font-family: var(--font-figure, monospace);
-  font-size: 1.35rem;
-  font-weight: 700;
+  font-size: 1.5rem;
+  font-weight: 750;
   line-height: 1;
   letter-spacing: -0.02em;
   color: var(--m);
@@ -472,18 +478,18 @@
 }
 
 .metricLabel {
-  margin-top: 0.25rem;
-  font-family: var(--font-body, var(--font-sans));
-  font-size: 0.6875rem;
-  font-weight: 600;
-  letter-spacing: 0.05em;
+  margin-top: 0.35rem;
+  font-family: var(--font-sans);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--muted, #94a3b8);
 }
 
 .metricHint {
-  margin-top: 0.1rem;
-  font-size: 0.625rem;
+  margin-top: 0.2rem;
+  font-size: 0.6875rem;
   color: var(--muted-dim, #64748b);
 }
 

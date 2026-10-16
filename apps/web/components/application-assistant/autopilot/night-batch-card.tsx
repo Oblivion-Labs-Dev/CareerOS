@@ -135,24 +135,8 @@ export function NightBatchCard({
 
   return (
     <section className={styles.card} aria-label="Night Batch Center">
-      {/* Sky atmospheric visual layer */}
-      <div className={styles.skyAtmosphere} aria-hidden="true">
-        <div className={`${styles.star} ${styles.star1}`} />
-        <div className={`${styles.star} ${styles.star2}`} />
-        <div className={`${styles.star} ${styles.star3}`} />
-        <div className={`${styles.star} ${styles.star4}`} />
-        <div className={styles.crescentGlow} />
-        <div className={styles.moonCrescent} />
-        <svg
-          className={styles.mountainBackdrop}
-          viewBox="0 0 600 120"
-          preserveAspectRatio="none"
-          fill="currentColor"
-        >
-          <path d="M0 120 L120 70 L240 100 L380 40 L490 85 L600 50 L600 120 Z" opacity="0.6" />
-          <path d="M0 120 L180 85 L320 110 L440 65 L550 95 L600 80 L600 120 Z" opacity="0.85" />
-        </svg>
-      </div>
+      {/* Refined ambient atmosphere layer */}
+      <div className={styles.ambientAtmosphere} aria-hidden="true" />
 
       <div className={styles.content}>
         {/* Top Header Strip */}

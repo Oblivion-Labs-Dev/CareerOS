@@ -746,11 +746,51 @@ button:focus-visible,
   }
 }
 
-/* Shared identity travels into the dossier; the page itself stays still. */
-::view-transition-old(root),::view-transition-new(root){animation:none}
+/* ─── Circular View Transition Theme Reveal (like Sutra) ───────────────────
+   When switching between dark and light themes, the new theme spreads in a
+   smooth, physical circular ripple radiating from the clicked theme button.
+   ========================================================================= */
+
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation: none;
+  mix-blend-mode: normal;
+}
+
+::view-transition-new(root) {
+  animation: theme-reveal 0.78s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@keyframes theme-reveal {
+  from {
+    clip-path: circle(0 at var(--reveal-x, 100%) var(--reveal-y, 0));
+  }
+  to {
+    clip-path: circle(var(--reveal-r, 150vmax) at var(--reveal-x, 100%) var(--reveal-y, 0));
+  }
+}
+
+/* Fallback or assistive slow transition across all surfaces */
+.theme-fade,
+.theme-fade *,
+.theme-fade *::before,
+.theme-fade *::after {
+  transition:
+    background-color 0.65s cubic-bezier(0.4, 0, 0.2, 1),
+    color 0.65s cubic-bezier(0.4, 0, 0.2, 1),
+    border-color 0.65s cubic-bezier(0.4, 0, 0.2, 1),
+    fill 0.65s cubic-bezier(0.4, 0, 0.2, 1),
+    stroke 0.65s cubic-bezier(0.4, 0, 0.2, 1),
+    box-shadow 0.65s cubic-bezier(0.4, 0, 0.2, 1) !important;
+}
+
 ::view-transition-group(*){animation-duration:220ms;animation-timing-function:ease-out}
 [data-motion="paused"] article[data-job-id]{transform:none!important}
-@media(prefers-reduced-motion:reduce){::view-transition-group(*){animation:none!important}}
+@media(prefers-reduced-motion:reduce){
+  ::view-transition-new(root){animation:none!important}
+  ::view-transition-group(*){animation:none!important}
+  .theme-fade, .theme-fade * { transition: none !important; }
+}
 
 /* ─── Skeleton bars ─────────────────────────────────────────────────────────
    The shimmer for loading placeholders. Lives here rather than in

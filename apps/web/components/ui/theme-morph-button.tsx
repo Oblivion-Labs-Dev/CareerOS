@@ -19,10 +19,47 @@ export function ThemeMorphButton() {
 
   const isLight = (resolvedTheme ?? theme) === "light";
 
+  const handleToggle = (e: React.MouseEvent<HTMLButtonElement>) => {
+    const next = isLight ? "dark" : "light";
+    const root = document.documentElement;
+
+    const apply = () => {
+      setTheme(next);
+      root.dataset.theme = next;
+    };
+
+    if (window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      apply();
+      return;
+    }
+
+    const r = e.currentTarget.getBoundingClientRect();
+    const x = r.left + r.width / 2;
+    const y = r.top + r.height / 2;
+    root.style.setProperty("--reveal-x", `${x}px`);
+    root.style.setProperty("--reveal-y", `${y}px`);
+    root.style.setProperty(
+      "--reveal-r",
+      `${Math.hypot(Math.max(x, window.innerWidth - x), Math.max(y, window.innerHeight - y))}px`
+    );
+
+    // Modern Chrome/Edge/Firefox View Transition API for expanding circular ripple
+    const docWithTransition = document as unknown as { startViewTransition?: (cb: () => void) => void };
+    if (typeof docWithTransition.startViewTransition === "function") {
+      docWithTransition.startViewTransition(apply);
+      return;
+    }
+
+    // Fallback slow transition like Sutra
+    root.classList.add("theme-fade");
+    apply();
+    setTimeout(() => root.classList.remove("theme-fade"), 700);
+  };
+
   return (
     <button
       type="button"
-      onClick={() => setTheme(isLight ? "dark" : "light")}
+      onClick={handleToggle}
       className={`relative flex items-center justify-center w-9 h-9 rounded-xl border transition-all duration-300 cursor-pointer overflow-hidden group active:scale-95 ${
         isLight
           ? "bg-amber-500/10 border-amber-500/30 text-amber-600 hover:bg-amber-500/20 hover:border-amber-500/50 shadow-[0_0_15px_rgba(245,158,11,0.2)]"
