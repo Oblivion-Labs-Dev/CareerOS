@@ -39,6 +39,7 @@ exists so decision-worthy events don't need to interrupt the user overnight.
 - 09:55:28 UTC: **Doordash** — Software Engineer, ML Serving Platform (`apjob_b09eedc4-2dfc-4e99-8c4f-4df57eabcaa4`) (Greenhouse, browser confirmed; profile checked: sponsorship Yes, authorized Yes, Auburn WA, Santa Clara Univ MS, not worked at DoorDash, Asian, Male)
 - 10:06:09 UTC: **Doordash** — Software Engineer, Machine Learning Platform - Gen AI (`apjob_aac51b2f-6c52-43a6-9d6b-4c2f9c184d18`) (Greenhouse, browser confirmed; profile checked: sponsorship Yes, authorized Yes, Auburn WA, Santa Clara Univ MS, not worked at DoorDash, Asian, Male)
 - 10:29:03 UTC: **Insightrx** — Senior Software Engineer Full-stack (`apjob_ea5b6c67-5768-4f06-9862-d9bdf5936a05`) (Greenhouse, browser confirmed; profile checked: Auburn WA, LinkedIn/Website verified)
+- 11:47:42 UTC: **Justworks** — Senior Software Engineer, Front End - NY (`apjob_10e87d20-925e-4a6c-bd86-c73012eb9f4f`) (Greenhouse, browser confirmed; receipt `rcpt_d3bf4fa20cfdd3f7804723e2`; unblocked by commit `bb5d45d` + dev server restart; profile checked: Auburn WA, sponsorship Yes, authorized Yes, background check Yes, $140,000, Bachelor's)
 
 **Fixes deployed mid-run:**
 - `20f2fb5`: `fix(classifier): narrow STATE regex negative lookahead to statement only` — resolved bug where state questions containing "employment" (e.g. Extend: *"What state will you be based in at the start of your employment?"*) classified as UNKNOWN. Reprocessed Extend (`apjob_3a5a1cfa-85a2-4e04-af0b-664f656729f6`).
@@ -72,6 +73,12 @@ exists so decision-worthy events don't need to interrupt the user overnight.
   - Background 24h ATS scrape started via `POST /jobs/discover/scrape` (`mode: ats`, `hours: 24`).
   - Queue preprocessor continuously cycling and enriching aggregator postings into canonical Greenhouse/Ashby boards.
   - Runner will automatically claim and process newly queued submittable roles as soon as indexed.
+- Tick 10 (12:30 UTC / 05:30 local):
+  - Audit: **21 total submitted applications verified tonight** (+1 Justworks submitted at 11:47 UTC, receipt `rcpt_d3bf4fa20cfdd3f7804723e2`). All answers verified against profile (0 false answers, 0 fabricated responses).
+  - Background 24h ATS scrape finished at 12:27 UTC: 7,960 total jobs indexed (+17 newly synced), 2,689 in autopilot queue.
+  - Queue preprocessor cycled at 12:30 UTC; active run `aprun_74f69116` safely in PAUSED state awaiting new submittable board matches (strict mode).
+  - Nightly evolution active on branch `nightly/evolution-2026-10-15` in worktree `../CareerOS-worktrees/evolution-2026-10-15` with PR #93 open for human review.
+
 
 
 **Nightly evolution**:
