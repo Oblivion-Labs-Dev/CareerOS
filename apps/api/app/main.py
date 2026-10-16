@@ -80,6 +80,7 @@ from app.config import settings
 from app.db.store import init_db
 from app.middleware.auth import AuthGateMiddleware
 from app.middleware.metrics import MetricsMiddleware
+from app.middleware.rate_limit import RateLimitMiddleware
 from app.routers.api import router
 from app.routers.application_assistant import router as application_assistant_router
 from app.routers.auth import router as auth_router
@@ -392,6 +393,7 @@ origins = [origin.strip() for origin in settings.career_os_cors_origins.split(",
 # the browser's fetch() blocks it as a CORS failure and the frontend never sees the 401
 # to redirect to /login — it would just look like every request silently broke.
 app.add_middleware(AuthGateMiddleware)
+app.add_middleware(RateLimitMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins if origins else ["http://localhost:3000", "http://127.0.0.1:3000"],
