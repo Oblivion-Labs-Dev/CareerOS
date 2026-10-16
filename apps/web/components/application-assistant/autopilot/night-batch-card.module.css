@@ -119,10 +119,10 @@
 .content {
   position: relative;
   z-index: 2;
-  padding: 0.85rem 1.15rem;
+  padding: 0.55rem 0.85rem;
   display: flex;
   flex-direction: column;
-  gap: 0.65rem;
+  gap: 0.42rem;
 }
 
 /* Header */
@@ -130,42 +130,42 @@
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 1rem;
+  gap: 0.75rem;
   flex-wrap: wrap;
 }
 
 .titleGroup {
   display: flex;
   align-items: flex-start;
-  gap: 0.75rem;
+  gap: 0.55rem;
 }
 
 .iconBadge {
-  width: 32px;
-  height: 32px;
-  border-radius: 8px;
+  width: 25px;
+  height: 25px;
+  border-radius: 6px;
   background: color-mix(in srgb, var(--accent) 16%, var(--card-hover));
   border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
   color: var(--accent);
   display: grid;
   place-items: center;
-  box-shadow: 0 0 10px var(--accent-soft);
+  box-shadow: 0 0 8px var(--accent-soft);
   flex-shrink: 0;
 }
 
 .eyebrow {
-  font-size: 0.625rem;
+  font-size: 0.5625rem;
   font-weight: 800;
-  letter-spacing: 0.1em;
+  letter-spacing: 0.09em;
   color: var(--accent);
 }
 
 /* The one line that names this surface, so it carries the display face. */
 .title {
-  margin: 0.05rem 0 0.15rem;
+  margin: 0 0 0.08rem;
   font-family: var(--font-display);
-  font-size: 1.15rem;
-  font-weight: 500;
+  font-size: 0.95rem;
+  font-weight: 600;
   color: var(--text);
   letter-spacing: -0.015em;
   line-height: 1.1;
@@ -176,7 +176,7 @@
    already in progress (the editable controls only make sense while idle). */
 .configSummary {
   margin: 0;
-  font-size: 0.78rem;
+  font-size: 0.7rem;
   color: var(--muted);
   font-variant-numeric: tabular-nums;
 }
@@ -191,10 +191,10 @@
 .statusBadge {
   display: inline-flex;
   align-items: center;
-  gap: 0.5rem;
-  padding: 0.35rem 0.85rem;
+  gap: 0.35rem;
+  padding: 0.22rem 0.6rem;
   border-radius: 9999px;
-  font-size: 0.75rem;
+  font-size: 0.6875rem;
   font-weight: 700;
   letter-spacing: 0.02em;
   border: 1px solid var(--border-strong);
@@ -206,34 +206,34 @@
   border-color: color-mix(in srgb, var(--success) 45%, transparent);
   background: color-mix(in srgb, var(--success) 14%, var(--card-hover));
   color: var(--success);
-  box-shadow: 0 0 14px color-mix(in srgb, var(--success) 25%, transparent);
+  box-shadow: 0 0 10px color-mix(in srgb, var(--success) 25%, transparent);
 }
 
 .statusDot {
-  width: 7px;
-  height: 7px;
+  width: 6px;
+  height: 6px;
   border-radius: 50%;
   background: var(--muted);
 }
 
 .statusBadge[data-live="true"] .statusDot {
   background: var(--success);
-  box-shadow: 0 0 8px var(--success);
+  box-shadow: 0 0 6px var(--success);
   animation: pulseDot 1.4s infinite;
 }
 
 @keyframes pulseDot {
   0%, 100% { transform: scale(1); opacity: 1; }
-  50% { transform: scale(1.4); opacity: 0.6; }
+  50% { transform: scale(1.3); opacity: 0.6; }
 }
 
 /* Live Banner */
 .liveBanner {
   display: flex;
   flex-direction: column;
-  gap: 0.45rem;
-  padding: 0.65rem 0.85rem;
-  border-radius: 10px;
+  gap: 0.3rem;
+  padding: 0.42rem 0.6rem;
+  border-radius: 8px;
   background: var(--bg-elevated);
   border: 1px solid var(--border-strong);
   box-shadow: var(--shadow-sm);
@@ -264,13 +264,13 @@
   flex: 0 0 auto;
   display: inline-flex;
   align-items: center;
-  gap: 3px;
-  height: 22px;
+  gap: 2.5px;
+  height: 15px;
 }
 
 .signalBars span {
-  width: 3px;
-  height: 14px;
+  width: 2.5px;
+  height: 10px;
   border-radius: 2px;
   background: var(--accent);
   opacity: 0.85;
@@ -284,8 +284,8 @@
 .signalBars span:nth-child(5) { animation-delay: -0.45s; }
 
 @keyframes nb-signal {
-  0%, 100% { height: 5px; opacity: 0.55; }
-  50% { height: 22px; opacity: 1; }
+  0%, 100% { height: 3px; opacity: 0.55; }
+  50% { height: 15px; opacity: 1; }
 }
 
 /* This app has its own motion-off toggle (data-motion="paused") separate
@@ -297,32 +297,32 @@
 }
 
 .liveJobTitle {
-  font-size: 1rem;
+  font-size: 0.85rem;
   font-weight: 700;
   color: var(--text);
 }
 
 .liveJobStep {
-  font-size: 0.78rem;
+  font-size: 0.6875rem;
   color: var(--accent);
-  margin-top: 0.2rem;
+  margin-top: 0.1rem;
 }
 
 .liveBannerStats {
   display: flex;
   align-items: center;
-  gap: 0.6rem;
+  gap: 0.4rem;
   flex-wrap: wrap;
-  margin-top: 0.65rem;
+  margin-top: 0.25rem;
 }
 
 .statPill {
   display: inline-flex;
   align-items: center;
-  gap: 0.35rem;
-  padding: 0.25rem 0.65rem;
-  border-radius: 8px;
-  font-size: 0.75rem;
+  gap: 0.25rem;
+  padding: 0.15rem 0.45rem;
+  border-radius: 6px;
+  font-size: 0.6875rem;
   background: var(--card);
   border: 1px solid var(--border);
   color: var(--text-secondary);
@@ -532,13 +532,13 @@
   align-items: center;
   justify-content: space-between;
   flex-wrap: wrap;
-  gap: 1rem;
-  padding-top: 0.65rem;
+  gap: 0.5rem;
+  padding-top: 0.35rem;
   border-top: 1px solid var(--border);
 }
 
 .footerNote {
-  font-size: 0.78rem;
+  font-size: 0.6875rem;
   color: var(--muted);
 }
 
@@ -549,28 +549,28 @@
 .buttonGroup {
   display: flex;
   align-items: center;
-  gap: 0.6rem;
+  gap: 0.4rem;
 }
 
 .btnPrimary {
   display: inline-flex;
   align-items: center;
-  gap: 0.5rem;
-  padding: 0.65rem 1.35rem;
-  border-radius: 11px;
-  font-size: 0.82rem;
+  gap: 0.35rem;
+  padding: 0.35rem 0.85rem;
+  border-radius: 8px;
+  font-size: 0.72rem;
   font-weight: 800;
   color: var(--btn-primary-text);
   background: var(--btn-primary-bg);
   border: none;
   cursor: pointer;
-  box-shadow: 0 0 20px var(--accent-glow);
+  box-shadow: 0 0 14px var(--accent-glow);
   transition: all 0.2s ease;
 }
 
 .btnPrimary:hover:not(:disabled) {
   transform: translateY(-1px);
-  box-shadow: 0 0 26px var(--accent-glow);
+  box-shadow: 0 0 20px var(--accent-glow);
 }
 
 .btnPrimary:disabled {
@@ -579,9 +579,9 @@
 }
 
 .btnSecondary {
-  padding: 0.65rem 1.1rem;
-  border-radius: 11px;
-  font-size: 0.82rem;
+  padding: 0.35rem 0.75rem;
+  border-radius: 8px;
+  font-size: 0.72rem;
   font-weight: 700;
   color: var(--text-secondary);
   background: var(--card-hover);
@@ -595,9 +595,9 @@
 }
 
 .btnDanger {
-  padding: 0.65rem 1.1rem;
-  border-radius: 11px;
-  font-size: 0.82rem;
+  padding: 0.35rem 0.75rem;
+  border-radius: 8px;
+  font-size: 0.72rem;
   font-weight: 700;
   color: var(--danger);
   background: color-mix(in srgb, var(--danger) 12%, transparent);
@@ -619,19 +619,19 @@
 .livePipeline {
   display: flex;
   align-items: center;
-  gap: 0.3rem;
-  margin-top: 0.85rem;
+  gap: 0.2rem;
+  margin-top: 0.35rem;
   flex-wrap: wrap;
 }
 
 .liveStage {
   display: inline-flex;
   align-items: center;
-  gap: 0.3rem;
-  padding: 0.22rem 0.5rem;
+  gap: 0.25rem;
+  padding: 0.12rem 0.38rem;
   border-radius: 999px;
   border: 1px solid var(--border);
-  font-size: 0.68rem;
+  font-size: 0.6rem;
   font-weight: 600;
   color: var(--muted);
   white-space: nowrap;
@@ -646,44 +646,44 @@
   color: var(--btn-primary-text);
   background: var(--accent);
   border-color: var(--accent);
-  box-shadow: 0 0 14px var(--accent-glow);
+  box-shadow: 0 0 10px var(--accent-glow);
 }
 
-.liveStageDot { font-size: 0.62rem; line-height: 1; }
+.liveStageDot { font-size: 0.55rem; line-height: 1; }
 .liveStageLabel { letter-spacing: -0.01em; }
 
 .liveStageLink {
-  width: 10px;
+  width: 8px;
   border-top: 1px dashed var(--border-strong);
 }
 .liveStageLink[data-done="true"] { border-top-color: color-mix(in srgb, var(--success) 50%, transparent); }
 
 .healingNote {
-  padding: 0.45rem 0.65rem;
-  border-radius: 8px;
+  padding: 0.35rem 0.55rem;
+  border-radius: 6px;
   border: 1px solid color-mix(in srgb, var(--warning) 30%, transparent);
   background: color-mix(in srgb, var(--warning) 8%, transparent);
-  font-size: 0.73rem;
+  font-size: 0.68rem;
   color: var(--warning);
 }
 
 .liveFeed {
-  padding: 0.5rem 0.65rem;
-  max-height: 8.5rem;
+  padding: 0.25rem 0.45rem;
+  max-height: 3.25rem;
   overflow-y: auto;
-  border-radius: 10px;
+  border-radius: 8px;
   border: 1px solid var(--border);
   background: var(--card);
   display: flex;
   flex-direction: column;
-  gap: 0.22rem;
+  gap: 0.15rem;
 }
 
 .liveFeedRow {
   display: flex;
-  gap: 0.55rem;
-  font-size: 0.71rem;
-  line-height: 1.45;
+  gap: 0.45rem;
+  font-size: 0.65rem;
+  line-height: 1.35;
   color: var(--muted);
 }
 
