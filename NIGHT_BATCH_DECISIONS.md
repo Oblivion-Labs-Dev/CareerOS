@@ -33,6 +33,8 @@ exists so decision-worthy events don't need to interrupt the user overnight.
 - 08:58:36 UTC: **Onetrust** — Senior Staff Software Engineer - Detection & Discovery (`apjob_63577ba8-e5cd-41b1-ad24-5f88a3731372`) (Greenhouse, browser confirmed; profile checked: sponsorship Yes, authorized for all employers No)
 - 09:03:24 UTC: **Honeycomb.Io** — Software Engineer I - LLM Observability (`apjob_d83ec086-7501-490d-9d7f-b6c180cb9f40`) (Greenhouse, browser confirmed; profile checked: sponsorship Yes, authorized Yes, Auburn WA, Washington, pronouns he/him/his, Microsoft current)
 - 09:08:23 UTC: **Affirm** — Software Engineer I, Fullstack (Search) (`apjob_b99526af-ce65-4d85-829e-325e93394f1a`) (Greenhouse, browser confirmed; profile checked: sponsorship Yes, Washington state, pronouns He/him/his, never employed at Affirm, Microsoft current)
+- 09:13:24 UTC: **31St Union** — Lead Backend Engineer (`apjob_185ca649-174d-4b01-b486-9680a4b3e8d6`) (Greenhouse, browser confirmed; profile checked: sponsorship Yes, authorized Yes, Auburn WA, Santa Clara Univ MS, Microsoft current)
+- 09:23:23 UTC: **Affirm** — Staff Software Engineer, Backend (Order Platform) (`apjob_38485018-a132-4a33-bf3f-01198332a0f1`) (Greenhouse, browser confirmed; profile checked: sponsorship Yes, Washington state, pronouns He/him/his, never employed at Affirm, Microsoft current)
 
 **Fixes deployed mid-run:**
 - `20f2fb5`: `fix(classifier): narrow STATE regex negative lookahead to statement only` — resolved bug where state questions containing "employment" (e.g. Extend: *"What state will you be based in at the start of your employment?"*) classified as UNKNOWN. Reprocessed Extend (`apjob_3a5a1cfa-85a2-4e04-af0b-664f656729f6`).
@@ -41,8 +43,12 @@ exists so decision-worthy events don't need to interrupt the user overnight.
 
 **Check by hand (`SUBMISSION_UNKNOWN`):**
 - **Cwill** — Loyalty & Referrals R&D Trainee - Full-Stack Engineer (`apjob_c6e03e1a-f757-4431-b5dc-6dbea4d13c35`): Form remained active on page post-click; check candidate email.
+- **Block** — Security Engineer - Network Edge Security (`apjob_997a066d-ffee-41a3-bfdf-12b4a60c8381`): Greenhouse embed on `block.xyz/careers/jobs/5427855008`. Submit click executed but URL remained on posting page without confirmation redirect; check candidate email.
 
 **Remaining in review (essays / subjective candidate choices):**
+- **Doordash** (`apjob_61a5e3a9-cfba-45f5-993b-676e72b30307`): Race dropdown selection DOM verification mismatch (Intended 'Asian' conflicted with live DOM value 'Hispanic or Latino') caught before submit.
+- **Marketech** (`apjob_7d3aeba1-cb9d-48be-8636-a8d6576858ba`): Mandarin language proficiency requirement.
+- **Jrc Integrated Systems** (`apjob_eb3e27e5-304b-4889-965b-2b3e822b01b9`): Salary expectations prompt.
 - **6Sense** (`apjob_851526fa-6af7-44fa-ad90-82a983799c67`): Essay ("In 2-3 Sentences, Describe The Most Technically Challenging Problem You Have Solved Recently...").
 - **Scotch** (`apjob_f0a23c43-f0ad-4ddc-a76e-1c740a9deecf`): Essay ("Why Do You Want To Work For Scotch? What Interests You About This Position?").
 - **Audioeye** (`apjob_46f0a4ef-899a-45ca-a6da-997dd5c46856`): Essay ("What Does Your Local Dev Setup Look Like (Os, Editor, Tools, Etc)?").
