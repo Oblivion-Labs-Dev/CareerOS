@@ -35,6 +35,8 @@ exists so decision-worthy events don't need to interrupt the user overnight.
 - 09:08:23 UTC: **Affirm** — Software Engineer I, Fullstack (Search) (`apjob_b99526af-ce65-4d85-829e-325e93394f1a`) (Greenhouse, browser confirmed; profile checked: sponsorship Yes, Washington state, pronouns He/him/his, never employed at Affirm, Microsoft current)
 - 09:13:24 UTC: **31St Union** — Lead Backend Engineer (`apjob_185ca649-174d-4b01-b486-9680a4b3e8d6`) (Greenhouse, browser confirmed; profile checked: sponsorship Yes, authorized Yes, Auburn WA, Santa Clara Univ MS, Microsoft current)
 - 09:23:23 UTC: **Affirm** — Staff Software Engineer, Backend (Order Platform) (`apjob_38485018-a132-4a33-bf3f-01198332a0f1`) (Greenhouse, browser confirmed; profile checked: sponsorship Yes, Washington state, pronouns He/him/his, never employed at Affirm, Microsoft current)
+- 09:34:44 UTC: **Doordash** — Software Engineer, iOS (`apjob_421efeb9-cc01-4877-9af6-493984240406`) (Greenhouse, browser confirmed; profile checked: sponsorship Yes, authorized Yes, Auburn WA, Santa Clara Univ MS, not worked at DoorDash, Asian, Male)
+- 09:55:28 UTC: **Doordash** — Software Engineer, ML Serving Platform (`apjob_b09eedc4-2dfc-4e99-8c4f-4df57eabcaa4`) (Greenhouse, browser confirmed; profile checked: sponsorship Yes, authorized Yes, Auburn WA, Santa Clara Univ MS, not worked at DoorDash, Asian, Male)
 
 **Fixes deployed mid-run:**
 - `20f2fb5`: `fix(classifier): narrow STATE regex negative lookahead to statement only` — resolved bug where state questions containing "employment" (e.g. Extend: *"What state will you be based in at the start of your employment?"*) classified as UNKNOWN. Reprocessed Extend (`apjob_3a5a1cfa-85a2-4e04-af0b-664f656729f6`).
