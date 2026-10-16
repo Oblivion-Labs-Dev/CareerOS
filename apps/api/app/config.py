@@ -48,5 +48,12 @@ class Settings(BaseSettings):
     career_os_admin_password: str = ""
     career_os_session_secret: str = ""
 
+    # Multi-tenant Auth & Cloud DB configuration (Option A: Supabase / PostgreSQL)
+    careeros_multitenant_mode: bool = False
+    supabase_url: str = ""
+    supabase_anon_key: str = ""
+    supabase_service_role_key: str = ""
+    supabase_jwt_secret: str = ""
+
 
 settings = Settings()

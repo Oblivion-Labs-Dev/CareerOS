@@ -23,3 +23,7 @@ sentence-transformers>=3.0.0
 tzdata>=2025.1
 # scripts/backup_encrypted.py: AES-256-GCM for the committed data backup.
 cryptography>=42.0.0
+# PostgreSQL engine support for Supabase/hosted DB
+psycopg2-binary>=2.9.9
+# JWT token authentication for multi-tenant auth / Supabase
+pyjwt>=2.8.0

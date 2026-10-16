@@ -97,3 +97,47 @@ def verify_session_token(token: str | None) -> dict[str, Any] | None:
         return None
 
     return {"username": username, "expiresAt": expires_at}
+
+
+def verify_jwt_token(token: str | None) -> dict[str, Any] | None:
+    """Validate a Supabase or standard JWT bearer token."""
+    if not token:
+        return None
+    try:
+        import jwt
+
+        # If Supabase secret is set, verify cryptographic signature and audience
+        if settings.supabase_jwt_secret:
+            return jwt.decode(
+                token,
+                settings.supabase_jwt_secret,
+                algorithms=["HS256"],
+                audience="authenticated",
+            )
+        # If running in dev mode without secret configured, decode payload unverified
+        return jwt.decode(token, options={"verify_signature": False})
+    except Exception:
+        return None
+
+
+def extract_user_from_request(request: Any) -> str:
+    """Extract authenticated user ID from Bearer token, session cookie, or fallback to 'default'."""
+    # 1. Check Bearer token (API / mobile / cross-origin client)
+    auth_header = getattr(request, "headers", {}).get("Authorization", "")
+    if auth_header.startswith("Bearer "):
+        token = auth_header[7:].strip()
+        jwt_payload = verify_jwt_token(token)
+        if jwt_payload:
+            user_id = jwt_payload.get("sub") or jwt_payload.get("user_id") or jwt_payload.get("email")
+            if user_id:
+                return str(user_id)
+
+    # 2. Check session cookie (Dashboard web client)
+    cookie_token = getattr(request, "cookies", {}).get(SESSION_COOKIE_NAME)
+    session = verify_session_token(cookie_token)
+    if session and session.get("username"):
+        return str(session["username"])
+
+    # 3. Default fallback for local single-tenant operation
+    return "default"
+

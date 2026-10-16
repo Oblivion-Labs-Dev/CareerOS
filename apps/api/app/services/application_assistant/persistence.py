@@ -740,10 +740,16 @@ def claim_application_identity(
     holder = json_field("$.jobId")
     expires_at = json_field("$.expiresAt")
 
+    if "sqlite" in str(db.bind.url):
+        from sqlalchemy.dialects.sqlite import insert as dialect_insert
+    else:
+        from sqlalchemy.dialects.postgresql import insert as dialect_insert
+
     statement = (
-        sqlite_insert(EntityStore)
+        dialect_insert(EntityStore)
         .values(
             id=_identity_claim_id(identity),
+            user_id="default",
             entity_type=ENTITY_APPLICATION_CLAIM,
             payload=payload,
         )
@@ -859,12 +865,15 @@ def _identity_expression(db: Session):
     """
     from sqlalchemy import func
 
-    driver_connection = db.connection().connection.driver_connection
-    driver_connection.create_function("careeros_identity", 1, _url_identity, deterministic=True)
-    return func.coalesce(
-        json_field("$.applicationIdentity"),
-        func.careeros_identity(json_field("$.applicationUrl")),
-    )
+    if "sqlite" in str(db.bind.url):
+        driver_connection = db.connection().connection.driver_connection
+        if hasattr(driver_connection, "create_function"):
+            driver_connection.create_function("careeros_identity", 1, _url_identity, deterministic=True)
+            return func.coalesce(
+                json_field("$.applicationIdentity"),
+                func.careeros_identity(json_field("$.applicationUrl")),
+            )
+    return json_field("$.applicationIdentity")
 
 
 def list_submitted_duplicate_candidates(db: Session, job: dict[str, Any]) -> list[dict[str, Any]]:

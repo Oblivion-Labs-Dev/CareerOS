@@ -2,7 +2,12 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
-from app.services.auth import SESSION_COOKIE_NAME, is_auth_configured, verify_session_token
+from app.services.auth import (
+    SESSION_COOKIE_NAME,
+    is_auth_configured,
+    verify_jwt_token,
+    verify_session_token,
+)
 
 # Paths reachable without a session — the login flow itself, health checks used
 # by the dev tooling, and static assets that carry no data.
@@ -81,8 +86,17 @@ class AuthGateMiddleware(BaseHTTPMiddleware):
         if _ENFORCED_PREFIXES and not request.url.path.startswith(_ENFORCED_PREFIXES):
             return await call_next(request)
 
+        auth_header = request.headers.get("Authorization", "")
+        if auth_header.startswith("Bearer "):
+            token = auth_header[7:].strip()
+            jwt_payload = verify_jwt_token(token)
+            if jwt_payload:
+                request.state.user_id = jwt_payload.get("sub") or jwt_payload.get("user_id") or "default"
+                return await call_next(request)
+
         session = verify_session_token(request.cookies.get(SESSION_COOKIE_NAME))
         if not session:
             return JSONResponse(status_code=401, content={"detail": "Not authenticated"})
 
+        request.state.user_id = session.get("username", "default")
         return await call_next(request)

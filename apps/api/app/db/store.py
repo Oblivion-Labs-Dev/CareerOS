@@ -26,6 +26,7 @@ class Base(DeclarativeBase):
 
 class KVStore(Base):
     __tablename__ = "kv_store"
+    user_id = Column(String(64), primary_key=True, default="default")
     key = Column(String(128), primary_key=True)
     value = Column(JSON, nullable=False)
 
@@ -33,6 +34,7 @@ class KVStore(Base):
 class EntityStore(Base):
     __tablename__ = "entities"
     id = Column(String(64), primary_key=True)
+    user_id = Column(String(64), nullable=False, default="default", index=True)
     entity_type = Column(String(64), nullable=False, index=True)
     payload = Column(JSON, nullable=False)
 
@@ -41,19 +43,20 @@ _JSON_PATH = re.compile(r"^\$(\.[A-Za-z_][A-Za-z0-9_]*)+$")
 
 
 def json_field(path: str):
-    """``json_extract(payload, '<path>')`` with the path written into the SQL.
-
-    SQLite only uses an expression index when the query repeats the indexed
-    expression exactly. SQLAlchemy sent the path as a bound ``?``, which never
-    matches ``json_extract(payload, '$.status')``, so every JSON index below was
-    dead and each status/URL/lock lookup scanned its whole entity type. The
-    path is validated, so inlining it cannot inject anything.
+    """Dialect-aware JSON field extraction.
+    For SQLite: uses ``json_extract(payload, '<path>')`` matching expression indexes.
+    For PostgreSQL: uses ``func.json_extract_path_text(EntityStore.payload, *path_elements)``.
     """
     from sqlalchemy import func, literal_column
 
     if not _JSON_PATH.match(path):
         raise ValueError(f"not a plain JSON path: {path!r}")
-    return func.json_extract(EntityStore.payload, literal_column(f"'{path}'"))
+
+    if "sqlite" in str(engine.url):
+        return func.json_extract(EntityStore.payload, literal_column(f"'{path}'"))
+    else:
+        parts = [p for p in path.lstrip("$.").split(".") if p]
+        return func.json_extract_path_text(EntityStore.payload, *parts)
 
 
 DATA_DIR =Path(__file__).resolve().parents[2] / "data"
@@ -63,16 +66,24 @@ PROFILE_SEED_PATH = DATA_DIR / "applypilot-profile.json"
 EXTENSION_DB_PATH = Path(__file__).resolve().parents[3] / "extension" / "db.json"
 RESUME_CORPUS_SEED_PATH = Path(__file__).resolve().parents[4] / "data" / "resume-corpus-initial.json"
 
-engine = create_engine(
-    settings.career_os_database_url
-    if not settings.career_os_database_url.startswith("sqlite:///./")
-    else f"sqlite:///{DB_PATH.as_posix()}",
-    connect_args={"check_same_thread": False, "timeout": 60.0},
-    pool_size=10,
-    max_overflow=20,
-    pool_recycle=300,
-    pool_pre_ping=True,
-)
+_raw_db_url = settings.career_os_database_url
+if _raw_db_url.startswith("sqlite:///./"):
+    _db_url = f"sqlite:///{DB_PATH.as_posix()}"
+else:
+    _db_url = _raw_db_url
+
+_is_sqlite = "sqlite" in _db_url
+
+_connect_args = {"check_same_thread": False, "timeout": 60.0} if _is_sqlite else {}
+_engine_kwargs: dict[str, Any] = {
+    "connect_args": _connect_args,
+    "pool_recycle": 300,
+    "pool_pre_ping": True,
+}
+_engine_kwargs["pool_size"] = 10
+_engine_kwargs["max_overflow"] = 20
+
+engine = create_engine(_db_url, **_engine_kwargs)
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 
 
@@ -99,7 +110,7 @@ def _set_sqlite_pragma(dbapi_connection, connection_record):
 #                     which was a full scan on every submission
 #
 # CREATE INDEX IF NOT EXISTS is idempotent, so this runs safely at every start.
-_JSON_INDEXES: tuple[tuple[str, str], ...] = (
+_SQLITE_JSON_INDEXES: tuple[tuple[str, str], ...] = (
     (
         "ix_entities_status",
         "CREATE INDEX IF NOT EXISTS ix_entities_status "
@@ -120,28 +131,99 @@ _JSON_INDEXES: tuple[tuple[str, str], ...] = (
     ),
 )
 
+_PG_JSON_INDEXES: tuple[tuple[str, str], ...] = (
+    (
+        "ix_entities_status_pg",
+        "CREATE INDEX IF NOT EXISTS ix_entities_status_pg "
+        "ON entities (entity_type, (payload->>'status'))",
+    ),
+    (
+        "ix_entities_application_url_pg",
+        "CREATE INDEX IF NOT EXISTS ix_entities_application_url_pg "
+        "ON entities (entity_type, (payload->>'applicationUrl'))",
+    ),
+    (
+        "ix_entities_added_to_assistant_pg",
+        "CREATE INDEX IF NOT EXISTS ix_entities_added_to_assistant_pg "
+        "ON entities (entity_type, (payload->>'addedToAssistant'))",
+    ),
+)
+
 
 def _configure_sqlite() -> None:
-    if "sqlite" not in str(engine.url):
-        return
     from sqlalchemy import text
 
+    if "sqlite" in str(engine.url):
+        with engine.connect() as conn:
+            conn.execute(text("PRAGMA journal_mode=WAL"))
+            conn.execute(text("PRAGMA busy_timeout=60000"))
+            # Reclaim space after the retention sweep deletes rows. Without this the
+            # file only ever grows: SQLite keeps freed pages for reuse and never
+            # returns them to the filesystem.
+            conn.execute(text("PRAGMA auto_vacuum=INCREMENTAL"))
+            for name, ddl in _SQLITE_JSON_INDEXES:
+                try:
+                    conn.execute(text(ddl))
+                except Exception:  # noqa: BLE001 - an index is an optimisation, never a boot blocker
+                    logging.getLogger("career_os.db").warning("Could not create %s", name)
+            conn.commit()
+    else:
+        with engine.connect() as conn:
+            for name, ddl in _PG_JSON_INDEXES:
+                try:
+                    conn.execute(text(ddl))
+                except Exception:  # noqa: BLE001 - an index is an optimisation, never a boot blocker
+                    logging.getLogger("career_os.db").warning("Could not create %s", name)
+            conn.commit()
+
+
+def _migrate_schema_if_needed() -> None:
+    """Safely migrate existing SQLite or Postgres tables to add user_id column
+    and composite primary key without losing any data."""
+    from sqlalchemy import inspect, text
+
+    insp = inspect(engine)
+    table_names = set(insp.get_table_names())
+
     with engine.connect() as conn:
-        conn.execute(text("PRAGMA journal_mode=WAL"))
-        conn.execute(text("PRAGMA busy_timeout=60000"))
-        # Reclaim space after the retention sweep deletes rows. Without this the
-        # file only ever grows: SQLite keeps freed pages for reuse and never
-        # returns them to the filesystem.
-        conn.execute(text("PRAGMA auto_vacuum=INCREMENTAL"))
-        for name, ddl in _JSON_INDEXES:
-            try:
-                conn.execute(text(ddl))
-            except Exception:  # noqa: BLE001 - an index is an optimisation, never a boot blocker
-                logging.getLogger("career_os.db").warning("Could not create %s", name)
-        conn.commit()
+        if "entities" in table_names:
+            cols = {c["name"] for c in insp.get_columns("entities")}
+            if "user_id" not in cols:
+                conn.execute(text("ALTER TABLE entities ADD COLUMN user_id VARCHAR(64) DEFAULT 'default' NOT NULL"))
+                conn.execute(text("CREATE INDEX IF NOT EXISTS ix_entities_user_id ON entities (user_id)"))
+                conn.commit()
+
+        if "kv_store" in table_names:
+            pk_cols = set(insp.get_pk_constraint("kv_store").get("constrained_columns", []))
+            if pk_cols != {"user_id", "key"}:
+                if "sqlite" in str(engine.url):
+                    cols_kv = {c["name"] for c in insp.get_columns("kv_store")}
+                    conn.execute(text("""
+                        CREATE TABLE IF NOT EXISTS kv_store_new (
+                            user_id VARCHAR(64) NOT NULL DEFAULT 'default',
+                            key VARCHAR(128) NOT NULL,
+                            value JSON NOT NULL,
+                            PRIMARY KEY (user_id, key)
+                        )
+                    """))
+                    if "user_id" in cols_kv:
+                        conn.execute(text("INSERT OR IGNORE INTO kv_store_new (user_id, key, value) SELECT user_id, key, value FROM kv_store"))
+                    else:
+                        conn.execute(text("INSERT OR IGNORE INTO kv_store_new (user_id, key, value) SELECT 'default', key, value FROM kv_store"))
+                    conn.execute(text("DROP TABLE kv_store"))
+                    conn.execute(text("ALTER TABLE kv_store_new RENAME TO kv_store"))
+                    conn.commit()
+                else:
+                    cols_kv = {c["name"] for c in insp.get_columns("kv_store")}
+                    if "user_id" not in cols_kv:
+                        conn.execute(text("ALTER TABLE kv_store ADD COLUMN user_id VARCHAR(64) DEFAULT 'default' NOT NULL"))
+                    conn.execute(text("ALTER TABLE kv_store DROP CONSTRAINT IF EXISTS kv_store_pkey"))
+                    conn.execute(text("ALTER TABLE kv_store ADD PRIMARY KEY (user_id, key)"))
+                    conn.commit()
 
 
 def init_db() -> None:
+    _migrate_schema_if_needed()
     Base.metadata.create_all(bind=engine)
     _configure_sqlite()
     skip_extension_seed = os.environ.get("CAREER_OS_SKIP_EXTENSION_SEED") == "1"
@@ -271,33 +353,40 @@ def new_id(prefix: str = "") -> str:
     return f"{prefix}{value}" if prefix else value
 
 
-def _pending_kv(db: Session, key: str) -> KVStore | None:
+def _pending_kv(db: Session, key: str, user_id: str = "default") -> KVStore | None:
     return next(
-        (row for row in db.new if isinstance(row, KVStore) and row.key == key),
+        (
+            row
+            for row in db.new
+            if isinstance(row, KVStore) and row.key == key and getattr(row, "user_id", "default") == user_id
+        ),
         None,
     )
 
 
-def get_kv(db: Session, key: str) -> Any | None:
-    row = _pending_kv(db, key) or db.get(KVStore, key)
+def get_kv(db: Session, key: str, user_id: str = "default") -> Any | None:
+    row = _pending_kv(db, key, user_id) or db.get(KVStore, (user_id, key))
     return row.value if row else None
 
 
-def set_kv(db: Session, key: str, value: Any) -> None:
-    row = _pending_kv(db, key) or db.get(KVStore, key)
+def set_kv(db: Session, key: str, value: Any, user_id: str = "default") -> None:
+    row = _pending_kv(db, key, user_id) or db.get(KVStore, (user_id, key))
     if row:
         row.value = value
     else:
-        db.add(KVStore(key=key, value=value))
+        db.add(KVStore(user_id=user_id, key=key, value=value))
 
 
-def list_entities(db: Session, entity_type: str) -> list[dict[str, Any]]:
-    rows = db.query(EntityStore).filter(EntityStore.entity_type == entity_type).all()
+def list_entities(db: Session, entity_type: str, user_id: str | None = None) -> list[dict[str, Any]]:
+    query = db.query(EntityStore).filter(EntityStore.entity_type == entity_type)
+    if user_id is not None:
+        query = query.filter(EntityStore.user_id == user_id)
+    rows = query.all()
     return [row.payload for row in rows]
 
 
 def list_entities_where_json(
-    db: Session, entity_type: str, json_path: str, *, truthy: bool = True
+    db: Session, entity_type: str, json_path: str, *, truthy: bool = True, user_id: str | None = None
 ) -> list[dict[str, Any]]:
     """Entities filtered by a JSON field, without deserialising every row.
 
@@ -313,6 +402,8 @@ def list_entities_where_json(
 
     extracted = json_field(json_path)
     query = db.query(EntityStore).filter(EntityStore.entity_type == entity_type)
+    if user_id is not None:
+        query = query.filter(EntityStore.user_id == user_id)
     if truthy:
         # SQLite json_extract yields 1/0 for booleans and the raw value
         # otherwise; both "false" spellings must be excluded. `> 0` (not
@@ -323,7 +414,7 @@ def list_entities_where_json(
 
 
 def list_entities_by_json_equals(
-    db: Session, entity_type: str, json_path: str, value: Any
+    db: Session, entity_type: str, json_path: str, value: Any, user_id: str | None = None
 ) -> list[dict[str, Any]]:
     """Entities whose JSON field equals `value`, resolved by index.
 
@@ -335,27 +426,29 @@ def list_entities_by_json_equals(
     from sqlalchemy import func
 
     extracted = json_field(json_path)
-    rows = (
+    query = (
         db.query(EntityStore)
         .filter(EntityStore.entity_type == entity_type)
         .filter(extracted == value)
-        .all()
     )
+    if user_id is not None:
+        query = query.filter(EntityStore.user_id == user_id)
+    rows = query.all()
     return [row.payload for row in rows]
 
 
-def get_entity(db: Session, entity_type: str, entity_id: str) -> dict[str, Any] | None:
-    row = (
-        db.query(EntityStore)
-        .filter(EntityStore.entity_type == entity_type, EntityStore.id == entity_id)
-        .one_or_none()
-    )
+def get_entity(db: Session, entity_type: str, entity_id: str, user_id: str | None = None) -> dict[str, Any] | None:
+    query = db.query(EntityStore).filter(EntityStore.entity_type == entity_type, EntityStore.id == entity_id)
+    if user_id is not None:
+        query = query.filter(EntityStore.user_id == user_id)
+    row = query.one_or_none()
     return row.payload if row else None
 
 
-def upsert_entity(db: Session, entity_type: str, payload: dict[str, Any]) -> dict[str, Any]:
+def upsert_entity(db: Session, entity_type: str, payload: dict[str, Any], user_id: str | None = None) -> dict[str, Any]:
     entity_id = payload.get("id") or new_id()
-    payload = {**payload, "id": entity_id, "updatedAt": now_iso()}
+    uid = user_id or payload.get("userId") or "default"
+    payload = {**payload, "id": entity_id, "userId": uid, "updatedAt": now_iso()}
     row = (
         db.query(EntityStore)
         .filter(EntityStore.entity_type == entity_type, EntityStore.id == entity_id)
@@ -363,20 +456,20 @@ def upsert_entity(db: Session, entity_type: str, payload: dict[str, Any]) -> dic
     )
     if row:
         row.payload = payload
+        row.user_id = uid
     else:
         if "createdAt" not in payload:
             payload["createdAt"] = now_iso()
-        db.add(EntityStore(id=entity_id, entity_type=entity_type, payload=payload))
+        db.add(EntityStore(id=entity_id, user_id=uid, entity_type=entity_type, payload=payload))
     db.flush()
     return payload
 
 
-def delete_entity(db: Session, entity_type: str, entity_id: str) -> bool:
-    row = (
-        db.query(EntityStore)
-        .filter(EntityStore.entity_type == entity_type, EntityStore.id == entity_id)
-        .one_or_none()
-    )
+def delete_entity(db: Session, entity_type: str, entity_id: str, user_id: str | None = None) -> bool:
+    query = db.query(EntityStore).filter(EntityStore.entity_type == entity_type, EntityStore.id == entity_id)
+    if user_id is not None:
+        query = query.filter(EntityStore.user_id == user_id)
+    row = query.one_or_none()
     if row:
         db.delete(row)
         db.flush()
@@ -412,12 +505,14 @@ def seed_resume_corpus_if_needed(
     return imported
 
 
-def patch_entity(db: Session, entity_type: str, entity_id: str, patch: dict[str, Any]) -> dict[str, Any] | None:
-    current = get_entity(db, entity_type, entity_id)
+def patch_entity(
+    db: Session, entity_type: str, entity_id: str, patch: dict[str, Any], user_id: str | None = None
+) -> dict[str, Any] | None:
+    current = get_entity(db, entity_type, entity_id, user_id=user_id)
     if not current:
         return None
     merged = {**current, **patch, "id": entity_id, "updatedAt": now_iso()}
-    upsert_entity(db, entity_type, merged)
+    upsert_entity(db, entity_type, merged, user_id=user_id)
     return merged
 
 
@@ -467,8 +562,11 @@ def default_settings() -> dict[str, Any]:
     }
 
 
-def entity_count(db: Session, entity_type: str) -> int:
-    return db.query(EntityStore).filter(EntityStore.entity_type == entity_type).count()
+def entity_count(db: Session, entity_type: str, user_id: str | None = None) -> int:
+    query = db.query(EntityStore).filter(EntityStore.entity_type == entity_type)
+    if user_id is not None:
+        query = query.filter(EntityStore.user_id == user_id)
+    return query.count()
 
 
 def tracker_summary(db: Session) -> dict[str, Any]:

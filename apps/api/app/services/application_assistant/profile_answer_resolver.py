@@ -2080,18 +2080,23 @@ def _resolve_how_heard(res: AnswerResolution, profile: dict, opts: list[str]) ->
     # told Upstart "A recruiter contacted me (LinkedIn message)".
     default = str(profile.get("jobDiscoveryDefault") or "").strip()
     if not default:
-        default = "Company careers page"
+        res.resolution_method = UNKNOWN_METHOD
+        res.confidence = 0.0
+        return
+
     if opts:
         # Options asserting a contact or connection are claims the channel
         # alone cannot support, so they are never matched.
         neutral = [o for o in opts if not _CLAIMS_A_CONTACT.search(o)]
-        matched = _careers_page_option(neutral) if "career" in default.lower() else None
-        matched = (matched
-                   or _match_option(neutral, default)
-                   or _match_option(neutral, "Company Website")
-                   or _match_option(neutral, "LinkedIn")
-                   or _match_option(neutral, "Job Board")
-                   or next((o for o in neutral if o.strip().lower() == "other"), None))
+        matched = None
+        def_low = default.lower()
+        if "career" in def_low or "website" in def_low or "company" in def_low:
+            matched = _careers_page_option(neutral) or _match_option(neutral, default) or _match_option(neutral, "Company Website")
+        elif "linkedin" in def_low:
+            matched = _match_option(neutral, default) or _match_option(neutral, "LinkedIn")
+        else:
+            matched = _match_option(neutral, default)
+
         if not matched:
             res.resolution_method = UNKNOWN_METHOD
             res.confidence = 0.0
