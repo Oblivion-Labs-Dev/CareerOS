@@ -34,14 +34,18 @@ exists so decision-worthy events don't need to interrupt the user overnight.
 - 13:42:20 UTC: **Reddit** — Senior Software Engineer, Agentic Ads Experience (`apjob_544dbcd9-d8e2-424d-8ff8-69a51cb41b79`) (Greenhouse, browser confirmed; profile checked: Akshay Borse, Auburn, Washington, authorized Yes, current employer Microsoft)
 - 13:47:22 UTC: **Bitmovin** — Forward Deployed Engineer (`apjob_b112fe7c-6d29-4af2-8f47-faa994c5d2cd`) (Greenhouse, browser confirmed; profile checked: Akshay Borse, sponsorship Yes, location Auburn, WA)
 - 13:52:20 UTC: **Abnormal Security** — Software Engineer 1 - Cloud Infrastructure (`apjob_1d2f6758-515c-494e-8ddb-5a99ebea87f4`) (Greenhouse, browser confirmed; profile checked: Akshay Borse, location Auburn, Washington, United States)
-- Pacing in flight: **Hiddenlayer** — Platform Engineer (`apjob_3c369553-467b-46f0-b94a-9a0d4d88783d`) (Form 100% verified, pacing delay 228s active before final submit)
+- 14:02:26 UTC: **Hiddenlayer** — Platform Engineer (`apjob_3c369553-467b-46f0-b94a-9a0d4d88783d`) (Greenhouse, browser confirmed; profile checked: Akshay Borse, location Auburn, Washington, United States)
+- 14:07:20 UTC: **Life360** — Senior Software Engineer II, Mobile - Revenue Experiences (AI Native) (`apjob_e449fa67-1fa3-41de-963e-1bf303c11b8b`) (Greenhouse, browser confirmed; profile checked: Akshay Borse, Auburn, Washington, authorized Yes, sponsorship Yes)
+- 14:12:20 UTC: **Launchdarkly** — Senior Infrastructure Engineer (`apjob_afcf9f2e-bf71-4181-85b7-0aab56ac1484`) (Greenhouse, browser confirmed; profile checked: Akshay Borse, Auburn, Washington, authorized Yes, permanent location Auburn, Washington)
+- Pacing in flight: **Reddit** — Senior Software Engineer - Messaging (`apjob_db4e8962-7516-4258-9b03-f8f52032e49c`) (Form 100% verified, pacing delay 211s active before final submit)
 
 **Safety & Review Preservations:**
-- **Strike** (`apjob_ffd9ebf8-ffe0-4b27-a35f-8b59baf14903`): Mandatory cover letter required; staged for human review in `NEEDS_REVIEW`.
-- **Myfitnesspal** (`apjob_a9a55556-17f9-4455-985a-15bb5468d5d0`, `apjob_bfe0b128-376c-4fd4-8993-7f7ec945fab6`): Subjective app store links requirement staged for human review in `NEEDS_REVIEW`.
-- **Livefront** (`apjob_b772c61d-2e5a-44b7-bfb1-3bf9c05aed94`): Subjective essay staged for human review in `NEEDS_REVIEW`.
-- **Palantir**, **Aescape**, **Kong Inc.**, **Turgon Ai**, **Catena Clearing**, **OpenAI**, **Supabase**: Bot walls (reCAPTCHA, hCaptcha) safely routed to `MANUAL_REVIEW`.
-- Queue metrics: **83 submittable**, **1,805 applyable**, **3,496 queued** (9,069 total indexed).
+- **Dropbox** (`apjob_79cd1eed-b60a-4d6e-b262-189fea93a0eb`): Custom Greenhouse embed iframe DOM verification mismatch; staged for human review in `NEEDS_REVIEW`.
+- **Onxmaps** (`apjob_322b9b91-09d9-4ba6-b6a3-d0c135a11af4`): Subjective reference & infrastructure inquiries staged in `NEEDS_REVIEW`.
+- **Aechelon Technology Inc.** (`apjob_628ac0a2-b8c5-48d0-952c-1fae48bbce35`): Personal declaration staged in `NEEDS_REVIEW`.
+- **Strike**, **Myfitnesspal**, **Livefront**: Preserved in `NEEDS_REVIEW`.
+- **Palantir**, **Aescape**, **Kong Inc.**, **Turgon Ai**, **Catena Clearing**, **OpenAI**, **Supabase**, **Kestrel Intelligence**: Bot walls safely routed to `MANUAL_REVIEW`.
+- Queue metrics: **76 submittable**, **1,798 applyable**, **3,486 queued** (9,069+ total indexed).
 
 
 
