@@ -47,7 +47,8 @@ exists so decision-worthy events don't need to interrupt the user overnight.
 - 14:52:20 UTC: **Cloudflare** — Senior Software Engineer - Network Connectivity (Go/Rust) (`apjob_81e08b2a-1a8f-4f71-9b69-6750586820bb`) (Greenhouse, browser confirmed; profile checked: Akshay Borse, amsborse+career@gmail.com, willing to relocate, legal name Akshay Borse)
 - 14:57:21 UTC: **Reddit** — Senior Software Engineer - DevX (`apjob_b66ae544-c4b2-45fd-998e-f36fd2f600da`) (Greenhouse, 8-character verification code 'dT6Ly07u' auto-intercepted from Gmail, browser confirmed; profile checked: Akshay Borse, 10 EEOC options resolved, current employer Microsoft)
 - 15:02:28 UTC: **Robinhood** — Software Engineer 2, Backend (`apjob_661448f4-745c-4b9a-9753-af7bfd19c0d6`) (Greenhouse, browser confirmed; profile checked: Akshay Borse, amsborse+career@gmail.com, 13 EEOC/custom options resolved, Seattle/Bellevue preferred)
-- Pacing in flight: **Gusto** — Staff Software Engineer, Benefit Renewals (`apjob_64cb00b0-d6ff-4e88-9337-ef878225a94e`) (Form 100% verified against profile/DOM, pacing delay 240s active before final submit)
+- 15:07:22 UTC: **Gusto** — Staff Software Engineer, Benefit Renewals (`apjob_64cb00b0-d6ff-4e88-9337-ef878225a94e`) (Greenhouse, browser confirmed; profile checked: Akshay Borse, amsborse+career@gmail.com, 11 EEOC/custom dropdowns resolved, 100% verified against profile/DOM)
+- Pacing in flight: **Datadog** — Senior Security Engineer - Platform Trust & Safety (`apjob_e3bd3585-a479-4473-aa6a-68b116eeb5e6`) (Form 100% verified against profile/DOM, pacing delay 210s active before final submit)
 
 **New ATS Boards Ingested (58 Direct Company Boards Total):**
 - Probed and registered 21 additional premier tech company boards (10 Greenhouse, 11 Ashby): Datadog, Asana, Waymo, Roblox, Rubrik, Cockroach Labs, Toast, Carta, Klaviyo, Checkr, Cursor, ElevenLabs, Cohere, Pinecone, LangChain, Replit, Runway, Synthesia, Writer, Harvey, Braintrust.
@@ -55,8 +56,8 @@ exists so decision-worthy events don't need to interrupt the user overnight.
 
 **Safety & Review Preservations:**
 - **Discord** (Why Discord?), **GitLab** (Self-rating in Go 0-5), **Ensco, Inc.**, **Prove** (Go concurrency trade-offs), **Dropbox**, **Onxmaps**, **Aechelon Technology Inc.**, **Strike**, **Myfitnesspal**, **Livefront**: Preserved in `NEEDS_REVIEW`.
-- **Prudentia Sciences**, **Aurora Innovation**, **0X**, **Supabase**, **OpenAI**, **Palantir**, **Aescape**, **Kong Inc.**, **Turgon Ai**, **Catena Clearing**, **Kestrel Intelligence**: Bot walls safely routed to `MANUAL_REVIEW`.
-- Queue metrics: **1,782 submittable (not held)**, **3,482 queued**, **343 total submitted** (9,182+ total tracked).
+- **ElevenLabs**, **LangChain**, **Replit**, **Braintrust**, **Harvey**, **Prudentia Sciences**, **Aurora Innovation**, **0X**, **Supabase**, **OpenAI**, **Palantir**, **Aescape**, **Kong Inc.**, **Turgon Ai**, **Catena Clearing**, **Kestrel Intelligence**: Bot walls safely routed to `MANUAL_REVIEW`.
+- Queue metrics: **1,781 submittable (not held)**, **3,481 queued**, **344 total submitted** (9,182+ total tracked).
 
 
 
