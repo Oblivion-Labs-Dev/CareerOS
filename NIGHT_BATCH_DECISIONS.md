@@ -27,6 +27,19 @@ exists so decision-worthy events don't need to interrupt the user overnight.
   - Ran survey on baseline `66b65666`: duplication baseline 4.111%, priority focus on job-discovery and reliability.
   - Triage phase executed; conflict guard verified in-flight PRs (#93) to protect touched files. Report filed in `.git/evolution/2026-10-17/report.md`.
 
+**Submissions Tonight (Profile Verified: Akshay Borse, Auburn WA, Sponsorship Yes, Authorized Yes):**
+- 13:27:22 UTC: **Twilio** — Staff Security Engineer, Threat Hunting (`apjob_683c690c-5044-4b38-9d77-ff06bbc5f78a`) (Greenhouse, browser confirmed; profile checked: Akshay Borse, Auburn, Washington, legal right Yes, Asian, consent checked)
+- 13:32:22 UTC: **Kunai** — Senior Backend Engineer (Golang) (`apjob_84e1117b-5dc2-466f-800b-6ac5a10ac088`) (Greenhouse, browser confirmed; profile checked: Akshay Borse, sponsorship 'Yes, I will require sponsorship')
+- 13:37:20 UTC: **Pagerduty** — Forward Deployed Engineer (SDEV) (`apjob_2b8ae304-f902-4f3e-bc49-9db2ec2ea0dd`) (Greenhouse, browser confirmed; profile checked: Akshay Borse, sponsorship Yes)
+- 13:42:20 UTC: **Reddit** — Senior Software Engineer, Agentic Ads Experience (`apjob_544dbcd9-d8e2-424d-8ff8-69a51cb41b79`) (Greenhouse, browser confirmed; profile checked: Akshay Borse, Auburn, Washington, authorized Yes, current employer Microsoft)
+- Pacing in flight: **Bitmovin** — Forward Deployed Engineer (`apjob_b112fe7c-6d29-4af2-8f47-faa994c5d2cd`) (Form 100% verified, pacing delay 245s active before final confirmation receipt)
+
+**Safety & Review Preservations:**
+- **Myfitnesspal** (`apjob_a9a55556-17f9-4455-985a-15bb5468d5d0`, `apjob_bfe0b128-376c-4fd4-8993-7f7ec945fab6`): Subjective app store links requirement staged for human review in `NEEDS_REVIEW`.
+- **Livefront** (`apjob_b772c61d-2e5a-44b7-bfb1-3bf9c05aed94`): Subjective essay staged for human review in `NEEDS_REVIEW`.
+- **Palantir**, **Aescape**, **Kong Inc.**, **Turgon Ai**: Bot walls (reCAPTCHA, hCaptcha) safely routed to `MANUAL_REVIEW`.
+- Queue metrics: **92 submittable**, **1,805 applyable**, **3,493 queued**.
+
 
 
 ## 2026-10-17 (night) — fresh-jobs-first (every tick), submittable-first batch
