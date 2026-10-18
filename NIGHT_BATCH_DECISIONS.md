@@ -63,7 +63,8 @@ exists so decision-worthy events don't need to interrupt the user overnight.
 - 16:12:21 UTC: **Gusto** — Staff Software Engineer, Expansion Experiences (`apjob_59b4b259-a35f-43fa-8caf-b4fe76c91010`) (Greenhouse, 8-character verification code '193A4vbL' auto-intercepted from Gmail, browser confirmed; profile checked: Akshay Borse, amsborse+career@gmail.com, 12 EEOC/custom options resolved, 100% verified against profile/DOM)
 - 16:17:22 UTC: **Gitlab** — Staff Backend Engineer, Database Automation (Go) (`apjob_229b10a0-bac5-4dad-be12-5f7948b10ef0`) (Greenhouse, 8-character verification code 't7GiWjhE' auto-intercepted from Gmail, browser confirmed; profile checked: Akshay Borse, amsborse+career@gmail.com, 6 EEOC options resolved, 100% verified against profile/DOM)
 - 16:22:21 UTC: **Anthropic** — Software Engineer, Research Productivity (`apjob_da6c7030-e567-458b-95ce-f533895219ea`) (Greenhouse, browser confirmed; profile checked: Akshay Borse, amsborse+career@gmail.com, 9 EEOC options resolved, 100% verified against profile/DOM)
-- In flight: **Gusto** — Staff Software Engineer, People Technology (`apjob_eaffb3d6-8c92-43e0-9a3d-a01c72c68a42`)
+- 16:27:21 UTC: **Truveta** — Senior Software Engineer - Normalization Platform (`apjob_f3c77956-1e3a-44e1-bdeb-64c5fb817293`) (Greenhouse, 8-character verification code 'KyH6k3OA' auto-intercepted from Gmail, browser confirmed; profile checked: Akshay Borse, amsborse+career@gmail.com, 4 EEOC options resolved, 100% verified against profile/DOM)
+- In flight: **Lightning Ai** — Senior Infrastructure Software Engineer (`apjob_897972f2-f63e-4560-ada8-c1c97213b6aa`)
 
 **New ATS Boards Ingested (58 Direct Company Boards Total):**
 - Probed and registered 21 additional premier tech company boards (10 Greenhouse, 11 Ashby): Datadog, Asana, Waymo, Roblox, Rubrik, Cockroach Labs, Toast, Carta, Klaviyo, Checkr, Cursor, ElevenLabs, Cohere, Pinecone, LangChain, Replit, Runway, Synthesia, Writer, Harvey, Braintrust.
