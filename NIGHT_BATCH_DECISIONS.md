@@ -32,13 +32,16 @@ exists so decision-worthy events don't need to interrupt the user overnight.
 - 13:32:22 UTC: **Kunai** — Senior Backend Engineer (Golang) (`apjob_84e1117b-5dc2-466f-800b-6ac5a10ac088`) (Greenhouse, browser confirmed; profile checked: Akshay Borse, sponsorship 'Yes, I will require sponsorship')
 - 13:37:20 UTC: **Pagerduty** — Forward Deployed Engineer (SDEV) (`apjob_2b8ae304-f902-4f3e-bc49-9db2ec2ea0dd`) (Greenhouse, browser confirmed; profile checked: Akshay Borse, sponsorship Yes)
 - 13:42:20 UTC: **Reddit** — Senior Software Engineer, Agentic Ads Experience (`apjob_544dbcd9-d8e2-424d-8ff8-69a51cb41b79`) (Greenhouse, browser confirmed; profile checked: Akshay Borse, Auburn, Washington, authorized Yes, current employer Microsoft)
-- Pacing in flight: **Bitmovin** — Forward Deployed Engineer (`apjob_b112fe7c-6d29-4af2-8f47-faa994c5d2cd`) (Form 100% verified, pacing delay 245s active before final confirmation receipt)
+- 13:47:22 UTC: **Bitmovin** — Forward Deployed Engineer (`apjob_b112fe7c-6d29-4af2-8f47-faa994c5d2cd`) (Greenhouse, browser confirmed; profile checked: Akshay Borse, sponsorship Yes, location Auburn, WA)
+- 13:52:20 UTC: **Abnormal Security** — Software Engineer 1 - Cloud Infrastructure (`apjob_1d2f6758-515c-494e-8ddb-5a99ebea87f4`) (Greenhouse, browser confirmed; profile checked: Akshay Borse, location Auburn, Washington, United States)
+- Pacing in flight: **Hiddenlayer** — Platform Engineer (`apjob_3c369553-467b-46f0-b94a-9a0d4d88783d`) (Form 100% verified, pacing delay 228s active before final submit)
 
 **Safety & Review Preservations:**
+- **Strike** (`apjob_ffd9ebf8-ffe0-4b27-a35f-8b59baf14903`): Mandatory cover letter required; staged for human review in `NEEDS_REVIEW`.
 - **Myfitnesspal** (`apjob_a9a55556-17f9-4455-985a-15bb5468d5d0`, `apjob_bfe0b128-376c-4fd4-8993-7f7ec945fab6`): Subjective app store links requirement staged for human review in `NEEDS_REVIEW`.
 - **Livefront** (`apjob_b772c61d-2e5a-44b7-bfb1-3bf9c05aed94`): Subjective essay staged for human review in `NEEDS_REVIEW`.
-- **Palantir**, **Aescape**, **Kong Inc.**, **Turgon Ai**: Bot walls (reCAPTCHA, hCaptcha) safely routed to `MANUAL_REVIEW`.
-- Queue metrics: **92 submittable**, **1,805 applyable**, **3,493 queued**.
+- **Palantir**, **Aescape**, **Kong Inc.**, **Turgon Ai**, **Catena Clearing**, **OpenAI**, **Supabase**: Bot walls (reCAPTCHA, hCaptcha) safely routed to `MANUAL_REVIEW`.
+- Queue metrics: **83 submittable**, **1,805 applyable**, **3,496 queued** (9,069 total indexed).
 
 
 
