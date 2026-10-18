@@ -28,6 +28,7 @@ import httpx
 
 DATA_DIR = Path(__file__).resolve().parents[3] / "data" / "job_discover"
 CONFIG_FILE = DATA_DIR / "company_config.json"
+SEED_CONFIG_FILE = Path(__file__).resolve().parent / "seeds" / "default_company_config.json"
 SLUGS_FILE = DATA_DIR / "company_slugs.txt"
 
 # ⚠️ DUPLICATION (intentional, do NOT blindly sync): this ROLE_FILTERS is a
@@ -156,7 +157,15 @@ def build_verified_ssl_context() -> "ssl.SSLContext":
 
 def load_config() -> dict:
     if CONFIG_FILE.exists():
-        return json.loads(CONFIG_FILE.read_text())
+        try:
+            return json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
+        except Exception:
+            pass
+    if SEED_CONFIG_FILE.exists():
+        try:
+            return json.loads(SEED_CONFIG_FILE.read_text(encoding="utf-8"))
+        except Exception:
+            pass
     return {}
 
 
