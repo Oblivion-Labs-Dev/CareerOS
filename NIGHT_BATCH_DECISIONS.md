@@ -40,12 +40,16 @@ exists so decision-worthy events don't need to interrupt the user overnight.
 - 14:17:22 UTC: **Reddit** — Senior Software Engineer - Messaging (`apjob_db4e8962-7516-4258-9b03-f8f52032e49c`) (Greenhouse, browser confirmed; profile checked: Akshay Borse, Auburn, Washington, authorized Yes, current employer Microsoft)
 - 14:22:22 UTC: **Cloudflare** — Senior Software Engineer, R2 Metadata (`apjob_b9176a05-0da1-479b-98cc-21dfd6c254db`) (Greenhouse, browser confirmed; profile checked: Akshay Borse, Auburn, Washington, relocation willing, legal name Akshay Borse)
 - 14:27:20 UTC: **Robinhood** — Senior Software Engineer, International (`apjob_bda90561-d006-4c0d-9b90-d36458c07874`) (Greenhouse, browser confirmed; profile checked: Akshay Borse, Auburn, Washington, authorized Yes, sponsorship Yes, Bellevue WA preferred office)
-- Pacing in flight: **Twilio** — Senior Software Engineer (`apjob_ac49a028-6585-42dd-80a3-29aea83f9fd7`) (Form 100% verified, pacing delay 245s active before final submit)
+- 14:32:26 UTC: **Twilio** — Senior Software Engineer (`apjob_ac49a028-6585-42dd-80a3-29aea83f9fd7`) (Greenhouse, browser confirmed; profile checked: Akshay Borse, Auburn, Washington, authorized Yes, sponsorship Yes, consent checked)
+- 14:37:20 UTC: **Cloudflare** — Senior Software Engineer - Egress (Go/Rust) (`apjob_5114328c-b344-4bda-aafc-b46588f3af75`) (Greenhouse, browser confirmed; profile checked: Akshay Borse, willing to relocate, legal name Akshay Borse)
+- 14:42:22 UTC: **Datadog** — Senior Software Engineer - Husky Storage (`apjob_73711088-ba27-4e17-aa19-11fc26a4006a`) (Greenhouse, browser confirmed; profile checked: Akshay Borse, location Auburn, WA)
+- 14:47:20 UTC: **Gitlab** — Senior Backend Engineer, Platform Readiness (`apjob_93b10c9c-e079-46ea-bc24-d6f7ad8328cc`) (Greenhouse, browser confirmed; profile checked: Akshay Borse, amsborse+career@gmail.com, 4 EEOC dropdowns resolved, 100% verified against profile/DOM)
+- In flight: **Cloudflare** — Senior Software Engineer - Network Connectivity (Go/Rust) (`apjob_81e08b2a-1a8f-4f71-9b69-6750586820bb`)
 
 **Safety & Review Preservations:**
-- **Dropbox**, **Onxmaps**, **Aechelon Technology Inc.**, **Strike**, **Myfitnesspal**, **Livefront**: Preserved in `NEEDS_REVIEW`.
-- **Palantir**, **Aescape**, **Kong Inc.**, **Turgon Ai**, **Catena Clearing**, **OpenAI**, **Supabase**, **Kestrel Intelligence**: Bot walls safely routed to `MANUAL_REVIEW`.
-- Queue metrics: **71 submittable**, **1,803 applyable**, **3,494 queued** (9,085+ total indexed).
+- **Ensco, Inc.**, **Prove** (Go concurrency trade-offs), **Discord** (Why Discord?), **Dropbox**, **Onxmaps**, **Aechelon Technology Inc.**, **Strike**, **Myfitnesspal**, **Livefront**: Preserved in `NEEDS_REVIEW`.
+- **0X**, **Supabase**, **OpenAI**, **Palantir**, **Aescape**, **Kong Inc.**, **Turgon Ai**, **Catena Clearing**, **Kestrel Intelligence**: Bot walls safely routed to `MANUAL_REVIEW`.
+- Queue metrics: **1,785 submittable (not held)**, **3,485 queued**, **340 total submitted** (8,101 total tracked).
 
 
 
