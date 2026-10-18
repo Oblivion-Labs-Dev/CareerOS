@@ -1,11 +1,11 @@
 ---
 name: autopilot-night-batch-loop
-description: Autonomous overnight batch application monitoring, fresh-jobs-first intake (postings from the last 24 hours are pulled and applied to before older queued jobs), a 30-minute audit loop, deterministic question resolution, mid-run fix deployment, company cap preservation and a morning handoff for CareerOS.
+description: Autonomous overnight batch application monitoring, fresh-jobs-first intake (postings from the last 24 hours are pulled on each tick and applied to before older queued jobs), a 30-minute audit loop, deterministic question resolution, mid-run fix deployment, company cap preservation and a morning handoff for CareerOS.
 ---
 
 # Autopilot Night Batch Loop Skill
 
-Autonomous, unattended or monitored overnight batch application processing for CareerOS with fresh-jobs-first intake, continuous safety validation, an audit of every job on each 30-minute tick, deterministic question classification, and strict per-company pacing.
+Autonomous, unattended or monitored overnight batch application processing for CareerOS with fresh-jobs-first intake (pulled with each tick), continuous safety validation, an audit of every job on each 30-minute tick, deterministic question classification, and strict per-company pacing.
 
 ## When to Use
 
@@ -23,7 +23,7 @@ Trigger this skill when:
 The night loop never ends on its own. It stops only when the user explicitly says to stop/break/end the night loop.
 
 - **Runner side**: one `POST /application-assistant/autopilot/start` run is already continuous. When `processedCount` reaches `targetProcessCount`, the runner resets its counters and starts the next batch instead of finishing. If the run is found `PAUSED` (queue drained), `STOPPED` or `FAILED` without the user asking, do a fresh 24-hour pull and start it again (`{"targetProcessCount": 100, "concurrency": 1}`). The only exception is a stop-the-run defect (see Step 2b), which you must fix before restarting.
-- **Agent side**: monitoring must survive between chat turns. Arm a recurring wake-up with the `loop` skill (local: a background PowerShell loop printing a sentinel such as `AGENT_LOOP_TICK_nightloop` every ~30 minutes, watched with `notify_on_output`). On every tick run the audit, the fresh-pull check and the review-question check below. Check the terminals for an existing loop first; never run two.
+- **Agent side**: monitoring must survive between chat turns. Arm a recurring wake-up with the `loop` skill (local: a background PowerShell loop printing a sentinel such as `AGENT_LOOP_TICK_nightloop` every ~30 minutes, watched with `notify_on_output`). On every tick run the fresh 24-hour job pull, the audit, and the review-question check below. Check the terminals for an existing loop first; never run two.
 - **Breaking the loop**: only on an explicit user request. Then kill the sentinel loop's PID, `POST /application-assistant/autopilot/stop`, and confirm both stopped.
 
 ### Before the user leaves
@@ -61,9 +61,9 @@ Open the night's entry in `NIGHT_BATCH_DECISIONS.md` (see "Morning Handoff") wit
 
 ---
 
-## Fresh-Jobs-First Intake (last 24 hours)
+## Fresh-Jobs-First Intake (last 24 hours — pulled every tick)
 
-Postings published in the **last 24 hours** are pulled and applied to before anything already waiting in the queue. Run this at the start of every night loop, and again whenever the last fresh pull is more than ~3 hours old (check it on every tick). The runner's own 14-day scrape also covers the last 24 hours, so it counts as a fresh pull. When the run is starved (see "When the submittable boards run dry"), pull on every tick.
+Postings published in the **last 24 hours** are pulled on **each tick of the night loop** and applied to before anything already waiting in the queue. Run this at the start of the night loop and on every 30-minute tick. The runner's own 14-day scrape also covers the last 24 hours, so if a 14-day scrape is already running, wait for it or let it complete. If a scrape returns 409 (already running), check status until it finishes.
 
 ### Step 1: Pull the last 24 hours of postings
 Run this **before** `POST /application-assistant/autopilot/start`. Starting the runner also starts the queue preprocessor, which immediately launches its own 14-day (`hours=336`) scrape, and only one scrape can run at a time.
@@ -159,7 +159,16 @@ The run is **starved** when `submittable` is 0 and no job was submitted in the l
 
 ## The Audit (every tick)
 
-Run this on every tick, covering **every job touched since the previous tick**. A 30-minute tick covers 40–120 jobs, most of them fast `MANUAL_REVIEW` outcomes, so a "last 15 jobs" query misses most of them. Also re-run the Fresh-Jobs-First Intake when it is due.
+Run this on every tick, covering **every job touched since the previous tick**. A 30-minute tick covers 40–120 jobs, most of them fast `MANUAL_REVIEW` outcomes, so a "last 15 jobs" query misses most of them.
+
+### Step 0: Pull Fresh Postings (Every Tick)
+Run the fresh 24-hour job pull on every tick:
+```bash
+curl -s -X POST http://127.0.0.1:4000/jobs/discover/scrape \
+  -H "Content-Type: application/json" \
+  -d '{"hours": 24, "roles": "swe", "mode": "ats"}'
+```
+If a scrape is currently running (returns 409), check `GET http://127.0.0.1:4000/jobs/discover/status` until `running` is false or allow the running scrape to complete. The preprocessor will enqueue new roles at the highest priority.
 
 ### Step 1: Query Runner Status
 ```bash

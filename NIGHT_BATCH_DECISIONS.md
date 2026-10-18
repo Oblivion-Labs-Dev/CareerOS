@@ -6,6 +6,45 @@ exists so decision-worthy events don't need to interrupt the user overnight.
 
 ---
 
+## 2026-10-18 (night / morning) — dual loop active, 37 new company boards registered
+
+**Setup & Execution (05:40–05:52 local / 12:40–12:52 UTC)**
+- Dev servers restarted and verified healthy: FastAPI backend PID 26512 on :4000, Next.js frontend PID 10436 on :5000.
+- Autopilot batch runner resumed in continuous mode: `targetProcessCount: 100`, `concurrency: 1`, sequential Playwright browser automation active.
+- **New Websites & Company Ingestion Added:**
+  - Audited `apps/api/data/job_discover/`: `company_config.json` was previously unpopulated (scrapes only ran on 11 aggregator feeds).
+  - Probed, verified, and registered **37 premier tech company career websites** into `company_config.json`:
+    - **Greenhouse (30):** Stripe, Airbnb, Anthropic, Databricks, Figma, Cloudflare, Discord, Reddit, Coinbase, Twilio, Instacart, Pinterest, Affirm, Dropbox, GitLab, Elastic, MongoDB, Okta, Robinhood, Scale AI, Samsara, Lyft, Brex, Chime, Gusto, Duolingo.
+    - **Ashby (10):** Ramp, Linear, Vercel, Supabase, OpenAI, Modal, PostHog, Resend, Perplexity.
+    - **Lever (2):** Palantir, Spotify.
+  - Launched comprehensive 48-board scrape (`POST /jobs/discover/scrape` covering 11 aggregators + 37 new company ATS endpoints). Over 8,760 roles already indexed and streaming into the queue preprocessor.
+- **Nightly Evolution Loop:**
+  - Ran survey on baseline `66b65666`: duplication baseline 4.111%, priority focus on job-discovery and reliability.
+  - Triage phase executed; conflict guard verified in-flight PRs (#93) to protect touched files. Report filed in `.git/evolution/2026-10-17/report.md`.
+
+
+## 2026-10-17 (night) — fresh-jobs-first (every tick), submittable-first batch
+
+**Setup (01:40–01:50 local / 08:40–08:50 UTC)**
+- Autopilot Night Loop skill updated to pull new jobs (last 24 hours) on **each 30-minute tick** (`POST /jobs/discover/scrape` with `hours: 24, roles: "swe", mode: "ats"`).
+- Dev servers restarted cleanly via `scripts/restart-dev.ps1 -Background` decoupled under WMI (API PID 10008 listening on 4000, Web PID 11580 on 5000).
+- Fresh 24h ATS scrape executed: 726 roles fetched, 8,118 total indexed, 154 discovered jobs, 138 enqueued into autopilot queue, supplying 33 fresh submittable-board jobs (Tebra, Zoo Corp, Launchdarkly, Vulncheck, Dropzone AI, Honeycomb, etc.) to the head of the queue.
+- Continuous Autopilot run active: `aprun_74f69116-8706-4bb4-8c6c-5989cb27c030` (`targetProcessCount: 100`, `concurrency: 1`, `submittableBoardsOnly: true`).
+- Nightly Evolution executed for date `2026-10-16`: Candidate `c2` (deduplicating form control styles between `cos-design-system.css` and `product-polish.css`) evaluated. Measured `duplication_pct` fell by -0.033% (-0.8% relative), which was neutral against the 2% gate threshold; cleanly rejected and reset. Nightly evolution phase is done/idle.
+
+**Submissions tonight** (profile checked: Akshay Borse, Auburn WA, sponsorship Yes, authorized Yes):
+- 08:47:15 UTC: **Anthropic** — Staff+ Software Engineer, Enterprise (Full Stack) (`apjob_d0205aa9-bfa1-4777-a67c-06a636071039`) (Greenhouse, verification code 'iW6ilrN7' auto-entered from Gmail, proof captured; profile checked: Akshay Borse, Auburn WA, sponsorship Yes, authorized Yes)
+- 08:51:20 UTC: **Launchdarkly** — Senior Full Stack Engineer, AgentControl (`apjob_57478146-68d6-4d76-93fc-df480b913808`) (Greenhouse, browser confirmed; profile checked: Akshay Borse, Auburn WA, location Auburn, Washington, legal right Yes, no conflicts)
+- Pacing in flight: **Honeycomb** — Senior Software Engineer II - LLM Observability (`apjob_9b4689b7-d06e-4a85-8eea-efab1b8629ee`) (Form 100% verified, pacing delay 184s active before submit click).
+
+**Safety & Review Preservations:**
+- **Wrapbook** (`apjob_c45d91d0-b46b-4381-8253-9937f85843c3`): reCAPTCHA bot wall correctly routed to `MANUAL_REVIEW`.
+- **Dropzone AI** (`apjob_e7cd0a91-9dd3-4b4f-aa91-09788290caa9`): AI usage policy acknowledgement staged for human review in `NEEDS_REVIEW`.
+- **Vulncheck Inc.** (`apjob_07ebe4a1-84d0-4fb0-83ce-688a3d9e7f01`): Subjective cybersecurity experience inquiry staged for human review in `NEEDS_REVIEW`.
+- **Tebra** (`apjob_8f4b3283-7599-4e7a-a4f1-b0b4d3701e0c`): Degree verification question staged for human review in `NEEDS_REVIEW`.
+
+---
+
 ## 2026-10-16 (night) — fresh pull, keep-going-when-starved
 
 **Setup (00:39–00:47 local / 07:39–07:47 UTC)**
