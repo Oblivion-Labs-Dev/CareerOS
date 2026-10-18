@@ -53,7 +53,8 @@ exists so decision-worthy events don't need to interrupt the user overnight.
 - 15:22:21 UTC: **Gitlab** — Senior Backend Engineer, Platform Enablement (`apjob_22a0f3f9-4bc6-4ede-949e-42208cca6d34`) (Greenhouse, 8-character verification code 'DP8ZivjN' auto-intercepted from Gmail, browser confirmed; profile checked: Akshay Borse, 4 EEOC options resolved, 100% verified against profile/DOM)
 - 15:27:23 UTC: **Datadog** — Senior Security Engineer, Security Incident Response Team (`apjob_4bff9ace-80cf-4749-88a3-d8beb91641cc`) (Greenhouse, 8-character verification code 'RaE7IDIj' auto-intercepted from Gmail, browser confirmed; profile checked: Akshay Borse, 6 EEOC options resolved, 100% verified against profile/DOM)
 - 15:32:20 UTC: **Reddit** — Senior Software Engineer, Consumer Engineering (`apjob_347290b6-2333-4573-bdda-b4f419d1998c`) (Greenhouse, 8-character verification code 'zLmQq3Rv' auto-intercepted from Gmail, browser confirmed; profile checked: Akshay Borse, 10 EEOC options resolved, current employer Microsoft)
-- Pacing in flight: **Gitlab** — Senior CX Platform Engineer (`apjob_df2d4fc7-5cdc-425b-ae1d-260d5e2c5a40`) (Form 100% verified against profile/DOM, pacing delay 245s active before final submit)
+- 15:37:21 UTC: **Gitlab** — Senior CX Platform Engineer (`apjob_df2d4fc7-5cdc-425b-ae1d-260d5e2c5a40`) (Greenhouse, 8-character verification code 'RKUEy7HO' auto-intercepted from Gmail, browser confirmed; profile checked: Akshay Borse, 6 EEOC options resolved, 100% verified against profile/DOM)
+- Pacing in flight: **Carta** — Staff Software Engineer, Investors (`apjob_2d61a449-1c75-43ae-be82-50651775607f`) (Form 100% verified against profile/DOM, pacing delay 256s active before final submit)
 
 **New ATS Boards Ingested (58 Direct Company Boards Total):**
 - Probed and registered 21 additional premier tech company boards (10 Greenhouse, 11 Ashby): Datadog, Asana, Waymo, Roblox, Rubrik, Cockroach Labs, Toast, Carta, Klaviyo, Checkr, Cursor, ElevenLabs, Cohere, Pinecone, LangChain, Replit, Runway, Synthesia, Writer, Harvey, Braintrust.
@@ -62,7 +63,7 @@ exists so decision-worthy events don't need to interrupt the user overnight.
 **Safety & Review Preservations:**
 - **Discord** (Why Discord?), **GitLab** (Self-rating in Go 0-5), **Ensco, Inc.**, **Prove** (Go concurrency trade-offs), **Dropbox**, **Onxmaps**, **Aechelon Technology Inc.**, **Strike**, **Myfitnesspal**, **Livefront**: Preserved in `NEEDS_REVIEW`.
 - **ElevenLabs**, **LangChain**, **Replit**, **Braintrust**, **Harvey**, **Prudentia Sciences**, **Aurora Innovation**, **0X**, **Supabase**, **OpenAI**, **Palantir**, **Aescape**, **Kong Inc.**, **Turgon Ai**, **Catena Clearing**, **Kestrel Intelligence**: Bot walls safely routed to `MANUAL_REVIEW`.
-- Queue metrics: **1,774 submittable (not held)**, **3,474 queued**, **349 total submitted** (9,182+ total tracked).
+- Queue metrics: **1,773 submittable (not held)**, **3,473 queued**, **350 total submitted** (9,182+ total tracked).
 
 
 
