@@ -69,7 +69,7 @@ exists so decision-worthy events don't need to interrupt the user overnight.
 - 16:42:21 UTC: **Twilio** — Senior Security Engineer, Incident Response (`apjob_2d832e9e-398f-4237-8944-58bf2d127314`) (Greenhouse, browser confirmed; profile checked: Akshay Borse, amsborse+career@gmail.com, 9 EEOC options resolved, 100% verified against profile/DOM)
 - 16:47:21 UTC: **Checkr** — Senior Software Engineer (Ruby/Rails), MVR (`apjob_12ce8424-91a0-4201-911a-8211e9e7f59d`) (Greenhouse, 8-character verification code 'Bg49Dcki' auto-intercepted from Gmail, browser confirmed; profile checked: Akshay Borse, amsborse+career@gmail.com, 6 EEOC options resolved, 100% verified against profile/DOM)
 - 16:52:22 UTC: **Gusto** — Staff Software Engineer, Time and Scheduling (`apjob_72ea29c5-6605-4c24-8133-762851d9c97b`) (Greenhouse, 8-character verification code 'tdaDmSiM' auto-intercepted from Gmail, browser confirmed; profile checked: Akshay Borse, amsborse+career@gmail.com, 12 EEOC/custom options resolved, 100% verified against profile/DOM)
-- In flight: **Discord** — Senior Software Engineer, Ads (`apjob_1e22fef5-c4fa-4688-9bcd-a6bd960ee2f8`)
+- In flight: **Chime** — Senior Application Security Engineer (`apjob_264cef82-9709-4337-97c7-3be82e43b496`) (pacing delay active before submit)
 
 **New ATS Boards Ingested (58 Direct Company Boards Total):**
 - Probed and registered 21 additional premier tech company boards (10 Greenhouse, 11 Ashby): Datadog, Asana, Waymo, Roblox, Rubrik, Cockroach Labs, Toast, Carta, Klaviyo, Checkr, Cursor, ElevenLabs, Cohere, Pinecone, LangChain, Replit, Runway, Synthesia, Writer, Harvey, Braintrust.
