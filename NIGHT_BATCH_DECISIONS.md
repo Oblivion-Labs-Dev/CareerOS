@@ -74,14 +74,14 @@ exists so decision-worthy events don't need to interrupt the user overnight.
 - 17:07:21 UTC: **Anthropic** — Staff Forward Deployed Engineer (`apjob_e3313119-5f8e-44f7-a84b-baf30ea7f145`) (Greenhouse, browser confirmed; profile checked: Akshay Borse, amsborse+career@gmail.com, 9 EEOC options resolved, 100% verified against profile/DOM)
 - 17:12:23 UTC: **Scale AI** — Senior Software Engineer, Orchestration Platform (`apjob_82e6786e-3b9b-4b76-b65a-e62629fc6fe1`) (Greenhouse, 8-character verification code 'pQv1S9vz' auto-intercepted from Gmail, browser confirmed; profile checked: Akshay Borse, amsborse+career@gmail.com, 100% verified against profile/DOM)
 - 17:17:22 UTC: **Twilio** — Principal Software Engineer (`apjob_9a1c7765-2ae5-464c-a7bc-ff2e74c3a770`) (Greenhouse, 8-character verification code 'OjqNGksD' auto-intercepted from Gmail, browser confirmed; profile checked: Akshay Borse, amsborse+career@gmail.com, 9 EEOC/custom options resolved, 100% verified against profile/DOM)
-- In flight: **Discord** — Senior Data Engineer (`apjob_54849c79-547b-4cb5-a01e-f1e4853a890c`) (form opened, inspecting custom questions)
+- In flight: **Elastic** — Principal Software Engineer I - Platform Billing Experience (`apjob_8799c4e8-7be7-4002-8074-fc207425839d`) (Greenhouse iframe opened, inspecting fields and pacing)
 
 **New ATS Boards Ingested (58 Direct Company Boards Total):**
 - Probed and registered 21 additional premier tech company boards (10 Greenhouse, 11 Ashby): Datadog, Asana, Waymo, Roblox, Rubrik, Cockroach Labs, Toast, Carta, Klaviyo, Checkr, Cursor, ElevenLabs, Cohere, Pinecone, LangChain, Replit, Runway, Synthesia, Writer, Harvey, Braintrust.
 - Persisted permanent seed configuration to `apps/api/app/services/job_discover/seeds/default_company_config.json` and added resilient fallback in `scraper_service.py`. Completed 69-board scrape indexing 9,182+ roles (414 fresh matches).
 
 **Safety & Review Preservations:**
-- **Discord** (Why Discord?), **GitLab** (Self-rating in Go 0-5), **Ensco, Inc.**, **Prove** (Go concurrency trade-offs), **Dropbox**, **Onxmaps**, **Aechelon Technology Inc.**, **Strike**, **Myfitnesspal**, **Livefront**: Preserved in `NEEDS_REVIEW`.
+- **Discord** (Why Discord? & production data model design/tradeoffs essay), **GitLab** (Self-rating in Go 0-5), **Ensco, Inc.**, **Prove** (Go concurrency trade-offs), **Dropbox**, **Onxmaps**, **Aechelon Technology Inc.**, **Strike**, **Myfitnesspal**, **Livefront**: Preserved in `NEEDS_REVIEW`.
 - **ElevenLabs**, **LangChain**, **Replit**, **Braintrust**, **Harvey**, **Prudentia Sciences**, **Aurora Innovation**, **0X**, **Supabase**, **OpenAI**, **Palantir**, **Aescape**, **Kong Inc.**, **Turgon Ai**, **Catena Clearing**, **Kestrel Intelligence**: Bot walls safely routed to `MANUAL_REVIEW`.
 - Queue metrics: **1,770 submittable (not held)**, **3,470 queued**, **353 total submitted** (9,182+ total tracked).
 
