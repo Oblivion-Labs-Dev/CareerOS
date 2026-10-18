@@ -8,19 +8,25 @@ exists so decision-worthy events don't need to interrupt the user overnight.
 
 ## 2026-10-18 (night / morning) — dual loop active, 37 new company boards registered
 
-**Setup & Execution (05:40–05:52 local / 12:40–12:52 UTC)**
+**Setup & Execution (05:40–06:30 local / 12:40–13:30 UTC)**
 - Dev servers restarted and verified healthy: FastAPI backend PID 26512 on :4000, Next.js frontend PID 10436 on :5000.
-- Autopilot batch runner resumed in continuous mode: `targetProcessCount: 100`, `concurrency: 1`, sequential Playwright browser automation active.
+- Autopilot batch runner running in continuous mode: `targetProcessCount: 100`, `concurrency: 1`, sequential Playwright browser automation active. Cumulative processed applications surged to 6,240+.
 - **New Websites & Company Ingestion Added:**
   - Audited `apps/api/data/job_discover/`: `company_config.json` was previously unpopulated (scrapes only ran on 11 aggregator feeds).
   - Probed, verified, and registered **37 premier tech company career websites** into `company_config.json`:
-    - **Greenhouse (30):** Stripe, Airbnb, Anthropic, Databricks, Figma, Cloudflare, Discord, Reddit, Coinbase, Twilio, Instacart, Pinterest, Affirm, Dropbox, GitLab, Elastic, MongoDB, Okta, Robinhood, Scale AI, Samsara, Lyft, Brex, Chime, Gusto, Duolingo.
-    - **Ashby (10):** Ramp, Linear, Vercel, Supabase, OpenAI, Modal, PostHog, Resend, Perplexity.
+    - **Greenhouse (26):** Stripe, Airbnb, Anthropic, Databricks, Figma, Cloudflare, Discord, Reddit, Coinbase, Twilio, Instacart, Pinterest, Affirm, Dropbox, GitLab, Elastic, MongoDB, Okta, Robinhood, Scale AI, Samsara, Lyft, Brex, Chime, Gusto, Duolingo.
+    - **Ashby (9):** Ramp, Linear, Vercel, Supabase, OpenAI, Modal, PostHog, Resend, Perplexity.
     - **Lever (2):** Palantir, Spotify.
-  - Launched comprehensive 48-board scrape (`POST /jobs/discover/scrape` covering 11 aggregators + 37 new company ATS endpoints). Over 8,760 roles already indexed and streaming into the queue preprocessor.
+  - Completed 48-board scrape (`POST /jobs/discover/scrape` covering 11 aggregators + 37 new company ATS endpoints): 1,146 roles fetched, 8,892 total indexed, 307 fresh matches. Submittable jobs surged from 30 to **83**, and queue size to 3,431.
+- **Defect Discovery & Resolution:**
+  - Audit revealed `BrowserType.launch: Executable doesn't exist` caused by missing Playwright headless shell binary in local AppData.
+  - Executed `playwright install chromium`, downloading Chrome for Testing and Chrome Headless Shell v1243.
+  - Automatically reprocessed 28 staged premier tech jobs (Anthropic, Twilio, Robinhood, GitLab, Samsara, Supabase, etc.) back to `QUEUED`.
+  - Verified live browser automation restored: Kunai — Senior Backend Engineer (Golang) form 100% verified against profile/DOM, pacing delay 157s active before submit.
 - **Nightly Evolution Loop:**
   - Ran survey on baseline `66b65666`: duplication baseline 4.111%, priority focus on job-discovery and reliability.
   - Triage phase executed; conflict guard verified in-flight PRs (#93) to protect touched files. Report filed in `.git/evolution/2026-10-17/report.md`.
+
 
 
 ## 2026-10-17 (night) — fresh-jobs-first (every tick), submittable-first batch
