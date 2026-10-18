@@ -57,7 +57,8 @@ exists so decision-worthy events don't need to interrupt the user overnight.
 - 15:42:22 UTC: **Carta** — Staff Software Engineer, Investors (`apjob_2d61a449-1c75-43ae-be82-50651775607f`) (Greenhouse, 8-character verification code auto-intercepted from Gmail, browser confirmed; profile checked: Akshay Borse, 6 EEOC options resolved, 100% verified against profile/DOM)
 - 15:47:22 UTC: **Reddit** — Senior Android Software Engineer, Consumer Engineering (`apjob_059ee353-e7dc-486c-9098-8ec0d3bd7109`) (Greenhouse, 8-character verification code auto-intercepted from Gmail, browser confirmed; profile checked: Akshay Borse, 10 EEOC options resolved, current employer Microsoft)
 - 15:52:25 UTC: **Gitlab** — Staff Forward Deployed Engineer (`apjob_0bd5a2c1-1cb4-4da2-a4b0-2b9c397a4e43`) (Greenhouse, 8-character verification code 'rn5qLkbv' auto-intercepted from Gmail, browser confirmed; profile checked: Akshay Borse, 6 EEOC options resolved, 100% verified against profile/DOM)
-- In flight: **Discord** — Senior Full-Stack Software Engineer, Growth (`apjob_b22c0c8d-1ec9-4ca5-b083-506167ffc8de`)
+- 15:57:22 UTC: **Gusto** — Senior Staff Software Engineer, Gusto Agent & Partner Experiences (API) (`apjob_27b79b05-c56c-4149-b1d7-73daddb12b8c`) (Greenhouse, 8-character verification code 'IsdMNYl0' auto-intercepted from Gmail, browser confirmed; profile checked: Akshay Borse, 12 EEOC/custom options resolved, 100% verified against profile/DOM)
+- In flight: **Anthropic** — Staff+ Software Engineer, Enterprise (Platform) (`apjob_ca9fb8e2-1bf5-4496-bbbb-e8416a09a645`) (pacing delay active before submit)
 
 **New ATS Boards Ingested (58 Direct Company Boards Total):**
 - Probed and registered 21 additional premier tech company boards (10 Greenhouse, 11 Ashby): Datadog, Asana, Waymo, Roblox, Rubrik, Cockroach Labs, Toast, Carta, Klaviyo, Checkr, Cursor, ElevenLabs, Cohere, Pinecone, LangChain, Replit, Runway, Synthesia, Writer, Harvey, Braintrust.
