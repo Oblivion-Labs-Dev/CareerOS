@@ -37,15 +37,15 @@ exists so decision-worthy events don't need to interrupt the user overnight.
 - 14:02:26 UTC: **Hiddenlayer** — Platform Engineer (`apjob_3c369553-467b-46f0-b94a-9a0d4d88783d`) (Greenhouse, browser confirmed; profile checked: Akshay Borse, location Auburn, Washington, United States)
 - 14:07:20 UTC: **Life360** — Senior Software Engineer II, Mobile - Revenue Experiences (AI Native) (`apjob_e449fa67-1fa3-41de-963e-1bf303c11b8b`) (Greenhouse, browser confirmed; profile checked: Akshay Borse, Auburn, Washington, authorized Yes, sponsorship Yes)
 - 14:12:20 UTC: **Launchdarkly** — Senior Infrastructure Engineer (`apjob_afcf9f2e-bf71-4181-85b7-0aab56ac1484`) (Greenhouse, browser confirmed; profile checked: Akshay Borse, Auburn, Washington, authorized Yes, permanent location Auburn, Washington)
-- Pacing in flight: **Reddit** — Senior Software Engineer - Messaging (`apjob_db4e8962-7516-4258-9b03-f8f52032e49c`) (Form 100% verified, pacing delay 211s active before final submit)
+- 14:17:22 UTC: **Reddit** — Senior Software Engineer - Messaging (`apjob_db4e8962-7516-4258-9b03-f8f52032e49c`) (Greenhouse, browser confirmed; profile checked: Akshay Borse, Auburn, Washington, authorized Yes, current employer Microsoft)
+- 14:22:22 UTC: **Cloudflare** — Senior Software Engineer, R2 Metadata (`apjob_b9176a05-0da1-479b-98cc-21dfd6c254db`) (Greenhouse, browser confirmed; profile checked: Akshay Borse, Auburn, Washington, relocation willing, legal name Akshay Borse)
+- 14:27:20 UTC: **Robinhood** — Senior Software Engineer, International (`apjob_bda90561-d006-4c0d-9b90-d36458c07874`) (Greenhouse, browser confirmed; profile checked: Akshay Borse, Auburn, Washington, authorized Yes, sponsorship Yes, Bellevue WA preferred office)
+- Pacing in flight: **Twilio** — Senior Software Engineer (`apjob_ac49a028-6585-42dd-80a3-29aea83f9fd7`) (Form 100% verified, pacing delay 245s active before final submit)
 
 **Safety & Review Preservations:**
-- **Dropbox** (`apjob_79cd1eed-b60a-4d6e-b262-189fea93a0eb`): Custom Greenhouse embed iframe DOM verification mismatch; staged for human review in `NEEDS_REVIEW`.
-- **Onxmaps** (`apjob_322b9b91-09d9-4ba6-b6a3-d0c135a11af4`): Subjective reference & infrastructure inquiries staged in `NEEDS_REVIEW`.
-- **Aechelon Technology Inc.** (`apjob_628ac0a2-b8c5-48d0-952c-1fae48bbce35`): Personal declaration staged in `NEEDS_REVIEW`.
-- **Strike**, **Myfitnesspal**, **Livefront**: Preserved in `NEEDS_REVIEW`.
+- **Dropbox**, **Onxmaps**, **Aechelon Technology Inc.**, **Strike**, **Myfitnesspal**, **Livefront**: Preserved in `NEEDS_REVIEW`.
 - **Palantir**, **Aescape**, **Kong Inc.**, **Turgon Ai**, **Catena Clearing**, **OpenAI**, **Supabase**, **Kestrel Intelligence**: Bot walls safely routed to `MANUAL_REVIEW`.
-- Queue metrics: **76 submittable**, **1,798 applyable**, **3,486 queued** (9,069+ total indexed).
+- Queue metrics: **71 submittable**, **1,803 applyable**, **3,494 queued** (9,085+ total indexed).
 
 
 
