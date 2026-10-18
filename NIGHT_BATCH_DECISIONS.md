@@ -44,12 +44,17 @@ exists so decision-worthy events don't need to interrupt the user overnight.
 - 14:37:20 UTC: **Cloudflare** — Senior Software Engineer - Egress (Go/Rust) (`apjob_5114328c-b344-4bda-aafc-b46588f3af75`) (Greenhouse, browser confirmed; profile checked: Akshay Borse, willing to relocate, legal name Akshay Borse)
 - 14:42:22 UTC: **Datadog** — Senior Software Engineer - Husky Storage (`apjob_73711088-ba27-4e17-aa19-11fc26a4006a`) (Greenhouse, browser confirmed; profile checked: Akshay Borse, location Auburn, WA)
 - 14:47:20 UTC: **Gitlab** — Senior Backend Engineer, Platform Readiness (`apjob_93b10c9c-e079-46ea-bc24-d6f7ad8328cc`) (Greenhouse, browser confirmed; profile checked: Akshay Borse, amsborse+career@gmail.com, 4 EEOC dropdowns resolved, 100% verified against profile/DOM)
-- In flight: **Cloudflare** — Senior Software Engineer - Network Connectivity (Go/Rust) (`apjob_81e08b2a-1a8f-4f71-9b69-6750586820bb`)
+- 14:52:20 UTC: **Cloudflare** — Senior Software Engineer - Network Connectivity (Go/Rust) (`apjob_81e08b2a-1a8f-4f71-9b69-6750586820bb`) (Greenhouse, browser confirmed; profile checked: Akshay Borse, amsborse+career@gmail.com, willing to relocate, legal name Akshay Borse)
+- Pacing in flight: **Reddit** — Senior Software Engineer - DevX (`apjob_b66ae544-c4b2-45fd-998e-f36fd2f600da`) (Form 100% verified, pacing delay 255s active before final submit)
+
+**New ATS Boards Ingested (58 Direct Company Boards Total):**
+- Probed and registered 21 additional premier tech company boards (10 Greenhouse, 11 Ashby): Datadog, Asana, Waymo, Roblox, Rubrik, Cockroach Labs, Toast, Carta, Klaviyo, Checkr, Cursor, ElevenLabs, Cohere, Pinecone, LangChain, Replit, Runway, Synthesia, Writer, Harvey, Braintrust.
+- Persisted permanent seed configuration to `apps/api/app/services/job_discover/seeds/default_company_config.json` and added resilient fallback in `scraper_service.py`. Completed 69-board scrape indexing 9,182+ roles (414 fresh matches).
 
 **Safety & Review Preservations:**
 - **Ensco, Inc.**, **Prove** (Go concurrency trade-offs), **Discord** (Why Discord?), **Dropbox**, **Onxmaps**, **Aechelon Technology Inc.**, **Strike**, **Myfitnesspal**, **Livefront**: Preserved in `NEEDS_REVIEW`.
 - **0X**, **Supabase**, **OpenAI**, **Palantir**, **Aescape**, **Kong Inc.**, **Turgon Ai**, **Catena Clearing**, **Kestrel Intelligence**: Bot walls safely routed to `MANUAL_REVIEW`.
-- Queue metrics: **1,785 submittable (not held)**, **3,485 queued**, **340 total submitted** (8,101 total tracked).
+- Queue metrics: **1,784 submittable (not held)**, **3,484 queued**, **341 total submitted** (9,182+ total tracked).
 
 
 
