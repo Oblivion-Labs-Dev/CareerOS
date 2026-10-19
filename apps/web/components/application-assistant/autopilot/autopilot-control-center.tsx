@@ -81,6 +81,7 @@ export function AutopilotControlCenter({
   // card can show what is missing before Start is pressed rather than after a
   // refusal. A failure here is never fatal: the gate still refuses server-side.
   const [readiness, setReadiness] = useState<AutopilotReadiness | null>(null);
+  const [jobSortBy, setJobSortBy] = useState<any>("relevance");
 
   // A stale "?tab=diagnostics" link is the one legacy case that actually
   // points somewhere else now — Diagnostics moved to its own page rather
@@ -96,7 +97,7 @@ export function AutopilotControlCenter({
     void getAutopilotJobsPage({
       status: ALL_STATUSES.join(","),
       limit: 100,
-      sortBy: "updatedAt",
+      sortBy: jobSortBy,
       sortDir: "desc",
     })
       .then((res) => setJobs((res.jobs || []) as AutopilotJobRow[]))

@@ -53,13 +53,14 @@ export function FailedJobsCenter({ onReprocessSuccess, onOpenPrep }: { onReproce
   const [draftQuestion, setDraftQuestion] = useState("");
   const [draftAnswer, setDraftAnswer] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [sortBy, setSortBy] = useState<any>("relevance");
   const sentinelRef = useRef<HTMLDivElement | null>(null);
   const loadingMoreRef = useRef(false);
 
   const fetchFailed = async () => {
     setLoading(true);
     try {
-      const res = await getAutopilotJobsPage({ status: "FAILED", sortBy: "updatedAt", sortDir: "desc", limit: PAGE_SIZE, offset: 0 });
+      const res = await getAutopilotJobsPage({ status: "FAILED", sortBy, sortDir: "desc", limit: PAGE_SIZE, offset: 0 });
       const list = res.jobs || [];
       setFailedList(list);
       setTotalCount(res.total ?? list.length);
@@ -80,7 +81,7 @@ export function FailedJobsCenter({ onReprocessSuccess, onOpenPrep }: { onReproce
     try {
       const res = await getAutopilotJobsPage({
         status: "FAILED",
-        sortBy: "updatedAt",
+        sortBy,
         sortDir: "desc",
         limit: PAGE_SIZE,
         offset: failedList.length,
@@ -296,6 +297,10 @@ export function FailedJobsCenter({ onReprocessSuccess, onOpenPrep }: { onReproce
     fetchFailed();
   }, []);
 
+  useEffect(() => {
+    fetchFailed();
+  }, [sortBy]);
+
   return (
     <div className="space-y-5">
       <div className="relative overflow-hidden rounded-[28px] border border-white/[0.08] bg-[#0a101b] p-6 sm:p-8 shadow-[0_24px_80px_rgba(0,0,0,0.28)]">
@@ -314,6 +319,16 @@ export function FailedJobsCenter({ onReprocessSuccess, onOpenPrep }: { onReproce
           <span className="rounded-full bg-rose-300/10 px-3 py-1.5 text-xs font-medium text-rose-200">
             {totalCount} require review
           </span>
+          <select
+            value={sortBy}
+            onChange={(e) => setSortBy(e.target.value)}
+            className="rounded-lg border border-white/10 bg-[#0d121c] px-3 py-1.5 text-xs text-slate-200"
+            aria-label="Sort failed jobs"
+          >
+            <option value="relevance">Relevance (AI -&gt; FDE -&gt; SWE)</option>
+            <option value="matchScore">Match %</option>
+            <option value="updatedAt">Most recent</option>
+          </select>
           {failedList.length > 0 && (
             <button
               type="button"

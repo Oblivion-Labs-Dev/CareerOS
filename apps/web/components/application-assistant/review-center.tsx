@@ -29,6 +29,23 @@ function fullReviewReason(job: any): { summary: string; blockingIssues: any[]; w
   };
 }
 
+function sortStaged(list: any[], sortBy: string): any[] {
+  const arr = [...list];
+  if (sortBy === "relevance") {
+    const rank = (t: string) => {
+      const l = (t || "").toLowerCase();
+      if (l.includes("ai engineer") || l.includes("llm") || l.includes("genai")) return 3;
+      if (l.includes("forward deployed")) return 2;
+      if (l.includes("senior software") || l.includes("software engineer")) return 1;
+      return 0;
+    };
+    arr.sort((a, b) => rank(b.title || b.roleTitle || "") - rank(a.title || a.roleTitle || "") || (b.matchScore || 0) - (a.matchScore || 0));
+  } else if (sortBy === "matchScore") {
+    arr.sort((a, b) => (b.matchScore || 0) - (a.matchScore || 0));
+  }
+  return arr;
+}
+
 export function ReviewCenter() {
   const [stagedList, setStagedList] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
@@ -39,12 +56,13 @@ export function ReviewCenter() {
   const [diffModalData, setDiffModalData] = useState<TailorDiffResponse | null>(null);
   const [diffLoading, setDiffLoading] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [sortBy, setSortBy] = useState<string>("relevance");
 
   const fetchStaged = async () => {
     try {
       const res = await getStagedApplications();
       const list = res.staged || [];
-      setStagedList(list);
+      setStagedList(sortStaged(list, sortBy));
       setSelectedId((prev) => (prev && list.some((j: any) => j.id === prev) ? prev : list[0]?.id ?? null));
       setError(null);
     } catch (err: any) {
@@ -55,6 +73,10 @@ export function ReviewCenter() {
   useEffect(() => {
     fetchStaged();
   }, []);
+
+  useEffect(() => {
+    setStagedList((prev) => sortStaged(prev, sortBy));
+  }, [sortBy]);
 
   const handleApprove = async (jobId: string, questionText: string) => {
     const answerToSubmit = editingAnswers[jobId]?.trim() || "";
@@ -226,6 +248,15 @@ export function ReviewCenter() {
           <span className="px-3.5 py-1 text-xs font-bold rounded-full bg-amber-500/15 border border-amber-500/40 text-amber-300 shadow-[0_0_12px_rgba(245,158,11,0.25)]">
             {stagedList.length} In Review
           </span>
+          <select
+            value={sortBy}
+            onChange={(e) => setSortBy(e.target.value)}
+            className="px-3 py-1 text-xs rounded-xl border border-white/10 bg-[#0d121c] text-slate-200"
+            aria-label="Sort review jobs"
+          >
+            <option value="relevance">Relevance (AI -&gt; FDE -&gt; SWE)</option>
+            <option value="matchScore">Match %</option>
+          </select>
           {stagedList.length > 0 && (
             <button
               onClick={handleCopyAllInReview}
