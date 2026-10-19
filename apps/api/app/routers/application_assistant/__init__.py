@@ -19,6 +19,7 @@ from . import (
     autopilot,
     diagnostics,
     discovery,
+    drivers,
     jobs,
     llm,
     llm_metrics,
@@ -41,6 +42,7 @@ for _sub in (
     progress.router,
     diagnostics.router,
     autopilot.router,
+    drivers.router,
     llm_metrics.router,
     tailoring_receipts.router,
 ):

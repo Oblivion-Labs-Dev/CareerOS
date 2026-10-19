@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html>
+<head><title>Apply - Acme Corp - Senior Software Engineer</title></head>
+<body>
+<form id="application_form" action="/apply" method="post">
+  <h1>Apply for this job</h1>
+  <label for="first_name">First Name *</label>
+  <input type="text" id="first_name" name="first_name" required>
+
+  <label for="last_name">Last Name *</label>
+  <input type="text" id="last_name" name="last_name" required>
+
+  <label for="email">Email *</label>
+  <input type="email" id="email" name="email" required>
+
+  <label for="phone">Phone</label>
+  <input type="tel" id="phone" name="phone">
+
+  <label for="resume">Resume *</label>
+  <input type="file" id="resume" name="resume" required>
+
+  <label for="linkedin_profile_url">LinkedIn Profile</label>
+  <input type="text" id="linkedin_profile_url" name="linkedin_profile_url">
+
+  <label for="current_company_name">Current Company</label>
+  <input type="text" id="current_company_name" name="current_company_name">
+
+  <label for="location">Current Location *</label>
+  <input type="text" id="location" name="location" required>
+
+  <label for="expected_compensation">Expected Annual Compensation *</label>
+  <input type="text" id="expected_compensation" name="expected_compensation" required>
+
+  <label for="job_description_why">Why do you want to work at Acme? *</label>
+  <textarea id="job_description_why" name="job_description_why" required></textarea>
+
+  <input type="submit" value="Submit Application">
+</form>
+</body>
+</html>
