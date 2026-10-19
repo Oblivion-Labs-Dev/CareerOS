@@ -16,6 +16,8 @@ from app.services.job_discover.sources.greenhouse import GreenhouseSource
 from app.services.job_discover.sources.hackernews import HackerNewsSource
 from app.services.job_discover.sources.himalayas import HimalayasSource
 from app.services.job_discover.sources.fastaijobs import FastAIJobsSource
+from app.services.job_discover.sources.fantasticjobs import FantasticJobsSource
+from app.services.job_discover.sources.theirstack import TheirStackSource
 from app.services.job_discover.sources.icims import ICIMSSource
 from app.services.job_discover.sources.jobicy import JobicySource
 from app.services.job_discover.sources.lever import LeverSource
@@ -64,6 +66,8 @@ __all__ = [
     "TheMuseSource",
     "HimalayasSource",
     "FastAIJobsSource",
+    "FantasticJobsSource",
+    "TheirStackSource",
     "WeWorkRemotelySource",
     "HackerNewsSource",
     "GitHubFeedSource",

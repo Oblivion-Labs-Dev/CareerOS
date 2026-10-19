@@ -1,4 +1,15 @@
+from pathlib import Path
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+from dotenv import load_dotenv
+
+# Key-gated job-discovery adapters (SerpApi, Google CSE) read os.environ at call
+# time, and uvicorn is started without --env-file. pydantic's env_file only
+# feeds this settings model, so export the same file into the process
+# environment as well. Real env vars take precedence (override=False).
+_API_ROOT = Path(__file__).resolve().parents[1]
+load_dotenv(dotenv_path=_API_ROOT / ".env", override=False)
 
 
 class Settings(BaseSettings):

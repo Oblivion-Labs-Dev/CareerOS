@@ -21,8 +21,14 @@ DATA_DIR = Path(__file__).resolve().parents[4] / "data" / "job_discover"
 CACHE_FILE = DATA_DIR / "serpapi_cache.json"
 QUOTA_FILE = DATA_DIR / "serpapi_quota.json"
 
-MONTHLY_FREE_QUOTA = 250
-DAILY_REQUEST_BUDGET = 8  # ~240/month max to ensure we never exceed 250
+# SerpApi's plan billing: only successful searches count toward the monthly
+# allowance (cached, errored and failed calls are free). The free plan allows
+# 100 searches/month, so these guards default to that — every call accrues
+# against a persisted counter that survives restarts. Raise
+# SERPAPI_MONTHLY_QUOTA / SERPAPI_DAILY_BUDGET only for a paid key.
+MONTHLY_FREE_QUOTA = int(os.environ.get("SERPAPI_MONTHLY_QUOTA", "100"))
+DAILY_REQUEST_BUDGET = int(os.environ.get("SERPAPI_DAILY_BUDGET", "3"))
+MAX_JOBS_PER_RUN = int(os.environ.get("SERPAPI_MAX_JOBS_PER_RUN", "90"))
 
 
 class SerpApiGoogleJobsSource(JobSourceAdapter):
@@ -98,6 +104,18 @@ class SerpApiGoogleJobsSource(JobSourceAdapter):
         DATA_DIR.mkdir(parents=True, exist_ok=True)
         CACHE_FILE.write_text(json.dumps(cache, indent=2, ensure_ascii=False), encoding="utf-8")
 
+    # Each term costs one search credit and is cached for 12 hours, so the
+    # default list is deliberately short and AI-first: the free monthly
+    # allowance should spend itself on the tracks the user targets rather
+    # than on a single generic query. The shared title filter still governs
+    # what actually enters the queue.
+    DEFAULT_SEARCH_TERMS = (
+        "AI Engineer",
+        "Machine Learning Engineer",
+        "AI Product Manager",
+        "Senior Software Engineer",
+    )
+
     async def fetch_jobs(
         self,
         client: httpx.AsyncClient,
@@ -114,93 +132,102 @@ class SerpApiGoogleJobsSource(JobSourceAdapter):
             return []
 
         cfg = config or {}
-        query = cfg.get("query") or (f"{company} software engineer" if company and company != "all" else "senior software engineer")
         location = cfg.get("location", "United States")
-
-        q_hash = hashlib.sha256(f"{query}:{location}".encode()).hexdigest()[:16]
-        cache = self._load_cache()
-        cached_entry = cache.get(q_hash)
-
-        now_ts = datetime.now(UTC).timestamp()
-        # 12-hour cache TTL
-        if cached_entry and (now_ts - cached_entry.get("timestamp", 0)) < 12 * 3600:
-            raw_postings = cached_entry.get("results", [])
+        if company and company != "all":
+            terms = (cfg.get("query") or f"{company} software engineer",)
         else:
-            if not self._increment_quota():
-                return []
+            terms = tuple(cfg.get("searchTerms") or self.DEFAULT_SEARCH_TERMS)
 
-            url = "https://serpapi.com/search.json"
-            params = {
-                "engine": "google_jobs",
-                "q": query,
-                "location": location,
-                "api_key": self.api_key,
-            }
-
-            resp = await self.execute_request(client, url, params=params, timeout=25.0)
-            if not resp or resp.status_code != 200:
-                self.record_failure(f"HTTP {resp.status_code if resp else 'No response'}")
-                return []
-
-            data = resp.json()
-            raw_postings = data.get("jobs_results", [])
-            cache[q_hash] = {"timestamp": now_ts, "results": raw_postings}
-            self._save_cache(cache)
-
+        cache = self._load_cache()
+        now_ts = datetime.now(UTC).timestamp()
         jobs: list[NormalizedJob] = []
-        for item in raw_postings:
-            title = item.get("title", "")
-            if compiled_patterns and not matches_title(title, compiled_patterns):
-                continue
 
-            comp_name = item.get("company_name", "Unknown Company")
-            loc = item.get("location", location)
-            apply_options = item.get("apply_options") or []
-            apply_url = apply_options[0].get("link") if apply_options else item.get("share_link", "")
+        for term in terms:
+            if len(jobs) >= MAX_JOBS_PER_RUN:
+                break
 
-            # Job ID from job_id or share_link
-            job_id = s(item.get("job_id") or hash(apply_url))
+            q_hash = hashlib.sha256(f"{term}:{location}".encode()).hexdigest()[:16]
+            cached_entry = cache.get(q_hash)
+            if cached_entry and (now_ts - cached_entry.get("timestamp", 0)) < 12 * 3600:
+                raw_postings = cached_entry.get("results", [])
+            else:
+                if not self._increment_quota():
+                    # Daily/monthly budget spent. Cached terms already
+                    # yielded jobs; stop rotating without a failed request.
+                    break
 
-            detected_extensions = item.get("detected_extensions", {})
-            posted_at = detected_extensions.get("posted_at", "")
-            work_from_home = detected_extensions.get("work_from_home", False)
-            schedule_type = detected_extensions.get("schedule_type", "Full-time")
+                url = "https://serpapi.com/search.json"
+                params = {
+                    "engine": "google_jobs",
+                    "q": term,
+                    "location": location,
+                    "api_key": self.api_key,
+                }
 
-            salary_str = detected_extensions.get("salary", "")
+                resp = await self.execute_request(client, url, params=params, timeout=25.0)
+                if not resp or resp.status_code != 200:
+                    self.record_failure(f"HTTP {resp.status_code if resp else 'No response'}")
+                    break
 
-            combined = f"{loc} {title}".lower()
-            is_remote = work_from_home or any(k in combined for k in ("remote", "virtual", "wfh"))
-            is_hybrid = "hybrid" in combined
-            remote_status = "REMOTE" if is_remote else ("HYBRID" if is_hybrid else "ONSITE")
+                data = resp.json()
+                raw_postings = data.get("jobs_results", [])
+                cache[q_hash] = {"timestamp": now_ts, "results": raw_postings}
+                self._save_cache(cache)
 
-            normalized = NormalizedJob(
-                id=f"google_jobs:{job_id}",
-                external_id=job_id,
-                company=comp_name.lower().replace(" ", "-"),
-                company_name=comp_name,
-                title=title,
-                location=loc,
-                locations=[loc],
-                remote=is_remote,
-                hybrid=is_hybrid,
-                remote_status=remote_status,
-                source_url=apply_url,
-                apply_url=apply_url,
-                canonical_url=apply_url,
-                description=strip_html(item.get("description", "")),
-                updated_at="",
-                first_published=posted_at,
-                employment_type=schedule_type,
-                salary_range=salary_str,
-                source="google_jobs",
-                source_type="aggregator",
-                source_priority=60,
-                source_quality=60,
-                extraction_method="serpapi_google_jobs",
-                provenance_sources=["google_jobs"],
-                source_metadata={"via": item.get("via", "")},
-            )
-            jobs.append(normalized)
+            for item in raw_postings:
+                title = item.get("title", "")
+                if compiled_patterns and not matches_title(title, compiled_patterns):
+                    continue
+
+                comp_name = item.get("company_name", "Unknown Company")
+                loc = item.get("location", location)
+                apply_options = item.get("apply_options") or []
+                apply_url = apply_options[0].get("link") if apply_options else item.get("share_link", "")
+
+                # Job ID from job_id or share_link
+                job_id = s(item.get("job_id") or hash(apply_url))
+
+                detected_extensions = item.get("detected_extensions", {})
+                posted_at = detected_extensions.get("posted_at", "")
+                work_from_home = detected_extensions.get("work_from_home", False)
+                schedule_type = detected_extensions.get("schedule_type", "Full-time")
+
+                salary_str = detected_extensions.get("salary", "")
+
+                combined = f"{loc} {title}".lower()
+                is_remote = work_from_home or any(k in combined for k in ("remote", "virtual", "wfh"))
+                is_hybrid = "hybrid" in combined
+                remote_status = "REMOTE" if is_remote else ("HYBRID" if is_hybrid else "ONSITE")
+
+                jobs.append(
+                    NormalizedJob(
+                        id=f"google_jobs:{job_id}",
+                        external_id=job_id,
+                        company=comp_name.lower().replace(" ", "-"),
+                        company_name=comp_name,
+                        title=title,
+                        location=loc,
+                        locations=[loc],
+                        remote=is_remote,
+                        hybrid=is_hybrid,
+                        remote_status=remote_status,
+                        source_url=apply_url,
+                        apply_url=apply_url,
+                        canonical_url=apply_url,
+                        description=strip_html(item.get("description", "")),
+                        updated_at="",
+                        first_published=posted_at,
+                        employment_type=schedule_type,
+                        salary_range=salary_str,
+                        source="google_jobs",
+                        source_type="aggregator",
+                        source_priority=60,
+                        source_quality=60,
+                        extraction_method="serpapi_google_jobs",
+                        provenance_sources=["google_jobs"],
+                        source_metadata={"via": item.get("via", ""), "query": term},
+                    )
+                )
 
         duration = (time.perf_counter() - start_time) * 1000
         self.record_success(len(jobs), duration)

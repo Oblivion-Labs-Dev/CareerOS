@@ -1069,6 +1069,22 @@ def _serpapi_key() -> str:
     return key.strip()
 
 
+def _fantastic_key() -> str:
+    """Fantastic.jobs API key. Free plan (~500 job credits/mo); the adapter's
+    persisted monthly/weekly guards keep it inside the allowance."""
+    import os
+
+    return (os.environ.get("FANTASTIC_JOBS_API_KEY") or "").strip()
+
+
+def _theirstack_key() -> str:
+    """TheirStack API key. Free signup credits are one-time; the adapter's
+    persisted lifetime ledger may spend only that allowance."""
+    import os
+
+    return (os.environ.get("THEIRSTACK_API_KEY") or "").strip()
+
+
 def _as_job_dicts(result) -> list[dict]:
     """Coerce a source's result into US-filtered plain dicts for persistence.
 
@@ -1267,6 +1283,8 @@ async def scrape_jobs(
         from app.services.job_discover.sources.hackernews import HackerNewsSource
         from app.services.job_discover.sources.himalayas import HimalayasSource
         from app.services.job_discover.sources.fastaijobs import FastAIJobsSource
+        from app.services.job_discover.sources.fantasticjobs import FantasticJobsSource
+        from app.services.job_discover.sources.theirstack import TheirStackSource
         from app.services.job_discover.sources.icims import ICIMSSource
         from app.services.job_discover.sources.google_cse import GoogleCseJobSource
         from app.services.job_discover.sources.indeed import IndeedSource
@@ -1424,6 +1442,23 @@ async def scrape_jobs(
             coros.append(run_with_sem(
                 "serpapi_google_jobs/all",
                 SerpApiGoogleJobsSource().fetch_jobs(client, "all", {}, compiled, cutoff, role_keys),
+            ))
+
+        # Fantastic.jobs — employer-ATS aggregator on the free plan; its
+        # persisted monthly job-credit / weekly request guards stop the pull
+        # rather than over-spend.
+        if _fantastic_key():
+            coros.append(run_with_sem(
+                "fantasticjobs/ats",
+                FantasticJobsSource().fetch_jobs(client, company="all", config={}, compiled_patterns=compiled, cutoff=cutoff, role_keys=role_keys),
+            ))
+
+        # TheirStack — one-time signup credits; the lifetime ledger in the
+        # adapter refuses to run once the allowance is spent.
+        if _theirstack_key():
+            coros.append(run_with_sem(
+                "theirstack/jobs",
+                TheirStackSource().fetch_jobs(client, company="all", config={}, compiled_patterns=compiled, cutoff=cutoff, role_keys=role_keys),
             ))
 
         progress_total[0] = len(coros)

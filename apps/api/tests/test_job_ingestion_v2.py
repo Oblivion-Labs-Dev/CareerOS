@@ -15,7 +15,7 @@ from __future__ import annotations
 import json
 from datetime import UTC, datetime, timedelta
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import httpx
 import pytest
@@ -677,39 +677,43 @@ async def test_github_feed_etag_304():
 # ---------------------------------------------------------------------------
 
 @pytest.mark.anyio
-async def test_serpapi_quota_and_budget_caps(tmp_path):
+async def test_serpapi_quota_and_budget_caps(tmp_path, monkeypatch):
+    """The persisted counter, not a failed HTTP call, must stop the pull once
+    the daily budget is spent — and tests must never write the developer's
+    real quota file (patch the module paths to a temp dir)."""
+    from app.services.job_discover.sources import serpapi_google_jobs as serpapi_module
+
+    monkeypatch.setattr(serpapi_module, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(serpapi_module, "QUOTA_FILE", tmp_path / "serpapi_quota.json")
+    monkeypatch.setattr(serpapi_module, "CACHE_FILE", tmp_path / "serpapi_cache.json")
+    monkeypatch.setenv("SERPAPI_KEY", "test-key-mock")
+
     source = SerpApiGoogleJobsSource()
     assert source.priority == 60
     assert source.source_type == "aggregator"
 
-    # Set temporary quota path
-    quota_file = tmp_path / "serpapi_quota.json"
-    source.quota_file = quota_file
+    # Daily cap reached: today's counter sits at the budget.
+    quota_data = {
+        "month": datetime.now(UTC).strftime("%Y-%m"),
+        "monthly_count": 10,
+        "day": datetime.now(UTC).strftime("%Y-%m-%d"),
+        "daily_count": serpapi_module.DAILY_REQUEST_BUDGET,
+    }
+    (tmp_path / "serpapi_quota.json").write_text(json.dumps(quota_data), encoding="utf-8")
 
-    with patch.dict("os.environ", {"SERPAPI_KEY": "test-key-mock"}):
-        # 1. Verify budget cap stops after daily limit
-        quota_data = {
-            "month": datetime.now(UTC).strftime("%Y-%m"),
-            "usedCount": 10,
-            "monthlyLimit": 250,
-            "today": datetime.now(UTC).strftime("%Y-%m-%d"),
-            "todayCount": 8,  # Reached daily limit of 8
-        }
-        quota_file.write_text(json.dumps(quota_data), encoding="utf-8")
+    mock_client = AsyncMock()
+    cutoff = datetime.now(UTC) - timedelta(days=30)
+    jobs = await source.fetch_jobs(
+        mock_client,
+        company="Stripe",
+        config={"query": "Software Engineer Stripe"},
+        compiled_patterns=[],
+        cutoff=cutoff,
+    )
 
-        mock_client = AsyncMock()
-        cutoff = datetime.now(UTC) - timedelta(days=30)
-        jobs = await source.fetch_jobs(
-            mock_client,
-            company="Stripe",
-            config={"query": "Software Engineer Stripe"},
-            compiled_patterns=[],
-            cutoff=cutoff,
-        )
-
-        # Budget reached -> no external HTTP request
-        assert len(jobs) == 0
-        mock_client.get.assert_not_called()
+    # Budget reached -> no external HTTP request
+    assert len(jobs) == 0
+    mock_client.request.assert_not_called()
 
 
 # ---------------------------------------------------------------------------

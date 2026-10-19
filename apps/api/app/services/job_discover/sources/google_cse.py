@@ -27,6 +27,8 @@ from app.services.job_discover.sources.base import JobSourceAdapter, NormalizedJ
 # than every title variant the filters accept. The shared title filter still
 # governs what actually enters the queue.
 DEFAULT_SEARCH_TERMS = (
+    "AI Engineer",
+    "AI Product Manager",
     "Senior Software Engineer",
     "Staff Software Engineer",
     "Principal Software Engineer",

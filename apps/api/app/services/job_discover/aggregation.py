@@ -22,6 +22,8 @@ from app.services.job_discover.sources.greenhouse import GreenhouseSource
 from app.services.job_discover.sources.hackernews import HackerNewsSource
 from app.services.job_discover.sources.himalayas import HimalayasSource
 from app.services.job_discover.sources.fastaijobs import FastAIJobsSource
+from app.services.job_discover.sources.fantasticjobs import FantasticJobsSource
+from app.services.job_discover.sources.theirstack import TheirStackSource
 from app.services.job_discover.sources.icims import ICIMSSource
 from app.services.job_discover.sources.indeed import IndeedSource
 from app.services.job_discover.sources.jobicy import JobicySource
@@ -77,6 +79,9 @@ class JobAggregationService:
             SerpApiGoogleJobsSource(),
             # Curated AI-startup index: direct ATS apply links, free/keyless.
             FastAIJobsSource(),
+            # Keyed free-tier aggregators — inert until their env keys are set.
+            FantasticJobsSource(),
+            TheirStackSource(),
             # Indeed carries the employer's own apply URL on nearly every hit,
             # so it feeds the ATS scrapers rather than being applied to directly.
             IndeedSource(),
