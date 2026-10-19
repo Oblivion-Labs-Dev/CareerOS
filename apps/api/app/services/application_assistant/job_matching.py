@@ -9,7 +9,12 @@ from app.services.application_assistant.candidate_match_context import (
     build_candidate_skill_terms,
     extract_keywords,
     match_sources_used,
+    extract_resume_text,
+    work_experience_text,
+    accomplishment_text,
+    normalize_profile_skills,
 )
+from app.services.resume_intelligence.bm25 import BM25Index
 
 
 def _extract_keywords(text: str) -> set[str]:
@@ -117,13 +122,36 @@ def match_job(
     sources = match_sources_used(profile, documents=documents, accomplishments=accomplishments)
     job_keywords = _extract_keywords(f"{title} {description}")
 
+    # BM25 + hybrid local resume match: score how well the resume/profile corpus
+    # covers the job's terms, beyond simple set overlap. Blended into the
+    # overall score as `bm25_alignment`.
+    resume_corpus_text = " ".join([
+        extract_resume_text(documents) if documents else "",
+        work_experience_text(profile),
+        accomplishment_text(accomplishments),
+        " ".join(normalize_profile_skills(profile)),
+    ])
+    resume_tokens = tuple(_extract_keywords(resume_corpus_text))
+    job_tokens = tuple(job_keywords)
+    if resume_tokens and job_tokens:
+        index = BM25Index.build([resume_tokens, job_tokens])
+        bm25_raw = index.score(job_tokens, 0)
+        # Normalise to 0-100 against the per-term upper bound.
+        max_score = 0.0
+        for term in set(job_tokens):
+            idf = index._idf.get(term, 0.0)
+            max_score += idf * (index.k1 + 1)
+        bm25_alignment = (bm25_raw / max_score * 100.0) if max_score > 0 else 0.0
+        bm25_alignment = round(min(100.0, max(0.0, bm25_alignment)), 1)
+    else:
+        bm25_alignment = 0.0
+
     overlap = profile_skills & job_keywords
     skill_overlap = len(overlap) / max(len(job_keywords), 1) * 100
 
     required_matches = []
     required_missing = []
     from app.services.resume_intelligence.evidence_match import support
-    from app.services.application_assistant.candidate_match_context import extract_resume_text, work_experience_text, accomplishment_text, normalize_profile_skills
     evidence = "\n".join([extract_resume_text(documents),work_experience_text(profile),accomplishment_text(accomplishments)," ".join(normalize_profile_skills(profile))])
     quotes = re.split(r"\n+|(?<=[.!?])\s+|;", evidence)
     for qual in required:
@@ -176,8 +204,9 @@ def match_job(
             location_alignment = max(location_alignment, 90.0)
 
     overall = (
-        required_coverage * 0.35
-        + skill_overlap * 0.25
+        required_coverage * 0.30
+        + skill_overlap * 0.20
+        + bm25_alignment * 0.15
         + experience_alignment * 0.15
         + seniority_alignment * 0.10
         + preferred_coverage * 0.10
@@ -216,6 +245,7 @@ def match_job(
         "requirementsAssessment": "assessed" if required else "unknown",
         "preferredCoverage": round(preferred_coverage, 1),
         "skillOverlap": round(skill_overlap, 1),
+        "bm25Alignment": round(bm25_alignment, 1),
         "experienceAlignment": round(experience_alignment, 1),
         "seniorityAlignment": round(seniority_alignment, 1),
         "locationAlignment": round(location_alignment, 1),
