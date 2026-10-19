@@ -78,6 +78,14 @@ ROLE_PATTERNS: dict[str, list[str]] = {
         r"\bswe\b",
         r"\bml\s+engineer\b",
         r"\bmachine\s+learning\s+engineer\b",
+        # AI-specialized engineering/research titles ("AI Engineer",
+        # "Research Engineer", "Applied Scientist" at AI labs). These are
+        # engineering roles for resume/autopilot purposes; without them the
+        # classifier returned None and they fell out of every role-scoped flow.
+        r"\bai\s+engineer\b",
+        r"\bresearch\s+engineer\b",
+        r"\bapplied\s+scientist\b",
+        r"\bresearch\s+scientist\b",
         r"\bdata\s+engineer\b",
         r"\bdevops\s+engineer\b",
         r"\bsite\s+reliability\s+engineer\b",

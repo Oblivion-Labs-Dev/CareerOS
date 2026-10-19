@@ -55,13 +55,44 @@ ROLE_FILTERS = {
         r"\blead\s+software\s+engineer\b",
         r"\bforward[\s\-]?deployed\s+(?:software\s+|ai\s+)?engineer\b",
         r"\bml\s?ops\b",
+        # AI-specialized engineering titles. Without these, an "AI Engineer"
+        # or "Machine Learning Engineer" posting is dropped here even though
+        # role_classifier classifies it as swe downstream - the night loop
+        # (roles="swe") and the default UI scrape both lost every role in the
+        # current AI hiring wave.
+        r"\bai\s+engineer\b",
+        r"\bml\s+engineer\b",
+        r"\bmachine\s+learning\s+engineer\b",
+        r"\bresearch\s+engineer\b",
+        r"\bapplied\s+scientist\b",
+        r"\bresearch\s+scientist\b",
+        r"\binference\s+engineer\b",
         r"\bsecurity\s+engineer\b",
         r"\bdata\s+engineer\b",
         r"\bsite\s+reliability\s+engineer\b",
         r"\bsre\b",
     ],
-    "pm": [],
-    "product": [],
+    "pm": [
+        r"\btechnical\s+product\s+manager\b",
+        r"\bsenior\s+product\s+manager\b",
+        r"\bstaff\s+product\s+manager\b",
+        r"\bgroup\s+product\s+manager\b",
+        r"\bprincipal\s+product\s+manager\b",
+        r"\bdirector.*product\s+manage",
+        r"\bvp.*product\b",
+        r"\bhead\s+of\s+product\b",
+        r"\bproduct\s+manager\b",
+        r"\bproduct\s+lead\b",
+        r"\bproduct\s+owner\b",
+        r"\bapm\b",
+    ],
+    "product": [
+        r"\bproduct\s+analyst\b",
+        r"\bproduct\s+strategy\b",
+        r"\bproduct\s+ops\b",
+        r"\bproduct\s+operations\b",
+        r"\bproduct\s+marketing\s+manager\b",
+    ],
     "tpm": [],
     "ux": [],
     "presales": [],
@@ -1235,6 +1266,7 @@ async def scrape_jobs(
         from app.services.job_discover.sources.github_feed import GitHubFeedSource
         from app.services.job_discover.sources.hackernews import HackerNewsSource
         from app.services.job_discover.sources.himalayas import HimalayasSource
+        from app.services.job_discover.sources.fastaijobs import FastAIJobsSource
         from app.services.job_discover.sources.icims import ICIMSSource
         from app.services.job_discover.sources.google_cse import GoogleCseJobSource
         from app.services.job_discover.sources.indeed import IndeedSource
@@ -1365,6 +1397,12 @@ async def scrape_jobs(
         coros.append(run_with_sem(
             "himalayas/all",
             HimalayasSource().fetch_jobs(client, company="all", config={}, compiled_patterns=compiled, cutoff=cutoff, role_keys=role_keys),
+        ))
+
+        # Fast AI Jobs (curated AI-startup index; JSON-LD with direct ATS links)
+        coros.append(run_with_sem(
+            "fastaijobs/roles",
+            FastAIJobsSource().fetch_jobs(client, company="all", config={}, compiled_patterns=compiled, cutoff=cutoff, role_keys=role_keys),
         ))
 
         # WeWorkRemotely (live developer & devops RSS feeds)

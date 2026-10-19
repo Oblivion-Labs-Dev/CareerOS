@@ -119,16 +119,59 @@ export const PRIMARY_JOB_PORTALS: JobPortal[] = [
 
 export const AI_JOB_PORTALS: JobPortal[] = [
   {
+    name: "Fast AI Jobs",
+    href: "https://www.fastaijobs.com",
+    bestFor: "AI startup roles with funding-stage data — AI Engineer, ML, PM",
+    quality: 5,
+    priority: "high",
+    note: "Auto-pulled by CareerOS (free AI-native index with direct ATS links).",
+  },
+  {
     name: "AI Jobs",
     href: "https://aijobs.net",
     bestFor: "AI infrastructure, agent systems, LLM engineering",
     quality: 4,
   },
   {
-    name: "Hugging Face Jobs",
-    href: "https://huggingface.co/jobs",
+    name: "AIJobs.ai",
+    href: "https://aijobs.ai",
+    bestFor: "AI/ML/data-science roles only — no general-job noise",
+    quality: 4,
+    note: "Manual browse for now; candidate feed integration is a paid tier (future).",
+  },
+  {
+    name: "AI Chopping Block",
+    href: "https://www.choppingblock.ai/jobs",
+    bestFor: "Fresh AI roles read from company career pages, with salary bands",
+    quality: 4,
+    note: "Manual browse for now — no public feed yet.",
+  },
+  {
+    name: "Lenny's Jobs",
+    href: "https://www.lennysjobs.com",
+    bestFor: "AI Product Manager and PM-adjacent roles, incl. unlisted community roles",
+    quality: 5,
+    priority: "high",
+    note: "Best AI PM source; manual browse for now — no public feed yet.",
+  },
+  {
+    name: "Hugging Face Careers",
+    href: "https://apply.workable.com/huggingface",
     bestFor: "ML platform and open-source AI roles",
     quality: 4,
+    note: "Auto-pulled by CareerOS (Workable).",
+  },
+  {
+    name: "80,000 Hours Job Board",
+    href: "https://jobs.80000hours.org",
+    bestFor: "AI safety, alignment and AI policy roles",
+    quality: 4,
+  },
+  {
+    name: "Startup.jobs",
+    href: "https://startup.jobs",
+    bestFor: "Startup roles incl. AI startups, searchable by tech",
+    quality: 3,
   },
   {
     name: "OpenAI Careers",

@@ -35,7 +35,12 @@
     "Toast": "toast",
     "Carta": "carta",
     "Klaviyo": "klaviyo",
-    "Checkr": "checkr"
+    "Checkr": "checkr",
+    "xAI": "xai",
+    "Together AI": "togetherai",
+    "Figure": "figure",
+    "HeyGen": "heygen",
+    "Labelbox": "labelbox"
   },
   "ashby": {
     "Ramp": "ramp",
@@ -57,10 +62,27 @@
     "Synthesia": "synthesia",
     "Writer": "writer",
     "Harvey": "harvey",
-    "Braintrust": "braintrust"
+    "Braintrust": "braintrust",
+    "Cognition": "cognition",
+    "Sierra": "sierra",
+    "Decagon": "decagon",
+    "Notion": "notion",
+    "Cerebras": "cerebras",
+    "Baseten": "baseten",
+    "Factory": "factory",
+    "n8n": "n8n",
+    "Warp": "warp",
+    "World Labs": "worldlabs",
+    "Granola": "granola",
+    "Simular": "simular",
+    "Poolside": "poolside",
+    "Zed": "zed"
   },
   "lever": {
     "Palantir": "palantir",
     "Spotify": "spotify"
+  },
+  "workable": {
+    "Hugging Face": "huggingface"
   }
 }
