@@ -33,7 +33,7 @@
     "eval:resume": "node scripts/eval-resume.mjs",
     "jobs:smoke": "apps/api/.venv/Scripts/python tools/smoke_job_ingestion.py",
     "ci": "node scripts/ci-run.mjs",
-    "ci:typecheck": "pnpm --filter @career-os/core build && pnpm typecheck",
+    "ci:typecheck": "pnpm --filter @career-os/core build && pnpm --filter @career-os/ui build && pnpm typecheck",
     "ci:extension-unit": "pnpm --filter @career-os/extension test",
     "ci:api": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/ci-api.ps1",
     "ci:web-e2e": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/ci-web-e2e.ps1",
