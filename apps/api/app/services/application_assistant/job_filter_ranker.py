@@ -979,12 +979,39 @@ def queue_priority_score(job: dict[str, Any]) -> float:
     international_penalty = (
         INTERNATIONAL_QUEUE_PENALTY if is_international_location(job) else 0.0
     )
+    ai_priority_bonus = (
+        AI_ROLE_PRIORITY_BONUS if _is_ai_priority_role(job.get("title") or "") else 0.0
+    )
     return (
         posting_recency_bonus(job)
         + role_location_priority_bonus(job)
+        + ai_priority_bonus
         + float(job.get("matchScore") or 0.0)
         - international_penalty
     )
+
+
+# Bonus applied to AI/ML-engineering and adjacent roles so they surface ahead of
+# non-AI roles within the same recency band and role level. Smaller than
+# ROLE_RANK_WEIGHT so role level (Senior vs SDE 1) still dominates, but large
+# enough to break ties between, e.g., Senior AI Engineer and Senior Backend
+# Engineer.
+AI_ROLE_PRIORITY_BONUS = 50000.0
+
+
+def _is_ai_priority_role(title: str) -> bool:
+    """Whether a title is an AI/ML-engineering or adjacent role worth prioritising."""
+    title_l = (title or "").lower()
+    if not title_l:
+        return False
+    ai_markers = (
+        "ai engineer", "ai software", "llm", "genai", "generative ai",
+        "machine learning engineer", "ml engineer", "deep learning",
+        "nlp engineer", "computer vision", "mlops", "llmops", "prompt engineer",
+        "agentic", "applied ai", "ai platform", "ai reliability", "ai sre",
+        "ai architect", "ai solutions", "context engineer", "forward deployed",
+    )
+    return any(m in title_l for m in ai_markers)
 
 
 def filter_and_rank_jobs(
