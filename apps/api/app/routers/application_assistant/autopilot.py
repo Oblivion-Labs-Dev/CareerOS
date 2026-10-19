@@ -373,7 +373,7 @@ def get_autopilot_jobs_list(
     company: str | None = Query(default=None, description="Case-insensitive substring match against company name"),
     ats: str | None = Query(default=None, description="ATS id from the application URL (e.g. workday, greenhouse, other)"),
     reason: str | None = Query(default=None, description="Reason category from reasonCounts (e.g. POSTING_EXPIRED, Blocked by reCAPTCHA, Other)"),
-    sortBy: str = Query(default="matchScore", description="Field to sort by: matchScore, submittedAt, or updatedAt"),
+    sortBy: str = Query(default="", description="Field to sort by: relevance, matchScore, priority, company, recent, submittedAt, or updatedAt. Empty = matchScore, except review/manual-review buckets which default to relevance."),
     sortDir: str = Query(default="desc", description="asc or desc"),
     limit: int = Query(default=24, ge=1, le=1000),
     offset: int = Query(default=0, ge=0),
@@ -490,7 +490,16 @@ def get_autopilot_jobs_list(
         else:
             jobs = [j for j in jobs if company_q in str(j.get("company") or "").lower()]
 
-    sortBy_str = sortBy if isinstance(sortBy, str) else "matchScore"
+    sortBy_str = sortBy if isinstance(sortBy, str) else ""
+    # Review/manual-review buckets default to target-role relevance so the
+    # candidate works the closest matches first (asked-for behavior). Every
+    # other list keeps the historical matchScore default.
+    if not sortBy_str:
+        selected = statuses or set()
+        if selected and selected <= {"NEEDS_REVIEW", "MANUAL_REVIEW", "STAGED"}:
+            sortBy_str = "relevance"
+        else:
+            sortBy_str = "matchScore"
     sortDir_str = sortDir if isinstance(sortDir, str) else "desc"
     limit_int = limit if isinstance(limit, int) else 24
     offset_int = offset if isinstance(offset, int) else 0
@@ -502,6 +511,18 @@ def get_autopilot_jobs_list(
     elif sortBy_str == "priority":
         from app.services.application_assistant.job_filter_ranker import queue_priority_score
         jobs.sort(key=queue_priority_score, reverse=reverse)
+    elif sortBy_str == "relevance":
+        from app.services.application_assistant.job_filter_ranker import compute_target_role_relevance
+        # Stable composite: target-role relevance, matchScore as tie-breaker.
+        jobs.sort(
+            key=lambda j: (compute_target_role_relevance(j), j.get("matchScore") or 0),
+            reverse=reverse,
+        )
+    elif sortBy_str == "ai_prioritized":
+        # Prioritise AI Engineer and Forward‑Deployed roles to the top of the list,
+        # while preserving the existing matchScore ordering within each tier.
+        from app.services.application_assistant.job_filter_ranker import apply_ai_engineer_prioritization
+        jobs = apply_ai_engineer_prioritization(jobs)
     elif sortBy_str in ("submittedAt", "updatedAt"):
         jobs.sort(key=lambda j: str(j.get(sortBy_str) or j.get("updatedAt") or ""), reverse=reverse)
     elif sortBy_str in ("recent", "datePosted"):

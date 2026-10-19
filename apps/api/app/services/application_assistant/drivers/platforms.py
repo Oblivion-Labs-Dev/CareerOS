@@ -135,6 +135,26 @@ class RecruiteeDriver(ApplicationDriver):
     url_host_patterns = ("recruitee.com",)
 
 
+class UsaJobsDriver(ApplicationDriver):
+    """USAJOBS — portal ATS (deferred to REVIEW until a permitted browser
+    capture; postings are searchable but apply flows are portal-hosted)."""
+
+    platform = "usajobs"
+    display_name = "USAJOBS"
+    capabilities = _PORTAL_ATS
+    url_host_patterns = ("usajobs.gov",)
+
+    def prepare(self, job, profile, **kwargs):
+        prepared = super().prepare(job, profile, **kwargs)
+        prepared.review_reasons.append(
+            "USAJOBS portal apply flows require a permitted browser capture "
+            "before fields can be discovered."
+        )
+        if prepared.mode.name == "AUTO":
+            prepared.mode = prepared.mode.__class__.REVIEW
+        return prepared
+
+
 class WorkdayDriver(ApplicationDriver):
     platform = "workday"
     display_name = "Workday"

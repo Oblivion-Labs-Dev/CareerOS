@@ -15,6 +15,7 @@ from .platforms import (
     PersonioDriver,
     RecruiteeDriver,
     SmartRecruitersDriver,
+    UsaJobsDriver,
     WorkableDriver,
     WorkdayDriver,
 )
@@ -29,6 +30,7 @@ for _driver in (
     WorkdayDriver(),
     IcimsDriver(),
     OracleDriver(),
+    UsaJobsDriver(),
     PersonioDriver(),
     RecruiteeDriver(),
     GenericDriver(),
@@ -38,7 +40,7 @@ for _driver in (
 
 def list_drivers() -> list[ApplicationDriver]:
     ordered = ["greenhouse", "ashby", "lever", "workable", "smartrecruiters",
-               "workday", "icims", "oracle", "personio", "recruitee", "generic"]
+               "workday", "icims", "oracle", "usajobs", "personio", "recruitee", "generic"]
     return [_REGISTRY[p] for p in ordered if p in _REGISTRY]
 
 

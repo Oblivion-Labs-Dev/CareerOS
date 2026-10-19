@@ -74,6 +74,7 @@ _job_urls = {
     "oracle": "https://acme.fa.us2.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_1/job/1",
     "personio": "https://acme.jobs.personio.de/job/123",
     "recruitee": "https://acme.recruitee.com/o/senior-engineer",
+    "usajobs": "https://www.usajobs.gov/Job/JobDetail/123456789",
 }
 
 
@@ -319,7 +320,7 @@ def test_driver_endpoints() -> None:
         platforms = {d["platform"] for d in drivers}
         assert {
             "greenhouse", "ashby", "lever", "workable", "smartrecruiters",
-            "workday", "icims", "oracle", "personio", "recruitee", "generic",
+            "workday", "icims", "oracle", "personio", "recruitee", "generic", "usajobs",
         } <= platforms
         ashby = next(d for d in drivers if d["platform"] == "ashby")
         assert "submit_authorized" not in ashby["capabilities"]

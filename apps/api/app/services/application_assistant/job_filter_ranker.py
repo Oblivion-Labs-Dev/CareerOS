@@ -1137,3 +1137,180 @@ def filter_and_rank_jobs(
         )
 
     return all_passing[:max_apps] if max_apps > 0 else all_passing
+
+# ---------------------------------------------------------------------------
+# Target-role relevance scoring (review queue ordering)
+# ---------------------------------------------------------------------------
+
+
+_AI_TITLE_TOKENS = [
+    ("ai engineer", 4.0),
+    ("applied ai engineer", 4.0),
+    ("ai software engineer", 4.0),
+    ("ai software integration engineer", 4.0),
+    ("generative ai engineer", 4.0),
+    ("genai engineer", 4.0),
+    ("llm engineer", 4.0),
+    ("llm application engineer", 4.0),
+    ("prompt engineer", 3.5),
+    ("forward deployed", 3.5),
+    ("machine learning engineer", 3.0),
+    ("ml engineer", 3.0),
+    ("deep learning engineer", 3.0),
+    ("nlp engineer", 3.0),
+    ("computer vision engineer", 3.0),
+    ("ai platform", 3.0),
+    ("mlops engineer", 2.5),
+    ("llmops engineer", 2.5),
+    ("ai reliability engineer", 2.5),
+    ("ai sre", 2.5),
+    ("ai architect", 2.5),
+    ("ai solutions engineer", 2.5),
+    ("ai solutions architect", 2.5),
+    ("context engineer", 2.0),
+    ("agentic", 2.0),
+    ("llm", 2.0),
+    ("generative ai", 2.0),
+    ("genai", 2.0),
+    ("large language model", 2.0),
+    ("rag", 1.5),
+    ("retrieval", 1.5),
+    ("prompting", 1.5),
+    ("langchain", 1.5),
+    ("langgraph", 1.5),
+    ("llamaindex", 1.5),
+    ("openai", 1.5),
+    ("claude", 1.5),
+    ("anthropic", 1.5),
+    ("vllm", 1.5),
+    ("inference", 1.5),
+    ("tensorrt", 1.5),
+    ("triton", 1.5),
+    ("transformer", 1.5),
+    ("fine-tun", 1.5),
+    ("fine tun", 1.5),
+    ("pytorch", 1.5),
+    ("tensorflow", 1.5),
+    ("keras", 1.5),
+    ("jax", 1.5),
+    ("cuda", 1.5),
+    ("gpu", 1.5),
+    ("multimodal", 1.5),
+    ("computer vision", 1.5),
+    ("model serving", 1.5),
+    ("model deployment", 1.5),
+    ("feature store", 1.5),
+    ("evals", 1.5),
+    ("evaluation", 1.0),
+    ("benchmark", 1.0),
+    ("mlflow", 1.5),
+    ("wandb", 1.5),
+    ("python", 1.0),
+    ("sql", 1.0),
+    ("pandas", 1.0),
+    ("numpy", 1.0),
+    ("spark", 1.0),
+    ("databricks", 1.0),
+    ("snowflake", 1.0),
+    ("bigquery", 1.0),
+    ("mysql", 1.0),
+    ("postgres", 1.0),
+    ("mongodb", 1.0),
+    ("dynamodb", 1.0),
+    ("elasticsearch", 1.0),
+    ("opensearch", 1.0),
+    ("distributed system", 1.0),
+    ("microservice", 1.0),
+    ("system design", 1.0),
+    ("architecture", 1.0),
+    ("workflow automation", 1.0),
+    ("n8n", 1.0),
+    ("zapier", 1.0),
+    ("rpa", 1.0),
+    ("robotic process", 1.0),
+    ("playwright", 1.0),
+    ("selenium", 1.0),
+    ("puppeteer", 1.0),
+    ("a/b test", 1.0),
+    ("experimentation", 1.0),
+    ("product strategy", 1.0),
+    ("roadmap", 1.0),
+    ("product vision", 1.0),
+    ("stakeholder", 1.0),
+    ("management", 0.5),
+    ("agile", 0.5),
+    ("scrum", 0.5),
+    ("soc2", 0.5),
+    ("gdpr", 0.5),
+    ("responsible ai", 1.5),
+    ("ai safety", 1.5),
+    ("trust", 0.5),
+    ("data engineer", 1.5),
+    ("security engineer", 1.5),
+    ("ml ops", 1.5),
+    ("mlops", 1.5),
+]
+
+
+_Seniority_TOKENS = [
+    ("principal", 1.5),
+    ("staff", 1.2),
+    ("lead", 1.4),
+    ("senior", 1.0),
+    ("sr.", 1.0),
+    ("sr ", 1.0),
+    ("ii", 0.5),
+    ("iii", 0.8),
+]
+
+
+_AI_PM_TOKENS = [
+    ("ai", 2.0),
+    ("artificial intelligence", 2.0),
+    ("machine learning", 2.0),
+    ("llm", 2.0),
+    ("product manager", 1.5),
+    ("program manager", 1.5),
+]
+
+
+def compute_target_role_relevance(job: dict[str, Any]) -> float:
+    """Relevance of a job title to the target role family (0-15).
+
+    Purely deterministic: title token overlap with the AI-engineering family,
+    seniority markers, and a bonus for AI-adjacent PM titles. No LLM.
+    """
+    title = " " + str(job.get("title") or job.get("jobTitle") or "").lower().strip() + " "
+    score = 0.0
+    for kw, weight in _AI_TITLE_TOKENS:
+        if kw in title:
+            score += weight
+    for kw, weight in _Seniority_TOKENS:
+        if kw in title:
+            score += weight
+    if "product manager" in title or "program manager" in title:
+        for kw, weight in _AI_PM_TOKENS:
+            if kw in title:
+                score += weight
+        if "engineer" not in title:
+            score = min(score, 6.5)
+    if "engineer" in title:
+        score += 1.0
+    return round(score, 2)
+
+
+def apply_ai_engineer_prioritization(jobs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Prioritise AI Engineer and Forward-Deployed roles to the top, preserving
+    matchScore ordering within each tier."""
+
+    def priority_rank(job: dict[str, Any]) -> int:
+        title = (job.get("title") or "").lower()
+        priority_terms = (
+            "ai engineer", "forward deployed", "llm engineer", "genai",
+            "agentic", "machine learning engineer", "ml engineer", "prompt engineer",
+        )
+        return 0 if any(t in title for t in priority_terms) else 1
+
+    ordered = sorted(jobs, key=lambda j: float(j.get("matchScore") or 0.0), reverse=True)
+    ordered = sorted(ordered, key=priority_rank)
+    return ordered
