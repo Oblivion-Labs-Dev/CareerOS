@@ -444,6 +444,20 @@ def score_option_match(value: str, option_text: str) -> float:
     if value_norm == option_norm:
         return 100.0
 
+    # Bare "Yes"/"No" against a compound "Yes, <specific visa/status>" option
+    # list: a bare affirmative does not identify any single sub-option, so
+    # prefer the catch-all ("Yes, but not one of the visas listed here" /
+    # "other"/"none of the above") over a specific visa or status. Without
+    # this, every "Yes, ..." option scores the same substring match and the
+    # first one in DOM order (often a country-specific visa) gets picked.
+    if value_norm == "yes" and option_norm.startswith("yes"):
+        if any(tok in option_norm for tok in ("not one of", "not listed", "other", "none of the above", "none of these")):
+            return 95.0
+        return 60.0
+    if value_norm == "no" and option_norm.startswith("no"):
+        if any(tok in option_norm for tok in ("not one of", "not listed", "other", "none of the above", "none of these")):
+            return 95.0
+
     if value_norm in _GENDER_VALUES or option_norm in _GENDER_VALUES:
         if not _gender_values_compatible(value_norm, option_norm):
             return 0.0
