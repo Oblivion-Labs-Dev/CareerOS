@@ -518,6 +518,56 @@ def get_autopilot_jobs_list(
             key=lambda j: (compute_target_role_relevance(j), j.get("matchScore") or 0),
             reverse=reverse,
         )
+    elif sortBy_str in ("resume", "resumeMatch", "resume_match"):
+        # Sort by the precomputed cheap local BM25 + hybrid resume-match
+        # score stored on each job (resumeMatchScore). Computed once by
+        # scripts/compute_resume_match.py (and lazily filled here for any job
+        # that is missing it) so this sort is a plain column sort - low
+        # latency, no per-request heavy computation.
+        from app.db.store import get_kv, session_scope
+        from app.services.application_assistant.candidate_match_context import (
+            extract_keywords, normalize_profile_skills, extract_resume_text,
+            work_experience_text, build_candidate_skill_terms, accomplishment_text,
+        )
+        from app.services.application_assistant.job_matching import match_job
+
+        # Lazy backfill for jobs missing resumeMatchScore (compute + persist).
+        missing = [j for j in jobs if j.get("resumeMatchScore") is None]
+        if missing:
+            with session_scope() as db:
+                profile = get_kv(db, "profile") or {}
+                documents = get_kv(db, "documents") or {}
+                from app.db.store import list_entities
+                accomplishments = list_entities(db, "accomplishment") or []
+            resume_corpus = " ".join([
+                extract_resume_text(documents) if documents else "",
+                work_experience_text(profile),
+                accomplishment_text(accomplishments),
+                " ".join(normalize_profile_skills(profile)),
+            ])
+            resume_tokens = tuple(extract_keywords(resume_corpus))
+            profile_skills = build_candidate_skill_terms(profile, documents=documents, accomplishments=accomplishments)
+
+            def _resume_score(j):
+                try:
+                    res = match_job(j, profile, documents=documents, accomplishments=accomplishments)
+                    return float(res["overallScore"])
+                except Exception:
+                    return float(j.get("matchScore") or 0)
+
+            # Persist computed scores back to the DB.
+            from app.services.application_assistant.persistence import save_autopilot_job
+            with session_scope() as db:
+                for j in missing:
+                    sc = _resume_score(j)
+                    j["resumeMatchScore"] = sc
+                    try:
+                        save_autopilot_job(db, j)
+                    except Exception:
+                        pass
+
+        jobs.sort(key=lambda j: float(j.get("resumeMatchScore") if j.get("resumeMatchScore") is not None else (j.get("matchScore") or 0)), reverse=reverse)
+
     elif sortBy_str == "ai_prioritized":
         # Prioritise AI Engineer and Forward‑Deployed roles to the top of the list,
         # while preserving the existing matchScore ordering within each tier.

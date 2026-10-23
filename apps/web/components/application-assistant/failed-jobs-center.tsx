@@ -327,6 +327,7 @@ export function FailedJobsCenter({ onReprocessSuccess, onOpenPrep }: { onReproce
           >
             <option value="relevance">Relevance (AI -&gt; FDE -&gt; SWE)</option>
             <option value="matchScore">Match %</option>
+            <option value="resume">Resume match (BM25 + hybrid)</option>
             <option value="updatedAt">Most recent</option>
           </select>
           {failedList.length > 0 && (

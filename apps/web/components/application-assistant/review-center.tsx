@@ -40,7 +40,7 @@ function sortStaged(list: any[], sortBy: string): any[] {
       return 0;
     };
     arr.sort((a, b) => rank(b.title || b.roleTitle || "") - rank(a.title || a.roleTitle || "") || (b.matchScore || 0) - (a.matchScore || 0));
-  } else if (sortBy === "matchScore") {
+  } else if (sortBy === "matchScore" || sortBy === "resume") {
     arr.sort((a, b) => (b.matchScore || 0) - (a.matchScore || 0));
   }
   return arr;
@@ -256,6 +256,7 @@ export function ReviewCenter() {
           >
             <option value="relevance">Relevance (AI -&gt; FDE -&gt; SWE)</option>
             <option value="matchScore">Match %</option>
+            <option value="resume">Resume match (BM25 + hybrid)</option>
           </select>
           {stagedList.length > 0 && (
             <button

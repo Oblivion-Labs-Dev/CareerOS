@@ -29,9 +29,14 @@ export function FacetFilterDropdown({
   clearTitle,
 }: FacetFilterDropdownProps) {
   const [open, setOpen] = useState(false);
-  const [search, setSearch] = useState("");
+  const [inputValue, setInputValue] = useState(value);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
+
+  // Keep the typed text in sync when the applied filter changes externally.
+  useEffect(() => {
+    setInputValue(value);
+  }, [value]);
 
   // Close when clicking outside
   useEffect(() => {
@@ -60,34 +65,52 @@ export function FacetFilterDropdown({
   // Focus search input when opened
   useEffect(() => {
     if (open) {
-      setSearch("");
       const timer = setTimeout(() => {
         searchInputRef.current?.focus();
+        searchInputRef.current?.select();
       }, 50);
       return () => clearTimeout(timer);
     }
   }, [open]);
 
-  // Filter items in popup if user types in search box
+  // Filter items in popup by the typed text.
   const filteredItems = useMemo(() => {
-    if (!search.trim()) return items;
-    const q = search.trim().toLowerCase();
+    if (!inputValue.trim()) return items;
+    const q = inputValue.trim().toLowerCase();
     return items.filter(([name]) => name.toLowerCase().includes(q));
-  }, [items, search]);
+  }, [items, inputValue]);
+
+  // Debounced auto-apply: typing a phrase like "senior ai" narrows the list to
+  // every title containing it, without requiring an explicit Enter/click.
+  useEffect(() => {
+    const term = inputValue.trim();
+    if (term === (value || "").trim()) return;
+    const timer = setTimeout(() => {
+      onChange(term);
+    }, 450);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [inputValue]);
 
   const selectedCount = useMemo(() => {
     if (!value) return totalCount;
     const found = items.find(([name]) => name.toLowerCase() === value.toLowerCase());
-    return found ? found[1] : 0;
+    if (found) return found[1];
+    // Substring match (e.g. "senior ai"): count every title containing the term.
+    return items
+      .filter(([name]) => name.toLowerCase().includes(value.toLowerCase()))
+      .reduce((sum, [, count]) => sum + count, 0);
   }, [value, items, totalCount]);
 
   const handleSelect = (name: string) => {
+    setInputValue(name);
     onChange(name);
     setOpen(false);
   };
 
   const handleClear = (e: React.MouseEvent) => {
     e.stopPropagation();
+    setInputValue("");
     onChange("");
   };
 
@@ -154,8 +177,8 @@ export function FacetFilterDropdown({
                   type="text"
                   className={styles.filterInput}
                   placeholder={searchPlaceholder}
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
+                  value={inputValue}
+                  onChange={(e) => setInputValue(e.target.value)}
                 />
               </div>
             </div>
@@ -163,7 +186,7 @@ export function FacetFilterDropdown({
 
           <div className={styles.list}>
             {/* Option to select All */}
-            {(!search.trim() || allLabel.toLowerCase().includes(search.toLowerCase().trim())) && (
+            {(!inputValue.trim() || allLabel.toLowerCase().includes(inputValue.toLowerCase().trim())) && (
               <button
                 type="button"
                 className={`${styles.item} ${!value ? styles.itemActive : ""}`}
@@ -188,6 +211,30 @@ export function FacetFilterDropdown({
                 <span className={styles.itemCount}>{totalCount}</span>
               </button>
             )}
+
+            {/* Apply the typed text itself as a substring filter, so a query like
+                "senior ai" pulls every title containing it instead of requiring
+                an exact title match. */}
+            {inputValue.trim() &&
+              !items.some(([name]) => name.toLowerCase() === inputValue.trim().toLowerCase()) && (
+                <button
+                  type="button"
+                  className={`${styles.item} ${value.toLowerCase() === inputValue.trim().toLowerCase() ? styles.itemActive : ""}`}
+                  onClick={() => handleSelect(inputValue.trim())}
+                  role="option"
+                  aria-selected={value.toLowerCase() === inputValue.trim().toLowerCase()}
+                >
+                  <span className={styles.itemName}>
+                    <span className={styles.emptyCheck} />
+                    Filter titles containing &ldquo;{inputValue.trim()}&rdquo;
+                  </span>
+                  <span className={styles.itemCount}>
+                    {items
+                      .filter(([name]) => name.toLowerCase().includes(inputValue.trim().toLowerCase()))
+                      .reduce((sum, [, count]) => sum + count, 0)}
+                  </span>
+                </button>
+              )}
 
             {/* Individual options */}
             {filteredItems.map(([name, count]) => {
@@ -220,9 +267,9 @@ export function FacetFilterDropdown({
               );
             })}
 
-            {filteredItems.length === 0 && search.trim() && (
+            {filteredItems.length === 0 && inputValue.trim() && (
               <div className={styles.emptyState}>
-                {emptySearchLabel} &ldquo;{search}&rdquo;
+                {emptySearchLabel} &ldquo;{inputValue}&rdquo;
               </div>
             )}
           </div>
@@ -231,3 +278,6 @@ export function FacetFilterDropdown({
     </div>
   );
 }
+
+
+

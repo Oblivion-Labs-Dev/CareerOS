@@ -17,7 +17,7 @@ export type StatusFilter =
   | "open"
   | "rejected";
 
-export type SortMode = "priority" | "match" | "recent" | "company";
+export type SortMode = "priority" | "match" | "resume" | "recent" | "company";
 
 export const FILTERS: { id: StatusFilter; label: string; match: (j: AutopilotJobRow) => boolean }[] = [
   { id: "all", label: "All applications", match: () => true },
@@ -77,6 +77,7 @@ export function applicationCounts(statusCounts: Record<string, number>): Record<
 export const SORTS: { id: SortMode; label: string }[] = [
   { id: "priority", label: "Priority (Recent + Senior)" },
   { id: "match", label: "Match score" },
+  { id: "resume", label: "Resume match (BM25 + hybrid)" },
   { id: "recent", label: "Most recent" },
   { id: "company", label: "Company A-Z" },
 ];

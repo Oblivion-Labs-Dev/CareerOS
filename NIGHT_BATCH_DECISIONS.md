@@ -6,6 +6,73 @@ exists so decision-worthy events don't need to interrupt the user overnight.
 
 ---
 
+## 2026-10-21 (early AM) - resume-match finished, role priority set, loop rerun
+
+**Resume match (done, end to end)**
+- Ingestion fix: `queue_preprocessor.py` copies `description` from discovered jobs into new
+  autopilot jobs (permanent).
+- Backfill: 8,782/9,468 autopilot jobs enriched with real JD text (matched by normalized
+  company+title); all 9,468 rescored with the full deterministic `match_job()` (BM25 +
+  required-qual coverage + skills + experience + seniority + location). Scores now 10.6-61.2,
+  mean 33.4. Script kept: `apps/api/scripts/backfill_descriptions_and_scores.py`.
+- Lazy backfill in the `/autopilot/jobs` list endpoint also switched to `match_job()`.
+- ~686 jobs (7%) found no discovered-job match: they stay title-only (all score 48.7, tie).
+
+**Review blockers found (greenhouse/ashby pools: 470 ashby + 319 greenhouse review jobs)**
+- Answerable/templatable: Discord essay (17), X.AI "exceptional work" (14), companies-in-10-years
+  dropdown (7), "worked with us before?" (6), cover letter (5), Calendly state (3), anti-bot
+  1+X=3 answerable as 2 (3).
+- Owner-needed: ITAR conformance (5), Lila "AI for Devs" survey cluster (4/each), favorite book /
+  teach-a-class / best-thing-this-year (3 each), OpenZeppelin etc. (already logged below).
+
+**Queue role priority changed (owner instruction)**
+- New family tiers in `job_filter_ranker.py`: AI/ML engineering first, Forward Deployed second,
+  Senior Software Engineer third, everything else after (`role_application_tier`,
+  `ROLE_APPLICATION_TIER_WEIGHT = 20_000_000`, tier outranks recency by design).
+- `INTERNATIONAL_QUEUE_PENALTY` raised 10M -> 100M so international still ranks below every
+  domestic posting under the new scale.
+- Tests updated to the new contract: `test_queue_match_ranking.py` (Senior-before-FDE reversed),
+  `test_recency_first_queue_priority.py` (family tier beats recency). 132 passed.
+- Backfill ran: 3,668/3,917 QUEUED rows reranked; top-100 of the queue is 100% AI/ML roles.
+
+**Restart & rerun (owner: "once the roles priority is set rerun the 100 night loop")**
+- Runner stopped, API restarted (PID 10968, new priority code live), fresh run
+  `aprun_6e4ac3c5` target 100 submittableBoardsStrict=false.
+- First claimed jobs under the new order: Lyft ML Engineer, Fulfillment -> Globant AI Software
+  Engineer. Fresh 24h scrape pulled in-session (90 ATS boards, 10,763 indexed).
+
+## 2026-10-20 (night) - night loop started
+
+**Setup & Execution**
+- Dev servers restarted and verified healthy: FastAPI backend on :4000, Next.js frontend on :5000.
+- Fresh 24h scrape completed: ATS fetched 1330 roles, 10348 total indexed.
+- Autopilot runner started: run id aprun_bbd7793b-c92d-49d8-83d5-29fd688f4ad8, targetProcessCount 100, concurrency 1, submittableBoardsOnly true.
+- Playwright chromium browsers were missing; installed chromium + headless shell. 3 jobs that failed on missing browser (Anthropic, Chime, Twilio) requeued.
+- Sentinel loop started: PID 23732 (scripts/nightloop-sentinel.ps1), 30-min cadence, logs to TEMP/careerOS-nightloop.log.
+
+**Decisions (before user left)**
+- Boards when dry: keep going (triage remaining boards).
+- Scale AI non-compete question: answered No (requeued 21 jobs across two groups).
+- Essays (Discord Why Discord?, X.AI What exceptional work have you done?) left for morning.
+- Cover letter jobs left for morning (user must provide).
+
+**Open items for morning**
+- Essay answers for Discord (13 jobs) and X.AI (7 jobs).
+- Cover letters (5 jobs, 5 companies).
+- Fill bugs / FAILED jobs with empty lastError to be triaged.
+
+**Tick 2 (~04:15 UTC)**
+- Runner was PAUSED (starved: submittable=0). Fresh 24h scrape pulled 1269 roles; still 0 submittable. Restarted runner per user's "keep going" choice (triage other boards).
+- Audited 70 jobs touched since 02:00: 22 SUBMITTED, 25 MANUAL_REVIEW (captcha/bot walls - correct), 13 NEEDS_REVIEW, 5 SKIPPED, 4 INELIGIBLE, 1 FAILED (empty lastError - daytime bug).
+- Profile check on 22 submissions: name/location/auth/sponsorship all correct. No mismatches.
+- Company caps enforced (Amazon/Google/Microsoft/Apple/Roblox/etc. on hold until 10-22).
+- NEEDS_REVIEW opportunities (not fixed overnight): time-zone questions (Grafana, Calendly), Samsara preferred names/source, Xai "worked with us before?" + essay, visa-type + anti-automation, LaunchDarkly SDK question, Calendly state. Subjective/essay items left for user.
+- Runner now RUNNING again (resumeCount 2).
+
+
+---
+---
+
 ## 2026-10-18 (night / morning) — dual loop active, 37 new company boards registered
 
 **Setup & Execution (05:40–06:30 local / 12:40–13:30 UTC)**

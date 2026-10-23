@@ -59,9 +59,9 @@ from typing import Any, Iterable, Mapping, Sequence
 #: (name, allowance, window length in days). Ordered narrowest window first so
 #: that messages naturally name the tightest constraint when several bind.
 COMPANY_CAP_TIERS: tuple[tuple[str, int, int], ...] = (
-    ("day", 5, 1),
-    ("week", 10, 7),
-    ("month", 20, 30),
+    ("day", 15, 1),   # Was 5
+    ("week", 30, 7),  # Was 10
+    ("month", 60, 30), # Was 20
 )
 
 #: Extra allowance at every tier for a posting published very recently.

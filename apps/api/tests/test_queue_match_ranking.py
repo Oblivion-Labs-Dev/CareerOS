@@ -120,15 +120,31 @@ def test_individual_contributor_titles_with_management_words(title: str) -> None
     assert not is_management_title(title)
 
 
-def test_role_outranks_location() -> None:
-    """A Senior role anywhere in the US sits above a Seattle-area Staff role."""
+def test_ai_family_outranks_location_and_level() -> None:
+    """The AI/ML family applies first regardless of location or level.
+
+    Owner-set order (2026-10-21): AI engineering roles go out before everything
+    else, even a Seattle Staff role with a far higher match score.
+    """
     wa_staff = job("Senior Staff Machine Learning Engineer", "Seattle, WA", 99)
     us_senior = job("Senior Software Engineer", "Remote - US", 10)
-    assert queue_priority_score(us_senior) > queue_priority_score(wa_staff)
+    assert queue_priority_score(wa_staff) > queue_priority_score(us_senior)
+
+
+def test_seattle_senior_still_outranks_remote_us_senior() -> None:
+    """Within the same application family tier, location still decides."""
+    wa_senior = job("Senior Software Engineer", "Seattle, WA", 10)
+    us_senior = job("Senior Software Engineer", "Remote - US", 99)
+    assert queue_priority_score(wa_senior) > queue_priority_score(us_senior)
 
 
 def test_location_breaks_ties_within_a_role() -> None:
-    """Senior Seattle, Senior US, FDE Seattle, FDE US — in that order."""
+    """FDE Seattle, FDE US, Senior Seattle, Senior US — in that order.
+
+    Owner-set family order (2026-10-21): Forward Deployed applies before
+    Senior SWE, so the old Senior-before-FDE expectation was reversed; location
+    then decides inside each family.
+    """
     jobs = [
         job("Forward Deployed Engineer", "Remote - US", 99),
         job("Senior Software Engineer", "Remote - US", 99),
@@ -137,24 +153,32 @@ def test_location_breaks_ties_within_a_role() -> None:
     ]
     ordered = sorted(jobs, key=queue_priority_score, reverse=True)
     assert [(j["title"], j["location"]) for j in ordered] == [
-        ("Senior Software Engineer", "Seattle, WA"),
-        ("Senior Software Engineer", "Remote - US"),
         ("Forward Deployed Engineer", "Bellevue, WA"),
         ("Forward Deployed Engineer", "Remote - US"),
+        ("Senior Software Engineer", "Seattle, WA"),
+        ("Senior Software Engineer", "Remote - US"),
     ]
 
 
 def test_requested_role_order_within_a_location() -> None:
+    """AI/ML engineering first, then FDE, then Senior SWE, then the rest.
+
+    One title per family tier, each with a worse match score than every tier
+    below it — the tier must override an 80-point score deficit. The tier-0
+    tail keeps its old role-level ordering.
+    """
     titles = [
-        "Senior Software Engineer",
+        "AI Engineer",
         "Forward Deployed Engineer",
+        "Senior Software Engineer",
         "Principal Software Engineer",
         "Software Engineer II",
         "Staff Software Engineer",
         "Software Engineer I",
     ]
+    scores = (10, 20, 30, 40, 50, 60, 70, 80)
     for location in ("Seattle, WA", "Austin, TX"):
-        jobs = [job(title, location, score) for title, score in zip(titles, (10, 20, 30, 40, 50, 60))]
+        jobs = [job(title, location, score) for title, score in zip(titles, scores)]
         ordered = sorted(jobs, key=queue_priority_score, reverse=True)
         assert [j["title"] for j in ordered] == titles
 

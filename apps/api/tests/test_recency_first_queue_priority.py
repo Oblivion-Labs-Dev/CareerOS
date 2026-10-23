@@ -1,8 +1,9 @@
-"""Tests for Recency-First queue priority ordering.
+"""Tests for the queue priority ordering.
 
-Ensures that recently posted jobs are prioritized ahead of older jobs across
-distinct recency bands, while preserving location tier (Washington Senior SWE)
-and match score as tie-breakers within the same recency band.
+Ensures the owner-set application family tier (AI/ML engineering first, then
+Forward Deployed, then Senior SWE) is honored before recency, while recency
+still governs postings inside the same tier, with location tier (Washington
+Senior SWE) and match score as tie-breakers within the same recency band.
 """
 
 from __future__ import annotations
@@ -55,8 +56,13 @@ def test_location_and_match_break_ties_within_same_recency_band():
     assert queue_priority_score(fresh_wa) > queue_priority_score(fresh_remote)
 
 
-def test_last_24_hours_beats_location_and_role():
-    """A fresh SDE 1 role elsewhere in the US outranks a 2-day-old Seattle Senior role."""
+def test_family_tier_beats_recency():
+    """Owner-set family order outranks recency: a 26-hour-old Senior SWE is
+    worked before a 23-hour-old Software Engineer I, even with a lower score.
+
+    (This reversal is active-by-design since 2026-10-21: the old contract had
+    recency beating seniority, which the owner's explicit family order replaced.)
+    """
     now = datetime.now(timezone.utc)
     fresh_us_sde1 = {
         "title": "Software Engineer I",
@@ -70,7 +76,7 @@ def test_last_24_hours_beats_location_and_role():
         "matchScore": 99.0,
         "datePosted": (now - timedelta(hours=26)).isoformat(),
     }
-    assert queue_priority_score(fresh_us_sde1) > queue_priority_score(older_wa_senior)
+    assert queue_priority_score(older_wa_senior) > queue_priority_score(fresh_us_sde1)
 
 
 def test_location_beats_freshness_inside_the_24_hour_band():

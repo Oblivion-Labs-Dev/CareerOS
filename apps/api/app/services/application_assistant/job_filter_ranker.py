@@ -269,7 +269,11 @@ def build_existing_key_index(existing_jobs: list[dict[str, Any]]) -> dict[str, s
 # sink it below every US posting regardless of match score or recency, while
 # leaving international postings ordered sensibly among themselves — "US first,
 # other countries at the end", not "other countries never".
-INTERNATIONAL_QUEUE_PENALTY = 10_000_000.0
+# Raised from 10M when the owner-set role application tiers below were added:
+# the biggest tier contribution is 3 * ROLE_APPLICATION_TIER_WEIGHT = 60M, so
+# the penalty has to outweigh a full tier plus recency or an international
+# AI/ML posting would float above domestic non-tier roles again.
+INTERNATIONAL_QUEUE_PENALTY = 100_000_000.0
 
 # Queue ordering is lexicographic, packed into one number so every caller can
 # keep sorting on a single float: recency band, then role rank, then location
@@ -955,25 +959,60 @@ def posting_recency_band(job: dict[str, Any]) -> tuple[int, float]:
 
 
 def posting_recency_bonus(job: dict[str, Any]) -> float:
-    """Recency band (primary queue key) plus freshness within the band.
+    """Recency band plus freshness within the band.
 
-    The band weight dominates everything else, so a posting from the last 24
-    hours outranks any older posting. Freshness inside a band is worth less
-    than a role rank or location tier, so within the last 24 hours a Seattle
-    Senior role posted 20 hours ago still beats a Remote-US one posted 1 hour ago.
+    The band weight dominates everything below it (level, location, match), so
+    a fresher posting outranks an older one of the same application family tier.
+    Freshness inside a band is worth less than a role rank or location tier, so
+    within the last 24 hours a Seattle Senior role posted 20 hours ago still
+    beats a Remote-US one posted 1 hour ago.
     """
     band, freshness = posting_recency_band(job)
     return band * RECENCY_BAND_WEIGHT + freshness * FRESHNESS_WEIGHT
+
+
+# Owner-set application order (2026-10-21): AI/ML engineering roles are applied
+# to first, Forward Deployed second, Senior Software Engineer third, everything
+# else after. The tier outranks recency, level and location on purpose — the
+# owner asked for this family order to be the order applications go out in.
+ROLE_APPLICATION_TIER_WEIGHT = 20_000_000.0
+
+
+def role_application_tier(job: dict[str, Any]) -> float:
+    """0 = other, 1 = Senior SWE, 2 = Forward Deployed, 3 = AI/ML engineering.
+
+    Forward Deployed is checked before the AI family because "forward deployed"
+    titles also match the AI markers, and the owner ranks Forward Deployed
+    below AI/ML engineering, so a FDE title never takes the top tier. Hyphens
+    and slashes are normalized so "Forward-Deployed" and "AI/ML" spellings match.
+    """
+    title_l = re.sub(r"[-/\u2013\u2014]+", " ", str(job.get("title") or "")).lower()
+    title_l = re.sub(r"\s+", " ", title_l).strip()
+    if not title_l:
+        return 0.0
+    if "forward deployed" in title_l:
+        return 2.0
+    if _is_ai_priority_role(title_l):
+        return 3.0
+    if (
+        "senior software engineer" in title_l
+        or "sr software engineer" in title_l
+        or "senior swe" in title_l
+    ):
+        return 1.0
+    return 0.0
 
 
 def queue_priority_score(job: dict[str, Any]) -> float:
     """The single number the persistent queue is ordered by.
 
     Lexicographic, highest first:
-    1. Recency band (last 24 hours, 1-3 days, 3-7 days, 7-14 days, 14-30 days, older).
-    2. Role: Senior, Forward Deployed, Principal, SDE 2, Staff, SDE 1, other.
-    3. Location: Washington State (Seattle, Bellevue, Redmond, ...) over the rest of the US.
-    4. Freshness within the band, then match score.
+    1. Owner's application family: AI/ML engineering, Forward Deployed, Senior
+       Software Engineer, then everything else (role_application_tier).
+    2. Recency band (last 24 hours, 1-3 days, 3-7 days, 7-14 days, 14-30 days, older).
+    3. Role level: Senior, Forward Deployed, Principal, SDE 2, Staff, SDE 1, other.
+    4. Location: Washington State (Seattle, Bellevue, Redmond, ...) over the rest of the US.
+    5. Freshness within the band, then match score.
     International postings are penalized below every domestic posting.
     """
     international_penalty = (
@@ -983,7 +1022,8 @@ def queue_priority_score(job: dict[str, Any]) -> float:
         AI_ROLE_PRIORITY_BONUS if _is_ai_priority_role(job.get("title") or "") else 0.0
     )
     return (
-        posting_recency_bonus(job)
+        role_application_tier(job) * ROLE_APPLICATION_TIER_WEIGHT
+        + posting_recency_bonus(job)
         + role_location_priority_bonus(job)
         + ai_priority_bonus
         + float(job.get("matchScore") or 0.0)

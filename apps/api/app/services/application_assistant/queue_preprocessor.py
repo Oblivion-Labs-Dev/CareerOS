@@ -791,6 +791,7 @@ class QueuePreprocessor:
                     "company": company,
                     "title": title,
                     "location": r.get("location", ""),
+                    "description": r.get("description", ""),
                     "applicationUrl": url,
                     # Keep where it came from, so a resolved job can still be
                     # traced back to the listing that produced it.
