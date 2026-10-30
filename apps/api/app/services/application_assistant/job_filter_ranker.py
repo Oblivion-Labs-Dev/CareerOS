@@ -1010,9 +1010,13 @@ def queue_priority_score(job: dict[str, Any]) -> float:
     1. Owner's application family: AI/ML engineering, Forward Deployed, Senior
        Software Engineer, then everything else (role_application_tier).
     2. Recency band (last 24 hours, 1-3 days, 3-7 days, 7-14 days, 14-30 days, older).
-    3. Role level: Senior, Forward Deployed, Principal, SDE 2, Staff, SDE 1, other.
-    4. Location: Washington State (Seattle, Bellevue, Redmond, ...) over the rest of the US.
-    5. Freshness within the band, then match score.
+    3. Owner taste (taste_priority_score, docs/job-preferences.md): the ranked
+       interest families (agentic AI platforms and AI developer tools at the
+       top), company affinity, and deprioritizers (prompt-only, pure frontend,
+       SRE, IT support, pure research, management, CUDA/GPU).
+    4. Role level: Senior, Forward Deployed, Principal, SDE 2, Staff, SDE 1, other.
+    5. Location: Washington State (Seattle, Bellevue, Redmond, ...) over the rest of the US.
+    6. Freshness within the band, then match score.
     International postings are penalized below every domestic posting.
     """
     international_penalty = (
@@ -1024,6 +1028,7 @@ def queue_priority_score(job: dict[str, Any]) -> float:
     return (
         role_application_tier(job) * ROLE_APPLICATION_TIER_WEIGHT
         + posting_recency_bonus(job)
+        + taste_priority_score(job) * TASTE_UNIT_WEIGHT
         + role_location_priority_bonus(job)
         + ai_priority_bonus
         + float(job.get("matchScore") or 0.0)
@@ -1044,14 +1049,196 @@ def _is_ai_priority_role(title: str) -> bool:
     title_l = (title or "").lower()
     if not title_l:
         return False
+    # "prompt engineer" is deliberately NOT an AI-family marker any more:
+    # docs/job-preferences.md lists prompt-writing / chatbot-configuration
+    # roles under "to deprioritize", so they must not take the AI application
+    # tier. taste_priority_score ranks them near the bottom instead.
+    # "developer productivity" / "developer tools" / "engineering productivity"
+    # joined the markers on purpose: docs/job-preferences.md ranks "AI
+    # developer tools, coding agents, engineering productivity" as P0 (100), so
+    # those titles must claim the AI application tier, not sit below plain
+    # Senior SWE roles.
     ai_markers = (
         "ai engineer", "ai software", "llm", "genai", "generative ai",
         "machine learning engineer", "ml engineer", "deep learning",
-        "nlp engineer", "computer vision", "mlops", "llmops", "prompt engineer",
+        "nlp engineer", "computer vision", "mlops", "llmops",
         "agentic", "applied ai", "ai platform", "ai reliability", "ai sre",
         "ai architect", "ai solutions", "context engineer", "forward deployed",
+        "developer productivity", "engineering productivity", "developer tools",
     )
     return any(m in title_l for m in ai_markers)
+
+
+# ---------------------------------------------------------------------------
+# Owner taste ranking (docs/job-preferences.md, encoded 2026-10-26, issue #99).
+#
+# The owner ranked their interests P0 (agentic AI platforms, AI developer
+# tools, AI infrastructure, applied AI) to P2 (cloud platform engineering) and
+# named the roles to deprioritize (prompt-only, pure frontend, SRE/DevOps,
+# IT support, pure research, management without hands-on work, deep CUDA/GPU).
+# Two things consume this:
+#   1. queue_priority_score (TASTE_UNIT_WEIGHT slot: above role level and
+#      location, below the recency band — the owner asked for application
+#      order to follow taste first and move on to the rest afterwards, while
+#      fresh-jobs-first intake still wins across bands).
+#   2. The "taste" sortBy on the jobs API, which Review / Manual Review /
+#      Failed lists default to so the owner works the tastiest jobs first.
+# Update docs/job-preferences.md in the same commit whenever markers change.
+# ---------------------------------------------------------------------------
+
+# One score unit's weight in queue_priority_score. Max taste (~115) * this must
+# stay above ROLE_RANK_WEIGHT (100k, taste dominates role level within a band)
+# and below RECENCY_BAND_WEIGHT (1M, a fresher band still wins across bands).
+TASTE_UNIT_WEIGHT = 5_000.0
+
+# First title match wins; within each family the specific markers come before
+# their generic substrings ("ai platform" before a bare "platform" would match,
+# "agentic" before anything else an "agentic" title also contains).
+TASTE_FAMILY_WEIGHTS: tuple[tuple[float, tuple[str, ...]], ...] = (
+    (
+        100.0,
+        (
+            "agentic", "autonomous agent", "multi agent", "agent orchestration",
+            "agent framework", "agent infrastructure", "agent platform",
+            "coding agent", "ai agents", "agents engineer", "agent engineer",
+            "developer productivity", "engineering productivity",
+            "developer tools", "developer tooling", "devtools",
+        ),
+    ),
+    (
+        95.0,
+        (
+            "ai infrastructure", "agent runtime", "mcp", "tool calling",
+            "tool execution", "applied ai", "ai enablement", "ai platform",
+            "llm engineer", "generative ai", "genai", "production llm",
+            "ai systems", "ai engineer",
+        ),
+    ),
+    (
+        90.0,
+        (
+            "workflow automation", "automation", "internal tools",
+            "ai evaluation", "evals engineer", "observability",
+            "guardrails", "ai reliability",
+        ),
+    ),
+    (
+        85.0,
+        (
+            "backend", "distributed systems", "microservices", "rag",
+            "retrieval engineer", "semantic search", "knowledge systems",
+        ),
+    ),
+    (
+        80.0,
+        (
+            "full stack", "developer experience",
+            "product engineer", "forward deployed",
+        ),
+    ),
+    (75.0, ("fintech", "security ai", "enterprise automation")),
+    (
+        70.0,
+        (
+            "platform engineering", "platform engineer",
+            "cloud infrastructure", "infrastructure engineer",
+        ),
+    ),
+)
+
+# Company affinity (docs: "Companies I naturally gravitate toward"). Matched
+# against a punctuation-normalized, lowercase company name as a substring.
+TASTE_COMPANY_BONUS = 6.0
+TASTE_COMPANY_MARKERS: tuple[str, ...] = (
+    "cursor", "anthropic", "openai", "docker", "n8n", "linear", "github",
+    "sourcegraph", "coderabbit", "copilotkit", "clickup", "hightouch",
+    "activecampaign", "stello", "langchain", "crewai", "zapier", "replit",
+    "gamechanger", "allen institute", "hackerone", "deepgram", "sanity",
+    "replicant",
+)
+
+# Description signals that lift an otherwise-generic title: the title says only
+# "Senior Software Engineer" but the posting is really about building agents /
+# AI-native developer products. One bump max, capped independently of family.
+TASTE_DESC_LIFT = 5.0
+TASTE_DESC_STRONG_MARKERS: tuple[str, ...] = (
+    "agentic", "coding agent", "autonomous agent", "multi agent",
+    "agent orchestration", "tool calling", "mcp", "llm application",
+    "developer platform", "ai-native",
+)
+
+# Plain Senior SWE without a family marker is still the core target role.
+TASTE_BASE_SCORE = 65.0
+TASTE_SENIORITY_BONUS = 2.0
+TASTE_STAFF_BONUS = 1.0
+TASTE_MAX_SCORE = 115.0
+
+
+def _taste_has_any(haystack: str, markers: tuple[str, ...]) -> bool:
+    return any(m in haystack for m in markers)
+
+
+def taste_priority_score(job: dict[str, Any]) -> float:
+    """The owner's taste ranking, 0-115 (docs/job-preferences.md).
+
+    Deterministic — title (authoritative), a capped slice of the description,
+    and the company name:
+      * Interest family weight falls out of the first matching title marker
+        family, P0 (agentic AI platforms, AI developer tools) down to P2
+        (cloud platform engineering).
+      * A generic title gets lifted once when the posting text is clearly
+        about agents / AI-native developer products, and gets a company
+        affinity bonus for the companies the owner gravitates toward.
+      * The "Roles to deprioritize" list tightens the family and subtracts.
+
+    Placement in the queue: taste * TASTE_UNIT_WEIGHT sits above ROLE_RANK and
+    location tiers (within a recency band the owner's taste wins over title
+    level and location) and below the recency band weight (a fresher band
+    always beats an older one, taste or not).
+    """
+    title_l = re.sub(r"[\u2013\u2014]", "-", str(job.get("title") or job.get("jobTitle") or "")).lower()
+    title_l = re.sub(r"[-/]+", " ", title_l)
+    title_l = re.sub(r"\s+", " ", title_l).strip()
+    desc_l = str(job.get("description") or "").lower()[:4000]
+    company_l = re.sub(r"[^a-z0-9 ]+", " ", str(job.get("company") or "").lower())
+
+    family = 0.0
+    for weight, markers in TASTE_FAMILY_WEIGHTS:
+        if _taste_has_any(title_l, markers):
+            family = weight
+            break
+
+    score = family if family > 0 else TASTE_BASE_SCORE
+
+    if desc_l and score < 95.0 and _taste_has_any(desc_l, TASTE_DESC_STRONG_MARKERS):
+        score += TASTE_DESC_LIFT
+    if _taste_has_any(company_l, TASTE_COMPANY_MARKERS):
+        score += TASTE_COMPANY_BONUS
+    if "senior" in title_l or re.search(r"\bsr\.?\b", title_l):
+        score += TASTE_SENIORITY_BONUS
+    elif "staff" in title_l:
+        score += TASTE_STAFF_BONUS
+
+    # "Roles to deprioritize" (docs/job-preferences.md). The guard clauses keep
+    # a deprioritized marker from dragging down a job whose title already named
+    # a P0/P1 family (e.g. "AI Reliability Engineer" must not fall into the
+    # SRE bucket, and "Full-Stack AI" must not fall into the frontend one).
+    if _taste_has_any(title_l, ("prompt engineer", "prompt writer", "chatbot")) and family < 95.0:
+        score = min(score, 62.0) - 10.0
+    if _taste_has_any(title_l, ("frontend", "front end")) and family <= 80.0:
+        score = min(score, 58.0) - 10.0
+    if (_taste_has_any(title_l, ("site reliability", " devops")) or re.search(r"\bsre\b", title_l)) and family <= 85.0:
+        score = min(score, 58.0) - 10.0
+    if _taste_has_any(title_l, ("it support", "help desk", "service desk")):
+        score = min(score, 40.0) - 20.0
+    if _taste_has_any(title_l, ("research scientist", "research engineer", "research fellow")) and family < 95.0:
+        score = min(score, 55.0) - 10.0
+    if _taste_has_any(title_l, ("engineering manager", " director", "head of")):
+        score = min(score, 50.0) - 15.0
+    if (_taste_has_any(title_l, ("gpu kernel", "kernel engineer")) or re.search(r"\bcuda\b", title_l)) and family < 95.0:
+        score = min(score, 55.0) - 10.0
+
+    return max(0.0, min(score, TASTE_MAX_SCORE))
 
 
 def filter_and_rank_jobs(
