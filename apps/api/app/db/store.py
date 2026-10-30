@@ -3,7 +3,7 @@ import logging
 import os
 import re
 import uuid
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
@@ -97,7 +97,57 @@ def _set_sqlite_pragma(dbapi_connection, connection_record):
         cursor.execute("PRAGMA journal_mode=WAL")
         cursor.execute("PRAGMA busy_timeout=60000")
         cursor.execute("PRAGMA synchronous=NORMAL")
+        # Without a limit the -wal file never shrinks: it is reused from the
+        # start after a checkpoint but keeps its high-water size (1.28 GB seen).
+        cursor.execute(f"PRAGMA journal_size_limit={WAL_SIZE_LIMIT_BYTES}")
         cursor.close()
+
+
+#: Size the -wal file is truncated back to after a checkpoint resets it.
+WAL_SIZE_LIMIT_BYTES = 64 * 1024 * 1024
+#: Above this, a checkpoint that cannot finish is reported as a warning.
+WAL_WARN_BYTES = 100 * 1024 * 1024
+
+
+def checkpoint_wal() -> dict[str, Any] | None:
+    """Fold the write-ahead log back into the database and truncate it.
+
+    SQLite only checkpoints frames no open read transaction still needs, so a
+    connection left holding a read snapshot lets the WAL grow without bound.
+    The result is returned and a blocked checkpoint is logged loudly, so that
+    reader shows up in the log rather than as a slowly filling disk.
+    Returns None when the database is not SQLite.
+    """
+    from sqlalchemy import text
+
+    if "sqlite" not in str(engine.url):
+        return None
+    with engine.connect() as conn:
+        # PASSIVE never waits and never blocks writers. TRUNCATE waits on the
+        # busy timeout for readers and holds off writers meanwhile, so it only
+        # runs once everything is checkpointed, and with a short timeout.
+        busy, log_frames, checkpointed = conn.execute(text("PRAGMA wal_checkpoint(PASSIVE)")).one()
+        if not busy and checkpointed == log_frames:
+            conn.execute(text("PRAGMA busy_timeout=1000"))
+            try:
+                busy, log_frames, checkpointed = conn.execute(text("PRAGMA wal_checkpoint(TRUNCATE)")).one()
+            finally:
+                conn.execute(text("PRAGMA busy_timeout=60000"))
+    wal_path = Path(f"{engine.url.database}-wal")
+    result = {
+        "busy": bool(busy),
+        "logFrames": log_frames,
+        "checkpointedFrames": checkpointed,
+        "walBytes": wal_path.stat().st_size if wal_path.exists() else 0,
+    }
+    if busy or (log_frames > 0 and checkpointed < log_frames):
+        level = logging.WARNING if result["walBytes"] >= WAL_WARN_BYTES else logging.INFO
+        logging.getLogger("career_os.db").log(
+            level,
+            "WAL checkpoint blocked by an open reader: %s of %s frames checkpointed, -wal is %.0f MB",
+            checkpointed, log_frames, result["walBytes"] / 1e6,
+        )
+    return result
 
 
 # Expression indexes over the JSON payload. The table only had an index on
@@ -569,6 +619,64 @@ def entity_count(db: Session, entity_type: str, user_id: str | None = None) -> i
     return query.count()
 
 
+def count_entities_by_json_values(
+    db: Session, entity_type: str, json_path: str, values: Iterable[Any], user_id: str | None = None
+) -> int:
+    """How many entities have a JSON field equal to one of `values`, counted
+    in SQL through the expression indexes instead of parsing every payload."""
+    query = (
+        db.query(EntityStore)
+        .filter(EntityStore.entity_type == entity_type)
+        .filter(json_field(json_path).in_(list(values)))
+    )
+    if user_id is not None:
+        query = query.filter(EntityStore.user_id == user_id)
+    return query.count()
+
+
+def list_entity_fields_by_json_values(
+    db: Session,
+    entity_type: str,
+    json_path: str,
+    values: Iterable[Any],
+    fields: Iterable[str],
+    user_id: str | None = None,
+) -> list[dict[str, Any]]:
+    """Only `fields` of the entities whose JSON field is one of `values`.
+
+    For readers that need a few small fields of thousands of large rows: on
+    SQLite the fields are picked out in SQL with one multi-path json_extract,
+    so Python parses a few hundred bytes per row instead of the whole payload.
+    Missing fields come back as None, as `payload.get` would give.
+    """
+    fields = list(fields)
+    # Several paths make json_extract return one JSON array; a single path
+    # would return a bare SQL value that cannot be told apart from JSON text.
+    if len(fields) < 2:
+        raise ValueError("ask for at least two fields")
+    for name in fields:
+        if not _JSON_PATH.match(f"$.{name}"):
+            raise ValueError(f"not a plain field name: {name!r}")
+    if "sqlite" not in str(engine.url):
+        return [
+            {name: row.get(name) for name in fields}
+            for value in values
+            for row in list_entities_by_json_equals(db, entity_type, json_path, value, user_id)
+        ]
+
+    from sqlalchemy import func, literal_column
+
+    picked = func.json_extract(EntityStore.payload, *(literal_column(f"'$.{name}'") for name in fields))
+    query = (
+        db.query(picked)
+        .filter(EntityStore.entity_type == entity_type)
+        .filter(json_field(json_path).in_(list(values)))
+    )
+    if user_id is not None:
+        query = query.filter(EntityStore.user_id == user_id)
+    return [dict(zip(fields, json.loads(value))) for (value,) in query.all()]
+
+
 def tracker_summary(db: Session) -> dict[str, Any]:
     """Lightweight tracker payload for the web dashboard (no resume binary)."""
     raw_applications = [enrich_application_record(app) for app in list_entities(db, "application")]
@@ -578,10 +686,9 @@ def tracker_summary(db: Session) -> dict[str, Any]:
         if a.get("source") not in ("careeros", "gmail_manual") and not str(a.get("id", "")).startswith("gmail_")
     ]
 
-    # Autopilot jobs tracked internally in aa_autopilot_job (source of truth)
-    autopilot_submitted = sum(
-        1 for j in list_entities(db, "aa_autopilot_job") if j.get("status") == "SUBMITTED"
-    )
+    # Autopilot jobs tracked internally in aa_autopilot_job (source of truth).
+    # Counted in SQL: parsing all ~12k job payloads cost seconds per request.
+    autopilot_submitted = count_entities_by_json_values(db, "aa_autopilot_job", "$.status", ["SUBMITTED"])
 
     # Gmail sync is disabled for now to eliminate duplicate counting
     manual_submitted = 0

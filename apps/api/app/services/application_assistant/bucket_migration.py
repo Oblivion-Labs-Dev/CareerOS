@@ -100,6 +100,6 @@ def migrate_bucket_model(db: Any) -> dict[str, Any]:
 
     result = {"version": BUCKET_MODEL_VERSION, "migratedAt": now_iso(), "counts": dict(counts)}
     set_kv(db, KV_BUCKET_MODEL, result)
-    _invalidate_autopilot_jobs_cache()
+    _invalidate_autopilot_jobs_cache(db)
     logger.info("Autopilot bucket model v%s applied: %s", BUCKET_MODEL_VERSION, dict(counts))
     return result

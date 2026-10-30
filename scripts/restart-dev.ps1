@@ -3,7 +3,12 @@ param(
     [int]$ApiPort = 4000,
     [int]$WebPort = 5000,
     [switch]$Background,
-    [switch]$SkipOllamaCheck
+    [switch]$SkipOllamaCheck,
+    # Serve the web app from a production build (next build + next start)
+    # instead of next dev. Much faster for daily use; use dev for UI work.
+    [switch]$Prod,
+    # With -Prod, reuse the last build instead of rebuilding.
+    [switch]$SkipBuild
 )
 
 $ErrorActionPreference = 'Stop'
@@ -11,6 +16,8 @@ $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $ApiDir = Join-Path $RepoRoot 'apps\api'
 $WebDir = Join-Path $RepoRoot 'apps\web'
 $VenvPython = Join-Path $ApiDir '.venv\Scripts\python.exe'
+# PID of the cmd.exe that roots the pnpm tree this script last started.
+$StackPidFile = Join-Path $RepoRoot 'logs\dev-stack.pid'
 
 function Write-Step([string]$Message) {
     Write-Host ('==> ' + $Message) -ForegroundColor Cyan
@@ -67,6 +74,28 @@ function Stop-PortListener([int]$Port) {
         Start-Sleep -Milliseconds 400
     }
     return $killed.Count
+}
+
+function Stop-ProcessTree([int]$RootId, [string]$Why) {
+    if (-not (Get-Process -Id $RootId -ErrorAction SilentlyContinue)) { return }
+    Write-Host ('  Stopping process tree PID ' + $RootId + ' (' + $Why + ')')
+    & taskkill.exe /PID $RootId /T /F 2>&1 | Out-Null
+}
+
+# Walk up from a server process to the outermost launcher of the stack
+# (cmd /c pnpm ... -> pnpm -> cmd -> next/uvicorn), so stopping it takes the
+# whole pnpm tree. Killing only the port owner left pnpm --parallel alive, and
+# the next restart stacked another tree beside it.
+function Get-StackRoot([int]$ProcId) {
+    $root = $ProcId
+    $current = Get-CimInstance Win32_Process -Filter ('ProcessId=' + $ProcId) -ErrorAction SilentlyContinue
+    while ($current) {
+        $parent = Get-CimInstance Win32_Process -Filter ('ProcessId=' + $current.ParentProcessId) -ErrorAction SilentlyContinue
+        if (-not $parent -or $parent.CommandLine -notmatch 'pnpm|next(\.cmd)? (dev|start)|uvicorn') { break }
+        $root = $parent.ProcessId
+        $current = $parent
+    }
+    return $root
 }
 
 function Wait-PortFree([int]$Port, [int]$TimeoutSec = 15) {
@@ -166,15 +195,65 @@ function Wait-HttpOk([string]$Url, [int]$TimeoutSec = 60) {
     return $false
 }
 
+$Mode = if ($Prod) { 'production' } else { 'dev' }
 Write-Host ''
-Write-Host 'CareerOS dev restart' -ForegroundColor Green
+Write-Host ('CareerOS restart (' + $Mode + ')') -ForegroundColor Green
 Write-Host ('Repo: ' + $RepoRoot)
 Write-Host ''
 
+Write-Step 'Applying environment'
+Import-DotEnvFile (Join-Path $RepoRoot '.env')
+Import-DotEnvFile (Join-Path $ApiDir '.env')
+Import-DotEnvFile (Join-Path $WebDir '.env.local')
+
+$apiUrl = 'http://127.0.0.1:' + $ApiPort
+$webUrl = 'http://localhost:' + $WebPort
+$env:NEXT_PUBLIC_API_URL = $apiUrl
+$env:CAREER_OS_API_PUBLIC_URL = $apiUrl
+$env:CAREER_OS_CORS_ORIGINS = $webUrl + ',chrome-extension://*'
+$env:CAREER_OS_DEV_MODE = 'true'
+$env:APPLICATION_ASSISTANT_ENABLED = 'true'
+
+Set-Location $RepoRoot
+if (-not (Get-Command pnpm -ErrorAction SilentlyContinue)) {
+    throw 'pnpm not found on PATH. Install Node 20+ and pnpm 9+, then run: pnpm install'
+}
+
+# Build before stopping anything, so the running stack keeps serving for the
+# ~80 s the build takes. The build writes to apps/web/.next-prod, never the
+# .next a running next dev uses (see next.config.ts).
+if ($Prod -and -not $SkipBuild) {
+    Write-Step 'Building @career-os/core, @career-os/ui and the web app (next build)'
+    & pnpm build:web
+    if ($LASTEXITCODE -ne 0) { throw ('Production build failed (exit ' + $LASTEXITCODE + '); the running stack was left as it was.') }
+} elseif ($Prod -and -not (Test-Path (Join-Path $WebDir '.next-prod\BUILD_ID'))) {
+    throw '-SkipBuild given but apps/web/.next-prod has no build. Run without -SkipBuild.'
+}
+
 Write-Step ('Stopping servers on ports ' + $ApiPort + ', ' + $WebPort + ' (and legacy 8001)')
-Get-CimInstance Win32_Process | Where-Object { $_.Name -eq 'python.exe' -and $_.CommandLine -match 'uvicorn|app\.main:app' } | ForEach-Object {
-    Write-Host ('  Stopping uvicorn python PID ' + $_.ProcessId)
-    Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue
+if (Test-Path $StackPidFile) {
+    $oldRoot = [int](Get-Content $StackPidFile -Raw).Trim()
+    Stop-ProcessTree $oldRoot 'previous pnpm tree'
+    Remove-Item $StackPidFile -Force -ErrorAction SilentlyContinue
+}
+foreach ($port in @($ApiPort, $WebPort)) {
+    foreach ($conn in @(Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue)) {
+        if ($conn.OwningProcess -gt 0) { Stop-ProcessTree (Get-StackRoot $conn.OwningProcess) ('tree serving port ' + $port) }
+    }
+}
+# Port owners are not always visible (sandboxed shells, no admin), so also
+# match this checkout's own next server by command line.
+Get-CimInstance Win32_Process | Where-Object {
+    $_.Name -eq 'node.exe' -and $_.CommandLine -and $_.CommandLine.Contains($WebDir) -and $_.CommandLine -match 'next[\\/]dist[\\/]bin[\\/]next"? +(dev|start)'
+} | ForEach-Object {
+    Stop-ProcessTree (Get-StackRoot $_.ProcessId) 'next server of this checkout'
+}
+# Only the uvicorn serving this API port: other checkouts or agents may run
+# their own API on another port against their own database.
+Get-CimInstance Win32_Process | Where-Object {
+    $_.Name -like 'python*' -and $_.CommandLine -match 'uvicorn|app\.main:app' -and $_.CommandLine -match ('--port[= ]' + $ApiPort + '(\s|$)')
+} | ForEach-Object {
+    Stop-ProcessTree (Get-StackRoot $_.ProcessId) ('uvicorn on port ' + $ApiPort)
 }
 Start-Sleep -Seconds 1
 
@@ -191,12 +270,16 @@ Start-Sleep -Seconds 1
 # Get-NetTCPConnection attributes that socket to the DEAD parent pid, so the
 # port-based sweep below cannot find them; they have to be matched by command
 # line instead.
+#
+# Only orphans are swept: a spawned worker whose parent is still alive belongs
+# to some other tool (MCP servers, language servers) and is not ours to kill.
+# The uvicorn parents were stopped just above, so the API's own workers are
+# orphans by now.
 Get-CimInstance Win32_Process | Where-Object {
     $_.Name -like 'python*' -and $_.CommandLine -like '*multiprocessing.spawn*'
 } | ForEach-Object {
-    $parent = Get-Process -Id $_.ParentProcessId -ErrorAction SilentlyContinue
-    $tag = if ($parent) { 'child of ' + $_.ParentProcessId } else { 'ORPHAN, parent ' + $_.ParentProcessId + ' is gone' }
-    Write-Host ('  Stopping spawned worker PID ' + $_.ProcessId + ' (' + $tag + ')')
+    if (Get-Process -Id $_.ParentProcessId -ErrorAction SilentlyContinue) { return }
+    Write-Host ('  Stopping spawned worker PID ' + $_.ProcessId + ' (ORPHAN, parent ' + $_.ParentProcessId + ' is gone)')
     Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue
 }
 Start-Sleep -Seconds 1
@@ -224,19 +307,6 @@ foreach ($port in @($ApiPort, $WebPort)) {
         Write-Warning ('Port ' + $port + ' still in use - startup may fail.')
     }
 }
-
-Write-Step 'Applying environment'
-Import-DotEnvFile (Join-Path $RepoRoot '.env')
-Import-DotEnvFile (Join-Path $ApiDir '.env')
-Import-DotEnvFile (Join-Path $WebDir '.env.local')
-
-$apiUrl = 'http://127.0.0.1:' + $ApiPort
-$webUrl = 'http://localhost:' + $WebPort
-$env:NEXT_PUBLIC_API_URL = $apiUrl
-$env:CAREER_OS_API_PUBLIC_URL = $apiUrl
-$env:CAREER_OS_CORS_ORIGINS = $webUrl + ',chrome-extension://*'
-$env:CAREER_OS_DEV_MODE = 'true'
-$env:APPLICATION_ASSISTANT_ENABLED = 'true'
 
 if (-not $env:APPLICATION_ASSISTANT_LLM_BASE_URL) {
     $env:APPLICATION_ASSISTANT_LLM_BASE_URL = 'http://localhost:11434/v1'
@@ -279,13 +349,8 @@ if ($localLlmOff) {
     Start-OllamaIfNeeded $env:APPLICATION_ASSISTANT_LLM_BASE_URL | Out-Null
 }
 
-Set-Location $RepoRoot
-
-if (-not (Get-Command pnpm -ErrorAction SilentlyContinue)) {
-    throw 'pnpm not found on PATH. Install Node 20+ and pnpm 9+, then run: pnpm install'
-}
-
-Write-Step 'Starting pnpm dev'
+$pnpmScript = if ($Prod) { 'start:prod' } else { 'dev' }
+Write-Step ('Starting pnpm ' + $pnpmScript)
 if ($Background) {
     $logDir = Join-Path $RepoRoot 'logs'
     New-Item -ItemType Directory -Force -Path $logDir | Out-Null
@@ -295,7 +360,8 @@ if ($Background) {
     # child cmd.exe, so a Ctrl+C delivered to this script's own console (e.g. from a
     # subsequent tool invocation sharing the terminal) doesn't get broadcast to the
     # dev servers and kill them out from under a running session.
-    $proc = Start-Process -FilePath 'cmd.exe' -ArgumentList '/c', 'pnpm dev' -WorkingDirectory $RepoRoot -PassThru -WindowStyle Hidden -RedirectStandardOutput $logFile -RedirectStandardError $errFile
+    $proc = Start-Process -FilePath 'cmd.exe' -ArgumentList '/c', ('pnpm ' + $pnpmScript) -WorkingDirectory $RepoRoot -PassThru -WindowStyle Hidden -RedirectStandardOutput $logFile -RedirectStandardError $errFile
+    Set-Content -Path $StackPidFile -Value $proc.Id -Encoding ascii
     Write-Host ('  PID ' + $proc.Id + ' - log: ' + $logFile)
     Write-Step 'Waiting for both Backend API & Web Frontend to be healthy...'
     $apiOk = Wait-HttpOk ($apiUrl + '/health') -TimeoutSec 45
@@ -321,5 +387,5 @@ if ($Background) {
     Write-Host ''
     Write-Host 'Press Ctrl+C to stop both servers.' -ForegroundColor DarkGray
     Write-Host ''
-    & pnpm dev
+    & pnpm $pnpmScript
 }

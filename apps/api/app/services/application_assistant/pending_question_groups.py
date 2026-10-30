@@ -179,14 +179,22 @@ def group_pending_questions(
 
             match = None
             best = threshold
-            candidates = sorted({i for word in words for i in groups_by_word.get(word, ())})
-            for i in candidates:
-                if _distinct_subjects(words, groups[i]._words):
+            # Shared-word counts fall out of the index for free, which gives
+            # the same score as _overlap without building set intersections.
+            shared: dict[int, int] = {}
+            for word in words:
+                for i in groups_by_word.get(word, ()):
+                    shared[i] = shared.get(i, 0) + 1
+            for i in sorted(shared):
+                common = shared[i]
+                score = common / (len(words) + len(groups[i]._words) - common)
+                # The score rejects nearly every candidate, so the costly
+                # distinct-subject check only runs on a group that would
+                # otherwise win. Same result either way.
+                if score < best or _distinct_subjects(words, groups[i]._words):
                     continue
-                score = _overlap(words, groups[i]._words)
-                if score >= best:
-                    best = score
-                    match = groups[i]
+                best = score
+                match = groups[i]
 
             if match is None:
                 match = QuestionGroup(

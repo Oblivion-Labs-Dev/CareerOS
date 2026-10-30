@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import logging
 import re
+import threading
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
+from sqlalchemy import event
 from sqlalchemy.orm import Session
 
 from app.db.store import (
@@ -592,7 +594,31 @@ def cached_autopilot_jobs() -> list[dict[str, Any]]:
     return read_cache.get(AUTOPILOT_JOBS_CACHE_KEY, AUTOPILOT_JOBS_TTL_SECONDS, _load)
 
 
-def _invalidate_autopilot_jobs_cache() -> None:
+# Bumped on every autopilot-job write, and again once that write commits.
+# Caches built from job rows (see /autopilot/readiness) are valid only for
+# the generation they were built under. The second bump matters: the first
+# fires before the commit, so a read in between still sees the old rows.
+_jobs_generation = 0
+_jobs_generation_lock = threading.Lock()
+
+
+def autopilot_jobs_generation() -> int:
+    return _jobs_generation
+
+
+def _bump_autopilot_jobs_generation() -> None:
+    global _jobs_generation
+    with _jobs_generation_lock:
+        _jobs_generation += 1
+
+
+@event.listens_for(Session, "after_commit")
+def _bump_after_job_commit(session: Session) -> None:
+    if session.info.pop("autopilot_jobs_written", False):
+        _bump_autopilot_jobs_generation()
+
+
+def _invalidate_autopilot_jobs_cache(db: Session | None = None) -> None:
     """Mark the cached job list and precomputed stats stale so the next read
     picks up this write, without forcing every other concurrent viewer to pay
     a synchronous full rebuild (~5,000+ rows deserialized and sorted).
@@ -619,6 +645,9 @@ def _invalidate_autopilot_jobs_cache() -> None:
 
     read_cache.touch(AUTOPILOT_JOBS_CACHE_KEY)
     read_cache.touch(AUTOPILOT_STATS_CACHE_KEY)
+    _bump_autopilot_jobs_generation()
+    if db is not None:
+        db.info["autopilot_jobs_written"] = True
 
 
 # Statuses a job can sit in where there is still something to do. A duplicate
@@ -1052,7 +1081,7 @@ def save_autopilot_job(db: Session, payload: dict[str, Any]) -> dict[str, Any]:
                                   saved.get("answers") if isinstance(saved.get("answers"), dict) else None)
             except Exception:
                 logger.exception("Could not record the applied outcome for %s", saved.get("careerResumeId"))
-    _invalidate_autopilot_jobs_cache()
+    _invalidate_autopilot_jobs_cache(db)
     return saved
 
 
@@ -1062,7 +1091,7 @@ def get_autopilot_job(db: Session, job_app_id: str) -> dict[str, Any] | None:
 
 def delete_autopilot_job(db: Session, job_app_id: str) -> bool:
     deleted = delete_entity(db, ENTITY_AUTOPILOT_JOB, job_app_id)
-    _invalidate_autopilot_jobs_cache()
+    _invalidate_autopilot_jobs_cache(db)
     return deleted
 
 
@@ -1316,7 +1345,7 @@ def claim_job_lock(db: Session, job_app_id: str, worker_id: str, lease_seconds: 
     if not result.rowcount:
         return False
     db.flush()
-    _invalidate_autopilot_jobs_cache()
+    _invalidate_autopilot_jobs_cache(db)
     return True
 
 
