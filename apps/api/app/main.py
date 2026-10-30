@@ -266,6 +266,25 @@ async def _retention_loop() -> None:
             logger.exception("Retention sweep failed; will retry next cycle.")
 
 
+async def _wal_checkpoint_loop() -> None:
+    """Checkpoint and truncate the SQLite WAL at startup and every few minutes.
+
+    Automatic checkpoints are passive and never shrink the file; with the API
+    up for days the WAL reached 1.28 GB next to a 584 MB database.
+    """
+    from app.db.store import checkpoint_wal
+
+    interval = float(os.environ.get("CAREEROS_WAL_CHECKPOINT_SECONDS", "300"))
+    while True:
+        try:
+            await asyncio.to_thread(checkpoint_wal)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("WAL checkpoint failed; will retry next cycle.")
+        await asyncio.sleep(interval)
+
+
 def _restore_diagnostic_errors() -> None:
     """Rehydrate DiagnosticErrorStore from the database — see its docstring
     in services/observability.py. Without this, `/diagnostic/errors` genuinely
@@ -361,11 +380,13 @@ async def lifespan(_app: FastAPI):
     _restore_diagnostic_errors()
     asyncio.create_task(asyncio.to_thread(_warm_autopilot_caches))
     retention_task = asyncio.create_task(_retention_loop())
+    wal_task = asyncio.create_task(_wal_checkpoint_loop())
     logger.info("CareerOS API started and local file logging initialized.")
     try:
         yield
     finally:
         retention_task.cancel()
+        wal_task.cancel()
         grace = float(os.environ.get("CAREEROS_SHUTDOWN_GRACE_SECONDS", "30"))
         logger.info("Shutting down; draining for up to %.0fs.", grace)
         try:

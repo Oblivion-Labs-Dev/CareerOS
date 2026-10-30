@@ -9,7 +9,7 @@ from zoneinfo import ZoneInfo
 
 from sqlalchemy.exc import IntegrityError
 
-from app.db.store import get_entity, get_kv, list_entities, set_kv, upsert_entity
+from app.db.store import get_entity, get_kv, list_entities, list_entities_by_json_equals, set_kv, upsert_entity
 from app.services.application_assistant.application_journey import assess_receipt
 from app.services.tracker.pipeline import _parse_dt
 
@@ -73,7 +73,8 @@ def progress_snapshot(db, now=None):
     events = list_entities(db, "career_progress_event")
     completed = {e["questId"]: e for e in events if e.get("kind") == "quest_completed" and e.get("week") == week}
     receipts = get_kv(db, "autopilot_submission_receipts") or {}
-    jobs = list_entities(db, "aa_autopilot_job")
+    # Only submissions can be confirmed; loading them by index avoids parsing every job.
+    jobs = list_entities_by_json_equals(db, "aa_autopilot_job", "$.status", "SUBMITTED")
     confirmed = [j for j in jobs if j.get("status") == "SUBMITTED" and assess_receipt(j, receipts.get(j["id"]))["state"] == "confirmed"]
     dates = sorted(date for j in confirmed if (date := _parse_dt(j.get("submittedAt"))) and date <= now)
     weekly = Counter(week_key(date, zone) for date in dates)

@@ -8,6 +8,7 @@
     "dev:turbopack": "next dev --port 5000 --turbopack",
     "build": "next build",
     "start": "next start",
+    "start:prod": "next start --port 5000",
     "typecheck": "tsc --noEmit",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui"

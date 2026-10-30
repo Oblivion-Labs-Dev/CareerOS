@@ -235,7 +235,8 @@ Keep architecture documentation concise and verify it against the actual code.
 
 * 🖥️ Dashboard: `apps/web` (Next.js), port 5000.
 * ⚙️ API: `apps/api` (FastAPI), port 4000.
-* 🐍 Use the existing API virtual environment: `apps/api/.venv/Scripts/python.exe`.
+* 🔁 Daily use: `pnpm prod:restart` (production build, `next start`; `-SkipBuild` on `scripts/restart-dev.ps1 -Prod` reuses the last build). Active UI work: `pnpm dev:restart`. Either one stops the previous stack's whole process tree. Prod builds go to `apps/web/.next-prod`, never the `.next` that `next dev` uses.
+* 🐍 Use the existing API virtual environment: `apps/api/.venv/Scripts/python.exe` (if it is missing, the restart script falls back to system Python).
 * 🏗️ Wider system architecture: `docs/architecture.md`.
 * 📦 CareerOS is self-contained. Do not add dependencies on the Arsenal repository (no `@arsenal/*` packages, `../Arsenal` paths or CI checkouts); code that once came from Arsenal now lives here.
 * ⚠️ Local diagnostic scripts and application evidence may be untracked user work. Never overwrite or delete them without understanding them first.

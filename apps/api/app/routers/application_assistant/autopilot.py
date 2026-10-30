@@ -44,6 +44,48 @@ async def start_autopilot(
     return {"success": True, "run": run}
 
 
+# Grouped review questions, rebuilt only when an autopilot job is written (or
+# after a minute, for writes from scripts outside this process). Grouping
+# ~4,600 review jobs costs ~250 ms, and readiness is polled with the dashboard.
+_READINESS_MAX_AGE_SECONDS = 60.0
+_readiness_questions: dict[str, Any] = {}
+
+
+def _review_question_groups() -> Any:
+    import time
+
+    from app.db.store import list_entity_fields_by_json_values, session_scope
+    from app.services.application_assistant.pending_question_groups import (
+        group_pending_questions,
+        summarise,
+    )
+    from app.services.application_assistant.persistence import (
+        ENTITY_AUTOPILOT_JOB,
+        autopilot_jobs_generation,
+    )
+
+    cached = _readiness_questions.get("entry")
+    generation = autopilot_jobs_generation()
+    if cached and cached[0] == generation and time.monotonic() - cached[1] < _READINESS_MAX_AGE_SECONDS:
+        return cached[2]
+
+    # Only the fields grouping reads: parsing thousands of whole review
+    # payloads took most of this request.
+    fields = ("id", "company", "pendingQuestions", "unresolvedQuestions", "queuedAt", "discoveredAt")
+    with session_scope() as db:
+        review_jobs = [
+            job
+            for status in ("NEEDS_REVIEW", "MANUAL_REVIEW")
+            for job in list_entity_fields_by_json_values(db, ENTITY_AUTOPILOT_JOB, "$.status", [status], fields)
+        ]
+    review_jobs.sort(key=lambda j: str(j.get("queuedAt") or j.get("discoveredAt") or ""), reverse=True)
+    questions = summarise(group_pending_questions(review_jobs))
+    # Stored under the generation read *before* loading, so a write that lands
+    # while this runs leaves the entry already out of date.
+    _readiness_questions["entry"] = (generation, time.monotonic(), questions)
+    return questions
+
+
 @router.get("/autopilot/readiness")
 def autopilot_readiness() -> dict[str, Any]:
     """What the profile cannot answer, and which questions hold the most work.
@@ -53,25 +95,16 @@ def autopilot_readiness() -> dict[str, Any]:
     tells the user a run will do nothing while they can still change it.
     """
     from app.db.store import get_kv, session_scope
-    from app.services.application_assistant.pending_question_groups import (
-        group_pending_questions,
-        summarise,
-    )
-    from app.services.application_assistant.persistence import list_autopilot_jobs
     from app.services.application_assistant.profile_readiness import (
         evaluate_profile_readiness,
     )
 
     with session_scope() as db:
         readiness = evaluate_profile_readiness(get_kv(db, "profile"))
-        review_jobs = list_autopilot_jobs(db, "NEEDS_REVIEW") + list_autopilot_jobs(db, "MANUAL_REVIEW")
-    review_jobs.sort(key=lambda j: str(j.get("queuedAt") or j.get("discoveredAt") or ""), reverse=True)
-
-    questions = summarise(group_pending_questions(review_jobs))
     return {
         "success": True,
         "profile": readiness.to_dict(),
-        "questions": questions,
+        "questions": _review_question_groups(),
     }
 
 
@@ -360,7 +393,17 @@ def get_autopilot_stats() -> dict[str, Any]:
             return get_autopilot_status_company_stats(db)
 
     stats = read_cache.get(AUTOPILOT_STATS_CACHE_KEY, 30.0, _load_stats)
-    return {"success": True, **stats}
+    # The per-status maps hold every tab key ("queued", "review", ...) and
+    # again every raw status ("QUEUED", ...). The dashboard only looks up tab
+    # keys; the raw ones serve /autopilot/jobs from the cache, so they are left
+    # out here, which halves the ~1.5 MB response.
+    by_status = ("companyCountsByStatus", "titleCountsByStatus")
+    trimmed = {
+        key: {k: v for k, v in stats[key].items() if not k.isupper()}
+        for key in by_status
+        if isinstance(stats.get(key), dict)
+    }
+    return {"success": True, **stats, **trimmed}
 
 
 @router.get("/autopilot/jobs")
@@ -384,7 +427,7 @@ def get_autopilot_jobs_list(
         cached_autopilot_jobs,
         get_autopilot_status_company_stats,
     )
-    from app.db.store import session_scope
+    from app.db.store import get_kv, session_scope
     from app.services.read_cache import read_cache
 
     statuses = {s.strip().upper() for s in status.split(",")} if isinstance(status, str) and status else None
@@ -533,7 +576,6 @@ def get_autopilot_jobs_list(
         # scripts/compute_resume_match.py (and lazily filled here for any job
         # that is missing it) so this sort is a plain column sort - low
         # latency, no per-request heavy computation.
-        from app.db.store import get_kv, session_scope
         from app.services.application_assistant.candidate_match_context import (
             extract_keywords, normalize_profile_skills, extract_resume_text,
             work_experience_text, build_candidate_skill_terms, accomplishment_text,
@@ -686,8 +728,25 @@ def get_staged_applications() -> dict[str, Any]:
     from app.services.application_assistant.persistence import cached_autopilot_jobs
 
     jobs = cached_autopilot_jobs()
-    staged = [j for j in jobs if j.get("status") in ("STAGED", "NEEDS_REVIEW")]
+    staged = [_staged_row(j) for j in jobs if j.get("status") in ("STAGED", "NEEDS_REVIEW")]
     return {"staged": staged, "count": len(staged)}
+
+
+# The review list renders neither the posting text nor the archived evidence,
+# and those were ~9 of the ~12 MB this endpoint returned for ~700 jobs. Of the
+# evidence, only the policy verdict is shown.
+_STAGED_OMITTED_FIELDS = tuple(f for f in _LIST_OMITTED_FIELDS if f != "aiExplanation") + ("description",)
+
+
+def _staged_row(job: dict[str, Any]) -> dict[str, Any]:
+    row = {k: v for k, v in job.items() if k not in _STAGED_OMITTED_FIELDS}
+    policy = (job.get("submissionEvidence") or {}).get("policyEvaluation")
+    if isinstance(policy, dict):
+        # The review list shows only the blocking issues and warnings.
+        row["submissionEvidence"] = {"policyEvaluation": {
+            key: policy[key] for key in ("blockingIssues", "warnings") if key in policy
+        }}
+    return row
 
 
 @router.post("/autopilot/staged/{id}/approve")

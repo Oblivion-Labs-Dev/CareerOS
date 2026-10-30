@@ -2,12 +2,17 @@
 from datetime import UTC, datetime, timedelta
 from statistics import median
 
-from app.db.store import get_kv, list_entities
+from app.db.store import count_entities_by_json_values, get_kv, list_entities, list_entities_by_json_equals
 from app.services.application_assistant.application_journey import assess_receipt
 from app.services.tracker.pipeline import _parse_dt
 
 
-def summarize_outcomes(jobs, applications, receipts, now=None):
+UNRESOLVED_STATUSES = ("NEEDS_REVIEW", "STAGED", "MANUAL_REVIEW")
+
+
+def summarize_outcomes(jobs, applications, receipts, now=None, unresolved=None):
+    """`unresolved` is the count of jobs awaiting review; when omitted it is
+    counted from `jobs`, which then has to hold every job, not just submissions."""
     now = now or datetime.now(UTC)
     start = now - timedelta(days=30)
     submitted = [j for j in jobs if j.get("status") == "SUBMITTED"]
@@ -34,7 +39,8 @@ def summarize_outcomes(jobs, applications, receipts, now=None):
         if interview and at <= interview <= now:
             interviews += 1
     awaiting = sum(assess_receipt(j, receipts.get(j["id"]))["state"] != "confirmed" for j in submitted)
-    unresolved = sum(j.get("status") in {"NEEDS_REVIEW", "STAGED", "MANUAL_REVIEW"} for j in jobs)
+    if unresolved is None:
+        unresolved = sum(j.get("status") in UNRESOLVED_STATUSES for j in jobs)
     upcoming = sum(bool((date := _parse_dt(a.get("interviewAt"))) and now <= date <= now + timedelta(days=7)) for a in applications)
     return {"totalSubmitted": len(submitted), "awaitingConfirmation": awaiting,
             "cohortSize": len(cohort), "linkedRecords": covered,
@@ -48,5 +54,9 @@ def summarize_outcomes(jobs, applications, receipts, now=None):
 
 
 def dashboard_outcomes(db):
-    return summarize_outcomes(list_entities(db, "aa_autopilot_job"), list_entities(db, "application"),
-                              get_kv(db, "autopilot_submission_receipts") or {})
+    # Only submissions are read in full; the review backlog is counted in SQL.
+    # Parsing every job payload made /tracker/summary take seconds.
+    return summarize_outcomes(list_entities_by_json_equals(db, "aa_autopilot_job", "$.status", "SUBMITTED"),
+                              list_entities(db, "application"),
+                              get_kv(db, "autopilot_submission_receipts") or {},
+                              unresolved=count_entities_by_json_values(db, "aa_autopilot_job", "$.status", UNRESOLVED_STATUSES))
