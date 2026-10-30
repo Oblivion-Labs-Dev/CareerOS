@@ -791,6 +791,15 @@ def approve_staged_answer(
     if custom_answers:
         job.setdefault("customAnswers", {}).update(custom_answers)
 
+    from app.services.application_assistant.submission_outcome import requeue_refusal_reason
+
+    refusal = requeue_refusal_reason(job)
+    if refusal:
+        # The answer is still worth keeping (saved above); only the requeue
+        # would risk a second application.
+        save_autopilot_job(db, job)
+        return {"success": False, "job": job, "message": refusal}
+
     job.pop("hasPersistentBlock", None)
     job.pop("blockingContradictions", None)
     job["status"] = "QUEUED"
@@ -1197,8 +1206,11 @@ def resolve_aggregator_urls(
         if found.get("title"):
             job["title"] = found["title"]
         # The row was parked for a reason that no longer applies: it is now a
-        # normal posting on a board the automation can drive.
-        if str(job.get("status") or "").upper() != "QUEUED":
+        # normal posting on a board the automation can drive. Not one that may
+        # already have been sent, though: that would apply a second time.
+        from app.services.application_assistant.submission_outcome import requeue_refusal_reason
+
+        if str(job.get("status") or "").upper() != "QUEUED" and not requeue_refusal_reason(job):
             job["status"] = "QUEUED"
             job["queuedAt"] = now_iso()
             job["attemptCount"] = 0
@@ -1396,6 +1408,12 @@ def requeue_bucket(
         # Already-applied duplicates sit in SKIPPED (#75) and are never requeued.
         if job.get("ineligibilityReason") == "DUPLICATE_APPLICATION":
             continue
+        # Nor is a job whose submit was already clicked without proof of
+        # rejection: it may be sitting at the employer already.
+        from app.services.application_assistant.submission_outcome import requeue_refusal_reason
+
+        if requeue_refusal_reason(job):
+            continue
         # A job parked here can have since been submitted under a different
         # record (re-discovered posting, manual re-import) — requeuing it
         # would just walk it straight back to "duplicate" after wasting a
@@ -1505,6 +1523,10 @@ def _requeue_autopilot_jobs_by_status(
             # automatically. The user can still put one back deliberately with
             # the state selector, which is an explicit human decision.
             if j.get("status") in ("SUBMITTED", "SUBMISSION_UNKNOWN", "FAILED"):
+                continue
+            from app.services.application_assistant.submission_outcome import requeue_refusal_reason
+
+            if requeue_refusal_reason(j):
                 continue
             if retryable_failures:
                 from app.services.application_assistant.submission_outcome import is_retryable_technical_failure
@@ -1641,17 +1663,14 @@ async def reprocess_single_autopilot_job(id: str) -> dict[str, Any]:
         # what happened. A posting that may already carry an application is not
         # eligible for that. Resolving one is a judgement only the user can make
         # after looking at the posting, so it goes through set-state instead.
-        if job.get("status") == "SUBMISSION_UNKNOWN":
-            return {
-                "success": False,
-                "id": id,
-                "message": (
-                    f"'{job.get('title', 'Job')}' at {job.get('company')} may already have been "
-                    "submitted — the submit button was clicked but no confirmation could be read. "
-                    "Open the posting to check, then record the outcome from the state selector. "
-                    "Autopilot will not retry it automatically."
-                ),
-            }
+        # The same holds for a job already sent (its own duplicate guards
+        # exclude it) and for one mid-attempt (clearing its lock would hand a
+        # live posting to a second worker).
+        from app.services.application_assistant.submission_outcome import requeue_refusal_reason
+
+        refusal = requeue_refusal_reason(job)
+        if refusal:
+            return {"success": False, "id": id, "message": refusal}
 
         is_dup, dup_job, _reason = is_strict_duplicate_processed(
             db,
@@ -1807,6 +1826,12 @@ async def _run_assisted_fill(job_id: str, job: dict[str, Any], profile: dict[str
         _ASSISTED_RUNS.pop(job_id, None)
 
 
+#: How long an open assisted-fill window holds its posting against the batch.
+#: Released as soon as the window's task ends; the lease only matters if the
+#: process dies with a window open.
+ASSISTED_FILL_CLAIM_SECONDS = 2 * 3600
+
+
 @router.post("/autopilot/jobs/{id}/assisted-fill")
 async def assisted_fill(id: str) -> dict[str, Any]:
     """Autofill this application in a visible browser and hand it to the user.
@@ -1837,10 +1862,29 @@ async def assisted_fill(id: str) -> dict[str, Any]:
             "message": "That application is already open in a browser window - finish it there.",
         }
 
+    from app.services.application_assistant.persistence import (
+        application_identity,
+        claim_application_identity,
+        release_application_identity,
+    )
+
     with session_scope() as db:
         job = get_autopilot_job(db, id)
         if not job:
             raise HTTPException(status_code=404, detail="Application not found")
+        # The batch and this window must never work the same posting at once:
+        # both can reach the employer. A live attempt holds the posting claim,
+        # and this hand-off takes it too, for as long as the window is open.
+        identity = application_identity(job)
+        if job.get("status") == "APPLYING" or not claim_application_identity(
+            db, identity, id, lease_seconds=ASSISTED_FILL_CLAIM_SECONDS
+        ):
+            return {
+                "success": False,
+                "assisted": False,
+                "submitted": False,
+                "message": "Autopilot is applying to this posting right now - wait for it to finish.",
+            }
         profile = get_kv(db, "profile") or {}
         try:
             answer_lib = list_answer_library(db)
@@ -1851,9 +1895,17 @@ async def assisted_fill(id: str) -> dict[str, Any]:
     browser_settings = settings_row.get("browser") or {}
     timeout_sec = float(browser_settings.get("timeout") or 60000) / 1000.0
 
-    _ASSISTED_RUNS[id] = asyncio.create_task(
-        _run_assisted_fill(id, job, profile, answer_lib, timeout_sec)
-    )
+    task = asyncio.create_task(_run_assisted_fill(id, job, profile, answer_lib, timeout_sec))
+
+    def _release_claim(_task: asyncio.Task) -> None:
+        try:
+            with session_scope() as db:
+                release_application_identity(db, identity, id)
+        except Exception:
+            logger.exception("Could not release the posting claim for assisted fill %s", id)
+
+    task.add_done_callback(_release_claim)
+    _ASSISTED_RUNS[id] = task
 
     return {
         "success": True,

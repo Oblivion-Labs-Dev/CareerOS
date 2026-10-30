@@ -85,7 +85,9 @@ async def review_and_heal_form_state(
         if not val:
             act = "upload_file" if f_type == "file" else ("select_option" if f.get("isCombobox") else "type_text")
             missing_required.append({
-                "fieldId": f.get("id") or "",
+                # Lever and Workable controls carry only a name; an empty
+                # fieldId made the healer skip a field it could answer.
+                "fieldId": f.get("id") or f.get("name") or "",
                 "label": label,
                 "issue": "Required field is empty",
                 "suggestedFixValue": "",
@@ -211,6 +213,16 @@ async def verify_submission_confirmation(
         or (any(re.search(r"thank-?_?you", s) for s in segments) and query.get("status") == ["success"])
         or query.get("submitted") == ["true"]
     )
+    # A URL is proof on its own only where the ATS is known to serve its
+    # confirmation there and nowhere else. Any site can have an /applied or
+    # /success page, so a generic success-looking URL also needs the page to
+    # say the application was received; without that the attempt stays
+    # unproven (SUBMISSION_UNKNOWN) until the confirmation email settles it.
+    host = parsed_url.hostname or ""
+    known_ats_confirmation_url = (
+        ((host == "greenhouse.io" or host.endswith(".greenhouse.io")) and "confirmation" in segments)
+        or (any(re.search(r"thank-?_?you", s) for s in segments) and query.get("status") == ["success"])
+    )
 
     conf_phrases = [
         "thank you for applying",
@@ -241,10 +253,14 @@ async def verify_submission_confirmation(
             "reason": "Submission was not processed: Application form and submit button are still active on the page",
         }
 
-    is_confirmed = (url_redirected or has_phrase) and not active_errors
+    is_confirmed = (known_ats_confirmation_url or has_phrase) and not active_errors
     return {
         "submissionConfirmed": is_confirmed,
         "confidence": 1.0 if is_confirmed else 0.2,
         "confirmationMessage": "Application confirmed by ATS (Deterministic Match)" if is_confirmed else "No confirmation phrase or redirect reached",
-        "reason": "ATS confirmation detected" if is_confirmed else "Submission could not be verified: no confirmation page or confirmation message was detected after submit",
+        "reason": "ATS confirmation detected" if is_confirmed else (
+            "Submission could not be verified: the page URL looks like a success page, but no "
+            "confirmation message was shown" if url_redirected else
+            "Submission could not be verified: no confirmation page or confirmation message was detected after submit"
+        ),
     }

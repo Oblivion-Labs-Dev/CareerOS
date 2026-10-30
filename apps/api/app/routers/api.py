@@ -420,7 +420,9 @@ def upsert_target_company(payload: CompanyRegistryPayload) -> dict[str, Any]:
 async def discover_company_source(payload: CompanyDiscoverPayload) -> dict[str, Any]:
     import httpx
     from app.services.job_discover.discovery.company_registry import JobSourceDiscoveryService
-    async with httpx.AsyncClient(timeout=10.0) as client:
+    from app.services.application_assistant.url_validation import refuse_private_http_request
+    # The careers URL is user input fetched server-side, redirects followed.
+    async with httpx.AsyncClient(timeout=10.0, event_hooks={"request": [refuse_private_http_request]}) as client:
         res = await JobSourceDiscoveryService.discover_source(client, payload.company, payload.careersUrl)
         return {
             "success": True,

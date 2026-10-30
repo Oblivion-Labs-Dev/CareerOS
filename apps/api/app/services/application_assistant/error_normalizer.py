@@ -87,6 +87,49 @@ async def classify_review_issue(
     Never raises — falls back to a deterministic heuristic on any model failure.
     """
     fallback = _deterministic_fallback(label, issue_type)
+    key = _cache_key(raw_reason, label, field_type, options, issue_type)
+    cached = _CLASSIFICATION_CACHE.get(key)
+    if cached is not None:
+        return dict(cached)
+    result = await _classify_with_model(raw_reason, label, field_type, options, fallback)
+    if result is None:
+        return fallback
+    _remember(key, result)
+    return dict(result)
+
+
+#: Model classifications keyed by the issue's content. The same screening
+#: question blocks many postings with identical wording, and the model is the
+#: one call on the Auto Apply path, so each distinct issue is classified once
+#: per process. Only real model answers are cached, never the fallback, so a
+#: model outage does not pin the fallback for the rest of the run.
+_CLASSIFICATION_CACHE: dict[tuple, dict[str, Any]] = {}
+_CLASSIFICATION_CACHE_MAX = 4096
+
+#: The most time one job's review questions may spend on the model. Past it the
+#: remaining issues take the deterministic fallback, so a slow or wedged local
+#: model holds the worker slot for seconds, not a minute per issue.
+REVIEW_CLASSIFY_BUDGET_SECONDS = 30.0
+
+
+def _cache_key(raw_reason: str, label: str, field_type: str, options: list[str] | None, issue_type: str) -> tuple:
+    return (raw_reason, label, field_type, tuple(options or ()), issue_type)
+
+
+def _remember(key: tuple, result: dict[str, Any]) -> None:
+    if len(_CLASSIFICATION_CACHE) >= _CLASSIFICATION_CACHE_MAX:
+        _CLASSIFICATION_CACHE.pop(next(iter(_CLASSIFICATION_CACHE)))
+    _CLASSIFICATION_CACHE[key] = dict(result)
+
+
+async def _classify_with_model(
+    raw_reason: str,
+    label: str,
+    field_type: str,
+    options: list[str] | None,
+    fallback: dict[str, Any],
+) -> dict[str, Any] | None:
+    """The model's classification, or None whenever it cannot be trusted."""
     try:
         from app.services.application_assistant.llm_client import create_llm_client
 
@@ -111,7 +154,7 @@ async def classify_review_issue(
             system="You classify job-application form-filling errors into a fixed enum. Respond only with the requested JSON.",
         )
         if not res.get("success") or not res.get("data"):
-            return fallback
+            return None
 
         raw = res["data"].strip()
         if raw.startswith("```"):
@@ -122,7 +165,7 @@ async def classify_review_issue(
 
         category = parsed.get("category")
         if category not in _VALID_CATEGORIES:
-            return fallback
+            return None
 
         question = parsed.get("question")
         if category not in ANSWERABLE_CATEGORIES:
@@ -133,7 +176,7 @@ async def classify_review_issue(
         return {"category": category, "question": question}
     except Exception as e:
         logger.warning("Review-issue classification failed, using deterministic fallback: %s", e)
-        return fallback
+        return None
 
 
 def issues_from_error_fields(evidence: dict[str, Any]) -> list[dict[str, Any]]:
@@ -179,16 +222,31 @@ async def build_pending_questions(blocking_issues: list[dict[str, Any]]) -> list
 
     # Throttle concurrency so local Ollama does not queue multiple heavy completions simultaneously
     sem = asyncio.Semaphore(1)
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + REVIEW_CLASSIFY_BUDGET_SECONDS
 
     async def _throttled_classify(bi: dict[str, Any]) -> dict[str, Any]:
         async with sem:
-            return await classify_review_issue(
-                bi.get("reason", ""),
-                label=bi.get("label", ""),
-                field_type=bi.get("fieldType", ""),
-                options=bi.get("options", []),
-                issue_type=bi.get("issueType", ""),
-            )
+            remaining = deadline - loop.time()
+            fallback = _deterministic_fallback(bi.get("label", ""), bi.get("issueType", ""))
+            key = _cache_key(bi.get("reason", ""), bi.get("label", ""), bi.get("fieldType", ""),
+                             bi.get("options", []), bi.get("issueType", ""))
+            if remaining <= 0 and key not in _CLASSIFICATION_CACHE:
+                return fallback
+            try:
+                return await asyncio.wait_for(
+                    classify_review_issue(
+                        bi.get("reason", ""),
+                        label=bi.get("label", ""),
+                        field_type=bi.get("fieldType", ""),
+                        options=bi.get("options", []),
+                        issue_type=bi.get("issueType", ""),
+                    ),
+                    timeout=max(remaining, 0.01),
+                )
+            except asyncio.TimeoutError:
+                logger.warning("Review-issue classification over budget; using deterministic fallback.")
+                return fallback
 
     classifications = await asyncio.gather(
         *[_throttled_classify(bi) for bi in issues],

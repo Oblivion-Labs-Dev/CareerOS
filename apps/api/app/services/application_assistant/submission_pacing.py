@@ -23,10 +23,39 @@ any two submissions are in time, regardless of which employers they're to.
 
 from __future__ import annotations
 
+import logging
+import os
 from datetime import datetime, timezone
+
+logger = logging.getLogger(__name__)
 
 #: How far apart two consecutive submissions must land.
 MIN_SUBMISSION_GAP_SECONDS = 300
+
+#: The lowest gap AUTOPILOT_MIN_SUBMISSION_GAP_SECONDS may set. Below a
+#: minute two submissions read as automated, which is what the gap prevents.
+SUBMISSION_GAP_FLOOR_SECONDS = 60
+
+
+def configured_gap_seconds() -> float:
+    """MIN_SUBMISSION_GAP_SECONDS, unless AUTOPILOT_MIN_SUBMISSION_GAP_SECONDS
+    overrides it. Never below SUBMISSION_GAP_FLOOR_SECONDS; a value that does
+    not parse is ignored with a warning rather than disabling the gap."""
+    raw = os.environ.get("AUTOPILOT_MIN_SUBMISSION_GAP_SECONDS", "").strip()
+    if not raw:
+        return MIN_SUBMISSION_GAP_SECONDS
+    try:
+        value = float(raw)
+    except ValueError:
+        logger.warning("Ignoring AUTOPILOT_MIN_SUBMISSION_GAP_SECONDS=%r: not a number", raw)
+        return MIN_SUBMISSION_GAP_SECONDS
+    if value < SUBMISSION_GAP_FLOOR_SECONDS:
+        logger.warning(
+            "AUTOPILOT_MIN_SUBMISSION_GAP_SECONDS=%s is below the %ss floor; using the floor",
+            raw, SUBMISSION_GAP_FLOOR_SECONDS,
+        )
+        return SUBMISSION_GAP_FLOOR_SECONDS
+    return value
 
 
 def _parse(value: str | None) -> datetime | None:
@@ -43,7 +72,7 @@ def seconds_until_next_submission(
     last_submit_attempted_at: str | None,
     *,
     now: datetime | None = None,
-    gap_seconds: int = MIN_SUBMISSION_GAP_SECONDS,
+    gap_seconds: float | None = None,
 ) -> float:
     """How long to wait before the next submit click, in seconds.
 
@@ -54,9 +83,40 @@ def seconds_until_next_submission(
     fail in.
     """
     now = now or datetime.now(timezone.utc)
+    if gap_seconds is None:
+        gap_seconds = configured_gap_seconds()
     last = _parse(last_submit_attempted_at)
     if last is None:
         return 0.0
     elapsed = (now - last).total_seconds()
     remaining = gap_seconds - elapsed
     return max(0.0, remaining)
+
+
+#: How much of the gap is left to the click-time wait. The rest is waited out
+#: before the browser opens, so the 300s gap never eats into the per-job
+#: watchdog: a wait inside it used to time out real submissions after the
+#: click and park them as SUBMISSION_UNKNOWN. The watchdog is extended by this
+#: amount, which is the most the click-time wait can normally still need.
+CLICK_TIME_WAIT_HEADROOM_SECONDS = 60
+
+
+def seconds_to_wait_before_opening(
+    last_submit_attempted_at: str | None,
+    *,
+    now: datetime | None = None,
+    gap_seconds: float | None = None,
+    headroom_seconds: float | None = None,
+) -> float:
+    """The part of the gap to wait out before the browser opens.
+
+    Filling a form takes time, so leaving ``headroom_seconds`` to the
+    click-time check keeps that time overlapped with the gap instead of
+    stacking on top of it. Never negative.
+    """
+    if headroom_seconds is None:
+        headroom_seconds = CLICK_TIME_WAIT_HEADROOM_SECONDS
+    remaining = seconds_until_next_submission(
+        last_submit_attempted_at, now=now, gap_seconds=gap_seconds
+    )
+    return max(0.0, remaining - headroom_seconds)

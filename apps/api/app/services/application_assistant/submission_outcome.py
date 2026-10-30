@@ -28,6 +28,7 @@ duplicate.
 from __future__ import annotations
 
 from typing import Any
+from urllib.parse import urlsplit
 
 from app.services.application_assistant.domain import (
     ApplicationErrorType,
@@ -124,6 +125,74 @@ def is_retryable_technical_failure(job: dict[str, Any]) -> bool:
         and not submit_was_attempted(job)
         and not job.get("pendingQuestions")
         and not job.get("ineligibilityReason")
+    )
+
+
+# Statuses no requeue path may put back on the queue. SUBMITTED and REJECTED
+# already reached the employer, SUBMISSION_UNKNOWN may have, and APPLYING is a
+# live attempt holding the posting. Every duplicate guard excludes the job's own
+# record, so the status is the only thing protecting a row from re-applying
+# itself. The user can still move one deliberately through set-state.
+NEVER_REQUEUE_STATUSES = frozenset({
+    AutopilotJobStatus.SUBMITTED.value,
+    AutopilotJobStatus.REJECTED.value,
+    AutopilotJobStatus.SUBMISSION_UNKNOWN.value,
+    AutopilotJobStatus.APPLYING.value,
+})
+
+
+def post_click_rejection_is_conclusive(
+    *,
+    pre_click_url: str,
+    post_click_url: str,
+    active_errors: list[str],
+    form_still_visible: bool,
+    submit_button_visible: bool,
+) -> bool:
+    """True only when the page proves the employer refused the submit click.
+
+    That is the same form, at the same address, still showing its submit
+    button and now flagging fields: the ATS validated the form and sent it
+    back. Anything less (the page moved, the form went away, no field errors)
+    cannot rule out that the application was received, so the attempt must not
+    be retried automatically.
+    """
+    if not (active_errors and form_still_visible and submit_button_visible):
+        return False
+
+    def _page(url: str) -> tuple[str, str, str]:
+        parts = urlsplit((url or "").strip().lower())
+        return parts.scheme, parts.netloc, parts.path.rstrip("/")
+
+    return bool(pre_click_url) and _page(pre_click_url) == _page(post_click_url)
+
+
+def requeue_refusal_reason(job: dict[str, Any]) -> str | None:
+    """Why this job must not be requeued, or ``None`` when it may be."""
+    status = str(job.get("status") or "")
+    label = f"'{job.get('title') or 'Job'}' at {job.get('company') or 'this company'}"
+    if status not in NEVER_REQUEUE_STATUSES:
+        evidence = job.get("submissionEvidence") or {}
+        if submit_was_attempted(job) and not evidence.get("rejectedBeforeAcceptance"):
+            # Clicked, then parked for review without proof the employer
+            # refused it. Applying again could be a second application.
+            return (
+                f"{label} may already have been submitted — the submit button was clicked "
+                "and the page did not prove the employer rejected it. Check the posting, "
+                "then record the outcome from the state selector."
+            )
+        return None
+    if status == AutopilotJobStatus.SUBMISSION_UNKNOWN.value:
+        return (
+            f"{label} may already have been submitted — the submit button was clicked but "
+            "no confirmation could be read. Open the posting to check, then record the "
+            "outcome from the state selector. Autopilot will not retry it automatically."
+        )
+    if status == AutopilotJobStatus.APPLYING.value:
+        return f"{label} is being applied to right now — it cannot be requeued mid-attempt."
+    return (
+        f"{label} was already sent to the employer ({status}) — not requeuing it, "
+        "because that would apply a second time."
     )
 
 

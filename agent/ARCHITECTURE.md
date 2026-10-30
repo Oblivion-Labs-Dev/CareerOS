@@ -358,11 +358,28 @@ by whom?"** — a live posting must not sit in a terminal bucket.
 ## 8. Critical invariants
 
 **Submission safety**
-- `submission_guard.py` classifies every button before a click:
-  `SAFE_NAVIGATION` / `MANUAL_ONLY` / `PROHIBITED`. Final-submit clicks require
-  `ALLOW_REAL_SUBMISSION`; otherwise `SubmissionBlockedError`.
+- `submission_guard.py` classifies buttons (`SAFE_NAVIGATION` / `MANUAL_ONLY` /
+  `PROHIBITED`) and gates final submits behind `ALLOW_REAL_SUBMISSION`, **but only on the
+  provider-driver path** (`providers/*.py`, `validation_runner.py`). The Autopilot
+  executor's final click is gated by `submission_guard.live_submission_refusal`: under
+  `CAREEROS_ENV=test|testing|development|dev` or inside pytest it refuses any non-loopback
+  page unless `CAREEROS_LIVE_APPLY=1`. The gate runs **before** `on_submit_attempt`, so a
+  refused click never writes the submit marker. Unset or `production` is not gated: there,
+  starting a run is the authorisation.
+- After the click, only a known ATS confirmation URL (Greenhouse `/confirmation`, Phenom
+  `applythankyou?status=success`) or a confirmation phrase with no active errors counts as
+  confirmed; generic `/success`-style wording is matched on the URL path only. A clicked job
+  whose page did not *conclusively* show rejection (`post_click_rejection_is_conclusive`:
+  same URL path, form and button still there, errors shown) is SUBMISSION_UNKNOWN, and
+  `requeue_refusal_reason` refuses to requeue any job carrying `submitAttemptedAt` unless
+  `submissionEvidence.rejectedBeforeAcceptance` is set.
+- A visible password field is an account wall: checked once after the form loads and again
+  just before the submit button is looked for (a sign-in page that renders late otherwise
+  passes every gate and its Sign In button passes for submit). Phenom's
+  `applythankyou?status=alreadyApplied` is reported as "Already applied", never retried.
 - Live e2e runs require `CAREEROS_LIVE_APPLY=1` plus an explicit comma-separated
-  `CAREEROS_APPROVED_JOB_IDS` allowlist. Ordinary tests must never submit.
+  `CAREEROS_APPROVED_JOB_IDS` allowlist (an operator rule, enforced by the drivers, not by
+  the runner). Ordinary tests must never submit: they mock the executor.
 - **A changed button or an accepted request is not a submission.** Require the job's terminal
   state, the receipt, and confirmation evidence.
 - Applications run **strictly sequentially**.
@@ -382,6 +399,19 @@ per posting:
 - The marker describes one attempt: it is cleared as each new attempt begins.
 - Every duplicate guard passes `exclude_id=job["id"]`, so none of them protects a record
   against re-applying *itself* — that is exactly what this status split is for.
+- Because of that, **no requeue path may touch `submission_outcome.NEVER_REQUEUE_STATUSES`**
+  (SUBMITTED, REJECTED, SUBMISSION_UNKNOWN, APPLYING): per-job reprocess, staged approve,
+  question-group answers and preflight Apply all check `requeue_refusal_reason`. Only
+  set-state (an explicit human decision) moves those.
+- `start()` on a run a live loop is already working resumes it in place: it never cancels
+  the loop (that killed the job in flight) and never runs stale-run recovery against it (the
+  heartbeat is only written between jobs).
+- Assisted fill takes the posting claim (`claim_application_identity`, 2h lease, released
+  when the window's task ends), so it and the batch never work one posting at once.
+- The 300s submission gap is mostly waited out *before* the browser opens
+  (`seconds_to_wait_before_opening`); only `CLICK_TIME_WAIT_HEADROOM_SECONDS` remains for
+  the click-time hook, and the watchdog is extended by that amount. A gap waited inside
+  the watchdog used to time real submissions out into SUBMISSION_UNKNOWN.
 - A confirmation email is **later evidence**, never the authority on whether to send. It
   reconciles a record forward (`confirmedAt` / `confirmationSource`); a missing or late
   email never causes a reapplication. Confirmation is evidence on the record, not a separate

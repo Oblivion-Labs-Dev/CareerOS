@@ -144,7 +144,7 @@ export function EnhancedDashboard({ initialTopJobs }: EnhancedDashboardProps) {
                   </div>
                 </div>
               </div>
-              <Link href="/autopilot" className={styles.cardAction}>
+              <Link href="/applications" className={styles.cardAction}>
                 <span>Autopilot Controls</span>
                 <span aria-hidden="true">→</span>
               </Link>

@@ -127,3 +127,17 @@ def test_exclude_id_omits_that_jobs_own_stamp():
         result = most_recent_submit_attempt(db, exclude_id="pacing_self")
 
     assert result != only_stamp
+
+
+def test_the_gap_is_configurable_but_never_below_the_floor(monkeypatch):
+    from app.services.application_assistant import submission_pacing as pacing
+
+    just_now = NOW.isoformat()
+    monkeypatch.delenv("AUTOPILOT_MIN_SUBMISSION_GAP_SECONDS", raising=False)
+    assert pacing.seconds_until_next_submission(just_now, now=NOW) == pacing.MIN_SUBMISSION_GAP_SECONDS
+    monkeypatch.setenv("AUTOPILOT_MIN_SUBMISSION_GAP_SECONDS", "180")
+    assert pacing.seconds_until_next_submission(just_now, now=NOW) == 180
+    monkeypatch.setenv("AUTOPILOT_MIN_SUBMISSION_GAP_SECONDS", "0")
+    assert pacing.seconds_until_next_submission(just_now, now=NOW) == pacing.SUBMISSION_GAP_FLOOR_SECONDS
+    monkeypatch.setenv("AUTOPILOT_MIN_SUBMISSION_GAP_SECONDS", "fast")
+    assert pacing.seconds_until_next_submission(just_now, now=NOW) == pacing.MIN_SUBMISSION_GAP_SECONDS

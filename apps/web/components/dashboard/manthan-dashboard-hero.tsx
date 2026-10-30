@@ -37,7 +37,7 @@ export function ManthanDashboardHero({
         </h1>
 
         <div className={styles.actions}>
-          <Link href="/autopilot" className={styles.primaryBtn}>
+          <Link href="/applications" className={styles.primaryBtn}>
             <span>Autopilot Engine</span>
             <span aria-hidden="true">→</span>
           </Link>

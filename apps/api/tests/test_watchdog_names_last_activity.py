@@ -29,6 +29,7 @@ def test_watchdog_timeout_reports_the_last_activity(monkeypatch, tmp_path):
         await asyncio.sleep(3600)
 
     monkeypatch.setattr(module, "PLAYWRIGHT_WATCHDOG_TIMEOUT", 0.2)
+    monkeypatch.setattr(module, "CLICK_TIME_WAIT_HEADROOM_SECONDS", 0)
     monkeypatch.setattr(module, "session_scope", session)
     monkeypatch.setattr(module, "save_autopilot_job", lambda *args: None)
     monkeypatch.setattr(module, "get_autopilot_run", lambda *args: None)

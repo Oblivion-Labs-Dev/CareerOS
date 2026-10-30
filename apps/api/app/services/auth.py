@@ -106,42 +106,65 @@ def verify_session_token(token: str | None) -> dict[str, Any] | None:
     return {"username": username, "expiresAt": expires_at}
 
 
+def _jwt_signing_secret() -> str:
+    """The one secret candidate tokens are signed and verified with.
+
+    Matches routers/auth.py:_create_jwt_token, which signs with the Supabase
+    secret when one is configured and the session secret otherwise.
+    """
+    return settings.supabase_jwt_secret or _get_or_create_secret()
+
+
 def verify_jwt_token(token: str | None) -> dict[str, Any] | None:
-    """Validate a Supabase or standard JWT bearer token."""
-    if not token:
+    """Validate an HS256 JWT bearer token. Signature and expiry are mandatory.
+
+    This used to decode without verifying the signature whenever no Supabase
+    secret was configured (and fell back to a base64 decode that never checked
+    one at all), so anyone could mint a token for any user id.
+    """
+    if not token or token.count(".") != 2:
         return None
+    secret = _jwt_signing_secret()
     try:
         import jwt
-
-        # If Supabase secret is set, verify cryptographic signature and audience
-        if settings.supabase_jwt_secret:
-            return jwt.decode(
-                token,
-                settings.supabase_jwt_secret,
-                algorithms=["HS256"],
-                audience="authenticated",
-            )
-        # If running in dev mode without secret configured, decode payload unverified
-        return jwt.decode(token, options={"verify_signature": False})
-    except Exception:
-        pass
-
-    # Standard RFC 7519 fallback verification using stdlib
+    except ImportError:
+        return _verify_hs256_stdlib(token, secret)
     try:
-        import base64
-        import json
+        return jwt.decode(
+            token,
+            secret,
+            algorithms=["HS256"],
+            # Supabase tokens carry aud="authenticated"; our own candidate
+            # tokens carry none. The signature is what authenticates both.
+            options={"verify_aud": False, "require": ["exp"]},
+        )
+    except jwt.PyJWTError:
+        return None
 
-        parts = token.split(".")
-        if len(parts) != 3:
+
+def _verify_hs256_stdlib(token: str, secret: str) -> dict[str, Any] | None:
+    """HS256 verification for an environment without PyJWT installed."""
+    import base64
+    import json
+
+    def _b64decode(part: str) -> bytes:
+        return base64.urlsafe_b64decode(part + "=" * (-len(part) % 4))
+
+    try:
+        h_b64, p_b64, sig_b64 = token.split(".")
+        header = json.loads(_b64decode(h_b64))
+        if header.get("alg") != "HS256":
             return None
-        _, p_b64, _ = parts
-        pad = "=" * (4 - (len(p_b64) % 4)) if len(p_b64) % 4 else ""
-        payload = json.loads(base64.urlsafe_b64decode(p_b64 + pad).decode())
-        if payload.get("exp") and payload["exp"] < int(time.time()):
+        expected = hmac.new(secret.encode(), f"{h_b64}.{p_b64}".encode(), hashlib.sha256).digest()
+        if not hmac.compare_digest(expected, _b64decode(sig_b64)):
             return None
-        return payload
+        payload = json.loads(_b64decode(p_b64))
     except Exception:
         return None
+    exp = payload.get("exp")
+    if not isinstance(exp, (int, float)) or exp < time.time():
+        return None
+    return payload
 
 
 def extract_user_from_request(request: Any) -> str:

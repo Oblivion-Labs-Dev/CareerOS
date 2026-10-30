@@ -169,6 +169,12 @@ async def approve_preflight_submission(
 
         if job.get("status") in ("SUBMITTED", "INELIGIBLE"):
             raise HTTPException(status_code=409, detail="Submitted or ineligible applications cannot be requeued")
+        # A maybe-submitted or already-rejected posting must not be re-applied
+        # by an Apply click either; only set-state may resolve those.
+        if job.get("status") in ("SUBMISSION_UNKNOWN", "REJECTED"):
+            from app.services.application_assistant.submission_outcome import requeue_refusal_reason
+
+            raise HTTPException(status_code=409, detail=requeue_refusal_reason(job))
 
         if job.get("status") == "APPLYING" or not claim_job_lock(db, id, worker_id="preflight-approve"):
             return {

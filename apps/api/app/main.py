@@ -77,8 +77,10 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from app.config import settings
+from app.config import is_production_env as _production_env
 from app.db.store import init_db
 from app.middleware.auth import AuthGateMiddleware
+from app.middleware.csrf import CrossSiteRequestGuardMiddleware
 from app.middleware.metrics import MetricsMiddleware
 from app.middleware.rate_limit import RateLimitMiddleware
 from app.routers.api import router
@@ -207,6 +209,30 @@ async def _drain_in_flight_work(grace_seconds: float) -> None:
         await PlaywrightBrowserPool.get_instance().close()
     except Exception:
         logger.exception("PlaywrightBrowserPool did not shut down cleanly.")
+
+
+def _refuse_unauthenticated_production() -> None:
+    """A deployed instance must never come up with the login gate switched off.
+
+    The gate is a deliberate no-op until CAREER_OS_ADMIN_PASSWORD is set, so a
+    fresh local checkout is not locked out. Deployed, that same default serves
+    the profile, resumes and every application to anyone who reaches the port.
+    CAREEROS_ENV=production opts into failing closed instead.
+    """
+    if not _production_env():
+        return
+    missing = [
+        name for name, value in (
+            ("CAREER_OS_ADMIN_PASSWORD", settings.career_os_admin_password),
+            ("CAREER_OS_SESSION_SECRET", settings.career_os_session_secret),
+        ) if not value
+    ]
+    if missing:
+        raise RuntimeError(
+            "Refusing to start with CAREEROS_ENV=production and no "
+            + " / ".join(missing)
+            + ": the API would be reachable without a login."
+        )
 
 
 def _warn_if_multi_worker() -> None:
@@ -364,6 +390,7 @@ def _apply_bucket_model() -> None:
 
 
 async def lifespan(_app: FastAPI):
+    _refuse_unauthenticated_production()
     _warn_if_multi_worker()
     init_db()
     seed_error_fix_history_if_empty()
@@ -413,12 +440,25 @@ origins = [origin.strip() for origin in settings.career_os_cors_origins.split(",
 # response must still pass back out through CORSMiddleware's header-adding logic, or
 # the browser's fetch() blocks it as a CORS failure and the frontend never sees the 401
 # to redirect to /login — it would just look like every request silently broke.
+#
+# A hosted instance trusts only the origins it is configured with. Locally any
+# localhost port and any browser extension may call the API, as before.
+allowed_origins = origins if origins else ["http://localhost:3000", "http://127.0.0.1:3000"]
+allowed_origin_regex = (
+    None if _production_env()
+    else r"^(https?://(localhost|127\.0\.0\.1)(:\d+)?|chrome-extension://.*)$"
+)
 app.add_middleware(AuthGateMiddleware)
 app.add_middleware(RateLimitMiddleware)
 app.add_middleware(
+    CrossSiteRequestGuardMiddleware,
+    allowed_origins=allowed_origins,
+    allowed_origin_regex=allowed_origin_regex,
+)
+app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins if origins else ["http://localhost:3000", "http://127.0.0.1:3000"],
-    allow_origin_regex=r"^(https?://(localhost|127\.0\.0\.1)(:\d+)?|chrome-extension://.*)$",
+    allow_origins=allowed_origins,
+    allow_origin_regex=allowed_origin_regex,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -455,7 +495,10 @@ async def global_exception_handler(request: Request, exc: Exception) -> JSONResp
     error_fix_tracker.record_api_response(request.method, request.url.path, 500)
     return JSONResponse(
         status_code=500,
-        content={"detail": "Internal Server Error", "error": str(exc)},
+        # The exception text can carry paths, SQL or profile values; a hosted
+        # instance keeps it in the log only.
+        content={"detail": "Internal Server Error"} if _production_env()
+        else {"detail": "Internal Server Error", "error": str(exc)},
     )
 
 

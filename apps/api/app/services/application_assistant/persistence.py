@@ -239,6 +239,20 @@ def get_job_match(db: Session, job_id: str) -> dict[str, Any] | None:
     return None
 
 
+def job_matches_by_job_id(db: Session) -> dict[str, dict[str, Any]]:
+    """Every saved match keyed by job id, in one read.
+
+    Same answer as calling get_job_match per job (the first stored match for a
+    job wins), without one full scan of the match table per job.
+    """
+    by_job: dict[str, dict[str, Any]] = {}
+    for m in list_entities(db, ENTITY_JOB_MATCH):
+        job_id = m.get("jobId")
+        if job_id and job_id not in by_job:
+            by_job[job_id] = m
+    return by_job
+
+
 # ── Application Drafts ────────────────────────────────────────────────────────
 
 _DRAFT_PRESERVE_ON_RECREATE = frozenset({

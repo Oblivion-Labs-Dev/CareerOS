@@ -189,14 +189,14 @@ export function AppSidebar() {
         </nav>
 
         <div className={styles.bottom}>
-          <details className={styles.archived}>
+          {NAV_GROUPS.some(group => group.items.some(item => item.enabled === false)) && <details className={styles.archived}>
             <summary><span className={styles.archiveIcon} aria-hidden="true">◫</span><span>Disabled pages</span><span className={styles.archiveCount}>{NAV_GROUPS.flatMap(group => group.items).filter(item => item.enabled === false).length}</span><span className={styles.chevron} aria-hidden="true">⌄</span></summary>
             <div className={styles.archiveList}>
               {NAV_GROUPS.flatMap(group => group.items).filter(item => item.enabled === false).map(item => (
                 <div key={item.href} className={styles.disabledItem} aria-disabled="true"><CareerIcon name={item.icon} size={15} /><span>{item.label}</span><span className={styles.disabledTag}>Off</span></div>
               ))}
             </div>
-          </details>
+          </details>}
           <footer className={styles.footer}>
             <span className={styles.connection} title={backendText}><BackendStatusDot /><span>{backendText}</span></span>
             {authRequired && <button type="button" onClick={() => void handleLogout()}>Sign out ↗</button>}

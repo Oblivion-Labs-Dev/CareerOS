@@ -267,21 +267,10 @@ class BrowserSession:
                 )
                 self._context = self._browser
 
-                async def _abort_external(route: Any) -> None:
-                    u = route.request.url.lower()
-                    if u.startswith(("mailto:", "tel:", "callto:", "sip:", "ms-", "slack:", "zoommtg:", "teams:", "skype:")):
-                        try:
-                            await route.abort()
-                        except Exception:
-                            pass
-                    else:
-                        try:
-                            await route.continue_()
-                        except Exception:
-                            pass
+                from app.services.application_assistant.url_validation import guard_browser_request
 
                 try:
-                    await self._context.route("**/*", _abort_external)
+                    await self._context.route("**/*", guard_browser_request)
                 except Exception:
                     pass
 
