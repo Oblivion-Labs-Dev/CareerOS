@@ -491,13 +491,13 @@ def get_autopilot_jobs_list(
             jobs = [j for j in jobs if company_q in str(j.get("company") or "").lower()]
 
     sortBy_str = sortBy if isinstance(sortBy, str) else ""
-    # Review/manual-review buckets default to target-role relevance so the
-    # candidate works the closest matches first (asked-for behavior). Every
-    # other list keeps the historical matchScore default.
+    # Review/failed buckets default to the owner's taste ranking
+    # (docs/job-preferences.md) so the candidate works the tastiest jobs
+    # first. Every other list keeps the historical matchScore default.
     if not sortBy_str:
         selected = statuses or set()
-        if selected and selected <= {"NEEDS_REVIEW", "MANUAL_REVIEW", "STAGED"}:
-            sortBy_str = "relevance"
+        if selected and selected <= {"NEEDS_REVIEW", "MANUAL_REVIEW", "STAGED", "FAILED", "SUBMISSION_UNKNOWN"}:
+            sortBy_str = "taste"
         else:
             sortBy_str = "matchScore"
     sortDir_str = sortDir if isinstance(sortDir, str) else "desc"
@@ -511,6 +511,15 @@ def get_autopilot_jobs_list(
     elif sortBy_str == "priority":
         from app.services.application_assistant.job_filter_ranker import queue_priority_score
         jobs.sort(key=queue_priority_score, reverse=reverse)
+    elif sortBy_str in ("taste", "my_taste"):
+        # Owner taste ranking (docs/job-preferences.md): agentic AI platforms
+        # and AI developer tools first, P2 cloud platform work and the
+        # deprioritized roles last. matchScore breaks ties.
+        from app.services.application_assistant.job_filter_ranker import taste_priority_score
+        jobs.sort(
+            key=lambda j: (taste_priority_score(j), float(j.get("matchScore") or 0.0)),
+            reverse=reverse,
+        )
     elif sortBy_str == "relevance":
         from app.services.application_assistant.job_filter_ranker import compute_target_role_relevance
         # Stable composite: target-role relevance, matchScore as tie-breaker.

@@ -53,7 +53,7 @@ export function FailedJobsCenter({ onReprocessSuccess, onOpenPrep }: { onReproce
   const [draftQuestion, setDraftQuestion] = useState("");
   const [draftAnswer, setDraftAnswer] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [sortBy, setSortBy] = useState<any>("relevance");
+  const [sortBy, setSortBy] = useState<any>("taste");
   const sentinelRef = useRef<HTMLDivElement | null>(null);
   const loadingMoreRef = useRef(false);
 
@@ -325,6 +325,7 @@ export function FailedJobsCenter({ onReprocessSuccess, onOpenPrep }: { onReproce
             className="rounded-lg border border-white/10 bg-[#0d121c] px-3 py-1.5 text-xs text-slate-200"
             aria-label="Sort failed jobs"
           >
+            <option value="taste">My taste (agents &amp; AI tools first)</option>
             <option value="relevance">Relevance (AI -&gt; FDE -&gt; SWE)</option>
             <option value="matchScore">Match %</option>
             <option value="resume">Resume match (BM25 + hybrid)</option>

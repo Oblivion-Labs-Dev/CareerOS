@@ -56,7 +56,7 @@ export function ReviewCenter() {
   const [diffModalData, setDiffModalData] = useState<TailorDiffResponse | null>(null);
   const [diffLoading, setDiffLoading] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [sortBy, setSortBy] = useState<string>("relevance");
+  const [sortBy, setSortBy] = useState<string>("taste");
 
   const fetchStaged = async () => {
     try {
@@ -254,6 +254,7 @@ export function ReviewCenter() {
             className="px-3 py-1 text-xs rounded-xl border border-white/10 bg-[#0d121c] text-slate-200"
             aria-label="Sort review jobs"
           >
+            <option value="taste">My taste (agents &amp; AI tools first)</option>
             <option value="relevance">Relevance (AI -&gt; FDE -&gt; SWE)</option>
             <option value="matchScore">Match %</option>
             <option value="resume">Resume match (BM25 + hybrid)</option>
