@@ -11,6 +11,7 @@ import asyncio
 
 import pytest
 
+from app.services.application_assistant.browser_runner import run_playwright
 from app.services.application_assistant.browser_verifier import verify_browser_dom_state
 from app.services.application_assistant.playwright_autopilot_executor import (
     APPLICATION_FORM_SELECTOR,
@@ -254,12 +255,15 @@ def test_a_sign_in_page_that_rendered_late_is_never_submitted(monkeypatch, tmp_p
         marker_calls.append(1)
 
     try:
-        result = asyncio.run(executor.execute_live_playwright_submission(
+        # On the shared Playwright loop, like the other browser tests: the pooled
+        # browser belongs to that loop, and driving it from a fresh asyncio.run()
+        # loop hangs once an earlier test has started the pool.
+        result = run_playwright(executor.execute_live_playwright_submission(
             job_item={"id": "apjob_signin", "company": "Purpose Financial", "title": "Engineer",
                       "applicationUrl": f"http://127.0.0.1:{server.server_address[1]}/careers"},
             profile={"firstName": "Akshay", "lastName": "Borse", "email": "a@example.com", "phone": "4255550100"},
             answer_lib=[], headless=True, timeout_sec=120, on_submit_attempt=marker,
-        ))
+        ), timeout=180)
     finally:
         server.shutdown()
 
