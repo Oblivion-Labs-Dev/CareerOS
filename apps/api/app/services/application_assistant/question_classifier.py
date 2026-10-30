@@ -244,6 +244,11 @@ _CLASSIFICATION_RULES: list[tuple[QuestionType, list[str]]] = [
         # H-1B is restricted to the sponsoring employer.
         r"\bunrestricted\s+(?:work\s+)?(?:authoriz|right\s+to\s+work)",
         r"\bunlimited\s+(?:and\s+unrestricted\s+)?(?:work\s+)?authoriz",
+        # Addepar: "authorized to work in the United States without Visa
+        # Sponsorship or EAD?" is the same ask — can you work here with no
+        # sponsorship at all — and was answered Yes as plain WORK_AUTHORIZED.
+        r"authori[sz]ed\s+to\s+work\b.{0,80}?\bwithout\s+(?:the\s+need\s+(?:for|of)\s+|requiring\s+|needing\s+|any\s+)?"
+        r"(?:(?:a|an|visa|employer|company|immigration)\s+)*sponsor",
     ]),
     (QuestionType.EXPORT_CONTROL, [
         r"export\s+control",
@@ -357,6 +362,8 @@ _CLASSIFICATION_RULES: list[tuple[QuestionType, list[str]]] = [
         r"proof\s+of\s+(?:your\s+)?identity\s+and\s+(?:employment\s+)?eligibility",
         r"authori[sz]ation\s+to\s+work",
         r"right\s+to\s+work",
+        # Glidewell: "documentation of your legal right to live and work in this country?"
+        r"right\s+to\s+(?:live|reside)\s+and\s+work",
         r"eligible\s+to\s+(?:legally\s+)?work",
         # Zeta Global: "Are you able to work in the United States?"
         r"\b(?:able|permitted|allowed)\s+to\s+work\s+in\s+the\s+(?:usa\b|u\.?\s?s\.?(?![a-z])|united\s+states)",
@@ -545,8 +552,17 @@ _CLASSIFICATION_RULES: list[tuple[QuestionType, list[str]]] = [
     ]),
     # Abnormal: "Are you currently an employee or contractor at Abnormal? (if
     # Yes, please add your Abnormal email ...)" - the note mentions "email".
+    # Klaviyo: "What company are you currently employed at ...?" names the
+    # employer; ahead of COMPANY_HISTORY, whose "are you currently employed at"
+    # read it as a Yes/No and answered "No".
+    (QuestionType.CURRENT_COMPANY, [
+        r"^\s*(?:what|which)\s+(?:company|employer|organi[sz]ation)\s+(?:are|were|do)\s+you\s+"
+        r"(?:currently\s+|presently\s+|most\s+recently\s+)?(?:employed|working|work)\b",
+    ]),
     (QuestionType.COMPANY_HISTORY, [
         r"\bare\s+you\s+(?:currently|presently)\s+an?\s+(?:employee|contractor)\s+(?:or\s+(?:an?\s+)?(?:employee|contractor)\s+)?(?:at|of|for|with)\b",
+        # FanDuel: "Are you an employee of Flutter or a Flutter brand?" - no "currently".
+        r"^\s*are\s+you\s+an?\s+(?:current\s+)?(?:employee|contractor)\s+(?:at|of|for|with)\s+(?!(?:a|an|any|the)\b)",
     ]),
     (QuestionType.EMAIL, [r"e-?mail"]),
     # Phenom/Workday forms: "Phone Device Type" (Mobile/Home/Work) and
@@ -562,7 +578,9 @@ _CLASSIFICATION_RULES: list[tuple[QuestionType, list[str]]] = [
         r"state\s+(of\s+)?residen",
         r"state\s+you\s+reside",
         r"current\s+state",
-        r"\bstate\b(?!.*?\bstatements?\b)",
+        # Not "state" the verb: Sony's "please state their name ..." was
+        # answered "Washington".
+        r"\bstate\b(?!.*?\bstatements?\b)(?!\s+(?:their|your|his|her|the|a|an|any|all|why|how|what|which|whether|if|reasons?|names?)\b)",
         r"\bprovince\b",
     ]),
     (QuestionType.CITY, [r"\bcity\b", r"municipality"]),
@@ -682,8 +700,11 @@ _CLASSIFICATION_RULES: list[tuple[QuestionType, list[str]]] = [
         r"company\s*name",
         r"where.*most\s+recently\s+worked",
         # Both spellings, for the same reason as the work-authorization
-        # patterns above: non-US boards write "organisation".
-        r"organi[sz]ation",
+        # patterns above: non-US boards write "organisation". Only a field
+        # *named* for the organization: a bare match made Klaviyo's "AI-forward
+        # organization ... how you use AI" essay answer "Microsoft".
+        r"^\s*(?:what\s+is\s+)?(?:(?:your\s+)?(?:current|present|your)\s+)?organi[sz]ation(?:\s+name)?\s*[:*?]?\s*$",
+        r"name\s+of\s+(?:your\s+)?(?:current\s+)?organi[sz]ation\s*[:*?]?\s*$",
     ]),
     (QuestionType.CURRENT_TITLE, [
         r"current\s*(job\s*)?title",

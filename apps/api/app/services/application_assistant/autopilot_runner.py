@@ -283,6 +283,16 @@ def collect_priority_ids(opts: dict[str, Any]) -> list[str]:
     return list(seen)
 
 
+BROWSER_MISSING_PAUSE_REASON = (
+    "Playwright's browser is not installed (another Playwright install may have pruned it). "
+    "Run paused; run `python -m playwright install chromium` and restart the run."
+)
+
+
+def is_browser_install_missing(detail: str) -> bool:
+    return "executable doesn't exist" in (detail or "").lower()
+
+
 TRANSIENT_ERRORS = {
     ApplicationErrorType.NAVIGATION_TIMEOUT.value,
     ApplicationErrorType.NETWORK_ERROR.value,
@@ -1885,6 +1895,37 @@ class AutopilotRunner:
             await self._execute_application_pipeline(run_id, job_item, worker_state)
         except Exception as exc:
             exc_detail = str(exc).strip() or exc.__class__.__name__
+
+            # A missing browser binary is a broken install, not a problem with
+            # this posting: every later job would fail the same way. Hand the job
+            # back untouched and pause the run so it cannot drain the queue into
+            # review (found live: 711 healthy jobs parked as BROWSER_CRASH).
+            if is_browser_install_missing(exc_detail):
+                job_item["status"] = AutopilotJobStatus.QUEUED.value
+                job_item["attemptCount"] = attempt - 1
+                with self._run_update_lock:
+                    with session_scope() as db:
+                        save_autopilot_job(db, job_item)
+                        r = get_autopilot_run(db, run_id)
+                        if r:
+                            r["status"] = AutopilotRunStatus.PAUSED.value
+                            r["pauseReason"] = BROWSER_MISSING_PAUSE_REASON
+                            r["lastHeartbeatAt"] = now_iso()
+                            r["currentJobId"] = None
+                            save_autopilot_run(db, r)
+                error_store.record_error(
+                    error=f"Playwright browser missing: {exc_detail.splitlines()[0]}",
+                    service="autopilot",
+                    severity="critical",
+                    stage="APPLY",
+                    retries=attempt,
+                    status="open",
+                    playwright_error=exc_detail,
+                    logs=[BROWSER_MISSING_PAUSE_REASON],
+                )
+                self.log_event(BROWSER_MISSING_PAUSE_REASON, level="error")
+                return
+
             err_type = self._classify_error(Exception(exc_detail))
 
             # An ineligible posting is not a failure to retry: no number of

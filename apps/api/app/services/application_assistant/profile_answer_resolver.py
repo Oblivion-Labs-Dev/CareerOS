@@ -426,7 +426,10 @@ _CAREERS_PAGE_OPTION_TIERS = (
         re.I,
     ),
 )
-_NOT_A_CAREERS_PAGE = re.compile(r"campus|universit|alumni|blog|\bad\b|advert", re.I)
+# GSK's "Contingent Workers Career Site" is for contractors, not the public site.
+_NOT_A_CAREERS_PAGE = re.compile(
+    r"campus|universit|alumni|blog|\bad\b|advert|contingent|contractor|internal", re.I,
+)
 
 
 def _careers_page_option(options: list[str]) -> str | None:
@@ -579,6 +582,31 @@ def _foreign_jurisdiction_answer(question: str, qtype: QuestionType, profile: di
     return "Yes" if authorized_there else "No"
 
 
+_CURRENT_RESIDENCE = re.compile(
+    r"\b(?:resid(?:e|ing|ent)|liv(?:e|ing)\s+(?:in|within)|located\s+(?:in|within)|based\s+(?:in|within))\b",
+    re.I,
+)
+
+
+def _foreign_residence_answer(question: str, profile: dict) -> str | None:
+    """"Are you currently residing within the EU?" for a candidate living in the US.
+
+    Only a question about where the candidate lives now: one that also offers a
+    move ("or willing to relocate") or names the US keeps the normal path.
+    """
+    text = question or ""
+    if not _CURRENT_RESIDENCE.search(text) or re.search(r"relocat|willing|open\s+to", text, re.I):
+        return None
+    places = [m.group(0).lower() for m in _FOREIGN_JURISDICTION.finditer(text)]
+    places = [p for p in places if not (p == "uk" and not re.search(r"\bUK\b", text))]
+    if not places or _US_ABBREVIATION.search(text) or _US_SPELLED_OUT.search(text):
+        return None
+    country = str(profile.get("country") or "").strip().lower()
+    if country not in ("united states", "united states of america", "usa", "us"):
+        return None
+    return "No"
+
+
 _COMMUTE_FROM_HOME = re.compile(
     r"commut|\breside\b|\bhome\s+address\b|\b(?:currently\s+)?live\s+(?:in|near|within)\b", re.I,
 )
@@ -605,6 +633,13 @@ def resolve_answer(
         question_text, profile, options=options, field_id=field_id,
         answer_lib=answer_lib, question_type=question_type,
     )
+    if resolution.answer and _UNFILLED_PLACEHOLDER.search(str(resolution.answer)):
+        # Fail closed: whatever source produced it, an answer still holding a
+        # template slot ("[Company]") is never filled in; it goes to review.
+        resolution.answer = None
+        resolution.answer_value = None
+        resolution.resolution_method = UNKNOWN_METHOD
+        resolution.confidence = 0.0
     from app.services.application_assistant.jurisdiction_compliance import (
         check_immigration_status_screening,
         check_salary_history_request,
@@ -627,6 +662,35 @@ _PLACEHOLDER_OPTION = re.compile(
     r"|^\s*-+\s*$|^\s*$",
     re.I,
 )
+
+
+_HUMAN_OPTION = re.compile(r"^\s*i\s*(?:am|'m)\s+(?:a\s+)?(?:real\s+)?human\b", re.I)
+_BOT_OPTION = re.compile(r"\b(?:bot|automated|ai)\b", re.I)
+# An answer template's unfilled slot: "[Company]", "[Company Name]", "{company}", "<Role>".
+_UNFILLED_PLACEHOLDER = re.compile(
+    r"[\[{<]\s*(?:company|company\s+name|employer|organi[sz]ation|role|position|job\s+title|team)\s*[\]}>]", re.I
+)
+_NOT_RESIDE_OPTION = re.compile(r"\bi\s+(?:don[’']?t|do\s+not)\s+(?:reside|live)\s+in\s+(?P<state>[a-z][a-z .]+?)\s*\.?\s*$", re.I)
+_RESIDE_OPTION = re.compile(r"^\s*i\s+(?:reside|live)\s+in\s+(?P<state>[a-z][a-z .]+?)\s+and\b", re.I)
+
+
+def _state_residence_notice_option(opts: list[str], profile: dict[str, Any]) -> str | None:
+    """Pick between "I reside in <State> and acknowledge ..." / "I don't reside in <State>."
+
+    State-law notices (Massachusetts lie-detector, G.L. c. 149 § 19B) ask only
+    where the candidate lives, which the profile's state answers.
+    """
+    own = str(profile.get("state") or "").strip().lower()
+    if not own:
+        return None
+    reside = next((o for o in opts if _RESIDE_OPTION.match(o)), None)
+    not_reside = next((o for o in opts if _NOT_RESIDE_OPTION.search(o)), None)
+    if not reside or not not_reside:
+        return None
+    state = _RESIDE_OPTION.match(reside).group("state").strip().lower()
+    if state != _NOT_RESIDE_OPTION.search(not_reside).group("state").strip().lower():
+        return None
+    return reside if own == state else not_reside
 
 
 def _resolve_answer_impl(
@@ -667,6 +731,25 @@ def _resolve_answer_impl(
     # A compound "city and state" ask must be answered in full before the
     # type-based resolvers see it — they each return one component and silently
     # drop the rest.
+    # Human-or-bot screening ("I am an AI, bot or Automated Program." / "I am a
+    # human."): the candidate is the applicant, so the human option (Chainguard).
+    human = next((o for o in opts if _HUMAN_OPTION.match(o)), None)
+    if human and any(_BOT_OPTION.search(o) for o in opts if o != human):
+        resolution.answer = human
+        resolution.resolution_method = DETERMINISTIC_RULE
+        resolution.confidence = 1.0
+        return resolution
+
+    # "I reside in Massachusetts and acknowledge ..." / "I don't reside in
+    # Massachusetts." (FanDuel's lie-detector notice): answered from the state.
+    residence = _state_residence_notice_option(opts, profile)
+    if residence:
+        resolution.answer = residence
+        resolution.resolution_method = PROFILE_OPTION_MAPPING
+        resolution.profile_key = "state"
+        resolution.confidence = 1.0
+        return resolution
+
     compound = _compound_location_answer(question_text, profile)
     if compound and not opts:
         resolution.answer = compound
@@ -681,6 +764,14 @@ def _resolve_answer_impl(
         resolution.answer = (_match_option(opts, foreign) if opts else None) or foreign
         resolution.resolution_method = DETERMINISTIC_RULE
         resolution.profile_key = "workAuth"
+        resolution.confidence = 1.0
+        return resolution
+
+    abroad = _foreign_residence_answer(question_text, profile)
+    if abroad:
+        resolution.answer = (_match_option(opts, abroad) if opts else None) or abroad
+        resolution.resolution_method = DETERMINISTIC_RULE
+        resolution.profile_key = "country"
         resolution.confidence = 1.0
         return resolution
 
@@ -716,6 +807,14 @@ def _resolve_answer_impl(
         profile, screening[0], "sponsor"
     ):
         screening = None
+    if screening and qtype == QuestionType.PERMANENT_WORK_AUTHORIZATION and not any(
+        _saved_question_mentions(profile, screening[0], word)
+        for word in ("permanent", "unrestricted", "without")
+    ):
+        # Addepar: a saved "authorized to work in the United States? Yes"
+        # matched "authorized to work ... without Visa Sponsorship?" and
+        # submitted Yes for a candidate on H-1B.
+        screening = None
     if screening and qtype == QuestionType.SPONSORSHIP_REQUIRED and sum(
         1 for o in opts if re.match(r"\s*yes\b", o, re.I)
     ) > 1:
@@ -730,6 +829,12 @@ def _resolve_answer_impl(
         r"\bany\s+(?:u\.?s\.?\s+)?employer", question_text, re.I
     ):
         screening = None
+    if screening and _UNFILLED_PLACEHOLDER.search(str(screening[1])):
+        # The saved "Why do you want to work at [Company]?" template: there is no
+        # company name here to fill it with, and "[Company]" was submitted
+        # verbatim (Chainguard, Discord). A company-specific approval in the
+        # answer library answers it; otherwise it goes to review.
+        screening = None
     prior_employment = _asks_about_prior_employment(question_text, profile)
     if screening and prior_employment:
         # A saved "Have you ever worked for Robinhood…? No" matched the same
@@ -741,7 +846,13 @@ def _resolve_answer_impl(
         # With a fixed option list, map the saved answer onto a real option —
         # writing a value the control doesn't offer leaves it blank in the DOM.
         if opts:
-            matched = _match_option(opts, answer)
+            matched = None
+            if "career" in answer.lower() and _REFERRAL_SOURCE_QUESTION.search(question_text):
+                # Before the fuzzy match, which paired "Company careers page"
+                # with GSK's "Contingent Workers Career Site" over "Website".
+                matched = _careers_page_option(opts)
+            if matched is None:
+                matched = _match_option(opts, answer)
             if matched is None and len(opts) == 1:
                 # Single-option acknowledgements ("I Acknowledge") carry no
                 # choice; a saved "Yes" means take the only option there is.
@@ -1108,6 +1219,34 @@ def _resolve_state(res: AnswerResolution, profile: dict, opts: list[str]) -> Non
     custom = profile.get("customFields") or {}
     state_fallback = str(custom.get("state") or "").strip() or "Washington"
     _resolve_from_profile(res, profile, opts, "state", fallback=state_fallback)
+    if opts and res.answer and res.answer not in opts:
+        # Natera lists only "AL".."WA": the profile's "Washington" matched no
+        # option, the full name went to the filler and it picked "HI"
+        # ("wasHIngton"). Try the other spelling, else leave it for review.
+        given = res.answer.strip().lower()
+        other = _US_STATE_CODES.get(given) or next(
+            (name for name, code in _US_STATE_CODES.items() if code == given), None)
+        res.answer = next((o for o in opts if other and o.strip().lower() == other), None)
+        if res.answer:
+            res.resolution_method = PROFILE_OPTION_MAPPING
+        else:
+            res.resolution_method = UNKNOWN_METHOD
+            res.confidence = 0.0
+
+
+_US_STATE_CODES = {
+    "alabama": "al", "alaska": "ak", "arizona": "az", "arkansas": "ar", "california": "ca",
+    "colorado": "co", "connecticut": "ct", "delaware": "de", "district of columbia": "dc",
+    "florida": "fl", "georgia": "ga", "hawaii": "hi", "idaho": "id", "illinois": "il",
+    "indiana": "in", "iowa": "ia", "kansas": "ks", "kentucky": "ky", "louisiana": "la",
+    "maine": "me", "maryland": "md", "massachusetts": "ma", "michigan": "mi", "minnesota": "mn",
+    "mississippi": "ms", "missouri": "mo", "montana": "mt", "nebraska": "ne", "nevada": "nv",
+    "new hampshire": "nh", "new jersey": "nj", "new mexico": "nm", "new york": "ny",
+    "north carolina": "nc", "north dakota": "nd", "ohio": "oh", "oklahoma": "ok", "oregon": "or",
+    "pennsylvania": "pa", "rhode island": "ri", "south carolina": "sc", "south dakota": "sd",
+    "tennessee": "tn", "texas": "tx", "utah": "ut", "vermont": "vt", "virginia": "va",
+    "washington": "wa", "west virginia": "wv", "wisconsin": "wi", "wyoming": "wy",
+}
 
 def _resolve_country(res: AnswerResolution, profile: dict, opts: list[str]) -> None:
     _resolve_from_profile(res, profile, opts, "country", fallback="United States")
@@ -3403,6 +3542,13 @@ def _resolve_test_score(res: AnswerResolution, profile: dict, opts: list[str]) -
 
 def _resolve_location_confirmation(res: AnswerResolution, profile: dict, opts: list[str]) -> None:
     q_low = (res.question or "").lower()
+    if re.search(r"willing\s+to\s+work\s+from\s+the\s+office", q_low):
+        # Robinhood names no office here, so where the candidate lives cannot
+        # answer it: this said "No" even for a Bellevue role near home. It is a
+        # preference, left for the candidate.
+        res.resolution_method = UNKNOWN_METHOD
+        res.confidence = 0.0
+        return
     profile_state = (profile.get("state") or "Washington").lower()
     profile_city = (profile.get("city") or "Auburn").lower()
     profile_metro = str(profile.get("metroArea") or "").lower()
