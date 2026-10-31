@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -68,3 +69,9 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+
+def is_production_env() -> bool:
+    """CAREEROS_ENV=production (or prod): a hosted instance, which fails closed
+    where a local checkout stays permissive."""
+    return os.environ.get("CAREEROS_ENV", "").strip().lower() in ("production", "prod")

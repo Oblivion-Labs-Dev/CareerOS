@@ -7,6 +7,9 @@ export interface NavItem {
   requiresBackend?: boolean;
   /** When false, shown under Coming soon (visible, not clickable). */
   enabled?: boolean;
+  /** Outside the core Resume → Profile → Questions → Auto Apply flow. Hidden
+   *  unless the full navigation is switched on (see SHOW_FULL_NAV). */
+  extra?: boolean;
 }
 
 export interface NavGroup {
@@ -95,7 +98,7 @@ export const ALL_NAV_GROUPS: NavGroup[] = [
 /** Navigation used by the CareerOS mission-control shell.
  * `enabled: false` items still render (so it's visible what exists in the
  * repo) but are unclickable — see `app-sidebar.tsx`'s handling of this flag. */
-export const NAV_GROUPS: NavGroup[] = [
+export const FULL_NAV_GROUPS: NavGroup[] = [
   {
     label: "Main",
     items: [
@@ -123,6 +126,21 @@ export const NAV_GROUPS: NavGroup[] = [
     ],
   },
 ];
+
+/** NEXT_PUBLIC_CAREEROS_NAV=full restores every nav item (including the
+ *  "Disabled pages" list). The default shows only the core workflow, so the
+ *  next step — Complete Profile → Review Answers → Auto Apply — is obvious. */
+export const SHOW_FULL_NAV = process.env.NEXT_PUBLIC_CAREEROS_NAV === "full";
+
+export function navGroupsFor(full: boolean): NavGroup[] {
+  if (full) return FULL_NAV_GROUPS;
+  return FULL_NAV_GROUPS.map((group) => ({
+    ...group,
+    items: group.items.filter((item) => item.enabled !== false && !item.extra),
+  })).filter((group) => group.items.length > 0);
+}
+
+export const NAV_GROUPS: NavGroup[] = navGroupsFor(SHOW_FULL_NAV);
 
 export const VISIBLE_NAV_ITEMS = NAV_GROUPS.flatMap((group) => group.items);
 

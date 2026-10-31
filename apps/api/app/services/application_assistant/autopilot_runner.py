@@ -51,7 +51,11 @@ from app.services.application_assistant.persistence import (
 )
 from app.services.application_assistant import company_cap
 from app.services.application_assistant.company_blacklist import partition_by_blacklist
-from app.services.application_assistant.submission_pacing import seconds_until_next_submission
+from app.services.application_assistant.submission_pacing import (
+    CLICK_TIME_WAIT_HEADROOM_SECONDS,
+    seconds_to_wait_before_opening,
+    seconds_until_next_submission,
+)
 from app.services.application_assistant.submission_outcome import (
     classify_unproven_outcome,
     explain_unknown_submission,
@@ -627,15 +631,22 @@ class AutopilotRunner:
             self.priority_job_ids.insert(0, priority_job_id)
         self.manual_apply_job_ids.update(requested_priority)
 
-        # Initialize worker states
-        self.worker_states = {
-            slot: WorkerState(
-                worker_id=f"{self.worker_id}_slot{slot}",
-                slot=slot,
-            )
-            for slot in range(self.concurrency)
-        }
-        self.metrics = ConcurrencyMetrics()
+        # A run already worked by a live loop is resumed in place, never
+        # restarted: the loop re-reads the run row and priority_job_ids every
+        # iteration, so it picks up this call's target and priority job.
+        # Cancelling it instead killed the application in flight (left in
+        # APPLYING), and resetting worker state hid that job from the console.
+        loop_alive = bool(self._loop_task and not self._loop_task.done())
+
+        if not loop_alive:
+            self.worker_states = {
+                slot: WorkerState(
+                    worker_id=f"{self.worker_id}_slot{slot}",
+                    slot=slot,
+                )
+                for slot in range(self.concurrency)
+            }
+            self.metrics = ConcurrencyMetrics()
 
         saved_run: dict[str, Any] | None = None
         with session_scope() as local_db:
@@ -664,7 +675,10 @@ class AutopilotRunner:
                     # start() call that omits a field.
                     existing["settings"] = opts
                     self.active_run_id = existing["id"]
-                    if hb_str:
+                    # The heartbeat is only written between jobs, so a live loop
+                    # mid-application always looks stale; recovering then would
+                    # requeue (or park as UNKNOWN) the job it is applying to.
+                    if hb_str and not loop_alive:
                         try:
                             hb_dt = datetime.fromisoformat(hb_str.replace("Z", "+00:00"))
                             now_dt = datetime.now(timezone.utc)
@@ -710,21 +724,39 @@ class AutopilotRunner:
 
         self._ensure_queue_preprocessor()
 
-        if self._loop_task and not self._loop_task.done():
-            logger.info("Cancelling lingering _loop_task for clean start of %s...", self.active_run_id)
-            self._loop_task.cancel()
-            try:
-                await asyncio.wait_for(asyncio.shield(self._loop_task), timeout=1.0)
-            except (asyncio.TimeoutError, asyncio.CancelledError, Exception):
-                pass
+        if loop_alive and self._loop_task and not self._loop_task.done():
+            # The live loop may be just past its last "is the run still
+            # RUNNING?" check and about to exit; respawn once it does, so this
+            # start is never left with a RUNNING row and no worker.
+            logger.info("Run %s resumed in place; the live batch loop keeps its current job.", self.active_run_id)
+            self._loop_task.add_done_callback(self._respawn_loop_if_run_active)
+            return saved_run or {}
+
+        self._spawn_batch_loop()
+        return saved_run or {}
+
+    def _spawn_batch_loop(self) -> None:
         logger.info("Spawning new _run_batch_worker asyncio task for run %s (concurrency=%d)...", self.active_run_id, self.concurrency)
         self._loop_task = asyncio.create_task(self._run_batch_worker())
+
         def _log_task_done(t: asyncio.Task) -> None:
             if not t.cancelled() and t.exception():
                 logger.error("Autopilot batch worker crashed with: %s", t.exception(), exc_info=t.exception())
+
         self._loop_task.add_done_callback(_log_task_done)
 
-        return saved_run or {}
+    def _respawn_loop_if_run_active(self, finished: asyncio.Task) -> None:
+        if finished is not self._loop_task or self._stop_requested or finished.cancelled():
+            return
+        try:
+            with session_scope() as db:
+                run = get_active_autopilot_run(db)
+        except Exception:
+            logger.exception("Could not check the run after the batch loop exited; not respawning.")
+            return
+        if run and run.get("status") in (AutopilotRunStatus.RUNNING.value, AutopilotRunStatus.RECOVERING.value):
+            self.active_run_id = run["id"]
+            self._spawn_batch_loop()
 
     async def pause(self, db: Session | None = None) -> dict[str, Any] | None:
         self._pause_requested = True
@@ -2510,12 +2542,14 @@ class AutopilotRunner:
                         name="generate_role_tailoring_diff",
                         agent_type="resume_tailor",
                         stage="TAILOR",
-                        provider="ollama",
-                        model=candidate_diff.get("tailoringModel") or "qwen3:4b-instruct",
+                        # Tailoring is local evidence selection: no model runs,
+                        # so no provider and no tokens. This used to report a
+                        # fixed 450/320-token Ollama call that never happened,
+                        # inflating every LLM usage and cost figure.
+                        provider="local",
+                        model=candidate_diff.get("tailoringModel") or "none (local evidence selection)",
                         duration_ms=t_duration_ms,
                         status="success" if not candidate_diff.get("tailoringFailed") else "error",
-                        prompt_tokens=450,
-                        completion_tokens=320,
                         metadata={
                             "attempt": attempt,
                             "mode": candidate_mode,
@@ -2741,6 +2775,34 @@ class AutopilotRunner:
         with session_scope() as db:
             save_autopilot_job(db, job_item)
 
+        # Wait out most of the submission gap now, before the browser opens.
+        # The click-time wait below runs inside the watchdog, and a long one
+        # there timed out real submissions after the click (SUBMISSION_UNKNOWN).
+        def _last_attempt_before_open() -> str | None:
+            with session_scope() as db:
+                return most_recent_submit_attempt(db, exclude_id=job_item.get("id"))
+
+        try:
+            pre_open_wait = seconds_to_wait_before_opening(
+                await asyncio.to_thread(_last_attempt_before_open)
+            )
+        except Exception:
+            # Pacing is politeness, not safety (submission_pacing fails open);
+            # the click-time check below still enforces the gap.
+            logger.warning(
+                "Could not read the last submit time before opening %s; not pre-waiting.",
+                job_item.get("id"), exc_info=True,
+            )
+            pre_open_wait = 0.0
+        if pre_open_wait > 0:
+            self.log_event(
+                f"{w_prefix}Pacing {company} — {title}: waiting {pre_open_wait:.0f}s "
+                "before opening the posting so submissions stay spaced out",
+                level="info",
+                metadata={"slot": slot_idx, "company": company, "title": title},
+            )
+            await asyncio.sleep(pre_open_wait)
+
         async def _record_submit_attempt() -> None:
             """Enforce the minimum submission gap, then persist the point of no
             return before the executor clicks submit.
@@ -2803,11 +2865,13 @@ class AutopilotRunner:
                     profile=submission_profile,
                     answer_lib=answer_lib,
                     headless=headless_mode,
-                    timeout_sec=PLAYWRIGHT_INNER_TIMEOUT,
+                    timeout_sec=PLAYWRIGHT_INNER_TIMEOUT + CLICK_TIME_WAIT_HEADROOM_SECONDS,
                     log_callback=_granular_log,
                     on_submit_attempt=_record_submit_attempt,
                 ),
-                timeout=PLAYWRIGHT_WATCHDOG_TIMEOUT,
+                # Headroom for the bounded click-time pacing wait, so it is
+                # never charged against the time the form itself gets.
+                timeout=PLAYWRIGHT_WATCHDOG_TIMEOUT + CLICK_TIME_WAIT_HEADROOM_SECONDS,
             )
         except asyncio.TimeoutError:
             # Say where it hung, not just that it did.

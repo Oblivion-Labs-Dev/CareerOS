@@ -214,9 +214,9 @@ def _poll_gmail_for_code_once(
                     if is_for_company:
                         code = _extract_code_from_body(body)
                         if code:
-                            logger.info("Found Greenhouse verification code '%s' for %s (Subject: %s)", code, company, subject)
+                            logger.info("Found a Greenhouse verification code for %s", company)
                             if log_callback:
-                                log_callback(f"Intercepted security code '{code}' from {from_} ({subject})", "info")
+                                log_callback(f"Intercepted the security code email for {company}", "info")
                             client.logout()
                             return code
 
@@ -256,7 +256,7 @@ async def fetch_latest_greenhouse_verification_code(
         return None
 
     deadline = time.time() + timeout_sec
-    logger.info("Listening on Gmail (%s) for Greenhouse security code for %s (timeout: %.0fs)...", user, company, timeout_sec)
+    logger.info("Listening on Gmail for Greenhouse security code for %s (timeout: %.0fs)...", company, timeout_sec)
 
     clean_company = re.sub(r"[^a-zA-Z0-9 ]", "", company).strip()
 
@@ -357,14 +357,14 @@ async def handle_greenhouse_verification_flow(
     )
 
     if not code or len(code) != 8:
-        logger.error("Could not obtain valid 8-character code (got: %s)", code)
+        logger.error("Could not obtain a valid 8-character code (got %d characters)", len(code or ""))
         if log_callback:
             log_callback(f"Failed to obtain 8-character security code from email for {company}", "error")
         return False
 
-    logger.info("Filling verification code '%s' into Greenhouse form...", code)
+    logger.info("Filling verification code into Greenhouse form...")
     if log_callback:
-        log_callback(f"Autofilling 8-character security code [{code}] into Greenhouse form...", "info")
+        log_callback("Autofilling the 8-character security code into the Greenhouse form...", "info")
 
     # Greenhouse renders 8 individual single-character input boxes or 1 main input box
     # Let's check target_frame and page

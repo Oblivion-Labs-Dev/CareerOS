@@ -487,3 +487,96 @@ def test_the_user_may_still_resolve_a_maybe_submitted_job_by_hand(attempted_job)
     from app.routers.application_assistant.autopilot import USER_RELABELLABLE_FROM
 
     assert AutopilotJobStatus.SUBMISSION_UNKNOWN.value in USER_RELABELLABLE_FROM
+
+
+# ── Every requeue path refuses a job that was (or may have been) sent ──
+#
+# Regression: the per-job retry, the Review Center's staged approve and a
+# question-group answer all set QUEUED on any status, and Apply (preflight
+# approve) requeued SUBMISSION_UNKNOWN. Because each job's duplicate guards
+# exclude its own record, requeuing a SUBMITTED row applied to it again.
+
+
+@pytest.mark.parametrize(
+    "status",
+    [
+        AutopilotJobStatus.SUBMITTED.value,
+        AutopilotJobStatus.REJECTED.value,
+        AutopilotJobStatus.APPLYING.value,
+        AutopilotJobStatus.SUBMISSION_UNKNOWN.value,
+    ],
+)
+def test_single_job_retry_refuses_sent_or_live_jobs(attempted_job, status):
+    from app.routers.application_assistant.autopilot import reprocess_single_autopilot_job
+
+    attempted_job["status"] = status
+    _save(attempted_job)
+
+    response = asyncio.run(reprocess_single_autopilot_job(attempted_job["id"]))
+
+    assert response["success"] is False
+    assert _read(attempted_job["id"])["status"] == status
+
+
+def test_single_job_retry_still_requeues_a_retryable_job(attempted_job):
+    from app.routers.application_assistant.autopilot import reprocess_single_autopilot_job
+
+    attempted_job["status"] = AutopilotJobStatus.NEEDS_REVIEW.value
+    attempted_job.pop("submitAttemptedAt", None)
+    _save(attempted_job)
+
+    response = asyncio.run(reprocess_single_autopilot_job(attempted_job["id"]))
+
+    assert response.get("success") is not False
+    assert _read(attempted_job["id"])["status"] == AutopilotJobStatus.QUEUED.value
+
+
+def test_staged_approve_keeps_the_answer_but_never_requeues_a_submitted_job(attempted_job):
+    from app.routers.application_assistant.autopilot import approve_staged_answer
+
+    attempted_job["status"] = AutopilotJobStatus.SUBMITTED.value
+    _save(attempted_job)
+
+    with session_scope() as db:
+        response = approve_staged_answer(
+            attempted_job["id"],
+            {"customAnswers": {"Earliest start date?": "Two weeks"}},
+            db,
+        )
+
+    assert response["success"] is False
+    stored = _read(attempted_job["id"])
+    assert stored["status"] == AutopilotJobStatus.SUBMITTED.value
+    assert stored["customAnswers"]["Earliest start date?"] == "Two weeks"
+
+
+def test_answering_a_question_group_does_not_requeue_a_submitted_job(attempted_job):
+    from app.services.application_assistant.pending_question_groups import answer_question_group
+
+    attempted_job["status"] = AutopilotJobStatus.SUBMITTED.value
+    attempted_job["pendingQuestions"] = [{"question": "Earliest start date?"}]
+    _save(attempted_job)
+
+    with session_scope() as db:
+        result = answer_question_group(
+            db, question="Earliest start date?", answer="Two weeks", job_ids=[attempted_job["id"]]
+        )
+
+    assert attempted_job["id"] not in result.get("requeued", [])
+    assert _read(attempted_job["id"])["status"] == AutopilotJobStatus.SUBMITTED.value
+
+
+def test_apply_click_refuses_a_maybe_submitted_job(attempted_job):
+    from fastapi.testclient import TestClient
+
+    from app.main import app
+
+    attempted_job["status"] = AutopilotJobStatus.SUBMISSION_UNKNOWN.value
+    _save(attempted_job)
+
+    response = TestClient(app).post(
+        f"/application-assistant/jobs/{attempted_job['id']}/preflight-approve", json={}
+    )
+
+    assert response.status_code == 409
+    assert _read(attempted_job["id"])["status"] == AutopilotJobStatus.SUBMISSION_UNKNOWN.value

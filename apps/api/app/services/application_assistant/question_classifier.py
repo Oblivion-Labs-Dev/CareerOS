@@ -1069,7 +1069,13 @@ _CLASSIFICATION_RULES: list[tuple[QuestionType, list[str]]] = [
         r"accuracy\s+is\s+crucial",
         r"errors\s+or\s+omissions",
         r"\baccurate\b",
-        r"certif(y|ied|ication)",
+        # The attestation verb, or a "certification" of the application's
+        # accuracy. A bare "certified" / "Certifications" is a credential
+        # question ("Databricks Certifications: ... Professional preferred"),
+        # and answering it as an attestation claimed a certificate the
+        # candidate does not hold.
+        r"(?<![a-z])certify(?![a-z])",
+        r"(?<![a-z])certification(?![a-z]).{0,80}(?:accurate|true|correct|complete|information\s+(?:provided|above|given))",
         r"true\s+and\s+complete",
         r"to\s+the\s+best\s+of\s+my\s+knowledge",
         r"at-will",

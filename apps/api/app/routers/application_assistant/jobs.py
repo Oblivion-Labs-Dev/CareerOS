@@ -29,12 +29,12 @@ def list_jobs(
 ) -> dict[str, Any]:
     from app.services.application_assistant.scraper_import import SCRAPER_DISCOVERY_RUN_ID
 
+    from app.services.application_assistant.persistence import job_matches_by_job_id
+
     jobs = list_discovered_jobs(db, discovery_run_id=run_id)
-    matches = {}
-    for job in jobs:
-        match = get_job_match(db, job["id"])
-        if match:
-            matches[job["id"]] = match
+    # One read of the match table, not one full scan per discovered job.
+    all_matches = job_matches_by_job_id(db)
+    matches = {job["id"]: all_matches[job["id"]] for job in jobs if job["id"] in all_matches}
 
     include_kw = [k.strip() for k in include.split(",") if k.strip()]
     exclude_kw = [k.strip() for k in exclude.split(",") if k.strip()]

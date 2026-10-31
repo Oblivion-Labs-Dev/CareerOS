@@ -17,6 +17,8 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Request, Response
 from pydantic import BaseModel
 
+from app.config import is_production_env
+
 from app.db.store import (
     EntityStore,
     get_kv,
@@ -112,6 +114,7 @@ def login(payload: LoginPayload, response: Response) -> dict[str, bool]:
         max_age=SESSION_TTL_SECONDS,
         httponly=True,
         samesite="lax",
+        secure=is_production_env(),
         path="/",
     )
     return {"success": True}
@@ -169,6 +172,7 @@ def candidate_signup(payload: CandidateAuthPayload, response: Response) -> dict[
         max_age=SESSION_TTL_SECONDS,
         httponly=True,
         samesite="lax",
+        secure=is_production_env(),
         path="/",
     )
     return {
@@ -213,6 +217,7 @@ def candidate_login(payload: CandidateAuthPayload, response: Response) -> dict[s
         max_age=SESSION_TTL_SECONDS,
         httponly=True,
         samesite="lax",
+        secure=is_production_env(),
         path="/",
     )
     return {

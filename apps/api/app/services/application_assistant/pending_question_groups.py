@@ -31,6 +31,7 @@ from app.services.application_assistant.profile_answer_resolver import (
     _distinct_subjects,
     _significant_words,
 )
+from app.services.application_assistant.submission_outcome import requeue_refusal_reason
 
 #: Same threshold `_find_user_approved_answer` applies when deciding whether a
 #: saved answer covers a question. Grouping more loosely than this would promise
@@ -386,7 +387,9 @@ def answer_question_group(
         job["pendingQuestions"] = remaining
         job.setdefault("customAnswers", {})[question] = answer
 
-        if remaining:
+        # A job already sent (or mid-attempt) keeps the answer but is never
+        # requeued: that would apply to the posting a second time.
+        if remaining or requeue_refusal_reason(job):
             still_blocked.append(job_id)
             save_autopilot_job(db, job)
             continue

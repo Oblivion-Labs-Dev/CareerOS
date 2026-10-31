@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import re
+from urllib.parse import urlsplit
 from typing import TYPE_CHECKING, Any
 
 from app.db.store import now_iso, session_scope
@@ -44,7 +45,9 @@ SUBMIT_INIT_SCRIPT = """
   window.__careerosSubmitTrackerInstalled = true;
 
   function isConfirmationUrl(href) {
-    return /thank.?you|thanks for applying|application (?:has been )?(?:received|submitted|sent|complete)|successfully applied|submission (?:received|complete|confirmed)|confirmation|you.?ve applied|application submitted/i.test(href)
+    let path = href;
+    try { path = new URL(href).pathname; } catch (err) { /* keep href */ }
+    return /thank.?you|thanks for applying|application (?:has been )?(?:received|submitted|sent|complete)|successfully applied|submission (?:received|complete|confirmed)|confirmation|you.?ve applied|application submitted/i.test(path)
       || /greenhouse\\.io\\/.*\\/confirmation/i.test(href)
       || (/greenhouse\\.io\\/.*\\/jobs\\/\\d+/i.test(href) && /(?:application_id=|[?&]applied=)/i.test(href))
       || ((/myworkdaysite\\.com|myworkdayjobs\\.com/i.test(href)) && /(confirmation|success|complete)/i.test(href));
@@ -55,7 +58,9 @@ SUBMIT_INIT_SCRIPT = """
     if (!/greenhouse\\.io/i.test(href)) return false;
     if (isConfirmationUrl(href)) return true;
     if (/(?:application_id=|[?&]applied=)/i.test(href) && /\\/jobs\\/\\d+/i.test(href)) return true;
-    if (doc.querySelector('[data-qa="application-success"], [data-qa="confirmation"], #application_confirmation, .application-confirmation, [class*="ApplicationConfirmation"], [class*="confirmation"]')) {
+    // Greenhouse's own confirmation markers only: any class containing
+    // "confirmation" (an email-confirmation field) is not one.
+    if (doc.querySelector('[data-qa="application-success"], [data-qa="confirmation"], #application_confirmation, .application-confirmation, [class*="ApplicationConfirmation"]')) {
       return true;
     }
     const text = (doc.body?.innerText || '').slice(0, 12000);
@@ -162,7 +167,7 @@ DETECTION_EVAL = """
     return { ...detected, url: location.href };
   }
   const href = location.href;
-  const urlHit = /thank.?you|thanks for applying|application (?:has been )?(?:received|submitted|sent|complete)|successfully applied|submission (?:received|complete|confirmed)|confirmation|you.?ve applied|application submitted/i.test(href)
+  const urlHit = /thank.?you|thanks for applying|application (?:has been )?(?:received|submitted|sent|complete)|successfully applied|submission (?:received|complete|confirmed)|confirmation|you.?ve applied|application submitted/i.test(location.pathname)
     || /greenhouse\\.io\\/.*\\/confirmation/i.test(href)
     || (/greenhouse\\.io\\/.*\\/jobs\\/\\d+/i.test(href) && /(?:application_id=|[?&]applied=)/i.test(href));
   return { success: urlHit, trigger: urlHit ? 'confirmation_url' : '', url: href };
@@ -190,7 +195,9 @@ _watchers: dict[str, SubmissionWatcher] = {}
 
 
 def is_submission_confirmation_url(url: str) -> bool:
-    if CONFIRMATION_URL_PATTERN.search(url):
+    # Generic wording counts only in the path: "confirmation" in a query string
+    # (?utm_source=confirmation-email) or a host says nothing about this page.
+    if CONFIRMATION_URL_PATTERN.search(urlsplit(url).path):
         return True
     if GREENHOUSE_CONFIRMATION_URL.search(url):
         return True

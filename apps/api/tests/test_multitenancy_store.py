@@ -99,10 +99,11 @@ def test_entity_store_multi_tenant_isolation():
 def test_jwt_verification_and_user_extraction():
     import jwt
 
-    payload = {"sub": "usr_998877", "email": "candidate@example.com", "exp": int(time.time()) + 3600}
-    token = jwt.encode(payload, "dummy_secret", algorithm="HS256")
+    from app.services.auth import _jwt_signing_secret
 
-    # In dev mode without configured secret, verify_jwt_token decodes unverified
+    payload = {"sub": "usr_998877", "email": "candidate@example.com", "exp": int(time.time()) + 3600}
+    token = jwt.encode(payload, _jwt_signing_secret(), algorithm="HS256")
+
     decoded = verify_jwt_token(token)
     assert decoded is not None
     assert decoded["sub"] == "usr_998877"
@@ -120,3 +121,40 @@ def test_jwt_verification_and_user_extraction():
     empty_req.headers = {}
     empty_req.cookies = {}
     assert extract_user_from_request(empty_req) == "default"
+
+
+def test_a_jwt_not_signed_with_the_server_secret_is_rejected():
+    """Regression: tokens were decoded without verifying the signature, so
+    anyone could forge a session for any user id."""
+    import base64
+    import json
+
+    import jwt
+
+    claims = {"sub": "usr_attacker", "exp": int(time.time()) + 3600}
+    wrong_key = jwt.encode(claims, "attacker_chosen_secret", algorithm="HS256")
+
+    def _b64(obj: dict) -> str:
+        return base64.urlsafe_b64encode(json.dumps(obj).encode()).decode().rstrip("=")
+
+    unsigned = f"{_b64({'alg': 'none', 'typ': 'JWT'})}.{_b64(claims)}."
+    garbage_sig = f"{_b64({'alg': 'HS256', 'typ': 'JWT'})}.{_b64(claims)}.c2lnbmF0dXJl"
+
+    for forged in (wrong_key, unsigned, garbage_sig):
+        assert verify_jwt_token(forged) is None
+        req = MagicMock()
+        req.headers = {"Authorization": f"Bearer {forged}"}
+        req.cookies = {}
+        assert extract_user_from_request(req) == "default"
+
+
+def test_an_expired_or_exp_less_jwt_is_rejected():
+    import jwt
+
+    from app.services.auth import _jwt_signing_secret
+
+    secret = _jwt_signing_secret()
+    expired = jwt.encode({"sub": "usr_1", "exp": int(time.time()) - 10}, secret, algorithm="HS256")
+    no_exp = jwt.encode({"sub": "usr_1"}, secret, algorithm="HS256")
+    assert verify_jwt_token(expired) is None
+    assert verify_jwt_token(no_exp) is None

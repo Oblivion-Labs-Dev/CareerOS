@@ -111,22 +111,12 @@ class PlaywrightBrowserPool:
         # Create isolated context
         context = await browser.new_context(**opts)
 
-        # Abort any external scheme navigation (mailto:, tel:, etc.) so Windows never pops up "Pick an app"
-        async def _abort_external_schemes(route: Any) -> None:
-            req_url = route.request.url.lower()
-            if req_url.startswith(("mailto:", "tel:", "callto:", "sip:", "ms-", "slack:", "zoommtg:", "teams:", "skype:")):
-                try:
-                    await route.abort()
-                except Exception:
-                    pass
-            else:
-                try:
-                    await route.continue_()
-                except Exception:
-                    pass
+        # Abort external scheme navigation (mailto:, tel:, etc.) and requests to
+        # internal addresses; see guard_browser_request.
+        from app.services.application_assistant.url_validation import guard_browser_request
 
         try:
-            await context.route("**/*", _abort_external_schemes)
+            await context.route("**/*", guard_browser_request)
         except Exception:
             pass
 

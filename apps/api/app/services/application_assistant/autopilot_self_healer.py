@@ -250,9 +250,13 @@ def _hot_reload_executor() -> bool:
 
 def requeue_failed_jobs(failed_jobs: list[dict[str, Any]]) -> int:
     """Reset failed jobs back to QUEUED status for retry."""
+    from app.services.application_assistant.submission_outcome import requeue_refusal_reason
+
     count = 0
     with session_scope() as db:
         for job in failed_jobs:
+            if requeue_refusal_reason(job):
+                continue
             job["status"] = "QUEUED"
             job["lastError"] = None
             job["lastErrorType"] = None

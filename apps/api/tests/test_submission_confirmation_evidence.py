@@ -10,7 +10,10 @@ from app.services.application_assistant.qwen_form_reviewer import verify_submiss
     ("https://thanks.example/job", "", False, False),
     ("https://ats.example/job/success-engineer", "", False, False),
     ("https://ats.example/job/confirmation", "", True, False),
-    ("https://ats.example/job/confirmation", "", False, True),
+    # A generic success-looking URL is not proof on its own any more; an
+    # ATS's own confirmation address is (test_submit_proof_and_retry.py).
+    ("https://ats.example/job/confirmation", "", False, False),
+    ("https://job-boards.greenhouse.io/acme/jobs/1/confirmation", "", False, True),
     ("https://ats.example/job", "Thank you for applying", False, True),
     ("https://ats.example/job", "Thank you for applying", True, False),
 ])

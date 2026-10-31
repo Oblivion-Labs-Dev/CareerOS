@@ -85,6 +85,10 @@ def _normalize_for_compare(value: str) -> str:
     return "".join(_normalize_words(value))
 
 
+#: A label asking for the whole name in one field.
+_WHOLE_NAME_LABEL = re.compile(r"\bfull\s+(?:legal\s+)?name\b|\bfirst\s+(?:and|&|/)\s+last\s+name\b")
+
+
 def _values_conflict(intended: str, actual: str) -> bool:
     """True only when two non-empty values are clearly NOT the same underlying
     answer — never flags on formatting differences alone (spacing, punctuation,
@@ -304,7 +308,7 @@ async def verify_browser_dom_state(
                 return (raw || '')
                     .replace(/[​‌‍⁠﻿]/g, '')  // zero-width / word joiner
                     .replace(/\\s+/g, ' ')
-                    .replace(/[\\s*:•\\-]+$/, '')
+                    .replace(/[\\s*:•\\u2731\\-]+$/, '')
                     .trim();
             };
             const looksLikeId = (text) => {
@@ -356,6 +360,27 @@ async def verify_browser_dom_state(
                     const group = el.closest('[role="radiogroup"][aria-labelledby]');
                     const head = group ? document.getElementById(group.getAttribute('aria-labelledby')) : null;
                     if (head && head.innerText.trim()) label = head.innerText.trim();
+                }
+                // Lever keeps the question in a sibling .application-label;
+                // Workable wraps the input in its <label> after a "*" marker.
+                // Same lookups as the executor's reader, so both agree on
+                // which question a field is.
+                if (!label) {
+                    const appField = el.closest('.application-field');
+                    const levLabel = appField && appField.parentElement
+                        ? appField.parentElement.querySelector('.application-label') : null;
+                    if (levLabel && levLabel.innerText.trim()) {
+                        label = levLabel.innerText.trim();
+                    } else if (appField && appField.parentElement) {
+                        // Lever's EEO block: <label><div>Race</div><div class="application-field">.
+                        const levText = [...appField.parentElement.children]
+                            .filter(k => k !== appField).map(k => (k.innerText || '').trim()).filter(Boolean).join(' ');
+                        if (levText) label = levText;
+                    }
+                }
+                if (!label) {
+                    const wrapLabel = el.closest('label');
+                    if (wrapLabel) label = (wrapLabel.innerText || '').replace(/[*\\u2731]/g, ' ').trim();
                 }
                 if (!label) {
                     const parent = el.closest('div.field, div.custom-question, div[class*="question"], div[class*="field"], fieldset');
@@ -677,9 +702,15 @@ async def verify_browser_dom_state(
     # through resolve_answer(), so it never passed through check #4 above —
     # verify it explicitly against the actual profile instead of trusting
     # that the fill succeeded.
+    first = (profile.get("firstName") or "").strip()
+    last = (profile.get("lastName") or "").strip()
     identity_checks = [
-        ("first name", (profile.get("firstName") or "").strip()),
-        ("last name", (profile.get("lastName") or "").strip()),
+        ("first name", first),
+        ("last name", last),
+        # "Legal First and Last Name" (Ashby) holds the whole name. Matched on
+        # "last name" alone it was compared with the surname and flagged a
+        # correctly filled "Akshay Borse" as a mismatch, blocking the form.
+        ("full name", (profile.get("fullName") or f"{first} {last}").strip()),
         ("email", derive_contact_email((profile.get("email") or "").strip())),
         ("phone", (profile.get("phone") or "").strip()),
     ]
@@ -687,7 +718,11 @@ async def verify_browser_dom_state(
         if not expected:
             continue
         for lbl_low, f in dom_by_label.items():
-            if field_key not in lbl_low:
+            names_whole = bool(_WHOLE_NAME_LABEL.search(lbl_low))
+            if field_key == "full name":
+                if not names_whole:
+                    continue
+            elif field_key not in lbl_low or (field_key in ("first name", "last name") and names_whole):
                 continue
             # A genuine identity field's label is short ("Email*", "Preferred
             # First Name"). Long custom-question sentences can incidentally

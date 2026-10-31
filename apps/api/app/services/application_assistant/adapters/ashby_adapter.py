@@ -95,7 +95,7 @@ class AshbyAdapter(ApplicationAdapter):
         try:
             confirmed = await page.locator(
                 'text=/application (has been )?(submitted|received)/i, '
-                '[class*="confirmation" i], [data-testid*="confirmation" i]'
+                '[data-testid*="confirmation" i]'
             ).count() > 0
         except Exception:
             confirmed = False

@@ -157,4 +157,33 @@ def validate_action_allowed(
     return True, ""
 
 
+_LIVE_APPLY_BLOCKED_ENVS = ("test", "testing", "development", "dev")
 
+
+def live_submission_refusal(page_url: str) -> str | None:
+    """Why the Autopilot's final click must not happen here, or None.
+
+    Development and test environments (CAREEROS_ENV=test/development, or any
+    pytest run) never click submit on a real employer's form unless
+    CAREEROS_LIVE_APPLY=1 says so. Local fixture pages on loopback stay
+    clickable, so the test bed and the browser tests keep working. An unset
+    CAREEROS_ENV is the owner's own instance and production is the point of
+    the product, so neither is gated.
+    """
+    import os
+    from urllib.parse import urlsplit
+
+    if os.environ.get("CAREEROS_LIVE_APPLY", "").strip().lower() in ("1", "true", "yes"):
+        return None
+    env = os.environ.get("CAREEROS_ENV", "").strip().lower()
+    under_tests = "PYTEST_CURRENT_TEST" in os.environ
+    if env not in _LIVE_APPLY_BLOCKED_ENVS and not under_tests:
+        return None
+    host = (urlsplit(page_url or "").hostname or "").lower()
+    if host in ("localhost", "::1") or host.startswith("127.") or host.endswith(".localhost"):
+        return None
+    where = f"CAREEROS_ENV={env}" if env in _LIVE_APPLY_BLOCKED_ENVS else "a test run"
+    return (
+        f"Live submission is disabled in {where}: refusing to click submit on {host or 'this page'}. "
+        "Set CAREEROS_LIVE_APPLY=1 to allow real submissions."
+    )

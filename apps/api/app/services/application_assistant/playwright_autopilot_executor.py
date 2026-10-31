@@ -340,6 +340,34 @@ async def _extract_dom_form_state(page: Page, expand_comboboxes: bool = False) -
                     if (l) label = l.innerText;
                 } catch(err) {}
             }
+            // Lever: the question sits in a sibling .application-label, not a
+            // <label for>, so every custom question (and the LinkedIn URL)
+            // came through as its field name ("urls[LinkedIn]") or as its
+            // dropdown placeholder ("Select...").
+            if (!label && el.closest) {
+                var appField = el.closest('.application-field');
+                var levLabel = appField && appField.parentElement
+                    ? appField.parentElement.querySelector('.application-label') : null;
+                if (levLabel) {
+                    label = levLabel.innerText;
+                } else if (appField && appField.parentElement) {
+                    // Lever's EEO block: <label><div>Race</div><div class="application-field">.
+                    var levParts = [];
+                    var levKids = appField.parentElement.children;
+                    for (var lk = 0; lk < levKids.length; lk++) {
+                        var levText = levKids[lk] === appField ? '' : (levKids[lk].innerText || '').trim();
+                        if (levText) levParts.push(levText);
+                    }
+                    if (levParts.length) label = levParts.join(' ');
+                }
+            }
+            // Workable (and others) wrap the input in its <label>, question in
+            // a nested span after a "*" marker: the first line was just "*",
+            // so the question was reported as its id ("QA_12649654").
+            if (!label && el.closest) {
+                var wrapLabel = el.closest('label');
+                if (wrapLabel) label = (wrapLabel.innerText || '').replace(/[*\\u2731]/g, ' ');
+            }
             if (!label) {
                 var parent = el.closest('.field, [data-qa], .form-group, .eeoc__question__wrapper, fieldset, div');
                 if (parent) {
@@ -367,7 +395,7 @@ async def _extract_dom_form_state(page: Page, expand_comboboxes: bool = False) -
                 return (raw || '')
                     .replace(/[​‌‍⁠﻿]/g, '')  // zero-width / word joiner
                     .replace(/\\s+/g, ' ')
-                    .replace(/[\\s*:•\\-]+$/, '')                     // trailing required markers
+                    .replace(/[\\s*:•\\u2731\\-]+$/, '')               // trailing required markers
                     .trim();
             };
             // An id-shaped token (CA_47143, QA_12203581, q_8f3a2b, 12345) is a
@@ -428,8 +456,13 @@ async def _extract_dom_form_state(page: Page, expand_comboboxes: bool = False) -
             } else if (inputType === 'checkbox') {
                 val = el.checked ? (el.value || 'checked') : '';
             }
+            // A select still on its value="" placeholder ("Select...") is
+            // unanswered. Reading the placeholder's text as the value made a
+            // required Lever dropdown look filled, so it was never healed and
+            // the readback verifier then staged the application.
             if (el.tagName.toLowerCase() === 'select') {
-                val = (el.options && el.selectedIndex >= 0) ? (el.options[el.selectedIndex].text || '') : '';
+                var selOpt = (el.options && el.selectedIndex >= 0) ? el.options[el.selectedIndex] : null;
+                val = (selOpt && selOpt.value !== '') ? (selOpt.text || '') : '';
             }
 
             if (isCombobox) {
@@ -555,6 +588,40 @@ _VOLUNTARY_DISCLOSURE_PATTERNS = (
 #:   the 1x1 and display:none iframes the invisible variants inject;
 #: * visible "I'm not a robot" / "verify you are human" wording counts on its
 #:   own, since that text only renders once a human is actually being asked.
+#: Inputs only a real application form has (see the comment where it is used
+#: for why a bare <form>, file input or text box is not enough).
+#:
+#: Ashby names its identity fields `_systemfield_name` / `_systemfield_email`
+#: and renders them without a <form>; Lever's are `name` and an
+#: `<input type="email" name="email">`. Neither matched the first_name-style
+#: selectors, so both boards read as "no form" - and, with their invisible
+#: captcha iframes present, as bot-protected: 562 Ashby and 145 Lever postings
+#: in 30 days, none of which had a challenge on screen.
+APPLICATION_FORM_SELECTOR = (
+    '#first_name, #email, input[id*="first_name" i], '
+    'input[name*="first_name" i], input[name*="last_name" i], '
+    'input[name$=".firstName"], input[name$=".lastName"], '
+    'input[autocomplete="given-name"], input[id*="candidate" i], '
+    'input[name^="_systemfield_"], input[type="email"][name="email"]'
+)
+
+#: Page text a pulled posting shows in place of the job.
+EXPIRED_TEXT_PATTERNS = (
+    "is no longer open",
+    "no longer accepting applications",
+    "no longer active",
+    "position has been filled",
+    "posting has expired",
+    "this job is closed",
+    "page not found",
+    # Taleo (UnitedHealth/Optum): "The job is no longer available."
+    "job is no longer available",
+    "position is no longer available",
+    "posting is no longer available",
+    # Ashby: "Job not found - The job you requested was not found."
+    "the job you requested was not found",
+)
+
 _VISIBLE_BOT_CHALLENGE_JS = """
 () => {
   const MIN_W = 100, MIN_H = 50;
@@ -594,6 +661,22 @@ _VISIBLE_BOT_CHALLENGE_JS = """
   return '';
 }
 """
+
+
+async def _locate_field(frame: Any, field_id: str) -> Any:
+    """The control a DOM-reader field id points at.
+
+    The readers report a control's name when it has no id. Lever
+    ("urls[LinkedIn]", "cards[...][field0]") and Workable ("QA_12649654")
+    controls have only a name, so an id-only lookup found nothing and the
+    field was silently left empty - a required question the resolver had
+    already answered, sending the application to review.
+    """
+    quoted = field_id.replace("\\", "\\\\").replace('"', '\\"')
+    by_id = frame.locator(f'[id="{quoted}"]').first
+    if await by_id.count() > 0:
+        return by_id
+    return frame.locator(f'[name="{quoted}"]').first
 
 
 def _option_key(label: str) -> str:
@@ -1034,7 +1117,8 @@ async def _correct_portal_prefill(
     answer = str(res.answer or "").strip()
     if not _prefill_disagrees(current, answer):
         return
-    logger.info("Replacing portal-prefilled %r=%r with the profile's %r", label[:40], current, answer)
+    # Field name only: the values are candidate data and must not reach api.log.
+    logger.info("Replacing portal-prefilled %r with the profile's answer", label[:40])
     await inp.fill(answer)
     filled[label[:50]] = answer
     filled_ids[label[:50]] = field_id
@@ -1216,18 +1300,34 @@ def _phenom_step_name(url: str) -> str:
     return f"step {m.group(1)}" if m else "first step"
 
 
-async def _phenom_step_button(page: Any) -> tuple[str, Any] | None:
-    """("next", button) between steps, ("submit", button) on the last one."""
-    for sel in ('button#next', 'button:text-is("Next")', 'button:has-text("Save and Continue")',
-                'button:has-text("Submit")'):
-        loc = page.locator(sel)
-        for i in range(await loc.count()):
-            btn = loc.nth(i)
-            if not await btn.is_visible():
-                continue
-            text = (await btn.inner_text()).strip().lower()
-            return ("submit" if "submit" in text else "next"), btn
-    return None
+_PHENOM_ALREADY_APPLIED = re.compile(r"/applythankyou(?![a-z])[^?#]*[?](?:[^#]*&)?status=alreadyApplied(?![a-z])", re.I)
+
+
+def _phenom_already_applied(url: str) -> bool:
+    """Phenom's own "you have already applied" page (status=alreadyApplied)."""
+    return bool(_PHENOM_ALREADY_APPLIED.search(url or ""))
+
+
+async def _phenom_step_button(page: Any, wait_sec: float = 8.0) -> tuple[str, Any] | None:
+    """("next", button) between steps, ("submit", button) on the last one.
+
+    Waits up to wait_sec for the step to render its button: read once, a
+    step still loading after Apply reported "No Next or Submit button".
+    """
+    deadline = time.monotonic() + wait_sec
+    while True:
+        for sel in ('button#next', 'button:text-is("Next")', 'button:has-text("Save and Continue")',
+                    'button:has-text("Submit")'):
+            loc = page.locator(sel)
+            for i in range(await loc.count()):
+                btn = loc.nth(i)
+                if not await btn.is_visible():
+                    continue
+                text = (await btn.inner_text()).strip().lower()
+                return ("submit" if "submit" in text else "next"), btn
+        if time.monotonic() >= deadline or _phenom_already_applied(page.url):
+            return None
+        await asyncio.sleep(0.5)
 
 
 async def _advance_phenom_wizard(
@@ -1249,6 +1349,10 @@ async def _advance_phenom_wizard(
     """
     for _ in range(10):
         found = await _phenom_step_button(page)
+        if _phenom_already_applied(page.url):
+            # The employer already holds an application from this candidate
+            # (applied outside CareerOS, or a record the queue lost track of).
+            return "Already applied: the employer's site says this posting was already applied to", None
         if found is None:
             return f"No Next or Submit button on Phenom {_phenom_step_name(page.url)}", None
         kind, btn = found
@@ -1290,7 +1394,7 @@ async def _advance_phenom_wizard(
             if advanced:
                 break
             await _repair_rejected_fields(page, log_callback)
-            found = await _phenom_step_button(page)
+            found = await _phenom_step_button(page, wait_sec=0)
             if found is None or found[0] != "next":
                 break
             btn = found[1]
@@ -1299,6 +1403,8 @@ async def _advance_phenom_wizard(
             return f"Phenom {step} would not advance: {'; '.join(errors) or 'no error shown'}", None
 
         await asyncio.sleep(2.0)
+        if _phenom_already_applied(page.url):
+            continue
         step = _phenom_step_name(page.url)
         if log_callback:
             log_callback(f"Filling Phenom {step}...")
@@ -1358,6 +1464,16 @@ async def _phenom_education_row_id(page: Any, row: re.Match, profile: dict[str, 
     return None
 
 
+_LEVER_QUESTION_JS = """el => {
+    const field = el.closest('.application-field');
+    if (!field || !field.parentElement) return '';
+    const label = field.parentElement.querySelector('.application-label');
+    if (label) return label.innerText;
+    return [...field.parentElement.children].filter(k => k !== field)
+        .map(k => (k.innerText || '').trim()).filter(Boolean).join(' ');
+}"""
+
+
 async def _select_key(sel_el: Any) -> str:
     try:
         return await sel_el.evaluate("el => el.id || el.name || el.outerHTML.slice(0, 200)")
@@ -1385,6 +1501,11 @@ async def _fill_native_selects(
                 if await lbl_el.count() > 0:
                     sel_lbl = await lbl_el.inner_text()
             if not sel_lbl:
+                # Lever: the question is beside .application-field, which the
+                # generic ancestor below would pick, reading the select's own
+                # "Select ..." placeholder as the question.
+                sel_lbl = (await sel_el.evaluate(_LEVER_QUESTION_JS) or "").strip()
+            if not sel_lbl:
                 parent = sel_el.locator('xpath=ancestor::div[contains(@class, "field") or contains(@class, "custom-question") or contains(@class, "form-group")][1]').first
                 if await parent.count() > 0:
                     sel_lbl = (await parent.inner_text()).split('\n')[0]
@@ -1392,7 +1513,7 @@ async def _fill_native_selects(
                 sel_lbl = await sel_el.get_attribute("aria-label") or sel_name or sel_id
 
             opt_texts = await sel_el.locator('option').all_inner_texts()
-            available = [o.strip() for o in opt_texts if o.strip() and o.strip().lower() not in ("select...", "select", "--", "choose")]
+            available = [o.strip() for o in opt_texts if o.strip() and o.strip().lower() not in ("select...", "select ...", "select", "--", "choose")]
 
             if len(available) == 1:
                 # Same rationale as the combobox path above: one real option
@@ -1417,6 +1538,13 @@ async def _fill_native_selects(
                 answer_lib=answer_lib,
                 field_id=resolve_id,
             )
+            # Same rule as the combobox and checkbox passes: an optional
+            # demographic, pay or score question is never volunteered.
+            if resolution.question_type in {t.value for t in VOLUNTEER_ONLY_TYPES}:
+                required = bool(await sel_el.evaluate("el => el.required || el.getAttribute('aria-required') === 'true'"))
+                if not required and not any(mark in sel_lbl for mark in ("*", "✱")):
+                    logger.info("Skipping optional voluntary dropdown %r (not required)", sel_lbl[:60])
+                    continue
             if resolution.answer and not resolution.blocking_errors:
                 target_lower = resolution.answer.strip().lower()
                 # Exact match first: substring containment alone is unsafe for
@@ -1494,8 +1622,9 @@ _CHECKBOX_GROUP_QUESTION_JS = """el => {
 async def _select_radio_option(page_or_frame: Any, field_id: str, value: str) -> bool:
     """Choose a radio option by its exact/partial visible label without guessing."""
     try:
-        # Phenom ids hold dots ("previousworker.Yes"), which "#id" reads as a class.
-        source = page_or_frame.locator(f'[id="{field_id}"]').first
+        # Phenom ids hold dots ("previousworker.Yes"), which "#id" reads as a
+        # class; Lever radios have no id at all, only the group name.
+        source = await _locate_field(page_or_frame, field_id)
         if await source.count() == 0:
             return False
         name = await source.get_attribute("name")
@@ -3593,23 +3722,12 @@ async def _execute_live_playwright_submission_impl(
             browser = await p.chromium.launch(headless=headless, args=launch_args)
             context = await browser.new_context(**context_opts)
 
-    # Intercept and abort any external protocol requests (mailto:, tel:, etc.) so Windows
-    # never intercepts them and never displays an OS "Pick an app" dialog.
-    async def _abort_external_schemes(route: Any) -> None:
-        req_url = route.request.url.lower()
-        if req_url.startswith(("mailto:", "tel:", "callto:", "sip:", "ms-", "slack:", "zoommtg:", "teams:", "skype:")):
-            try:
-                await route.abort()
-            except Exception:
-                pass
-        else:
-            try:
-                await route.continue_()
-            except Exception:
-                pass
+    # Abort external protocol requests (so Windows never shows an OS "Pick an
+    # app" dialog) and requests to internal addresses; see guard_browser_request.
+    from app.services.application_assistant.url_validation import guard_browser_request
 
     try:
-        await context.route("**/*", _abort_external_schemes)
+        await context.route("**/*", guard_browser_request)
     except Exception:
         pass
 
@@ -3652,19 +3770,6 @@ async def _execute_live_playwright_submission_impl(
 
         # Some ATS pages (e.g. Greenhouse) keep the original job URL but render an inline
         # banner saying the posting closed, instead of redirecting - catch that by text too.
-        EXPIRED_TEXT_PATTERNS = (
-            "is no longer open",
-            "no longer accepting applications",
-            "no longer active",
-            "position has been filled",
-            "posting has expired",
-            "this job is closed",
-            "page not found",
-            # Taleo (UnitedHealth/Optum): "The job is no longer available."
-            "job is no longer available",
-            "position is no longer available",
-            "posting is no longer available",
-        )
         page_text_lower = ""
         if not url_says_expired:
             try:
@@ -3893,12 +3998,6 @@ async def _execute_live_playwright_submission_impl(
         # click selectors further down could match. A real application form
         # reliably has at least one identity field (name/email/candidate);
         # a lone upload widget does not.
-        APPLICATION_FORM_SELECTOR = (
-            '#first_name, #email, input[id*="first_name" i], '
-            'input[name*="first_name" i], input[name*="last_name" i], '
-            'input[name$=".firstName"], input[name$=".lastName"], '
-            'input[autocomplete="given-name"], input[id*="candidate" i]'
-        )
         try:
             # Checked live against Microsoft's page: a bare file-input +
             # single-text-input fallback was tried here and immediately
@@ -4082,15 +4181,28 @@ async def _execute_live_playwright_submission_impl(
             # DataDome captcha and an otherwise empty document. Those are
             # very different outcomes for the user: one is a dead end, the
             # other is a posting they can finish by hand.
+            #
+            # Only a challenge on screen counts. Ashby and Lever embed
+            # invisible reCAPTCHA / hCaptcha frames on every page, so the
+            # presence of one said nothing; _VISIBLE_BOT_CHALLENGE_JS is the
+            # same test the post-submit path already uses for that reason.
             try:
-                wall = await page.evaluate(
-                    "() => { const s = [...document.querySelectorAll('iframe')].map(f => f.src || '').join(' '); "
-                    "if (/captcha-delivery|datadome/i.test(s)) return 'DataDome'; "
-                    "if (/recaptcha/i.test(s)) return 'reCAPTCHA'; "
-                    "if (/turnstile/i.test(s)) return 'Cloudflare Turnstile'; "
-                    "if (/hcaptcha/i.test(s)) return 'hCaptcha'; "
-                    "return ''; }"
-                )
+                body_now = (await page.locator("body").inner_text(timeout=3000)).lower()
+            except Exception:
+                body_now = ""
+            if any(p in body_now for p in EXPIRED_TEXT_PATTERNS):
+                # SPA boards render their "not found" page after the early
+                # expiry check has already read an empty shell.
+                logger.info("Posting at %s now reads as removed", page.url)
+                return {
+                    "submitted": False,
+                    "expired": True,
+                    "error": "Job posting has expired or was removed by the employer",
+                    "evidence": {"finalUrl": page.url},
+                    "fieldsFilled": {},
+                }
+            try:
+                wall = await page.evaluate(_VISIBLE_BOT_CHALLENGE_JS)
             except Exception:
                 wall = ""
             if wall:
@@ -4224,7 +4336,7 @@ async def _execute_live_playwright_submission_impl(
             if log_callback:
                 log_callback(f"Auto-healing {len(missing_fields)} field(s) (Round {round_num})...", lvl="warning")
 
-            dom_fields_by_id = {f.get("id"): f for f in dom_fields if f.get("id")}
+            dom_fields_by_id = {(f.get("id") or f.get("name")): f for f in dom_fields if f.get("id") or f.get("name")}
 
             heal_started = time.monotonic()
             for heal_index, item in enumerate(missing_fields):
@@ -4349,7 +4461,7 @@ async def _execute_live_playwright_submission_impl(
                     except Exception:
                         logger.exception("Could not generate an answer for %r", f_label[:60])
                 if f_id:
-                    elem = target_frame.locator(f'[id="{f_id}"]').first
+                    elem = await _locate_field(target_frame, f_id)
                     if await elem.count() > 0:
                         try:
                             is_cb = False
@@ -4857,6 +4969,30 @@ async def _execute_live_playwright_submission_impl(
                     return candidate
             return None
 
+        # A sign-in page that rendered after the account check above passes
+        # every gate (its email box is "filled"), and its Sign In button can
+        # pass for a submit button. Observed on SuccessFactors (Purpose
+        # Financial): typed the email, "verified", then hunted for a submit.
+        if await _has_visible_password_field(target_frame) or (
+            page is not target_frame and await _has_visible_password_field(page)
+        ):
+            reason = (
+                "This employer's apply flow requires a candidate account (the form asks for a "
+                "password), which Autopilot does not create - apply by hand."
+            )
+            logger.warning("Sign-in form at %s found before submit - staging for review", page.url)
+            if log_callback:
+                log_callback(reason, lvl="warning")
+            return {
+                "submitted": False,
+                "stagedForReview": True,
+                "status": "NEEDS_REVIEW",
+                "error": reason,
+                "reviewReason": reason,
+                "evidence": {"finalUrl": page.url},
+                "fieldsFilled": filled_fields,
+            }
+
         submit_button = None
         if _is_phenom_apply_url(page.url):
             # The first page's Next is a type=submit button too; clicking
@@ -4952,6 +5088,27 @@ async def _execute_live_playwright_submission_impl(
             log_callback(f"Clicking final Submit button on {company}...")
         await submit_button.scroll_into_view_if_needed()
 
+        # Development and test runs never click submit on a real employer's
+        # form. Checked before the marker: nothing has been sent, so the job
+        # stays freely retryable.
+        from app.services.application_assistant.submission_guard import live_submission_refusal
+
+        live_refusal = live_submission_refusal(page.url)
+        if live_refusal:
+            logger.warning("%s", live_refusal)
+            if log_callback:
+                log_callback(live_refusal, lvl="warning")
+            return {
+                "submitted": False,
+                "error": live_refusal,
+                "preSubmitValidationErrors": ["live-submission-disabled"],
+                "evidence": {
+                    "preScreenshotPath": str(pre_screenshot_path.resolve()),
+                    "preSubmitValidationErrors": ["live-submission-disabled"],
+                },
+                "fieldsFilled": filled_fields,
+            }
+
         # Record the intent to submit *before* clicking, and durably.
         #
         # Everything after this line may be lost — the confirmation page may
@@ -4985,6 +5142,12 @@ async def _execute_live_playwright_submission_impl(
                     "fieldsFilled": filled_fields,
                 }
 
+        # Where the form was when it was sent: a post-click validation error is
+        # only proof of rejection if the form is still right here.
+        try:
+            pre_click_url = target_frame.url if target_frame is not None else page.url
+        except Exception:
+            pre_click_url = ""
         await submit_button.click()
         await asyncio.sleep(4.0)
 
@@ -5043,7 +5206,12 @@ async def _execute_live_playwright_submission_impl(
 
         while (asyncio.get_event_loop().time() - start_wait) < max_wait_sec:
             cur_url = page.url.lower()
-            if any(x in cur_url for x in ["/confirmation", "/thank_you", "/thank-you", "/applied", "/success", "submitted=true", "thanks"]):
+            # Only an ATS's own confirmation address ends the wait on the URL
+            # alone; on any other success-looking URL keep waiting for the
+            # page to say so, since the verdict below needs that text.
+            if ("greenhouse.io" in cur_url and "/confirmation" in cur_url) or (
+                "thankyou" in cur_url.replace("-", "").replace("_", "") and "status=success" in cur_url
+            ):
                 logger.info("Submission confirmed via URL redirect: %s", page.url)
                 submission_resolved = True
                 break
@@ -5071,7 +5239,7 @@ async def _execute_live_playwright_submission_impl(
 
             # Check confirmation elements
             try:
-                conf_el = page.locator('[data-qa="application-success"], [data-qa="confirmation"], #application_confirmation, .application-confirmation, [class*="ApplicationConfirmation"], [class*="confirmation"]')
+                conf_el = page.locator('[data-qa="application-success"], [data-qa="confirmation"], #application_confirmation, .application-confirmation, [class*="ApplicationConfirmation"]')
                 if await conf_el.count() > 0 and await conf_el.first.is_visible():
                     logger.info("Submission confirmed via confirmation element.")
                     submission_resolved = True
@@ -5168,7 +5336,31 @@ async def _execute_live_playwright_submission_impl(
                     f"{bot_wall} bot protection on this board blocked the submission - "
                     "this posting has to be completed by hand"
                 )
-            is_staged = bool(active_errors) or "missing entry for required field" in err_msg.lower() or "active validation errors" in err_msg.lower()
+            # The click has happened, so a retry is only safe when the page
+            # proves the employer sent the form back. Otherwise this is not
+            # staged: it returns unconfirmed and the runner parks it as
+            # SUBMISSION_UNKNOWN, which nothing retries automatically.
+            from app.services.application_assistant.submission_outcome import (
+                post_click_rejection_is_conclusive,
+            )
+
+            try:
+                post_click_url = target_frame.url if target_frame is not None else confirmation_url
+            except Exception:
+                post_click_url = confirmation_url
+            rejected_before_acceptance = post_click_rejection_is_conclusive(
+                pre_click_url=pre_click_url,
+                post_click_url=post_click_url,
+                active_errors=active_errors,
+                form_still_visible=form_still_visible,
+                submit_button_visible=submit_btn_still_visible,
+            )
+            is_staged = rejected_before_acceptance
+            if active_errors and not rejected_before_acceptance:
+                err_msg = (
+                    f"{err_msg}. The page changed after the submit click, so it cannot be "
+                    "proven the employer did not receive the application"
+                )
             logger.error("Submission unconfirmed by Qwen verification: %s", err_msg)
             # "This field is required." alone does not say which field. Name
             # them in the log and evidence - deliberately not in err_msg:
@@ -5195,6 +5387,7 @@ async def _execute_live_playwright_submission_impl(
                     "errorsFound": active_errors,
                     "errorFields": error_fields,
                     "qwenReview": qwen_confirmation,
+                    "rejectedBeforeAcceptance": rejected_before_acceptance,
                 },
                 "fieldsFilled": filled_fields,
             }
