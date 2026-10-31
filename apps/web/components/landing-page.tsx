@@ -69,7 +69,7 @@ export function LandingPage() {
         </p>
 
         <div className="landing-cta landing-fade-in landing-fade-in--4">
-          <Link href="/dashboard" className={primaryLinkClassName}>
+          <Link href="/applications" className={primaryLinkClassName}>
             Open Application Dashboard
           </Link>
           <Link href="/apply-pilot" className={secondaryLinkClassName}>

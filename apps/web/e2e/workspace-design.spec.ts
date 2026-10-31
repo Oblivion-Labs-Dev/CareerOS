@@ -3,7 +3,7 @@ import { expect, test } from "@playwright/test";
 for (const width of [390, 1440]) {
   test(`workspace illustrations remain readable at ${width}px @local`, async ({ page }, testInfo) => {
     await page.setViewportSize({ width, height: 1000 });
-    for (const route of ["/applications", "/jobs/discover", "/profile", "/settings"]) {
+    for (const route of ["/applications", "/profile", "/settings"]) {
       await page.goto(route);
       await expect(page.locator("main h1")).toBeVisible();
       await expect(page.locator("main [data-kind] svg").first()).toBeVisible();

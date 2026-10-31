@@ -366,6 +366,9 @@ _LIST_OMITTED_FIELDS = (
     "presubmitScreenshot",
     "matchReasons",
     "aiExplanation",
+    # The posting text (5-9 KB a row) is never shown in the list; it was
+    # three quarters of a 20-row page.
+    "description",
 )
 
 
@@ -378,8 +381,41 @@ def _lean_job(job: dict[str, Any]) -> dict[str, Any]:
     return res
 
 
+_INSIGHT_FIELDS = ("id", "status", "company", "title", "location", "matchScore", "ineligibilityReason", "queuedAt")
+
+
+@router.get("/autopilot/jobs/insight-rows")
+def get_autopilot_insight_rows(
+    status: str | None = Query(default=None, description="Comma-separated statuses; empty means every job"),
+) -> dict[str, Any]:
+    """Every job, cut to the few fields the dashboard's Insights and Search
+    Intelligence panels count over.
+
+    Those panels used to page through /autopilot/jobs at limit=1000, pulling
+    every full row (tens of MB for ~12k jobs) to count a handful of fields.
+    Rows come from the shared in-memory job cache, so this is a projection,
+    not a database read. Big fields are reduced to what is counted:
+    pendingQuestions to its length, resumeFileUsed to whether one is set.
+    """
+    from app.services.application_assistant.persistence import cached_autopilot_jobs
+
+    statuses = {s.strip().upper() for s in status.split(",") if s.strip()} if isinstance(status, str) and status else None
+    rows = []
+    for job in cached_autopilot_jobs():
+        if statuses and (job.get("status") or "").upper() not in statuses:
+            continue
+        row = {k: job.get(k) for k in _INSIGHT_FIELDS}
+        pending = job.get("pendingQuestions")
+        row["pendingQuestionCount"] = len(pending) if isinstance(pending, list) else 0
+        row["hasResumeFile"] = bool(job.get("resumeFileUsed"))
+        rows.append(row)
+    return {"success": True, "jobs": rows, "total": len(rows)}
+
+
 @router.get("/autopilot/stats")
-def get_autopilot_stats() -> dict[str, Any]:
+def get_autopilot_stats(
+    facets: bool = Query(default=True, description="Include the per-status company/title filter facets (~1 MB). The overview and sidebar only need counts."),
+) -> dict[str, Any]:
     """Precomputed aggregated counts by status and company, served instantly from cache."""
     from app.services.application_assistant.persistence import (
         AUTOPILOT_STATS_CACHE_KEY,
@@ -398,12 +434,37 @@ def get_autopilot_stats() -> dict[str, Any]:
     # keys; the raw ones serve /autopilot/jobs from the cache, so they are left
     # out here, which halves the ~1.5 MB response.
     by_status = ("companyCountsByStatus", "titleCountsByStatus")
+    if not facets:
+        return {"success": True, **{k: v for k, v in stats.items() if k not in by_status}}
     trimmed = {
         key: {k: v for k, v in stats[key].items() if not k.isupper()}
         for key in by_status
         if isinstance(stats.get(key), dict)
     }
     return {"success": True, **stats, **trimmed}
+
+
+_job_labels_cache: dict[str, Any] = {}
+
+
+def _job_labels(all_jobs: list[dict[str, Any]]) -> tuple[dict[int, str], dict[int, str]]:
+    """ATS and reason category of every job, keyed by id(job).
+
+    Classifying all ~12k jobs (regexes over error text) took ~90% of every
+    /autopilot/jobs request. The labels depend only on the rows, and the read
+    cache hands out the same list object until the rows change, so they are
+    computed once per list. The list itself is kept so its id cannot be reused.
+    """
+    cached = _job_labels_cache.get("entry")
+    if cached and cached[0] is all_jobs:
+        return cached[1], cached[2]
+    from app.services.application_assistant.ats_plugin_reference import ats_from_url
+    from app.services.diagnostic_outcomes import reason_category
+
+    ats = {id(job): ats_from_url(job.get("applicationUrl") or job.get("url")) for job in all_jobs}
+    reasons = {id(job): reason_category(job) for job in all_jobs}
+    _job_labels_cache["entry"] = (all_jobs, ats, reasons)
+    return ats, reasons
 
 
 @router.get("/autopilot/jobs")
@@ -418,8 +479,9 @@ def get_autopilot_jobs_list(
     reason: str | None = Query(default=None, description="Reason category from reasonCounts (e.g. POSTING_EXPIRED, Blocked by reCAPTCHA, Other)"),
     sortBy: str = Query(default="", description="Field to sort by: relevance, matchScore, priority, company, recent, submittedAt, or updatedAt. Empty = matchScore, except review/manual-review buckets which default to relevance."),
     sortDir: str = Query(default="desc", description="asc or desc"),
-    limit: int = Query(default=24, ge=1, le=1000),
+    limit: int = Query(default=20, ge=1, le=1000),
     offset: int = Query(default=0, ge=0),
+    facets: bool = Query(default=True, description="Include companyCounts/titleCounts (~500 KB). The list needs them once per filter, not on every scroll page."),
 ) -> dict[str, Any]:
     """List autopilot jobs, filtered and paginated server-side."""
     from app.services.application_assistant.persistence import (
@@ -478,7 +540,8 @@ def get_autopilot_jobs_list(
     # same way company and title counts are, so the filter can show "Workday (37)".
     from app.services.application_assistant.ats_plugin_reference import ATS_CONFIGS, ats_from_url
 
-    job_ats = {id(job): ats_from_url(job.get("applicationUrl") or job.get("url")) for job in jobs}
+    all_ats, all_reason = _job_labels(all_jobs)
+    job_ats = {id(job): all_ats[id(job)] for job in jobs}
     ats_counts: dict[str, int] = {}
     for name in job_ats.values():
         ats_counts[name] = ats_counts.get(name, 0) + 1
@@ -486,9 +549,7 @@ def get_autopilot_jobs_list(
     # Why each job is in its bucket, grouped by the Diagnostic page's classifier,
     # so the Failed/Ineligible/Review/Manual Review tabs can show "Blocked by
     # reCAPTCHA (12)".
-    from app.services.diagnostic_outcomes import reason_category
-
-    job_reason = {id(job): reason_category(job) for job in jobs}
+    job_reason = {id(job): all_reason[id(job)] for job in jobs}
     reason_counts: dict[str, int] = {}
     for name in job_reason.values():
         reason_counts[name] = reason_counts.get(name, 0) + 1
@@ -650,8 +711,8 @@ def get_autopilot_jobs_list(
         "count": len(page),
         "total": total,
         "statusCounts": status_counts,
-        "companyCounts": company_counts,
-        "titleCounts": title_counts,
+        "companyCounts": company_counts if facets else {},
+        "titleCounts": title_counts if facets else {},
         "atsCounts": ats_counts,
         # Display names from the same table the ids come from, so the UI keeps no copy.
         "atsLabels": {
@@ -720,7 +781,9 @@ def get_autopilot_job_resume(
 
 
 @router.get("/autopilot/staged")
-def get_staged_applications() -> dict[str, Any]:
+def get_staged_applications(
+    limit: int | None = Query(default=None, ge=0, description="Return at most this many rows; `count` is always the full total. limit=0 is a count-only call."),
+) -> dict[str, Any]:
     # No Depends(db_session) — see get_autopilot_status above.
     # Shares the cached job list with /autopilot/jobs rather than re-reading the
     # table: the dashboard polls both together, so this was parsing every row a
@@ -728,14 +791,15 @@ def get_staged_applications() -> dict[str, Any]:
     from app.services.application_assistant.persistence import cached_autopilot_jobs
 
     jobs = cached_autopilot_jobs()
-    staged = [_staged_row(j) for j in jobs if j.get("status") in ("STAGED", "NEEDS_REVIEW")]
-    return {"staged": staged, "count": len(staged)}
+    matching = [j for j in jobs if j.get("status") in ("STAGED", "NEEDS_REVIEW")]
+    rows = matching if limit is None else matching[:limit]
+    return {"staged": [_staged_row(j) for j in rows], "count": len(matching)}
 
 
 # The review list renders neither the posting text nor the archived evidence,
 # and those were ~9 of the ~12 MB this endpoint returned for ~700 jobs. Of the
 # evidence, only the policy verdict is shown.
-_STAGED_OMITTED_FIELDS = tuple(f for f in _LIST_OMITTED_FIELDS if f != "aiExplanation") + ("description",)
+_STAGED_OMITTED_FIELDS = tuple(f for f in _LIST_OMITTED_FIELDS if f != "aiExplanation")
 
 
 def _staged_row(job: dict[str, Any]) -> dict[str, Any]:

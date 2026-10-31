@@ -6,6 +6,180 @@ exists so decision-worthy events don't need to interrupt the user overnight.
 
 ---
 
+## 2026-10-30 (night) — loop armed after browser-crash recovery
+
+**State**
+- Servers were down; restarted 09:22 UTC (`restart-dev.ps1 -Background`), API healthy.
+- Before the loop (daytime, same session): 711 jobs had been parked NEEDS_REVIEW as BROWSER_CRASH on 2026-10-28 12:00–17:08 UTC because the pinned `chromium_headless_shell-1228` was pruned by another Playwright install. Reinstalled (`python -m playwright install chromium`), launch verified. Runner now pauses the run with `pauseReason` and returns the job to QUEUED on "Executable doesn't exist" (`autopilot_runner.py`, test `test_missing_browser_pauses_run.py`).
+- Requeued 714 (711 crash + 3 GH/Lever + Ashby jobs wrongly FAILED as expired; boards' public APIs show them live). Backup of prior state in the session scratchpad (`requeue_backup.json`).
+- User answers applied: Cisco employee-ID → No (5 requeued); Chainguard human check → new resolver rule `_HUMAN_OPTION` (3 requeued, test `test_human_check_question.py`); True Anomaly ITAR (5) → INELIGIBLE (REQUIRES_US_CITIZENSHIP).
+- Fixes are uncommitted (user did not ask to commit); live because the restart loaded the working tree.
+- Stale run `aprun_43480804-…` (heartbeat 2026-10-28T17:08Z) — restarted after the 24h pull.
+- 24h pull 09:22–09:25 UTC: 1,159 roles, 254 fresh matches. Runner started 09:25 UTC (target 100, concurrency 1, submittableBoardsOnly false). Sentinel PID 26484 (30-min tick, log `TEMP/careerOS-nightloop.log`).
+
+**Headline** (final, loop ended by the user at 16:16 UTC): ran 09:22–16:16 UTC (~7 h) over runs ending `aprun_7dbf2364`; **55 submitted**, 8 SUBMISSION_UNKNOWN (check by hand), 236 sent to review/manual. Never starved after 11:18. Sentinel PID 26484 killed and runner stopped (STOPPED, no job open) at 16:16. Four wrong-answer defects found and fixed tonight — read the ⚠ section first. All fixes are **uncommitted** (tests + resolver/classifier edits).
+
+**Submissions** (profile check: name, location Auburn WA, sponsorship Yes / authorized Yes — all pass)
+- Quera Computing — Senior Applied AI Engineer
+- Bluefish Labs — Senior Sales AI Engineer
+- Figure AI — Helix AI Engineer, Backend; Data Infrastructure; Training Performance; Perception; Localization and Mapping; Android (11:04 UTC, filed SUBMISSION_UNKNOWN only because I stopped the run during confirmation — the Greenhouse security code was filled, so it very likely went through). 6 today: within the code's caps (15/day, 30/week, 60/month, raised by the owner in `0c30b64` on 10-23). The night-loop skill text still says 5/10/20 — **decision for you**: update the skill to the new caps, or lower the caps back.
+- Flexport — Senior Applied AI Engineer, Autonomous Supply Chains
+- Affirm — Senior Software Engineer, Backend (AI Platform)
+- Step — Senior Machine Learning Engineer
+- Attentive — Senior Machine Learning Engineer (data-consent box ticked)
+- Oura — Staff AI Engineer, Developer Productivity
+- Reddit — Senior ML Engineer, Ads Forecasting & Scenarios (authorized: Yes; current employer Microsoft)
+- After 11:00 UTC fixes: Coinbase Staff MLE Compliance Automation; Skyryse AI Engineer NLP; Reddit Staff MLE Ads Forecasting; Abnormal Security MLE 1; Addepar Sr. SWE AI Platform (**No** to "without sponsorship" — fix proven); SimpliSafe Staff MLE; Klaviyo Senior Lead AI Engineer G&A (see defect above); Zuora Sr Forward Deployed Engineer; 6sense Sr. ML Ops Engineer FDE; Robinhood Senior SWE Observability (office-willingness No — see decision); Coinbase Senior SWE Backend, Coinbase One (AI-usage answer from your approved library; arbitration acknowledged — see decision); Robinhood Senior SWE DevX ("unrestricted right to work?" → No, correct for H-1B); Two Six Technologies Senior SWE (Arlington VA; clearance-eligible No, salary range $121k–$140k — see decision); Alpaca Senior SWE Agent Experiences; Robinhood Senior SWE Capacity & Efficiency (office-willingness No — fixed after); Blink Health Senior SWE (unrestricted right to work → No, correct); HP IQ Senior SWE Cloud Services (open to relocating to SF → Yes); Chime Senior SWE AI Enablement; Alpaca Senior SWE Trading; Coinbase Senior SWE Certificates Management (arbitration acknowledged — see decision); Chime Senior SWE ML Platform (SF hybrid acknowledged Yes — same as the Klaviyo hybrid decision); Penn Interactive Senior SWE Accounts (sports-fan answer from your saved q_067; WOTC survey declined; salary $140,000 — see decision); Chime Senior SWE Data Platform (same answers as Chime ML Platform); Checkr Senior SWE Trust (SF; "office 3 days/week" → Yes and "relocate to a hub" → Yes, from the existing work-arrangement rule "open to any arrangement" — relevant to the office-willingness decision); Chime Senior SWE Cards (same answers as the other Chime applications; Chime is at 4 today); Turing Senior SWE AI Evaluation Infrastructure (Remote US; located in US → Yes, sponsorship → Yes); Chime Senior SWE Data Engineering (hybrid SF **four** days/week acknowledged Yes — part of the office-willingness decision; Chime is at 5 today); Chime Senior SWE Growth (same answers; Chime at 6 today); Monetary Senior SWE (Charlotte NC; how-heard "LinkedIn" from your approved answer library); Samsara Senior SWE II Platform (Remote US; profile answers, salary range accepted, no relocation assistance needed); Chainguard Senior SWE Customer Platform (**"[Company]" essay — see the wrong-answer section**); Addepar Sr. Infrastructure Engineer, Developer Platform (sponsorship → Yes; "no visa assistance for this role — can you work under that?" → No, truthful for H-1B); Asana Forward Deployed Engineer, Command (NYC; export-control "citizen of Cuba/Iran/North Korea/Syria/Crimea?" → No; certification of accuracy → Yes); Chime Senior Mobile Cross Platform Engineer (NY/SF hybrid acknowledged; same answers as the other Chime applications; Chime at 7 today); Scale AI Senior Cloud Infrastructure Engineer (SF/NY "in office 3×/week?" → Yes from the work-arrangement rule — office-willingness decision); Natera Senior Salesforce SWE (**state "HI" — see the wrong-answer section**; "on-site in Austin TX 3 days/week?" → Yes from the work-arrangement rule); Anthropic Staff/Senior Data Center Security Engineer ("Why Anthropic?" from your saved answer; 25% in office → Yes; relocation → Yes; interviewed before → No — see decision; work address given as street only, "13310 306th St"); Dscout Senior Forward Deployed Engineer (Remote US; compensation $140,000 — see salary decision); Natera Software Engineer III, Service AI Transformation (state **WA** — state-code fix proven live; Natera at 2 today); Affirm Staff SWE Backend (Observability) (state Washington; "sponsorship to work in Canada?" → Yes, true for a US H-1B holder); Sony Interactive Entertainment Senior SWE (San Mateo; **relatives field "Washington" — see the wrong-answer section**; "need relocation assistance?" → **Yes** from your saved review answer `review_89b5cb8ccec2`, which conflicts with profile `relocateAssistance: No` used on Samsara tonight — see decision).
+
+**Check by hand**
+- Samsara — Senior SWE, Commercial Navigation (13:48 UTC): SUBMISSION_UNKNOWN, the third samsara.com post tonight with no confirmation detected; check email/portal. Same again for Senior SWE II, Route Planning (14:04 UTC): four Samsara posts tonight with no confirmation. Infor — Senior SWE, AI Enabled Product Development (15:05 UTC): SUBMISSION_UNKNOWN; check email/portal.
+- **Misfiled saved answer:** saved answer `q_025` ("Choose one project or accomplishment … what you personally built …", NetDocuments' essay) holds your sports-fan text ("Yes. I follow table tennis and esports…"). Nothing was submitted with it; NetDocuments Senior SWE – AI Growth is in review because of it. Rewrite or delete `q_025` before requeuing that job. I left your saved answers untouched.
+- Sense — Senior ML Engineer, Active Learning (Workable `A3C808B036`): submit clicked 09:59 UTC, form still active afterwards; check email/portal.
+- Yahoo — Senior SWE, Full-Stack (Backend Focus) (Workable `9736F32CEC`, 12:43 UTC): same as Sense — form and submit button still active after clicking. Two Workable posts with this outcome tonight: likely a validation error the filler doesn't detect (related to the Workable `QA_<id>` bug); check email/portal for both.
+- Samsara — Senior Machine Learning Engineer (~10:21 UTC) and Staff ML Engineer, Edge AI (~10:36 UTC): no confirmation page detected on either; check email/portal. Two in a row on samsara.com suggests a confirmation-detection gap on that board (daytime bug).
+
+**New review items tonight**
+- Cambridge Mobile Telematics (Cambridge MA): commute to the office 3×/week (your call) + "What makes you uniquely qualified?" essay.
+- Twisthink (Grand Rapids MI): 3 days/week in office (your call); its years-of-experience / production-software / AI-tools radios were read with no options (filler gap, daytime).
+- Stacklok Enterprise: "professional experience designing production-grade distributed backend…?" (your fact).
+- Earnin: "Have you previously applied to Earnin?" (no record, yours). Freddie Mac: Phone Device Type dropdown empty (Phenom-style filler gap, daytime).
+- Adobe Forward Deployed Engineer (Lehi UT): how-heard dropdown left empty (filler, daytime). Intuit SWE 2: requires a candidate account — apply by hand.
+- Colab Software (Cincinnati): "Why are you interested in joining Colab?" essay.
+- GiveCampus: "Enterprise SaaS development experience?" (your fact). Recorded Future: "Describe your experience with ransomware" (essay). Riot Games (Mandarin required): list friends/family at Riot (yours).
+- CACI (Washington DC): custom dropdowns read as text (how-heard, Language, current employee) and a clearance dropdown landed on "CIA" instead of the intended "Other" — filler bug on CACI's form (daytime); also needs your Terms and Conditions consent.
+- Legion Intelligence: "must be domiciled in the U.S." for federal contracts (your call).
+- AssemblyAI: "What excites you about AssemblyAI?" essay.
+- Snorkel AI: self-rating of prompt engineering / RAG familiarity.
+- Figma: "Why do you want to join Figma?" essay. Samsara (Finance & Strategy AI Engineer): years building production data pipelines.
+- CFD Research (TS/SCI role): "Are you related to a current employee-owner?"
+- Glidewell: certification + agreement to the Mutual Agreement to Arbitrate Claims, and a signature — legal consent, yours to give.
+- Flexport (Staff Applied AI Engineer): "In the past 12 months, have you written production code as a primary part of your role?" (your fact to confirm). Its other blocker, "residing within the EU?", is fixed below.
+
+**⚠ Wrong answer submitted — read first**
+- **"Washington" in a relatives field — Sony ×2.** Sony's "If yes, please state their name, the department or studio they work for, and their job title" (the follow-up to "related to anyone at SIE?", which was answered No) was read as a US-state question because of the word "state". Affected: **Sony Interactive Entertainment** Senior SWE (16:08 UTC tonight) and Staff SWE – Data (10-17). Fixed 16:11 UTC: "state" followed by their/your/the/why/name… is no longer the state field (test `test_state_as_verb_not_location.py`).
+- **State submitted as "HI" (Hawaii) — 5 applications.** When a state dropdown lists only two-letter codes, your profile's "Washington" matched no option, the full name went to the form filler and it picked "HI" (the letters inside "wasHIngton"). Affected: **Natera** Senior Salesforce SWE (15:37 UTC tonight), and before tonight **SmithRx** Senior Staff Data Engineer (10-08), **Oura** Staff Full Stack (10-09), **Oura Health** Senior MLOps (10-11), **Oura** Staff AI Engineer (10-25). Fixed 15:42 UTC: the state is given as its code when only codes are offered (and vice versa); with no match it goes to review (test `test_state_abbreviation_options.py`). Still open (daytime): the form filler's substring option match that turned "Washington" into "HI".
+- **"[Company]" submitted literally in "why us" essays — 16 applications.** Your profile's saved template `why_company_template` ("Why do you want to work at [Company]?" → "What interests me about [Company] is …", match patterns "why … interested in", "why … want to work at") was filled in verbatim, because saved profile answers are checked before the answer library, where your company-specific versions live. Affected: **Chainguard** Senior SWE (Customer Platform), 15:08 UTC tonight, and **Discord ×15**, 10-22 to 10-26 (before tonight). Fixed 15:14 UTC: a saved answer with an unfilled `[Company]`-style slot is skipped, and any final answer still holding one is blanked and sent to review (test `test_template_placeholder_never_submitted.py`). Checked on real data: Chainguard and Discord now get your approved company-specific text; any other company goes to review. Your call: whether to follow up with Discord/Chainguard, and whether to keep the template in your profile.
+- Addepar — AI Engineer, AI Platform (10:49 UTC): "Are you authorized to work in the United States **without Visa Sponsorship or EAD**?" was answered **Yes** (true answer on H-1B: No). Cause: the question classified as plain WORK_AUTHORIZED and the saved "authorized to work in the US? → Yes" screening answer matched it. Run stopped 10:52 UTC (Skyryse returned to QUEUED unsubmitted), fixed, redeployed.
+- Same defect, earlier submissions (all answered Yes): Ondo Finance (Infrastructure Engineer, 10-06), Cadwell (Cloud SRE, 10-06), Alpaca (Senior SWE Clearing, 10-06, since rejected), Extrahop (SWE III Framework, 10-08), Extrahop (Senior SWE Middleware, 10-11), Alpaca (Full-Stack Platform Engineer, 10-16), Peloton (Senior Backend SWE, 10-26, since rejected), Addepar (10-30). You may want to correct these with the employers.
+
+**⚠ Second wrong-answer defect — Klaviyo (submitted 11:58 UTC, Senior Lead AI Engineer, G&A Systems)**
+- Required essay "Klaviyo is an AI-forward organization. Tell us … how you use AI in your work" was filled with **"Microsoft"**, and "What company are you currently employed at or have worked at most recently?" with **"No"** (confirmed on the presubmit screenshot). Causes: a bare `organi[sz]ation` CURRENT_COMPANY pattern caught any sentence with the word (15 distinct real questions); "are you currently employed at" hit the Yes/No COMPANY_HISTORY rule first.
+- Same defect, earlier submissions: Klaviyo Sr. Lead AI Engineer (10-21), Software Engineer II Mobile (10-21, employer "No"), Senior ML Engineer (10-25), Senior SWE Profiles/Lists (10-25, both); GuidePoint AI Security Engineer (10-14) and Tanium Senior SWE DevOps (10-15) got "Microsoft" on a referral-source question.
+- Also on this Klaviyo submission: hybrid "come into the Boston office 3x/week?" answered Yes and relocate-to-Boston Yes (profile `relocate: Yes`). You left the 5-days-in-office question open earlier — confirm 3-day hybrid in Boston is OK.
+
+**Fixes made**
+- 16:11 UTC: "state" as a verb (see the wrong-answer section). Run stopped at a safe point (Home Depot finished, no job open), API restarted, new run started.
+- 15:42 UTC: state-code mapping (see the wrong-answer section). Run stopped at a safe point (Attain Finance finished, no job open), API restarted, new run started.
+- 15:14 UTC: "[Company]" template guard (see the wrong-answer section). Run stopped at a safe point (Bright Vision finished, no job open), API restarted, run `aprun_3a2b19f8` started.
+- 14:53 UTC (FanDuel): the Massachusetts lie-detector notice ("I reside in Massachusetts and acknowledge …" / "I don't reside in Massachusetts.") is now answered from your profile state (test `test_state_residence_notice.py`); "Are you an employee of Flutter?" (no "currently") now classifies as company history → No (test `test_employee_of_parent_company.py`). API restarted, run `aprun_5c17717a` started. FanDuel itself stays in review: "within 120 miles of NY/Atlanta/Jersey City/Toronto/LA — which location?" is read as a city question and not answered (would be "None" for Seattle; daytime fix). Test status: the 10 failures in `test_company_cap_pacing.py` also fail on committed HEAD (they expect the old 5/10/20 caps), plus the known how-heard failure — none come from tonight's changes.
+- 12:10 UTC: CURRENT_COMPANY only for fields *named* organization/organisation; "What company are you currently employed at…" classifies as CURRENT_COMPANY ahead of COMPANY_HISTORY (test `test_current_company_classification.py`; suites 581 pass, 1 pre-existing failure). Deployed with the 12:10 restart together with the 11:45 legal-right-to-work fix.
+- 11:45 UTC: "legal right to live and work" now classifies as work authorization (Glidewell; test `test_legal_right_to_work_documentation.py`, suites 570 pass). **Not yet deployed**: Glidewell is also blocked by an arbitration-agreement signature, so nothing unblocks tonight; ships with the next restart.
+- 11:39 UTC: fix proven live — Addepar (Sr. SWE, AI Platform) answered **No** to "authorized … without Visa Sponsorship or EAD?".
+- 11:29 UTC: a saved "Company careers page" how-heard answer now tries the careers-page option picker before the fuzzy match, and contractor/internal career sites never count as the careers page. GSK would have been sent "Contingent Workers Career Site" instead of "Website" (that job was blocked by another field, so nothing wrong was submitted). Test `test_how_heard_contingent_site.py`; suites 568 pass, 1 pre-existing failure. Deployed 11:31 UTC (API PID 22016), run `aprun_ca5d178b-…`.
+- 10:58 UTC: "authorized to work … without (visa/employer) sponsorship" now classifies as PERMANENT_WORK_AUTHORIZATION (→ No on H-1B), and a saved answer whose question does not mention permanent/unrestricted/without no longer overrides it (`question_classifier.py`, `profile_answer_resolver.py`, test `test_authorized_without_sponsorship.py`; resolver/classifier suites 566 pass, 1 pre-existing failure). Deployed with the restart at 11:00 UTC (API PID 12160); new run `aprun_b4259aa5-…` started 11:01 UTC.
+- 10:35 UTC: resolver answers "currently residing/living/located in <foreign place>?" with No when the profile country is the US (`_foreign_residence_answer`, test `test_foreign_residence_question.py`; resolver suites 560 pass, 1 pre-existing failure). Uncommitted; deployed with the 11:00 UTC restart.
+
+**Decisions settled with the user**
+1. Keep triaging when submittable boards dry (standing).
+2. Referral-email (20) and cover-letter (10) jobs stay manual.
+
+**Decision: office-willingness answers**
+- "Are you willing to work from the office(s) listed on the job description?" classifies as LOCATION_CONFIRMATION, which answers by where you live today — and the question names no office, so it answered **No** every time: Robinhood Senior SWE Observability (12:33 UTC, Menlo Park) and Robinhood Senior SWE Capacity & Efficiency (13:03 UTC, **Bellevue WA**, near you). Run stopped 13:06 UTC; since 13:10 UTC this question is left unanswered → review (test `test_office_willingness_not_guessed.py`), until you pick a rule. Your saved answers say "relocate: Yes" and "in office 2-3x/week in SF/NY: Yes", but you left "5 days in office" open. Choose: (a) answer willingness questions from `relocate` (→ Yes), (b) Yes only when the posting is hybrid ≤3 days, or (c) keep No.
+
+**Decision: arbitration acknowledgements**
+- Coinbase "Please confirm receipt of the above linked Global Data Privacy Notice and US Arbitration Agreement" is auto-answered "Confirmed" by the PRIVACY_CONSENT rule (Coinbase Senior SWE Backend, Coinbase One, 12:38 UTC, and earlier Coinbase submissions). Glidewell's "agree to be bound by … Mutual Agreement to Arbitrate" stayed blank. Confirm you're fine auto-acknowledging arbitration agreements bundled with privacy notices, or have arbitration split out for manual review.
+
+**Decision: which salary number is right**
+- Profile `salaryExpectations` = **$140,000**, but the answer library holds a user override **160000** for salary questions. Free-text salary fields get 160,000; dropdowns of ranges get the range containing $140,000 (Two Six Technologies Senior SWE, 12:54 UTC: "$121,000-$140,000"). Pick one and I'll make both paths use it.
+
+**Decision: "have you interviewed with us before?" → No**
+- An existing committed classifier rule (`interview(ed)? with|at|by` under COMPANY_HISTORY, commit da24099) answers "Have you ever interviewed at <company> before?" with **No**, though your profile keeps no interview history. Tonight: Anthropic Staff/Senior Data Center Security Engineer (15:48 UTC). The resolver already sends "previously applied?" to review for the same no-record reason. I left the rule unchanged: (a) keep No, (b) send to review, (c) add an interview-history list to your profile.
+
+**Decision: relocation assistance — Yes or No?**
+- Profile `relocateAssistance` = **No** (Samsara tonight answered No), but saved review answer `review_89b5cb8ccec2` ("Will you need relocation assistance to work at this role's specified location?") = **Yes** (Sony tonight answered Yes). Which one is true for you? I'll make the other match.
+
+**Open questions for the user**
+- Not chosen today, still open: driver's license (Tyler Tech ×4), 5-days in office (Atoms ×7, Klaviyo ×2), Phone Device Type without "Mobile" (HPE/CACI/PayPal ×6).
+
+**Daytime bugs** (filler, need a live browser)
+- Paylocity Country/State selects unset (10); Crelate types phone into First Name (3+); Workable `QA_<id>` custom fields unread (Revstar ×10); Phenom personalInformation won't advance (~24; tonight Cisco Boulder hit it too — Phenom reads the Cisco employee-ID radio with no label or options, so your approved "No" can't be placed. 7 more Cisco jobs were queued at 14:36 UTC and will likely land in review the same way); 37 live Ashby jobs marked "no form" (form renders; likely reCAPTCHA next).
+- Node.Digital (3 jobs): opaque field labels `CA_5959`, `MM/DD/YYYY`, "If you answered yes above, please list" — the real question text isn't captured (same class as Workable `QA_<id>`).
+- Netflix (Staff/Principal SWE, AI Platform Model Serving): resume upload left blank and phone rejected ("Only use digits") — filler bug on Netflix's board, high-taste role worth doing by hand.
+- Locus Robotics (Forward Deployed AI Engineer): years-of-experience radio group read as three separate required fields ("0-5 Years", "5- 10 Years", "10+ Years"); also "Where is your legal residence?" resolves UNKNOWN (country vs. city ambiguous — answer is presumably "United States"; your call before adding a rule).
+- Netflix (ML Engineer L4/L5, Studio Media Algorithms): "State" left blank — second Netflix filler failure tonight.
+- Pre-existing test failure: `test_answer_resolution_pipeline.py::test_how_heard_fallback_to_other`.
+
+---
+
+## 2026-10-28 (night) — fresh-pull loop armed
+
+**State**
+- Both dev servers were found down at loop start; restarted clean (script `restart-dev.ps1 -Background`, one listener each: API on :4000, web on :5000). Note: `apps/api/.venv` does not exist on this machine — DB audit scripts ran with system Python 3.11.
+- Fresh 24h ATS pull **pre-loop** 12:11–12:16 UTC: 1,319 roles fetched (324 fresh matches), 13,028 total indexed.
+- Runner started 12:17 UTC: run `aprun_43480804-…` resumed (`resumeCount` 7, target extended to 195 total, `concurrency` 1, `submittableBoardsOnly: false` per the standing keep-triaging decision). Heartbeat fresh; stale/recovering mode auto-resolved on start.
+- Sentinel armed 12:17 UTC (agent background process PID 26208, 30-min cadence, logs to `TEMP/careerOS-nightloop.log`; first tick printed, stderr clean). Sentinel's first 24h pull returned 409 — the runner start had just kicked off its own background queue-preparation scrape; letting it finish (it covers the last 24h too).
+- Queue at loop start: 2,286–2,292 QUEUED; 4 jobs touched today, all still in flight.
+
+**Decisions settled with the user before departure** (answering)
+1. When submittable boards dry: keep triaging (standing).
+
+**Open questions for the user (highest unblocksAlone first)**
+1. "Your friend's email address" — 20 jobs, 14 unblockable alone (Vivint×6, Decircle×5, Eaton×3, Grainger×2, Moody's×2): needs a referral email or leave for manual review.
+2. Cover letter — 10 jobs (Vynyl×2, Tailscale×2, Aechelon, Strike, Tixtrack, Waymark, Defense Unicorns, Teal Media): user must supply text.
+3. "Have you ever been issued a Cisco Employee ID or Cisco Email Address?" — 5 Cisco jobs.
+4. Valid driver's license (Tyler Technologies, rental-car travel) — 4 jobs.
+
+---
+
+## 2026-10-26 (night) — taste-priority night loop armed (issue #99)
+
+**State**
+- Taste-priority ranking deployed before the loop: `taste_priority_score` in `job_filter_ranker.py` encodes `docs/job-preferences.md` (P0 agentic AI platforms / AI dev tools → P2 cloud platform; deprioritize prompt-only, pure frontend, SRE, IT support, research, managers, CUDA/GPU; company-affinity bonus). Wired into `queue_priority_score` (TASTE_UNIT_WEIGHT 5k/unit under the 1M recency band, over role level and location) and into the jobs API as `sortBy=taste`, which Review / Failed lists now default to ("My taste (agents & AI tools first)"). 12 new tests + 95 existing ranker regression tests pass; `tsc --noEmit` clean.
+- Servers restarted 09:07 UTC for the deploy (API PID 14060 on :4000, single listener). Previous run record `aprun_4f0c639d-…` was RUNNING with a **12h-stale heartbeat** (orphan worker) — stopped it at 09:08 UTC before the restart; nothing was in flight.
+- Fresh 24h pull **pre-loop** 09:29–09:31 UTC: 1,159 roles fetched, 12,482 indexed. Loop-start state: 3,047 QUEUED, 83 fresh (<24h).
+- Runner restarted 09:31 UTC (`aprun_43480804-…`, new run on top of the 09:09 start; `targetProcessCount` 101, `concurrency` 1, `submittableBoardsOnly` true). Heartbeat fresh; worker0 filling. Preprocessor cycling (96 enqueued so far).
+- **Sentinel v1 never fired** (bash quote-swallow → PowerShell `while ()` parse error; process died instantly).Œ Fixed 10:02 UTC: armed properly (PID 21732, 30-min tick, first tick printed, stderr clean).
+- **10:00 UTC**: run drained its submittable boards and self-paused ("No submittable-board jobs left") — 27 processed / 4 submitted / 3 skipped so far. Fresh-pull check found only **1** fresh submittable job left (Serhant Principal Data Engineer); 72 other fresh jobs are on non-submittable boards.
+- **10:03 UTC**: batch of 100 restarted as requested → runner resumed with `submittableBoardsOnly: false` per the user's standing "keep triaging" decision (target extended to 127 total; worker0 filling again, heartbeat fresh).
+
+**First-tick audit**
+- 6 jobs touched since loop start. Four fresh intake jobs (Brain Co. AI Platform Engineer \\#DevProd — taste 100, Momentic AI Engineer, Perplexity Member of Technical Staff, Quilter Senior ML Engineer) all correctly landed `MANUAL_REVIEW` — **reCAPTCHA bot walls on their boards** (correct classification, left in review; they are the first things on the new "My taste" Manual-Review/Failed sort for the owner to do by hand).
+- Weave Bio FDE `NEEDS_REVIEW`: DOM-verification mismatch + subjective experience question ("experience supporting B2B SaaS to biopharma/life sciences") — subjective, stays for the user; not guessable.
+- 1 job applying live (Praxis, greenhouse board) — profile-answers spot-check + screenshots due on a later tick.
+- Company-cap holds healthy (Amazon×194, Google×139, Microsoft×112, JPMorgan×88 — 5/day/10/week caps preserved).
+
+**Decisions settled with the user before departure**
+1. When submittable boards dry: **keep triaging** Workday/aggregator postings into the manual backlog (same as 2026-10-24); fresh submittable roles picked up automatically on each tick's 24h pull.
+
+**Open questions for the user (tasted list first, see the new sorts)**
+- Bot-walled tasties to complete by hand: Brain Co., Momentic, Perplexity, Quilter (now at the top of Manual Review under "My taste").
+- Weave Bio: experience-with-biopharma/B2B-SaaS answer (requeued automatically when answered via /readiness).
+
+**Note**: changes from issue #99 are uncommitted; deploy is live because restart-dev.ps1 rebooted the API after the code landed.
+
+---
+
+## 2026-10-24 (night) — fresh-jobs-first night loop armed
+
+**State**
+- Fresh 24h ATS pull completed 09:32 UTC: 1,217 roles fetched (457 fresh matches), snapshot merged, new postings enqueue via preprocessor through the night.
+- Servers restarted clean before the pull (API PID 10764 on :4000, web PID 14112 on :5000; one listener each, no zombies).
+- Runner resumed `aprun_4f0c639d-…` 09:32 UTC (`targetProcessCount` 144, `concurrency` 1, `submittableBoardsOnly` true), carrying yesterday's 44 processed / 17 submitted; 2 recovered jobs. Worker heartbeat confirmed fresh; jobs it stages land on top of yesterday's state.
+- Sentinel loop armed (background PID 21564, tick every 30 min).
+- Queue at loop start: 3,353 QUEUED, 42 fresh (<24h), ~19K queued total across statuses.
+
+**Decisions settled with the user before departure**
+1. When submittable boards dry: **keep triaging** Workday/aggregator postings into the manual backlog; picks up fresh submittable roles automatically on each hourly pull.
+2. Cover letter (7 jobs, 6 unblockable: Tailscale×2, Strike, Tixtrack, Waymark, Defense Unicorns): left in NEEDS_REVIEW → **morning handoff**, user will supply text.
+3. "Which of the following best describes you?" → answered "I am a human being" (4 Grafana/Chainguard jobs requeued; 2 still blocked on other questions).
+4. Travel Availability (Tyler Technologies) → answered "10 - 25%" (1 requeued; 3 blocked on other questions).
+
+**Daytime bugs (so far)**
+- Chainguard — Senior Software Engineer (Customer Platform): DOM verification mismatch, required field 'Which Of The Following Best Describes You?' left empty in live DOM despite the saved answer (fill bug, not resolver) — daytime list, Ashby.
+- Scale Ai — Software Engineer, Platform: staged on 'How Many Years Of Experience Building Foundational Platform Services Do You Have?' empty in DOM (resolver to test if saved answer covers it).
+
+---
+
 ## 2026-10-21 (early AM) - resume-match finished, role priority set, loop rerun
 
 **Resume match (done, end to end)**
@@ -5266,6 +5440,38 @@ queue preparation enqueued 184 (queue 1934 → 2150, 55 under 24 h at the head).
 7. **Decisions for the user**: settled before leaving — stop when starved (restart when a fresh pull brings
    submittable jobs). Owner answers saved for all employers: current role level → Senior Engineer; React/React
    Native → shipped production features with both; AI interview recording (BrightHire) → Yes.
+
+## 2026-10-25 (night) — loop running; AI-role priority verified (in progress)
+
+Started ~12:00 UTC 2026-10-25 on the owner's request. Sentinel loop PID 19972; run
+`aprun_4f0c639d…` (continuous, targetProcessCount 100, concurrency 1).
+
+1. **Servers were down** (no listeners on :4000/:5000 — overnight the previous API had stopped with the
+   run entity still marked RUNNING and a heartbeat from 2026-10-24 21:48 UTC). Restarted via
+   `scripts/restart-dev.ps1 -Background -SkipOllamaCheck`; API healthy by 11:56 UTC. Started
+   `/autopilot/start`, which recovered the stale run and any APPLYING jobs to QUEUED.
+2. **Fresh pull 11:59–12:01 UTC**: `hours=24, roles=swe, mode=ats` — 1,105 fetched, 12,167 indexed,
+   279 fresh matches. Queue 3,420 → 3,418 (fresh enqueued as others were claimed); 50 jobs <24h old in
+   the queue; `queueReplenishing: true`, watermarks fine.
+3. **AI-role priority (owner request "prioritize senior AI engineer roles")**: no code change needed.
+   `queue_priority_score` already ranks AI/ML engineering as application tier 1 with a 50,000-point
+   bonus; verified on the live queue — the top 15 are all AI/ML roles (Gainwell Senior AI Engineer,
+   Blue Origin Principal AI Engineer, Uber Sr ML Engineer, …) with 2 fresh (<24h) AI roles among them.
+4. **Tick 0 audit**: 1 job touched since the previous loop end — Speechify, Software Engineer, AI Data
+   (Fort Lauderdale) SUBMITTED 12:03 UTC; answers profile-checked (name/email/phone/resume/LinkedIn all
+   correct, same pattern as its 20 sibling city postings). Company caps intact: Amazon (across 4
+   spellings), Google, Microsoft, JPMorgan, Apple, Oracle, Lockheed, AWS, Northrop on daily holds until
+   2026-10-26 12:03 UTC — never bypass.
+5. **Decisions settled with the owner**: pull new jobs every tick (fresh-jobs-first; done), requeue via
+   run restart (done), Senior AI Engineer roles prioritized (already the ranking's tier-1 behavior).
+6. **Tick 1 (12:35 UTC)**: 20 jobs processed in the tick; run now 72 processed / 13 submitted. Four new
+   submissions, all profile-checked: Orbis Operations — Senior Software Engineer, Full-Stack (sponsorship
+   Yes, city Auburn, Auburn, WA), Fluxx — Senior Infrastructure Engineer (sponsorship Yes), Speechify AI
+   Data ×2 (Norfolk, Fresno; contact form, names correct). 6 NEEDS_REVIEW, all correctly held for the
+   owner — Prenuvo (NDA/identity-verification acknowledgments), May Mobility (relocation plans within
+   12 months), Cohere Health (healthcare payer-side experience FHIR/HL7 yes/no set), Canonical and
+   GiveDirectly (essays), Oshi Health ("what interests you" essay). No fixable deterministic misses and
+   no fill bugs spotted this tick. Ticks continue every ~30 minutes; update this entry in place.
 
 ## 2026-10-12 (day) — owner-started run, 30-minute loop resumed (in progress; 9 submitted)
 

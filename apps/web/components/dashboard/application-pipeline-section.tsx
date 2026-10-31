@@ -198,7 +198,7 @@ export function ApplicationPipelineSection({ snapshot }: ApplicationPipelineSect
               <span className="toc-card-kicker">Pipeline</span>
               <h2>Current flow</h2>
             </div>
-            <Link href="/jobs/discover" className="btn-secondary dashboard-panel-action">
+            <Link href="/applications?tab=queued" className="btn-secondary dashboard-panel-action">
               Review jobs
             </Link>
           </div>

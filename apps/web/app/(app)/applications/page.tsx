@@ -1,13 +1,17 @@
 "use client";
 
 import { Suspense } from "react";
+import Link from "next/link";
 import { useSearchParams } from "next/navigation";
+import { EnhancedDashboard } from "@/components/dashboard/enhanced-dashboard";
 import { AutopilotControlCenter } from "@/components/application-assistant/autopilot/autopilot-control-center";
 import { ApplicationAssistantDashboard } from "@/components/application-assistant/application-assistant-dashboard";
 import { LatencyDiagnosticsCenter } from "@/components/application-assistant/latency-diagnostics-center";
 import { RecruiterInbox } from "@/components/tracker/recruiter-inbox";
 import { PipelineKanban } from "@/components/tracker/pipeline-kanban";
 import styles from "@/components/application-assistant/autopilot/control-center.module.css";
+import { CardStyleSwitch } from "@/components/ui/lab-kpi-card";
+import { useCardStyle } from "@/hooks/use-card-style";
 
 function ApplicationQueueLoading() {
   return (
@@ -64,6 +68,7 @@ export default function ApplicationsPage() {
 function ApplicationsPageInner() {
   const searchParams = useSearchParams();
   const tab = searchParams.get("tab") || "autopilot";
+  const [cardStyle, setCardStyle] = useCardStyle();
 
   // Legacy standalone surfaces kept intact at their original routes.
   if (tab === "tracker") {
@@ -103,10 +108,41 @@ function ApplicationsPageInner() {
     );
   }
 
+  // The old standalone Dashboard now lives here as a tab (/dashboard redirects
+  // to ?tab=dashboard), so Autopilot is the one home page.
+  const view = tab === "dashboard" ? "dashboard" : "autopilot";
+
   return (
     <div className="page-content aa-page max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-2 pb-12 font-sans">
+      <div className={styles.viewBar}>
+      <nav className={styles.viewSwitch} role="tablist" aria-label="Autopilot views">
+        <Link
+          href="/applications"
+          role="tab"
+          aria-selected={view === "autopilot"}
+          className={styles.viewTab}
+          data-active={view === "autopilot"}
+        >
+          Autopilot
+        </Link>
+        <Link
+          href="/applications?tab=dashboard"
+          role="tab"
+          aria-selected={view === "dashboard"}
+          className={styles.viewTab}
+          data-active={view === "dashboard"}
+        >
+          Dashboard
+        </Link>
+      </nav>
+      {view === "autopilot" ? <CardStyleSwitch value={cardStyle} onChange={setCardStyle} /> : null}
+      </div>
       <Suspense fallback={<ApplicationQueueLoading />}>
-        <AutopilotControlCenter initialSection={CONTROL_CENTER_TABS[tab] ?? "overview"} />
+        {view === "dashboard" ? (
+          <EnhancedDashboard initialTopJobs={[]} />
+        ) : (
+          <AutopilotControlCenter initialSection={CONTROL_CENTER_TABS[tab] ?? "overview"} />
+        )}
       </Suspense>
     </div>
   );

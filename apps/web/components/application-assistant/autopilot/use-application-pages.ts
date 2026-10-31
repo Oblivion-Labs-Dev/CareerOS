@@ -5,6 +5,9 @@ import { STATUS_QUERIES, applicationCounts, type SortMode, type StatusFilter } f
 
 const statuses = STATUS_QUERIES;
 
+/** Rows fetched per page; the next page loads as the list scrolls into view. */
+export const PAGE_SIZE = 20;
+
 // Global in-memory cache for loaded pages to eliminate tab-switching lag
 interface PageCacheEntry {
   jobs: AutopilotJobRow[];
@@ -39,7 +42,9 @@ async function fetchStatsCached(): Promise<AutopilotStatsData | null> {
     return globalStats;
   }
   if (!statsPromise) {
-    statsPromise = getAutopilotStats()
+    // Only status counts are needed here: the first jobs page of each filter
+    // carries its own company/title facets, so skip the ~1 MB facet maps.
+    statsPromise = getAutopilotStats({ facets: false })
       .then((res) => {
         if (res.success) {
           globalStats = {
@@ -177,8 +182,9 @@ export function useApplicationPages(
           reason: reason || undefined,
           sortBy: sort === "match" ? "matchScore" : sort === "resume" ? "resume" : sort === "recent" ? (filter === "submitted" ? "submittedAt" : "recent") : sort,
           sortDir: sort === "company" ? "asc" : "desc",
-          limit: 24,
+          limit: PAGE_SIZE,
           offset: reset ? 0 : offset.current,
+          facets: reset,
         });
 
         if (version !== generation.current) return;
@@ -197,14 +203,18 @@ export function useApplicationPages(
           const newCounts = applicationCounts(c);
           setCounts(newCounts);
 
-          const serverCompCounts =
-            result.companyCounts && Object.keys(result.companyCounts).length > 0
+          // Scroll pages are fetched without facets; keep the first page's.
+          const prevEntry = reset ? undefined : pageCache.get(currentKey);
+          const serverCompCounts = prevEntry
+            ? prevEntry.companyCounts
+            : result.companyCounts && Object.keys(result.companyCounts).length > 0
               ? result.companyCounts
               : globalStats?.companyCountsByStatus[filter] || {};
           setCompanyCounts(serverCompCounts);
 
-          const serverTitleCounts =
-            result.titleCounts && Object.keys(result.titleCounts).length > 0
+          const serverTitleCounts = prevEntry
+            ? prevEntry.titleCounts ?? {}
+            : result.titleCounts && Object.keys(result.titleCounts).length > 0
               ? result.titleCounts
               : (globalStats?.titleCountsByStatus && globalStats.titleCountsByStatus[filter]) || {};
           setTitleCounts(serverTitleCounts);

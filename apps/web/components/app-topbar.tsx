@@ -10,8 +10,8 @@ import { useBackendStatus } from "@/hooks/use-backend-status";
 import { ThemeMorphButton } from "@/components/ui/theme-morph-button";
 
 const DIRECT_ACTIONS = [
-  { label: "Open dashboard", href: "/dashboard", detail: "Dashboard" },
-  { label: "Browse jobs", href: "/jobs/discover", detail: "Browse Jobs" },
+  { label: "Open Autopilot", href: "/applications", detail: "Autopilot" },
+  { label: "Open dashboard", href: "/applications?tab=dashboard", detail: "Dashboard" },
   { label: "Open AI Assistant", href: "/application-assistant", detail: "AI Assistant" },
   { label: "Edit profile", href: "/profile", detail: "Profile" },
 ];
@@ -128,7 +128,7 @@ export function AppTopbar() {
     <>
       <header className="app-topbar">
         <div className="app-topbar-context">
-          <Link href="/dashboard">CareerOS</Link>
+          <Link href="/applications">CareerOS</Link>
           <span aria-hidden>/</span>
           <strong className="app-topbar-page-title">{pageLabel}</strong>
           <span className={`app-topbar-live-state${backendOnline === false ? " is-offline" : ""}`}>

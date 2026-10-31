@@ -106,7 +106,7 @@ export function AppSidebar() {
       : "Checking backend…";
 
   const brand = (
-    <Link href="/dashboard" className="brand" aria-label="CareerOS Dashboard">
+    <Link href="/applications" className="brand" aria-label="CareerOS Autopilot">
       <span className="brand-mark" aria-hidden><span className="brand-orbit" /></span>
       CareerOS
     </Link>

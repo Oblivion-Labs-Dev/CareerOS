@@ -1,0 +1,240 @@
+Total profile entries: 127
+
+
+  Q: Are you over 18 years of age?
+  A: Yes
+  Variants: []
+  MatchPatterns: ['18\\s+years', 'over\\s+18', 'at\\s+least\\s+18', 'legal\\s+age']
+  ID: legal_age
+
+  Q: Will you now or in the future require visa sponsorship?
+  A: Yes
+  Variants: []
+  MatchPatterns: ['require.*sponsor', 'need.*sponsor', 'visa\\s+sponsor']
+  ID: sponsorship_us
+
+  Q: Why Anthropic?
+  A: What draws me to Anthropic is the combination of meaningful engineering problems and a deeper purpose behind the work. AI is going to fundamentally change how we build software, make decisions, and in
+  Variants: []
+  MatchPatterns: ['why\\ anthropic\\?']
+  ID: review_106a130de6f7
+
+  Q: Do you have professional experience writing production Go (Golang) code?
+  A: No
+  Variants: []
+  MatchPatterns: ['do\\ you\\ have\\ professional\\ experience\\ writing\\ production\\ go\\ \\(golang\\)\\ code\\?']
+  ID: review_bc5dc879b3f2
+
+  Q: Do you have experience developing software for hardware-based products?
+  A: No
+  Variants: []
+  MatchPatterns: ['do\\ you\\ have\\ experience\\ developing\\ software\\ for\\ hardware\\-based\\ products\\?']
+  ID: review_5a3a5cb52614
+
+  Q: Do you have extensive/advanced experience coding in Python?
+  A: Yes
+  Variants: []
+  MatchPatterns: ['do\\ you\\ have\\ extensive/advanced\\ experience\\ coding\\ in\\ python\\?']
+  ID: review_a15bc1cc925f
+
+  Q: Do you have prior experience with Space Command and Control?
+  A: No
+  Variants: []
+  MatchPatterns: ['do\\ you\\ have\\ prior\\ experience\\ with\\ space\\ command\\ and\\ control\\?']
+  ID: review_d177ab9918fb
+
+  Q: 1. I understand that working with Relatives in the Coupang group of companies (collectively, the "Coupang Group") -- where they can influence each otherÃ¢ÂÂs work -- can potentially create conflicts of interest. Therefore, such a situation requires prior approval from the People Operations. In view of the above, I hereby confirm that I DO NOT have any Relatives working in any company within the Coupang Group or serving on the Board of Directors of any company within the Coupang Group;
+  A: True
+  Variants: []
+  MatchPatterns: ['1\\.\\ i\\ understand\\ that\\ working\\ with\\ relatives\\ in\\ the\\ coupang\\ group\\ of\\ companies\\ \\(collectively,\\ the\\ "coupang\\ group"\\)\\ \\-\\-\\ where\\ they\\ can\\ influence\\ each\\ otherÃ¢Â\x80Â\x99s\\ work\\ \\-\\-\\ can\\ potentially\\ create\\ conflicts\\ of\\ interest\\.\\ therefore,\\ such\\ a\\ situation\\ requires\\ prior\\ approval\\ from\\ the\\ people\\ operations\\.\\ in\\ view\\ of\\ the\\ above,\\ i\\ hereby\\ confirm\\ that\\ i\\ do\\ not\\ have\\ any\\ relatives\\ working\\ in\\ any\\ company\\ within\\ the\\ coupang\\ group\\ or\\ serving\\ on\\ the\\ board\\ of\\ directors\\ of\\ any\\ company\\ within\\ the\\ coupang\\ group;']
+  ID: review_81700c00e227
+
+  Q: Which of the following best describes your hands-on production experience with React and React Native?
+  A: I’ve shipped production features using both React (web/extension) and React Native (mobile)
+  Variants: []
+  MatchPatterns: ['which\\ of\\ the\\ following\\ best\\ describes\\ your\\ hands\\-on\\ production\\ experience\\ with\\ react\\ and\\ react\\ native\\?']
+  ID: review_3a2ee6c751d5
+
+  Q: Do you have experience implementing access control models (like OAuth)
+  A: Yes
+  Variants: []
+  MatchPatterns: ['do\\ you\\ have\\ experience\\ implementing\\ access\\ control\\ models\\ \\(like\\ oauth\\)']
+  ID: review_5efa449f27c4
+
+  Q: Do you have hands-on professional Kubernetes experience?
+  A: Yes
+  Variants: []
+  MatchPatterns: ['do\\ you\\ have\\ hands\\-on\\ professional\\ kubernetes\\ experience\\?']
+  ID: review_09b2cc47774f
+
+  Q: Which best describes your hands-on experience building production software with FHIR and HL7?
+  A: No production experience with either
+  Variants: []
+  MatchPatterns: ['which\\ best\\ describes\\ your\\ hands\\-on\\ experience\\ building\\ production\\ software\\ with\\ fhir\\ and\\ hl7\\?']
+  ID: review_1cd869001fd1
+
+  Q: Do you have strong experience with all 4: JavaScript, TypeScript and Node.js and React?
+  A: Yes
+  Variants: []
+  MatchPatterns: ['do\\ you\\ have\\ strong\\ experience\\ with\\ all\\ 4:\\ javascript,\\ typescript\\ and\\ node\\.js\\ and\\ react\\?', 'do\\ you\\ have\\ strong\\ experience\\ with\\ all\\ 3:\\ javascript,\\ typescript\\ and\\ node\\.js\\?']
+  ID: review_031c5e38384e
+
+  Q: Do you have 3+ years of experience in ETL orchestration?
+  A: No
+  Variants: []
+  MatchPatterns: ['do\\ you\\ have\\ 3\\+\\ years\\ of\\ experience\\ in\\ etl\\ orchestration\\?']
+  ID: review_0805a80d1ba5
+
+  Q: Do you have 3+ years of professional experience building data pipelines using SQL and Python on modern cloud data platforms (e.g., Databricks, Snowflake, or similar)?
+  A: No
+  Variants: []
+  MatchPatterns: ['do\\ you\\ have\\ 3\\+\\ years\\ of\\ professional\\ experience\\ building\\ data\\ pipelines\\ using\\ sql\\ and\\ python\\ on\\ modern\\ cloud\\ data\\ platforms\\ \\(e\\.g\\.,\\ databricks,\\ snowflake,\\ or\\ similar\\)\\?']
+  ID: review_249456ef6f8f
+
+  Q: Do you have direct, hands-on experience working directly with external clients or customers in a technical, consultative capacity (e.g., as a consultant, forward deployed engineer, implementation engineer, or technical solutions engineer)?
+  A: Yes
+  Variants: []
+  MatchPatterns: ['do\\ you\\ have\\ direct,\\ hands\\-on\\ experience\\ working\\ directly\\ with\\ external\\ clients\\ or\\ customers\\ in\\ a\\ technical,\\ consultative\\ capacity\\ \\(e\\.g\\.,\\ as\\ a\\ consultant,\\ forward\\ deployed\\ engineer,\\ implementation\\ engineer,\\ or\\ technical\\ solutions\\ engineer\\)\\?']
+  ID: review_bf5534fd4344
+
+  Q: Do you have experience in manufacturing, OEM, Tier I supplier, or automotive industries?
+  A: No
+  Variants: []
+  MatchPatterns: ['do\\ you\\ have\\ experience\\ in\\ manufacturing,\\ oem,\\ tier\\ i\\ supplier,\\ or\\ automotive\\ industries\\?']
+  ID: review_af3f2189aeca
+
+  Q: Do you have experience with Student Information Systems (SIS)?
+  A: No
+  Variants: []
+  MatchPatterns: ['do\\ you\\ have\\ experience\\ with\\ student\\ information\\ systems\\ \\(sis\\)\\?']
+  ID: review_d103167af1e9
+
+  Q: Do you have hands-on experience automating infrastructure, for example with infrastructure-as-code or CI/CD tooling?
+  A: Yes
+  Variants: []
+  MatchPatterns: ['do\\ you\\ have\\ hands\\-on\\ experience\\ automating\\ infrastructure,\\ for\\ example\\ with\\ infrastructure\\-as\\-code\\ or\\ ci/cd\\ tooling\\?']
+  ID: review_1d312f4136da
+
+  Q: Do you have hands-on experience with monitoring and observability tools, including using metrics, logs, and alerting to troubleshoot production systems?
+  A: Yes
+  Variants: []
+  MatchPatterns: ['do\\ you\\ have\\ hands\\-on\\ experience\\ with\\ monitoring\\ and\\ observability\\ tools,\\ including\\ using\\ metrics,\\ logs,\\ and\\ alerting\\ to\\ troubleshoot\\ production\\ systems\\?']
+  ID: review_1aea65fe46f5
+
+  Q: Do you have professional experience implementing authentication, authorization and secrets management best practices?
+  A: Yes
+  Variants: []
+  MatchPatterns: ['do\\ you\\ have\\ professional\\ experience\\ implementing\\ authentication,\\ authorization\\ and\\ secrets\\ management\\ best\\ practices\\?']
+  ID: review_f299a76ffde4
+
+  Q: Do you have professional experience in cloud-native architecture and AWS services (e.g., Lambda, API Gateway, RDS, S3)?
+  A: Yes
+  Variants: []
+  MatchPatterns: ['do\\ you\\ have\\ professional\\ experience\\ in\\ cloud\\-native\\ architecture\\ and\\ aws\\ services\\ \\(e\\.g\\.,\\ lambda,\\ api\\ gateway,\\ rds,\\ s3\\)\\?']
+  ID: review_43cbea86443e
+
+  Q: Do you have professional experience with the required front-end development skills (e.g., React, TypeScript, modern CSS) to build interactive prototypes and experimental UIs?
+  A: Yes
+  Variants: []
+  MatchPatterns: ['do\\ you\\ have\\ professional\\ experience\\ with\\ the\\ required\\ front\\-end\\ development\\ skills\\ \\(e\\.g\\.,\\ react,\\ typescript,\\ modern\\ css\\)\\ to\\ build\\ interactive\\ prototypes\\ and\\ experimental\\ uis\\?']
+  ID: review_fb30af3671db
+
+  Q: Proficient with Typescript
+  A: Yes
+  Variants: []
+  MatchPatterns: ['proficient\\ with\\ typescript', 'proficient\\ with\\ c\\+\\+']
+  ID: review_cd2d92c6dc10
+
+  Q: This is a hands-on-keyboard role. Are you comfortable writing production code in Python, Go, or TypeScript?
+  A: Yes
+  Variants: []
+  MatchPatterns: ['this\\ is\\ a\\ hands\\-on\\-keyboard\\ role\\.\\ are\\ you\\ comfortable\\ writing\\ production\\ code\\ in\\ python,\\ go,\\ or\\ typescript\\?']
+  ID: review_b28df3335d9c
+
+  Q: What is your highest level of Security Clearance within the past 2 years?
+  A: None
+  Variants: []
+  MatchPatterns: ['what\\ is\\ your\\ highest\\ level\\ of\\ security\\ clearance\\ within\\ the\\ past\\ 2\\ years\\?']
+  ID: review_39143c24fa44
+
+  Q: Which Clouds do you have experience with?
+  A: AWS
+  Variants: []
+  MatchPatterns: ['which\\ clouds\\ do\\ you\\ have\\ experience\\ with\\?']
+  ID: review_e7e18f1da72f
+
+  Q: Depending on your previous experience, Domino may choose to consider you for other positions within the company. Do you allow for Domino to use the information submitted in this application for that purpose?
+  A: Yes
+  Variants: []
+  MatchPatterns: ['depending\\ on\\ your\\ previous\\ experience,\\ domino\\ may\\ choose\\ to\\ consider\\ you\\ for\\ other\\ positions\\ within\\ the\\ company\\.\\ do\\ you\\ allow\\ for\\ domino\\ to\\ use\\ the\\ information\\ submitted\\ in\\ this\\ application\\ for\\ that\\ purpose\\?']
+  ID: review_36aff8116528
+
+  Q: Please tell us about your experience in insurance.
+  A: No direct insurance-industry experience.
+  Variants: []
+  MatchPatterns: ['please\\ tell\\ us\\ about\\ your\\ experience\\ in\\ insurance\\.']
+  ID: review_ae2107188773
+
+  Q: Are you subject to any Agreements that may affect your ability to accept a position or perform your employment obligations with Stacklok?
+  A: No
+  Variants: []
+  MatchPatterns: ['are\\ you\\ subject\\ to\\ any\\ agreements\\ that\\ may\\ affect\\ your\\ ability\\ to\\ accept\\ a\\ position\\ or\\ perform\\ your\\ employment\\ obligations\\ with\\ stacklok\\?']
+  ID: review_99eb17d58173
+
+  Q: How would you describe your experience with Twitch? (Select one)
+  A: Viewer
+  Variants: []
+  MatchPatterns: ['how\\ would\\ you\\ describe\\ your\\ experience\\ with\\ twitch\\?\\ \\(select\\ one\\)']
+  ID: review_8095bf013967
+
+  Q: How many years have you been active on the platform?
+  A: 3-5 years
+  Variants: []
+  MatchPatterns: ['how\\ many\\ years\\ have\\ you\\ been\\ active\\ on\\ the\\ platform\\?']
+  ID: review_141ddd4ff5f6
+
+  Q: How many years of professional software engineering experience do you have?
+  A: 8
+  Variants: []
+  MatchPatterns: ['how\\ many\\ years\\ of\\ professional\\ software\\ engineering\\ experience\\ do\\ you\\ have\\?', 'years\\ of\\ professional\\ software\\ engineering\\ experience', 'total\\ years\\ of\\ experience']
+  ID: review_fd19907fc341
+
+  Q: Years of experience with Python, TypeScript, React, AWS, Kubernetes?
+  A: 6
+  Variants: []
+  MatchPatterns: ['years\\ of\\ experience\\ with\\ python,\\ typescript,\\ react,\\ aws,\\ kubernetes\\?', 'years\\ of\\ experience\\ with\\ python\\?', 'years\\ of\\ experience\\ with\\ typescript\\?', 'years\\ of\\ experience\\ with\\ react\\?', 'years\\ of\\ experience\\ with\\ aws\\?', 'years\\ of\\ experience\\ with\\ kubernetes\\?', 'how\\ many\\ years\\ of\\ experience\\ do\\ you\\ have\\ with\\ python/typescript/react/aws/kubernetes\\?']
+  ID: review_40d65afdf2d5
+
+  Q: Why do you want to work at [Company]?
+  A: What interests me about [Company] is the opportunity to build something meaningful and solve problems that aren't necessarily straightforward.
+
+I've always enjoyed taking something complicated, unders
+  Variants: []
+  MatchPatterns: ['why\\ do\\ you\\ want\\ to\\ work\\ at\\ \\[company\\]\\?', 'why\\ are\\ you\\ interested\\ in\\ \\[company\\]\\?', 'what\\ excites\\ you\\ about\\ \\[company\\]\\?', '^\\s*why\\ \\[company\\]\\?\\s*[*:?]*\\s*$']
+  ID: review_440a0a64c9d4
+
+  Q: Do you now or in the future require visa sponsorship to work in the US?
+  A: Yes
+  Variants: ['Do you now or in the future require visa sponsorship to work in the US?', 'Will you now or in the future require sponsorship for a US work visa?', 'Are you legally authorized to work in the United States?']
+  MatchPatterns: ['require.*sponsor', 'need.*sponsor', 'visa\\s+sponsor', 'authorized.*work.*united\\s+states', 'eligible.*work.*us']
+  ID: visa_sponsorship_us
+
+  Q: How many years of professional software engineering experience do you have?
+  A: 8
+  Variants: ['How many years of professional software engineering experience do you have?', 'Years of professional software engineering experience', 'Total years of experience', 'Years of experience as a software engineer']
+  MatchPatterns: ['years.*professional.*software.*engineer', 'total.*years.*experience', 'how\\s+many\\s+years.*experience']
+  ID: years_experience_total
+
+  Q: Years of experience with Python, TypeScript, React, AWS, Kubernetes?
+  A: 6
+  Variants: ['Years of experience with Python?', 'Years of experience with TypeScript?', 'Years of experience with React?', 'Years of experience with AWS?', 'Years of experience with Kubernetes?', 'How many years of experience do you have with Python/TypeScript/React/AWS/Kubernetes?']
+  MatchPatterns: ['years.*experience.*python', 'years.*experience.*typescript', 'years.*experience.*react', 'years.*experience.*aws', 'years.*experience.*kubernetes']
+  ID: years_experience_stack
+
+  Q: Why do you want to work at [Company]?
+  A: What interests me about [Company] is the opportunity to build something meaningful and solve problems that aren't necessarily straightforward.
+
+I've always enjoyed taking something complicated, unders
+  Variants: ['Why do you want to work at [Company]?', 'Why are you interested in [Company]?', 'What excites you about [Company]?', 'Why [Company]?']
+  MatchPatterns: ['why\\s+(?:do\\s+you\\s+)?want\\s+to\\s+work\\s+at', 'why\\s+(?:are\\s+you\\s+)?interested\\s+in', 'what\\s+excites\\s+you\\s+about', '^why\\s+\\w+\\?']
+  ID: why_company_template

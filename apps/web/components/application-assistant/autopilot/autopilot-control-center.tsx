@@ -22,6 +22,19 @@ import { AutopilotApplicationsView } from "./autopilot-applications-view";
 import styles from "./control-center.module.css";
 import { NightBatchCard, type NightBatchConfig } from "./night-batch-card";
 import { LastUpdatePanel } from "./last-update-panel";
+import { LabKpiCard } from "@/components/ui/lab-kpi-card";
+import labStyles from "@/components/ui/lab-kpi-card.module.css";
+import { useCardStyle } from "@/hooks/use-card-style";
+
+const svg = (d: string) => (
+  <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d={d} />
+  </svg>
+);
+const ICON_SENT = svg("M2 8.5 13.5 2.5 9.5 14l-2-4.5L2 8.5Z");
+const ICON_TOTAL = svg("M2.5 13.5h11M4.5 11V7.5M8 11V4.5M11.5 11V6");
+const ICON_RATE = svg("M3 13 13 3M4.5 6a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3ZM11.5 13a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3Z");
+const ICON_REVIEW = svg("M8 1.8 1.8 13.5h12.4L8 1.8ZM8 6.5v3M8 11.6v.1");
 
 // Legacy `?tab=` values this page still accepts (see CONTROL_CENTER_TABS in
 // the route). Overview and Applications are no longer separate sections —
@@ -97,6 +110,7 @@ export function AutopilotControlCenter({
     void getAutopilotJobsPage({
       status: ALL_STATUSES.join(","),
       limit: 100,
+      facets: false,
       sortBy: jobSortBy,
       sortDir: "desc",
     })
@@ -106,7 +120,7 @@ export function AutopilotControlCenter({
       })
       .finally(() => setJobsLoading(false));
 
-    void getAutopilotStats()
+    void getAutopilotStats({ facets: false })
       .then((res) => {
         if (res.success) {
           setStatusCounts(res.statusCounts || {});
@@ -212,6 +226,7 @@ export function AutopilotControlCenter({
   // In Review (NEEDS_REVIEW + STAGED) + Manual Review — the true system-wide
   // total, not a count derived from the capped recent-jobs sample.
   const needsReviewCount = (statusCounts.NEEDS_REVIEW || 0) + (statusCounts.STAGED || 0) + (statusCounts.MANUAL_REVIEW || 0);
+  const [cardStyle] = useCardStyle();
 
   // Pause/stop only. Starting a run goes through the Night Batch card, which is
   // the single place a batch is configured — there is deliberately no second
@@ -342,6 +357,71 @@ export function AutopilotControlCenter({
       <div className={styles.overviewGrid}>
           <div className={styles.mainCol}>
             {/* ── Operational metrics ── */}
+            {cardStyle === "lab" ? (
+              <div className={labStyles.grid}>
+                <LabKpiCard
+                  label="Submitted today"
+                  accent="green"
+                  icon={ICON_SENT}
+                  value={statsLoading ? null : today.submitted}
+                  hint={`${today.submitted24h} in last 24h`}
+                  insight={{
+                    headline: statusCounts.QUEUED != null ? `${statusCounts.QUEUED} queued next` : "Queue size unknown",
+                    detail: `${today.failed} failed and ${today.skipped} skipped today`,
+                  }}
+                />
+                <LabKpiCard
+                  label="Total submitted"
+                  accent="blue"
+                  delay={60}
+                  icon={ICON_TOTAL}
+                  value={cumulative ? cumulative.submitted : null}
+                  hint="All time"
+                  insight={
+                    cumulative
+                      ? { headline: `${cumulative.failed} failed, ${cumulative.staged} sent to review`, detail: "All-time outcomes besides submitted" }
+                      : { headline: "History not loaded yet" }
+                  }
+                />
+                <LabKpiCard
+                  label="Success rate"
+                  accent="purple"
+                  delay={120}
+                  icon={ICON_RATE}
+                  value={successRate == null ? null : `${successRate}%`}
+                  hint="submitted ÷ attempts"
+                  meter={successRate == null ? null : successRate / 100}
+                  insight={
+                    cumulative && successRate != null
+                      ? {
+                          headline: `${cumulative.submitted} of ${cumulative.submitted + cumulative.staged + cumulative.failed} attempts went through`,
+                          detail: "Attempts = submitted + review + failed",
+                        }
+                      : { headline: "No attempts yet" }
+                  }
+                />
+                <LabKpiCard
+                  label="Need your review"
+                  accent="orange"
+                  delay={180}
+                  icon={ICON_REVIEW}
+                  value={statsLoading ? null : needsReviewCount}
+                  hint="Staged, needs review or manual"
+                  insight={
+                    !readiness
+                      ? { headline: "Readiness still loading" }
+                      : readiness.questions.questionCount > 0
+                        ? {
+                            eyebrow: "Fastest unblock",
+                            headline: `${readiness.questions.questionCount} answers unblock ${readiness.questions.blockedJobCount} jobs`,
+                            detail: "Each answer is reused on every matching form",
+                          }
+                        : { headline: "No jobs are waiting on an answer", detail: "Reviews here need a manual look" }
+                  }
+                  action={{ href: "/applications?tab=review", label: "Open review" }}
+                />
+              </div>
+            ) : (
             <div className={styles.metricGrid}>
               <div className={styles.metric} data-tone="success">
                 <div className={styles.metricValue}>{statsLoading ? "—" : today.submitted}</div>
@@ -366,6 +446,7 @@ export function AutopilotControlCenter({
                 <div className={styles.metricLabel}>Need your review</div>
               </div>
             </div>
+            )}
           </div>
 
       </div>

@@ -1936,7 +1936,7 @@ export function ApplicationAssistantDashboard() {
           </button>
         </div>
         <p className="aa-queue-hint muted">
-          Add jobs from <a href="/jobs/discover">Job Scraper</a> — prep starts automatically in the background. When ready, use{" "}
+          New jobs land in the <a href="/applications?tab=queued">Autopilot queue</a> — prep starts automatically in the background. When ready, use{" "}
           <strong>Quick apply</strong> to open the form with your saved answers.{" "}
           <button
             type="button"

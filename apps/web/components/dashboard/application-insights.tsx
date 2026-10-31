@@ -3,21 +3,14 @@
 import { useEffect, useMemo, useState } from "react";
 import { CountUp } from "@/components/count-up";
 import { useRouter } from "next/navigation";
-import { getAutopilotJobsPage } from "@/lib/application-assistant-api";
+import { getAutopilotInsightRows, type AutopilotInsightRow } from "@/lib/application-assistant-api";
 import styles from "./application-insights.module.css";
 
 /** Every status the API can return, fetched in one request and sliced locally. */
 const ALL_STATUSES =
   "QUEUED,APPLYING,SUBMITTED,NEEDS_REVIEW,STAGED,MANUAL_REVIEW,FAILED,SKIPPED,INELIGIBLE";
 
-type Job = {
-  status?: string;
-  company?: string;
-  title?: string;
-  location?: string;
-  matchScore?: number | null;
-  ineligibilityReason?: string;
-};
+type Job = AutopilotInsightRow;
 
 const OUTCOMES = [
   { key: "SUBMITTED", name: "Submitted", color: "var(--success)" },
@@ -57,7 +50,7 @@ const SENIOR_KEYS = ["senior software engineer", "sr. software engineer",
   "sr software engineer", "senior swe"];
 
 /** Same vocabulary the API ranks with, so the chart agrees with the queue order. */
-function levelOf(title?: string): "Senior" | "Above senior" | "Other" {
+function levelOf(title?: string | null): "Senior" | "Above senior" | "Other" {
   const t = (title || "").toLowerCase();
   const above = ABOVE_SENIOR.some((k) => t.includes(k));
   const senior = SENIOR_KEYS.some((k) => t.includes(k));
@@ -79,7 +72,7 @@ const BANDS = [
   { name: "0-39", min: 0, color: "var(--danger)" },
 ];
 
-function bucket(status?: string): string {
+function bucket(status?: string | null): string {
   if (status === "NEEDS_REVIEW" || status === "STAGED") return "REVIEW";
   if (status === "APPLYING") return "QUEUED";
   return status || "QUEUED";
@@ -93,14 +86,9 @@ export function ApplicationInsights() {
   useEffect(() => {
     let cancelled = false;
     void (async () => {
-      const result: Job[] = [];
-      let offset = 0;
-      while (!cancelled) {
-        const page = await getAutopilotJobsPage({status: ALL_STATUSES, limit: 1000, offset});
-        if (!page.success) throw new Error("Insights unavailable");
-        result.push(...page.jobs); offset += page.jobs.length;
-        if (!page.hasMore || !page.jobs.length) break;
-      }
+      const page = await getAutopilotInsightRows(ALL_STATUSES);
+      if (!page.success) throw new Error("Insights unavailable");
+      const result: Job[] = page.jobs;
       if (!cancelled) setJobs(result);
     })().catch(() => !cancelled && setError(true));
     return () => {

@@ -20,11 +20,8 @@ export interface ComingSoonNavItem extends NavItem {
 
 /** Pages active in sidebar, dashboard nav, and command palette. */
 export const VISIBLE_NAV_HREFS = [
-  "/dashboard",
   "/applications",
-  "/jobs/discover",
   "/jobs/markets",
-  "/jobs/hacker-news",
   "/diagnostic",
   "/analytics",
   "/profile",
@@ -35,16 +32,10 @@ export const VISIBLE_NAV_HREFS = [
 /** Full nav catalog — routes stay available; disabled items appear under Coming soon. */
 export const ALL_NAV_GROUPS: NavGroup[] = [
   {
-    label: "Today",
-    items: [{ href: "/dashboard", label: "Dashboard", icon: "today", emoji: "📊", requiresBackend: true, enabled: true }],
-  },
-  {
     label: "Intelligence Layer",
     items: [
       { href: "/applications", label: "AI Autopilot", icon: "applypilot", emoji: "⚡", requiresBackend: true, enabled: true },
-      { href: "/jobs/discover", label: "Browse Jobs", icon: "jobs", emoji: "🔎", requiresBackend: true, enabled: true },
       { href: "/jobs/markets", label: "Markets", icon: "radar", emoji: "📡", requiresBackend: true, enabled: true },
-      { href: "/jobs/hacker-news", label: "HN Hiring", icon: "jobs", emoji: "🟠", requiresBackend: true, enabled: true },
       { href: "/application-assistant", label: "AI Assistant", icon: "applypilot", emoji: "🤖", requiresBackend: true, enabled: true },
       { href: "/benchmarks", label: "LLM Benchmarks", icon: "evidence", emoji: "⚡", requiresBackend: true, enabled: true },
       { href: "/benchmarks/matcher", label: "Matcher Benchmark", icon: "evidence", emoji: "🏁", requiresBackend: true, enabled: true },
@@ -108,13 +99,10 @@ export const NAV_GROUPS: NavGroup[] = [
   {
     label: "Main",
     items: [
-      { href: "/dashboard", label: "Dashboard", icon: "today", requiresBackend: true, enabled: true },
       { href: "/applications", label: "Autopilot", icon: "applypilot", requiresBackend: true, enabled: true },
       { href: "/applications?tab=inbox", label: "Inbox", icon: "applications", requiresBackend: true, enabled: false },
       { href: "/applications?tab=pipeline", label: "Pipeline", icon: "applications", requiresBackend: true, enabled: false },
-      { href: "/jobs/discover", label: "Browse Jobs", icon: "search", requiresBackend: true, enabled: true },
       { href: "/jobs/markets", label: "Markets", icon: "radar", requiresBackend: true, enabled: true },
-      { href: "/jobs/hacker-news", label: "HN Hiring", icon: "search", requiresBackend: true, enabled: true },
       { href: "/diagnostic", label: "Diagnostic", icon: "insights", requiresBackend: true, enabled: true },
       { href: "/applications?tab=tracker", label: "All Applications", icon: "applications", requiresBackend: true, enabled: false },
       { href: "/applications?tab=review", label: "Review Center", icon: "review", requiresBackend: true, enabled: false },

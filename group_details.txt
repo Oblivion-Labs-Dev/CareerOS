@@ -1,0 +1,456 @@
+Total manual review jobs: 3600
+Distinct question groups: 1023
+
+=== VISA GROUPS ===
+
+  Asked by 3 applications at Calendly — finishes 1 on its own
+  Q: Calendly is registered as an employer in many, but not all, states. If you are not located in or able to work from a state where Calendly is registered, you will not be eligible for employment. Please
+  Variants: ['Calendly is registered as an employer in many, but not all, states. If you are not located in or able to work from a state where Calendly is registered, you will not be eligible for employment. Please select the state where you will reside and work.', 'Calendly is registered as an employer in many, but not all, states. If you are not located in or able to work from a state where Calendly is registered, you will not be eligible for employment. Please select the state where you will reside and work.*']
+  Companies: {'Calendly': 3}
+
+  Finishes 1 application at Energyhub
+  Q: Are you currently on a nonimmigrant visa (ex. F-1)? If you are, will you now or in the future require Alarm.com to provide a written submission to your school o
+  Variants: ['Are you currently on a nonimmigrant visa (ex. F-1)? If you are, will you now or in the future require Alarm.com to provide a written submission to your school o']
+  Companies: {'Energyhub': 1}
+
+  Asked by 4 applications at Paypal — each still needs other answers too
+  Q: I understand that a positive declaration does not mean that I would automatically be disqualified from being considered for employment but a false declaration may render me ineligible to be considered
+  Variants: ["I understand that a positive declaration does not mean that I would automatically be disqualified from being considered for employment but a false declaration may render me ineligible to be considered for employment with PayPal and/or its group of companies. I understand that a false declaration may constitute a conflicts of interests which has consequences should I be hired. Please enter today's date on your acknowledgement."]
+  Companies: {'Paypal': 4}
+
+  Asked by 4 applications at Paypal — each still needs other answers too
+  Q: Please confirm your visa type?
+  Variants: ['Please confirm your visa type?']
+  Companies: {'Paypal': 4}
+
+  Asked by 4 applications across 3 companies — each still needs other answers too
+  Q: Will you now or in the future require sponsorship or a visa transfer for employment visa status (ie: H-1B visa)? *
+  Variants: ['Will you now or in the future require sponsorship or a visa transfer for employment visa status (ie: H-1B visa)?', 'Will you now or in the future require visa sponsorship?\u2009*', 'Will you now or in the future require visa sponsorship i.e. H-1B visa?\u2009*']
+  Companies: {'Dropbox': 2, 'Ascend Analytics': 1, 'Young Living Essential Oils': 1}
+
+  Asked by 2 applications across 2 companies — each still needs other answers too
+  Q: Are you legally authorized to work in the United States? *
+  Variants: ['Are you legally authorized to work in the United States?\u2009*', 'Are you legally authorized to work in the U.S.?\u2009*']
+  Companies: {'Ascend Analytics': 1, 'Young Living Essential Oils': 1}
+
+  Asked by 2 applications at Crazy Maple Studio — each still needs other answers too
+  Q: If offered a position with Crazy Maple Studio, would you be legally eligible to begin employment immediately?
+  Variants: ['If offered a position with Crazy Maple Studio, would you be legally eligible to begin employment immediately?']
+  Companies: {'Crazy Maple Studio': 2}
+
+  Asked by 1 application at Truckstop — each still needs other answers too
+  Q: Are you authorized to work in the United States for any employer?*
+  Variants: ['Are you authorized to work in the United States for any employer?*']
+  Companies: {'Truckstop': 1}
+
+  Asked by 1 application at Mtsi — each still needs other answers too
+  Q: Are you currently eligible to work within the United States?
+  Variants: ['Are you currently eligible to work within the United States?']
+  Companies: {'Mtsi': 1}
+
+  Asked by 1 application at Google Fiber — each still needs other answers too
+  Q: I am authorized to work for any employer in the country in which this position is based.
+  Variants: ['I am authorized to work for any employer in the country in which this position is based.']
+  Companies: {'Google Fiber': 1}
+
+  Asked by 1 application at Torc Robotics — each still needs other answers too
+  Q: I reside in a different country and have a valid work visa there.
+  Variants: ['I reside in a different country and have a valid work visa there.']
+  Companies: {'Torc Robotics': 1}
+
+  Asked by 1 application at Alten — each still needs other answers too
+  Q: If yes, please enter visa type
+  Variants: ['If yes, please enter visa type']
+  Companies: {'Alten': 1}
+
+  Asked by 1 application at Truckstop — each still needs other answers too
+  Q: Will you now or in the future require Truckstop to commence ("sponsor") an immigration case in order to employ you (for example, H-1B or other employment-based immigration case)? This is sometimes cal
+  Variants: ['Will you now or in the future require Truckstop to commence ("sponsor") an immigration case in order to employ you (for example, H-1B or other employment-based immigration case)? This is sometimes called sponsorship for an employment based visa status.*']
+  Companies: {'Truckstop': 1}
+
+  Asked by 1 application at Guidepoint Security Llc — each still needs other answers too
+  Q: Will you now or in the future require an employment visa to work in the US?*
+  Variants: ['Will you now or in the future require an employment visa to work in the US?*']
+  Companies: {'Guidepoint Security Llc': 1}
+
+  Asked by 1 application at Lansweeper — each still needs other answers too
+  Q: Will you now or in the future require any form of visa sponsorship (for example, H‑1B, TN, E‑3, O‑1, or student‑visa‑based employment such as F‑1 CPT/OPT)? If so please explain.
+  Variants: ['Will you now or in the future require any form of visa sponsorship (for example, H‑1B, TN, E‑3, O‑1, or student‑visa‑based employment such as F‑1 CPT/OPT)? If so please explain.']
+  Companies: {'Lansweeper': 1}
+
+  Asked by 1 application at Dropbox — each still needs other answers too
+  Q: Will you now or in the future require sponsorship for work authorization? *
+  Variants: ['Will you now or in the future require sponsorship for work authorization? *']
+  Companies: {'Dropbox': 1}
+
+  Asked by 1 application at John Deere — each still needs other answers too
+  Q: Yes, Are you currently in F-1 Visa status? (An F-1 Visa is granted to foreign students attending school in the United States)
+  Variants: ['Yes, Are you currently in F-1 Visa status? (An F-1 Visa is granted to foreign students attending school in the United States)', 'No, Are you currently in F-1 Visa status? (An F-1 Visa is granted to foreign students attending school in the United States)']
+  Companies: {'John Deere': 1}
+
+=== YOE GROUPS ===
+
+  Asked by 6 applications across 3 companies — finishes 2 on its own
+  Q: Please input the total years of experience you have that are relevant for this role.*
+  Variants: ['Please input the total years of experience you have that are relevant for this role.', 'Please input the total years of experience you have that are relevant for this role.*', 'Years of relevant experience:\xa0*']
+
+  Asked by 3 applications at Paypal — each still needs other answers too
+  Q: Do you have professional experience working with the specific language or tech stack for this role (e.g., Python, Java, React)? By clicking yes, you are confirming you have necessary requirements for 
+  Variants: ['Do you have professional experience working with the specific language or tech stack for this role (e.g., Python, Java, React)? By clicking yes, you are confirming you have necessary requirements for this position.']
+
+  Asked by 2 applications across 2 companies — each still needs other answers too
+  Q: Do you have professional coding experience in Golang? *
+  Variants: ['Do you have experience coding in Go?', 'Do you have professional coding experience in Golang? *']
+
+  Asked by 2 applications across 2 companies — each still needs other answers too
+  Q: How many years of professional front end experience (excluding internships), do you have with React and modern JavaScript / Typescript?
+  Variants: ['How many years of professional front end experience (excluding internships), do you have with React and modern JavaScript / Typescript?', 'How many years of professional experience do you have with React?']
+
+  Asked by 1 application at Gelber Group — each still needs other answers too
+  Q: Approximately how many years have you used C++ or Java professionally?*
+  Variants: ['Approximately how many years have you used C# professionally?*', 'Approximately how many years have you used C++ or Java professionally?*']
+
+  Asked by 1 application at Canonical — each still needs other answers too
+  Q: Describe your professional experience in customer-facing technical roles.*
+  Variants: ['Describe your professional experience in customer-facing technical roles.*']
+
+  Asked by 1 application at Canonical — each still needs other answers too
+  Q: Describe your professional software development experience on Windows*
+  Variants: ['Describe your professional software development experience on Windows*']
+
+  Asked by 1 application at Canonical — each still needs other answers too
+  Q: Describe your professional software development experience on macOS*
+  Variants: ['Describe your professional software development experience on macOS*']
+
+  Asked by 1 application at Netdocuments — each still needs other answers too
+  Q: Do you have 8+ years of professional software engineering experience, including recent hands-on experience building production applications with React/TypeScript and backend services using C#/.NET, Ja
+  Variants: ['Do you have 8+ years of professional software engineering experience, including recent hands-on experience building production applications with React/TypeScript and backend services using C#/.NET, Java, or Node.js?*']
+
+  Asked by 1 application at Clear Street — each still needs other answers too
+  Q: Do you have a solid understanding, and professional working experience designing and building flexible APIs which enable a microservice architecture to reliably deliver consistent data?*
+  Variants: ['Do you have a solid understanding, and professional working experience designing and building flexible APIs which enable a microservice architecture to reliably deliver consistent data?*']
+
+  Asked by 1 application at Gusto — each still needs other answers too
+  Q: Do you have at least 7+ years of full-stack software engineering experience, with production-quality work in Python, TypeScript/Node.js, or both?
+  Variants: ['Do you have at least 7+ years of full-stack software engineering experience, with production-quality work in Python, TypeScript/Node.js, or both?']
+
+  Asked by 1 application at Dropbox — each still needs other answers too
+  Q: Do you have at least 9 years of full time relevant working experience?
+  Variants: ['Do you have at least 9 years of full time relevant working experience?']
+
+  Asked by 1 application at Clear Street — each still needs other answers too
+  Q: Do you have at least eight (8) years of professional experience implementing highly scalable services (we implement our code in Golang)?*
+  Variants: ['Do you have at least eight (8) years of professional experience implementing highly scalable services (we implement our code in Golang)?*']
+
+  Asked by 1 application at Tebra — each still needs other answers too
+  Q: Do you have at least five (5) years of post-baccalaureate experience as a Software Engineer or in a related role?
+  Variants: ['Do you have at least five (5) years of post-baccalaureate experience as a Software Engineer or in a related role?']
+
+  Asked by 1 application at Stacklok — each still needs other answers too
+  Q: Do you have professional experience developing software in Go?*
+  Variants: ['Do you have professional experience developing software in Go?*']
+
+  Asked by 1 application at Gallup — each still needs other answers too
+  Q: Do you have professional experience using and integrating AI tools into development workflows and product experiences?*
+  Variants: ['Do you have professional experience using and integrating AI tools into development workflows and product experiences?*']
+
+  Asked by 1 application at Sword Health — each still needs other answers too
+  Q: Do you have professional experience with TypeScript or Go? If so, which one?
+  Variants: ['Do you have professional experience with TypeScript or Go? If so, which one?']
+
+  Asked by 1 application at Gallup — each still needs other answers too
+  Q: Do you have professional experience with modern mobile development practices preferred, particularly Android development using Kotlin, coroutines and Jetpack Compose? *
+  Variants: ['Do you have professional experience with modern mobile development practices preferred, particularly Android development using Kotlin, coroutines and Jetpack Compose? *']
+
+  Asked by 1 application at Gallup — each still needs other answers too
+  Q: Do you have professional hands on experience designing and implementing scalable, secure APIs serving web, mobile and third party integrations?*
+  Variants: ['Do you have professional hands on experience designing and implementing scalable, secure APIs serving web, mobile and third party integrations?*']
+
+  Asked by 1 application at Fieldwire — each still needs other answers too
+  Q: Do you have professional working experience with Document extraction?
+  Variants: ['Do you have professional working experience with Document extraction?']
+
+  Asked by 1 application at Fieldwire — each still needs other answers too
+  Q: Do you have professional working experience with OCR?
+  Variants: ['Do you have professional working experience with OCR?']
+
+  Asked by 1 application at Fieldwire — each still needs other answers too
+  Q: Do you have professional working experience with PyTorch or Burn?
+  Variants: ['Do you have professional working experience with PyTorch or Burn?']
+
+  Asked by 1 application at Omada Health — each still needs other answers too
+  Q: Do you have professional, hands-on experience using both Python and SQL to build production-grade data systems?*
+  Variants: ['Do you have professional, hands-on experience using both Python and SQL to build production-grade data systems?*']
+
+  Asked by 1 application at Scout Motors — each still needs other answers too
+  Q: How many years of hands-on experience do you have in software engineering shipping customer facing applications on iOS using Swift and SwiftUI?
+  Variants: ['How many years of hands-on experience do you have in software engineering shipping customer facing applications on iOS using Swift and SwiftUI?']
+
+  Asked by 1 application at Lantern — each still needs other answers too
+  Q: How many years of professional experience (excluding internships), do you have back end coding with Python or .NET/C#, including designing REST & even-driven API's?
+  Variants: ["How many years of professional experience (excluding internships), do you have back end coding with Python or .NET/C#, including designing REST & even-driven API's?"]
+
+  Asked by 1 application at Ithaka — each still needs other answers too
+  Q: How many years of professional experience do you have as a platform, application, or comparable engineer responsible for delivering or operating production systems at scale?
+  Variants: ['How many years of professional experience do you have as a platform, application, or comparable engineer responsible for delivering or operating production systems at scale?']
+
+  Asked by 1 application at Tech Holding — each still needs other answers too
+  Q: How many years of professional experience do you have building and deploying ML models in production?
+  Variants: ['How many years of professional experience do you have building and deploying ML models in production?']
+
+  Asked by 1 application at Sunday — each still needs other answers too
+  Q: How many years of professional experience do you have building frontend applications with React.js?* Required
+  Variants: ['How many years of professional experience do you have building frontend applications with React.js?* Required']
+
+  Asked by 1 application at Wikimedia Foundation — each still needs other answers too
+  Q: How many years of professional experience do you have building production Android applications?*
+  Variants: ['How many years of professional experience do you have building production Android applications?*']
+
+  Asked by 1 application at Gallup — each still needs other answers too
+  Q: How many years of professional experience do you have building production software with a strong back-end focus?*
+  Variants: ['How many years of professional experience do you have building production software with a strong back-end focus?*']
+
+  Asked by 1 application at Parallel Partners — each still needs other answers too
+  Q: How many years of professional experience do you have in DevOps, platform engineering, data engineering, or MLOps that included hands-on work with ML or data pipelines?*
+  Variants: ['How many years of professional experience do you have in DevOps, platform engineering, data engineering, or MLOps that included hands-on work with ML or data pipelines?*']
+
+  Asked by 1 application at Openteams — each still needs other answers too
+  Q: How many years of professional experience do you have in full-stack, backend, or platform engineering with an emphasis on API-first services?*
+  Variants: ['How many years of professional experience do you have in full-stack, backend, or platform engineering with an emphasis on API-first services?*']
+
+  Asked by 1 application at Valtech — each still needs other answers too
+  Q: How many years of professional experience do you have with Contentful, and what have you used it for (e.g. content modelling, delivery APIs, integrations)?
+  Variants: ['How many years of professional experience do you have with Contentful, and what have you used it for (e.g. content modelling, delivery APIs, integrations)?']
+
+  Asked by 1 application at Valtech — each still needs other answers too
+  Q: How many years of professional experience do you have with Next.js?
+  Variants: ['How many years of professional experience do you have with Next.js?']
+
+  Asked by 1 application at Anthropic — each still needs other answers too
+  Q: How many years of professional software engineering experience do you have (not counting internships or co-ops)?*
+  Variants: ['How many years of professional software engineering experience do you have (not counting internships or co-ops)?*']
+
+  Asked by 1 application at Consensys — each still needs other answers too
+  Q: How many years of professional, hands-on experience do you have building production applications with web and mobile-based technologies (browser extensions, web apps, iOS/Android mobile apps)?*
+  Variants: ['How many years of professional, hands-on experience do you have building production applications with web and mobile-based technologies (browser extensions, web apps, iOS/Android mobile apps)?*']
+
+  Asked by 1 application at Gitlab — each still needs other answers too
+  Q: On a scale of 0–5, how would you rate your professional experience writing backend services in TypeScript/Node.js (not just frontend/React)?
+  Variants: ['On a scale of 0–5, how would you rate your professional experience writing backend services in TypeScript/Node.js (not just frontend/React)?']
+
+  Asked by 1 application at Businessolver — each still needs other answers too
+  Q: Please select the option that best reflects your primary area of software engineering experience:*
+  Variants: ['Please select the option that best reflects your primary area of software engineering experience:*']
+
+  Asked by 1 application at 1-800 Contacts — each still needs other answers too
+  Q: Which best describes your professional experience developing backend applications using C# and .NET?*
+  Variants: ['Which best describes your professional experience developing backend applications using C# and .NET?*']
+
+  Asked by 1 application at 1-800 Contacts — each still needs other answers too
+  Q: Which best describes your professional experience developing backend applications using Python?
+  Variants: ['Which best describes your professional experience developing backend applications using Python?']
+
+  Asked by 1 application at 1-800 Contacts — each still needs other answers too
+  Q: Which best describes your professional experience developing frontend applications using Vue, React, Angular, or similar JavaScript frameworks?
+  Variants: ['Which best describes your professional experience developing frontend applications using Vue, React, Angular, or similar JavaScript frameworks?']
+
+  Asked by 1 application at Ithaka — each still needs other answers too
+  Q: Which best describes your professional experience with infrastructure as code tools such as Terraform, CloudFormation, Pulumi, or equivalent?
+  Variants: ['Which best describes your professional experience with infrastructure as code tools such as Terraform, CloudFormation, Pulumi, or equivalent?']
+
+=== STACK YOE GROUPS ===
+
+  Finishes 1 application at Canonical
+  Q: Briefly describe your experience developing backend services in C/C++/Go/Python.
+
+  Finishes 1 application at Ra Capital Management
+  Q: Can you describe your hands-on experience with AI/ML, big data, data pipelines, and AWS?*
+
+  Finishes 1 application at Pie Insurance
+  Q: Describe a specific AWS CDK construct or CI/CD pipeline you built or significantly improved. What problem did it solve, and what made it production-ready? (2–3 sentences)
+
+  Finishes 1 application at Evolutioniq
+  Q: Do you have at least 3 years of Python coding experience shipping code into production in a team development environment?
+
+  Finishes 1 application at Anthropic
+  Q: How would you describe your fullstack experience?*
+
+  Finishes 1 application at Defense Unicorns
+  Q: Please briefly describe your Kubernetes experience. *
+
+  Finishes 1 application at Doordash
+  Q: You have at least 3 years of experience in web technologies using JavaScript on the frontend and JVM backend experience. Comfortable working and growing in multiple tech stacks.
+
+  Asked by 3 applications across 2 companies — each still needs other answers too
+  Q: Do you have 5+ years cloud experience in AWS or GCP or Azure? If so, which one?*
+
+  Asked by 2 applications at Stack Av — each still needs other answers too
+  Q: Are you a current Stack employee? If yes, please apply via our Internal Job Board.
+
+  Asked by 2 applications across 2 companies — each still needs other answers too
+  Q: Kubernetes
+
+  Asked by 2 applications at Canonical — each still needs other answers too
+  Q: Please outline your practical experience with Python.*
+
+  Asked by 2 applications across 2 companies — each still needs other answers too
+  Q: Python
+
+  Asked by 2 applications across 2 companies — each still needs other answers too
+  Q: TypeScript
+
+  Asked by 2 applications across 2 companies — each still needs other answers too
+  Q: Vue/React
+
+  Asked by 2 applications at Glean Technologies — each still needs other answers too
+  Q: Years of experience with Go/Python/Java/ or C++?*
+
+  Asked by 1 application at Cabin — each still needs other answers too
+  Q: AWS
+
+  Asked by 1 application at Calendly — each still needs other answers too
+  Q: Briefly explain your experience with Kubernetes*
+
+  Asked by 1 application at Omada Health — each still needs other answers too
+  Q: Describe a production Python system, service, data pipeline, or automation you personally built or substantially maintained. In 4–6 sentences, include: what it did, the data or systems it interacted w
+
+  Asked by 1 application at Gitlab — each still needs other answers too
+  Q: Do you bring strong proficiency in scripting or programming for automation and security tooling, such as bash, Python, PowerShell, or Go?
+
+  Asked by 1 application at Dept® — each still needs other answers too
+  Q: Do you have experience at a senior level working with Airflow, GCP, Python or R? *
+
+  Asked by 1 application at Keeper Security, Inc. — each still needs other answers too
+  Q: Do you have experience developing frontend applications using JavaScript or TypeScript and a framework such as React?*
+
+  Asked by 1 application at Onxmaps — each still needs other answers too
+  Q: Do you have experience with Kubernetes, networking, and infrastructure-as-code?
+
+  Asked by 1 application at Imagine Pediatrics — each still needs other answers too
+  Q: Do you have experience with React?*
+
+  Asked by 1 application at Young Living Essential Oils — each still needs other answers too
+  Q: Do you have hands-on AWS experience in a production environment (Lambda, SQS, EventBridge, CDK, or API Gateway)? *
+
+  Asked by 1 application at Beyondtrust — each still needs other answers too
+  Q: Do you have hands-on experience building and operating multi-account AWS environments using Terraform (AWS GovCloud experience is a plus)?*
+
+  Asked by 1 application at Gitlab — each still needs other answers too
+  Q: Do you have strong proficiency in at least one modern scripting language (Python, JavaScript/TypeScript, or similar) and a solid understanding of REST APIs, GraphQL, and integration patterns?
+
+  Asked by 1 application at Stacklok — each still needs other answers too
+  Q: Do you have working knowledge of Kubernetes and container technologies such as Docker, including isolation and networking? *
+
+  Asked by 1 application at Doordash — each still needs other answers too
+  Q: Full Stack
+
+  Asked by 1 application at 6Sense Insights, Inc. — each still needs other answers too
+  Q: Have you personally built or maintained security automation in a cloud environment (AWS preferred) using scripting or programming languages such as Python, PowerShell, or Go? *
+
+  Asked by 1 application at Fleetio — each still needs other answers too
+  Q: How have you influenced a team or another engineer to make a change that improved the long term scalability or stability of an application or tech stack?*
+
+  Asked by 1 application at Omada Health — each still needs other answers too
+  Q: How would you rate your hands-on Python experience?*
+
+  Asked by 1 application at Netdocuments — each still needs other answers too
+  Q: In 3–5 sentences, describe an event-driven or distributed system you personally helped design or build. Please include the technologies used (such as Kafka, AWS services, microservices, etc.), your sp
+
+  Asked by 1 application at Cabin — each still needs other answers too
+  Q: Load Balancing & CDN (Cloudflare, AWS ALB/ELB)
+
+  Asked by 1 application at Cabin — each still needs other answers too
+  Q: Logging (ELK Stack, Loki, CloudWatch)
+
+  Asked by 1 application at Cabin — each still needs other answers too
+  Q: Message Queues (RabbitMQ, Kafka, AWS SQS/SNS)
+
+  Asked by 1 application at Spectro Cloud — each still needs other answers too
+  Q: On a scale of 1 to 5, how would you rate your proficiency with Kubernetes for software development tasks?*
+Required
+
+  Asked by 1 application at Defense Unicorns — each still needs other answers too
+  Q: Our Foundation team builds and maintains the core platform and tooling that other engineers rely on. Tell us about your experience building or maintaining developer platforms, infrastructure, distribu
+
+  Asked by 1 application at Canonical — each still needs other answers too
+  Q: Outline your experience with Kubernetes.*
+
+  Asked by 1 application at Canonical — each still needs other answers too
+  Q: Outline your experience with Linux, Cloud Automation, and/or Cloud-Native Technologies such as Kubernetes*
+
+  Asked by 1 application at Keeper Security, Inc. — each still needs other answers too
+  Q: Please describe your experience building and shipping full-stack production software. Which backend languages, frontend frameworks, databases, and cloud technologies have you used?*
+
+  Asked by 1 application at Netdocuments — each still needs other answers too
+  Q: Please indicate your level of expertise developing on cloud platforms, specifically AWS.
+
+  Asked by 1 application at Openteams — each still needs other answers too
+  Q: Python backend frameworks (e.g., FastAPI, Django)
+
+  Asked by 1 application at Cabin — each still needs other answers too
+  Q: React
+
+  Asked by 1 application at Cabin — each still needs other answers too
+  Q: Secrets Management (Vault, AWS Secrets Manager)
+
+  Asked by 1 application at Netdocuments — each still needs other answers too
+  Q: This role primarily uses C#/.NET, AWS, and Kafka. Are you currently working with these technologies? If so, please briefly describe below. *
+
+  Asked by 1 application at Openteams — each still needs other answers too
+  Q: TypeScript and React ecosystem
+
+  Asked by 1 application at Rxsense — each still needs other answers too
+  Q: Walk us through a production Kubernetes environment you've operated on AWS. What was your role in the compute, networking, and IAM layers, and what's the most significant reliability or scaling issue 
+
+  Asked by 1 application at Fleetio — each still needs other answers too
+  Q: What is a recent performance improvement you made to an application or tech stack? Explain what the problem was and how you improved it.*
+
+  Asked by 1 application at Gitlab — each still needs other answers too
+  Q: What is your time split between using TypeScript on the backend vs. frontend (ex. 80/20)?
+
+  Asked by 1 application at John Deere — each still needs other answers too
+  Q: YES, 8. Do you have: 3 years of experience in server setup and configuration, including manual installation and configuration of Java, PostgreSQL, and application servers. Proficient in deploying and 
+
+  Asked by 1 application at John Deere — each still needs other answers too
+  Q: Yes, 5. Do you have: 3 years of experience in proficient in building responsive and scalable user interfaces using React.js, JSP, and JSF, with a strong focus on usability and modern UI practices?
+
+  Asked by 1 application at Antora Energy — each still needs other answers too
+  Q: You have several years of experience building and operating cloud infrastructure at scale, with strong expertise in AWS, Terraform, containers, and CI/CD
+
+=== WHY COMPANY GROUPS ===
+
+  Asked by 19 applications at Discord — finishes 13 on its own
+  Q: Why do you want to work at Discord?*
+
+  Asked by 3 applications at Tailscale — finishes 1 on its own
+  Q: Why are you interested in joining Tailscale? Thoughtful responses are encouraged.*
+
+  Asked by 2 applications at Chainguard — finishes 1 on its own
+  Q: Why are you interested in this role at Chainguard? (While we love AI please do not use AI/ ChatGPT for any part of your application). *
+
+  Finishes 1 application at Customer.Io
+  Q: Tell us why you're interested in this position.
+
+  Finishes 1 application at Project Canary
+  Q: Why are you interested in Project Canary and Aeris Technologies at this time?
+
+  Finishes 1 application at Discord
+  Q: Why are you interested in this opportunity?
+
+  Asked by 1 application at Onxmaps — each still needs other answers too
+  Q: In 2-3 sentences, please share why you are interested in this role with onX.
+
+  Asked by 1 application at Farmers Mutual Hail Insurance Company — each still needs other answers too
+  Q: Tell us why you are interested in working for our crop insurance company.*
+
+  Asked by 1 application at Defense Unicorns — each still needs other answers too
+  Q: Which area of our platform are you most interested in (Zarf, Registry, Fleet, Edge Infrastructure, Foundation), and why?*
+
+  Asked by 1 application at Dwelly — each still needs other answers too
+  Q: Why are you interested in Dwelly and this Staff Software Engineer role?*
+
+  Asked by 1 application at Gelber Group — each still needs other answers too
+  Q: Why are you interested in this role at Gelber Group?*
+
+  Asked by 1 application at Swift Solar — each still needs other answers too
+  Q: Why do you want to work at Swift?*

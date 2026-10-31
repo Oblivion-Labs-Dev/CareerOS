@@ -68,3 +68,41 @@ def test_stats_returns_tab_keys_only(staged_job) -> None:
         assert not [k for k in stats[key] if k.isupper()]
     # The jobs list still finds its raw-status counts in the shared cache.
     assert listing["companyCounts"].get("LeanCo") == 1
+
+
+def test_staged_count_only_call_skips_rows_but_keeps_total(staged_job) -> None:
+    # The sidebar badge polled the full ~4 MB review list every 30 s just to
+    # read its length; limit=0 answers with the count alone.
+    with TestClient(app) as client:
+        full = client.get("/application-assistant/autopilot/staged").json()
+        counted = client.get("/application-assistant/autopilot/staged", params={"limit": 0}).json()
+        one = client.get("/application-assistant/autopilot/staged", params={"limit": 1}).json()
+    assert counted == {"staged": [], "count": full["count"]}
+    assert full["count"] >= 1
+    assert len(one["staged"]) == 1 and one["count"] == full["count"]
+
+
+def test_stats_without_facets_keeps_counts_and_drops_filter_maps(staged_job) -> None:
+    # The overview only reads statusCounts and submitted totals; the ~1 MB of
+    # company/title facets are for the filter dropdowns.
+    with TestClient(app) as client:
+        full = client.get("/application-assistant/autopilot/stats").json()
+        lean = client.get("/application-assistant/autopilot/stats", params={"facets": "false"}).json()
+    assert "companyCountsByStatus" not in lean and "titleCountsByStatus" not in lean
+    assert lean["statusCounts"] == full["statusCounts"]
+    assert lean["submittedToday"] == full["submittedToday"]
+
+
+def test_jobs_page_drops_posting_text_and_facets_on_request(staged_job) -> None:
+    # A 20-row page was ~600 KB: the posting text on every row plus ~500 KB of
+    # title/company facets resent on every scroll page.
+    params = {"status": "NEEDS_REVIEW", "limit": 20}
+    with TestClient(app) as client:
+        first = client.get("/application-assistant/autopilot/jobs", params=params).json()
+        more = client.get("/application-assistant/autopilot/jobs", params={**params, "facets": "false"}).json()
+    row = next(j for j in first["jobs"] if j["id"] == "lean_staged")
+    assert "description" not in row
+    assert first["companyCounts"].get("LeanCo") == 1 and first["titleCounts"]
+    assert more["companyCounts"] == {} and more["titleCounts"] == {}
+    assert [j["id"] for j in more["jobs"]] == [j["id"] for j in first["jobs"]]
+    assert more["total"] == first["total"] and more["statusCounts"] == first["statusCounts"]

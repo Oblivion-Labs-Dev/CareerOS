@@ -11,11 +11,10 @@ const OUT = process.env.VISUAL_QA_OUT ?? "";
 test.skip(process.env.VISUAL_QA !== "1", "set VISUAL_QA=1 to capture screenshots");
 
 const PAGES: Array<[name: string, path: string]> = [
-  ["dashboard", "/dashboard"],
+  ["dashboard", "/applications?tab=dashboard"],
   ["autopilot", "/applications"],
   ["applications", "/applications?tab=applications"],
   ["tracker", "/applications?tab=tracker"],
-  ["discover", "/jobs/discover"],
   ["profile", "/profile"],
   ["resumes", "/resumes"],
   ["outreach", "/apply/outreach"],

@@ -27,7 +27,7 @@ function LoginForm() {
   useEffect(() => {
     getAuthStatus().then((status) => {
       if (!status.authRequired || status.authenticated) {
-        router.replace(searchParams.get("next") || "/dashboard");
+        router.replace(searchParams.get("next") || "/applications");
       }
     });
   }, [router, searchParams]);
@@ -39,14 +39,14 @@ function LoginForm() {
     try {
       if (mode === "admin") {
         await login(username, password);
-        router.replace(searchParams.get("next") || "/dashboard");
+        router.replace(searchParams.get("next") || "/applications");
       } else if (isSignUp) {
         const { candidateSignUp } = await import("@/lib/auth-api");
         const res = await candidateSignUp(email, password, fullName);
         if (res.needsOnboarding) {
           router.replace("/profile?onboard=1");
         } else {
-          router.replace(searchParams.get("next") || "/dashboard");
+          router.replace(searchParams.get("next") || "/applications");
         }
       } else {
         const { candidateLogin } = await import("@/lib/auth-api");
@@ -54,7 +54,7 @@ function LoginForm() {
         if (res.needsOnboarding) {
           router.replace("/profile?onboard=1");
         } else {
-          router.replace(searchParams.get("next") || "/dashboard");
+          router.replace(searchParams.get("next") || "/applications");
         }
       }
     } catch (err: any) {

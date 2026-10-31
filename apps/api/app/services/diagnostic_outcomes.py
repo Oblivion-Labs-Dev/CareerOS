@@ -23,6 +23,8 @@ disappearing into "other".
 
 from __future__ import annotations
 
+from functools import lru_cache
+
 import re
 from collections import Counter
 from datetime import datetime, timedelta, timezone
@@ -101,8 +103,13 @@ _GENERIC_DETAIL_RE = re.compile(
 _DETAIL_PREFIX_RE = re.compile(r"^(Failed:\s*|Staged for (Review|human review):\s*)", re.I)
 
 
+@lru_cache(maxsize=65536)
 def _known_category(raw: str) -> str | None:
-    """The bucket for a reason text, or None when no pattern recognises it."""
+    """The bucket for a reason text, or None when no pattern recognises it.
+
+    Cached: the jobs list classifies every job on each cache refresh, and the
+    same few thousand texts recur, so the regex scan runs once per text.
+    """
     if not raw:
         return "No reason recorded"
     watchdog = _WATCHDOG_RE.search(raw)

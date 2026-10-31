@@ -51,7 +51,6 @@ function parseRgb(value: string): number[] | null {
  * hardcoding dark-theme text.
  */
 const PAGES: { path: string; name: string }[] = [
-  { path: "/jobs/discover", name: "Browse Jobs" },
   { path: "/applications", name: "Autopilot" },
   { path: "/applications?tab=applications", name: "Applications" },
 ];
