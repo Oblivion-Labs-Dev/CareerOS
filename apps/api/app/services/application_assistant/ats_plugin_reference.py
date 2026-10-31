@@ -10,6 +10,8 @@ Direct Python translation and reference of:
 
 from __future__ import annotations
 
+from functools import lru_cache
+
 import re
 from typing import Any
 
@@ -801,8 +803,11 @@ _ATS_HOST_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
 ]
 
 
+@lru_cache(maxsize=65536)
 def ats_from_url(url: str | None) -> str:
     """The ATS an application URL belongs to (an ``ATS_CONFIGS`` id), or ``"other"``.
+
+    Cached per URL: the jobs list labels every job on each cache refresh.
 
     Uses the same host patterns the autofill pipeline is keyed on, so a posting
     filtered as "Workday" in the UI is one the executor would treat as Workday.

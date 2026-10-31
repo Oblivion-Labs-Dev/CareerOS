@@ -19,7 +19,7 @@ import {
 } from "@/lib/application-assistant-api";
 import type { AutopilotJobRow } from "./job-types";
 import { FILTERS, INELIGIBILITY_LABELS, REASON_FILTER_TABS, SORTS, STATUS_VIEWS, SUBMITTED_DRILLDOWN, getJobReasonMeta, type ReasonMeta, type StatusFilter, type SortMode } from "./job-presentation";
-import { useApplicationPages } from "./use-application-pages";
+import { PAGE_SIZE, useApplicationPages } from "./use-application-pages";
 import { ApplicationDetails } from "./application-details";
 import detailStyles from "./application-details.module.css";
 import { ApplicationCard } from "./application-card";
@@ -243,7 +243,7 @@ export function AutopilotApplicationsView({
   const loading = pages.loading && jobs.length === 0;
   const pagination = <div ref={pages.sentinel} style={{ padding: "20px", textAlign: "center" }}>
     <p role="status">{pages.error || (pages.loading ? "Loading applications…" : `${jobs.length} of ${pages.total} applications`)}</p>
-    {(pages.hasMore || pages.error) && <button className={styles.filterChip} disabled={pages.loading} onClick={pages.loadMore}>{pages.error ? "Retry" : "Load 24 more"}</button>}
+    {(pages.hasMore || pages.error) && <button className={styles.filterChip} disabled={pages.loading} onClick={pages.loadMore}>{pages.error ? "Retry" : `Load ${PAGE_SIZE} more`}</button>}
   </div>;
 
   const approveAnswers = async (job: AutopilotJobRow) => {

@@ -366,6 +366,8 @@ export async function getAutopilotJobs(status?: string, limit = 200) {
 }
 
 export interface AutopilotJobsPageParams {
+  /** false skips companyCounts/titleCounts (~500 KB) — only the first page of a filter needs them. */
+  facets?: boolean;
   search?: string;
   status?: string; // comma-separated, e.g. "QUEUED,NEEDS_REVIEW,STAGED"
   role?: string;
@@ -382,7 +384,9 @@ export interface AutopilotJobsPageParams {
   offset?: number;
 }
 
-export async function getAutopilotStats() {
+/** `facets: false` drops the ~1 MB company/title filter maps — callers that
+ * only show counts (overview tiles, sidebar) should pass it. */
+export async function getAutopilotStats(opts: { facets?: boolean } = {}) {
   return aaFetch<{
     success: boolean;
     statusCounts: Record<string, number>;
@@ -391,7 +395,7 @@ export async function getAutopilotStats() {
     titleCountsByStatus?: Record<string, Record<string, number>>;
     submittedToday: number;
     submitted24h: number;
-  }>("/autopilot/stats");
+  }>(opts.facets === false ? "/autopilot/stats?facets=false" : "/autopilot/stats");
 }
 
 export async function getAutopilotJobsPage(params: AutopilotJobsPageParams) {
@@ -408,6 +412,7 @@ export async function getAutopilotJobsPage(params: AutopilotJobsPageParams) {
   if (params.sortDir) qs.set("sortDir", params.sortDir);
   qs.set("limit", String(params.limit ?? 24));
   qs.set("offset", String(params.offset ?? 0));
+  if (params.facets === false) qs.set("facets", "false");
   return aaFetch<{
     success: boolean;
     jobs: any[];
@@ -423,14 +428,36 @@ export async function getAutopilotJobsPage(params: AutopilotJobsPageParams) {
   }>(`/autopilot/jobs?${qs.toString()}`);
 }
 
+export type AutopilotInsightRow = {
+  id: string;
+  status?: string | null;
+  company?: string | null;
+  title?: string | null;
+  location?: string | null;
+  matchScore?: number | null;
+  ineligibilityReason?: string | null;
+  queuedAt?: string | null;
+  pendingQuestionCount: number;
+  hasResumeFile: boolean;
+};
+
+/** Every job, cut to the fields the dashboard panels count over (one request, not 13 pages of full rows). */
+export async function getAutopilotInsightRows(status?: string) {
+  const qs = status ? `?status=${encodeURIComponent(status)}` : "";
+  return aaFetch<{ success: boolean; jobs: AutopilotInsightRow[]; total: number }>(`/autopilot/jobs/insight-rows${qs}`);
+}
+
 export async function deleteAutopilotJob(jobId: string) {
   return aaFetch<{ success: boolean; deletedId: string; message: string }>(`/autopilot/jobs/${jobId}`, {
     method: "DELETE",
   });
 }
 
-export async function getStagedApplications() {
-  return aaFetch<{ staged: any[]; count: number }>("/autopilot/staged");
+/** `limit` caps the rows returned; `count` is always the full total, so
+ * `limit: 0` is a cheap count-only call. */
+export async function getStagedApplications(opts: { limit?: number } = {}) {
+  const qs = opts.limit === undefined ? "" : `?limit=${opts.limit}`;
+  return aaFetch<{ staged: any[]; count: number }>(`/autopilot/staged${qs}`);
 }
 
 export async function approveStagedAnswer(id: string, question: string, answer: string) {

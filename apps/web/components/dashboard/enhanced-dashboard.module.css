@@ -283,8 +283,9 @@
 }
 
 .tabBtn:hover {
-  color: #fff;
-  background: rgba(255, 255, 255, 0.04);
+  /* Theme token, not white: hard-coded #fff vanished on the light theme. */
+  color: var(--text);
+  background: color-mix(in srgb, var(--text) 5%, transparent);
 }
 
 .tabBtnActive {

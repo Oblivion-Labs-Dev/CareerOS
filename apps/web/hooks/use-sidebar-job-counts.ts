@@ -38,12 +38,13 @@ export function useSidebarJobCounts(pollMs = 30_000) {
     try {
       const [stats, staged] = await Promise.all([
         getDashboardStats(),
-        getStagedApplications().catch(() => ({ staged: [] })),
+        // Count-only: the badge needs the total, not the ~4 MB review list.
+        getStagedApplications({ limit: 0 }).catch(() => ({ staged: [], count: 0 })),
       ]);
       setCounts({
         jobScraper: stats.scraper?.pendingSync ?? 0,
         applicationAssistant: activeApplicationCount(stats.statusCounts),
-        reviewCenter: Array.isArray(staged) ? staged.length : staged?.staged?.length ?? 0,
+        reviewCenter: staged.count ?? 0,
       });
     } catch {
       setCounts(null);

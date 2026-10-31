@@ -96,9 +96,11 @@ export function EnhancedDashboard({ initialTopJobs }: EnhancedDashboardProps) {
 
   const candidateName = snapshot?.profile?.fullName || "";
   const targetRole = prefs.roleFilter || snapshot?.profile?.targetRole || "Senior Software Engineer";
-  const discoverTotal = snapshot?.discoverTotal || (topJobs.length > 0 ? topJobs.length * 15 : 74);
-  const strongMatches = snapshot?.discoverStrongMatches || topJobs.filter(j => j.relevancyScore >= 75).length || 12;
-  const applicationsCount = snapshot?.applicationsCount || 0;
+  // Unknown stays visibly unknown: no invented fallbacks while the snapshot loads.
+  const discoverTotal = snapshot ? snapshot.discoverTotal : null;
+  const discoverTotalLabel = discoverTotal === null ? "—" : discoverTotal.toLocaleString();
+  const workAuthorization = snapshot?.profile?.workAuthorization?.trim() || "Not set";
+  const applicationsCount = snapshot ? snapshot.applicationsCount.toLocaleString() : "—";
   const hasProfile = Boolean(snapshot?.profile?.fullName);
 
   return (
@@ -130,10 +132,6 @@ export function EnhancedDashboard({ initialTopJobs }: EnhancedDashboardProps) {
                   </p>
                   <div className={styles.miniStatsRow}>
                     <div className={styles.miniStat}>
-                      <span className={styles.miniStatValue}>100%</span>
-                      <span className={styles.miniStatLabel}>Success</span>
-                    </div>
-                    <div className={styles.miniStat}>
                       <span className={styles.miniStatValue}>Gated</span>
                       <span className={styles.miniStatLabel}>Guard</span>
                     </div>
@@ -156,7 +154,7 @@ export function EnhancedDashboard({ initialTopJobs }: EnhancedDashboardProps) {
                 <div className={styles.cardHeader}>
                   <h2 className={styles.cardTitle}>Curated Matches</h2>
                   <span className={styles.statusChip}>
-                    {topJobs.length > 0 ? `${topJobs.length} Ready` : `${discoverTotal} Scouted`}
+                    {topJobs.length > 0 ? `${topJobs.length} Ready` : `${discoverTotalLabel} Scouted`}
                   </span>
                 </div>
                 <div className={styles.cardBody}>
@@ -174,20 +172,20 @@ export function EnhancedDashboard({ initialTopJobs }: EnhancedDashboardProps) {
                             </div>
                           </div>
                           <span className={styles.matchScoreBadge}>
-                            {job.relevancyScore || 70}%
+                            {job.relevancyScore ? `${job.relevancyScore}%` : "—"}
                           </span>
                         </div>
                       ))}
                     </div>
                   ) : (
                     <p className={styles.metricSubtext}>
-                      {discoverTotal} engineering roles scouted across DocuSign, Oracle, and Ashby.
+                      {discoverTotalLabel} roles indexed for your search.
                     </p>
                   )}
                 </div>
               </div>
               <Link href={discoverHref(prefs)} className={styles.cardAction}>
-                <span>Explore All ({discoverTotal}) Roles</span>
+                <span>Explore All ({discoverTotalLabel}) Roles</span>
                 <span aria-hidden="true">→</span>
               </Link>
             </div>
@@ -217,12 +215,8 @@ export function EnhancedDashboard({ initialTopJobs }: EnhancedDashboardProps) {
                   </p>
                   <div className={styles.miniStatsRow}>
                     <div className={styles.miniStat}>
-                      <span className={styles.miniStatValue}>US Citizen</span>
+                      <span className={styles.miniStatValue}>{workAuthorization}</span>
                       <span className={styles.miniStatLabel}>Work Auth</span>
-                    </div>
-                    <div className={styles.miniStat}>
-                      <span className={styles.miniStatValue}>Active</span>
-                      <span className={styles.miniStatLabel}>Clearance</span>
                     </div>
                     <div className={styles.miniStat}>
                       <span className={styles.miniStatValue}>Tuned</span>
@@ -298,13 +292,13 @@ export function EnhancedDashboard({ initialTopJobs }: EnhancedDashboardProps) {
                     <article key={job.id} className={minimalStyles.matchCard}>
                       <div className={minimalStyles.matchMeta}>
                         <span>
-                          {job.location || "United States"} · {job.freshness?.label || "Recent"}
+                          {job.location || "Location not listed"} · {job.freshness?.label || "Recent"}
                         </span>
                         <span
                           className={`${minimalStyles.matchRing} ${scoreTone(job.relevancyScore || 0)}`}
                           title="Relevancy weighted by profile and accomplishments"
                         >
-                          {job.relevancyScore || 0}%
+                          {job.relevancyScore ? `${job.relevancyScore}%` : "—"}
                         </span>
                       </div>
                       <h3 className={minimalStyles.matchTitle}>{job.title}</h3>

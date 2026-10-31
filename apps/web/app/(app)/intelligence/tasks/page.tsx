@@ -7,7 +7,7 @@ export default function IntelligenceTasksPage() {
         title="Daily Tasks"
         eyebrow="Intelligence Layer"
         subtitle="CIOS daily and weekly rituals — outreach, memos, applications, and follow-ups that actually get interviews."
-        primaryAction={{ href: "/jobs/discover", label: "Job Scraper" }}
+        primaryAction={{ href: "/applications?tab=queued", label: "Job queue" }}
         secondaryAction={{ href: "/dashboard#applications", label: "Applications" }}
         outcomes={["Track the five daily actions that compound.", "Weekly rituals for content and CIOS review.", "Tick items as you complete them — persisted locally."]}
         focusAreas={[]}

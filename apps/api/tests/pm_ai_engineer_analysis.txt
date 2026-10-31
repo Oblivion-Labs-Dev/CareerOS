@@ -1,0 +1,49 @@
+=== AI-Engineer Skill Analysis (9,369-job snapshot, non-network) ===
+
+**Job counts by target role family (unique US/remote postings with description):**
+- AI-ENG: 228 JDs
+- AI-AUTOMATION: 2 JDs
+- ENG-ALL: 1915 JDs
+- PM-ALL: 0 JDs (incidental; see PM/BA analysis below)
+
+**AI-ENG top skills (by coverage):**
+| Skill | Demand |
+|---|---|
+| LLM/GenAI | 39.0% (89) |
+| System design/architecture | 38.6% (88) |
+| Python | 36.0% (82) |
+| AI agents | 28.9% (66) |
+| Distributed systems | 28.1% (64) |
+| AWS | 24.1% (55) |
+| RAG/retrieval | 23.7% (54) |
+| TypeScript/JavaScript | 21.1% (47) |
+| CI/CD | 20.2% (46) |
+| Docker | 19.3% (44) |
+| Evals/observability | 18.4% (42) |
+| Go/Golang | 17.5% (40) |
+| Kubernetes | 15.4% (35) |
+| Azure | 14.5% (33) |
+| GCP | 14.0% (32) |
+| Claude/Anthropic | 13.6% (31) |
+| Product strategy/roadmap | 13.6% (31) |
+| Java | 13.2% (30) |
+| ML systems/MLOps | 11.8% (27) |
+| REST/gRPC/API design | 11.8% (27) |
+| SQL | 9.6% (22) |
+| CUDA/GPU | 9.2% (21) |
+| C/C++ | 9.2% (21) |
+| PostgreSQL/MySQL | 9.2% (21) |
+| Terraform/IaC | 8.8% (20) |
+| Vector DBs | 8.8% (20) |
+| Prompt engineering | 8.3% (19) |
+| Security/privacy compliance | 8.3% (19) |
+| OpenAI API | 7.9% (18) |
+
+**Broad engineer net (1915 JDs):**
+- System design/architecture (30%), AWS (24%), CI/CD (23%), Python (22%), distributed systems (21%), TS (20%), LLM/GenAI (9% even in generic postings).
+
+**AI-AUTOMATION (2 JDs):** 100% AI agents; 50% each: LLM/GenAI, RAG/retrieval, PyTorch, TensorFlow/Keras, Multimodal/vision, Python, SQL, C/C++, distributed systems, system design, security/privacy compliance.
+
+**Resume-corpus overlap (profile + resumes, textual):**
+- **Present:** AI agents, AWS, Azure, C/C++, CI/CD, Claude/Anthropic, Databricks, distributed systems, Go/Golang, Kubernetes, LLM/GenAI, LangChain/LangGraph, OpenAI API, Python, RAG/retrieval, SQL, Snowflake, system design/architecture, TS/JS
+- **NOT detected in resume material:** A/B testing & experimentation, Agile/Scrum, Airflow/Dagster/Mage, BigQuery/Redshift, CUDA/GPU, Docker, Elastic/OpenSearch, Evals/observability, FastAPI/Django/Flask, Fine-tuning/SFT/LoRA/RLHF/DPO, GCP, Java, Kafka/queues, Linux, LlamaIndex, ML systems/MLOps, MongoDB/NoSQL, Multimodal/vision, Pandas/NumPy, Playwright/Selenium, PostgreSQL/MySQL, product strategy/roadmap, prompt engineering, PyTorch, REST/gRPC/API design, RPA, Redis, Security/privacy compliance, Spark/PySpark, Stakeholder mgmt, TensorFlow/Keras, Terraform/IaC, Transformers, Vector DBs, workflow automation (n8n/Zapier/Make), dbt, vLLM/inference

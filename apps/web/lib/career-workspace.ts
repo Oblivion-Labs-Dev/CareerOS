@@ -143,7 +143,7 @@ export function discoverHref(prefs?: Partial<CareerWorkspacePrefs>): string {
   const merged = { ...readWorkspacePrefs(), ...prefs };
   const params = buildDiscoverQueryParams(merged);
   const query = params.toString();
-  return query ? `/jobs/discover?${query}` : "/jobs/discover";
+  return query ? `/applications?tab=queued&${query}` : "/applications?tab=queued";
 }
 
 export function dashboardHref(prefs?: Partial<CareerWorkspacePrefs>): string {
@@ -151,5 +151,5 @@ export function dashboardHref(prefs?: Partial<CareerWorkspacePrefs>): string {
   const params = new URLSearchParams();
   if (merged.searchQuery) params.set("q", merged.searchQuery);
   const query = params.toString();
-  return query ? `/dashboard?${query}` : "/dashboard";
+  return query ? `/applications?tab=dashboard&${query}` : "/applications?tab=dashboard";
 }

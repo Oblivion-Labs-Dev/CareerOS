@@ -69,6 +69,21 @@ async function proxy(request: NextRequest, context: { params: Promise<{ path: st
       },
     });
 
+    // Compress JSON on the way out. fetch() hands us the body decoded, and the
+    // API's list payloads are large (the jobs list with facets ~500 KB, insight
+    // rows ~4 MB) and shrink ~6x. Event streams pass through untouched:
+    // a gzip stream buffers, which would hold SSE events back.
+    const contentType = responseHeaders.get("content-type") || "";
+    const acceptsGzip = /\bgzip\b/.test(request.headers.get("accept-encoding") || "");
+    if (acceptsGzip && contentType.includes("application/json")) {
+      responseHeaders.set("content-encoding", "gzip");
+      responseHeaders.append("vary", "Accept-Encoding");
+      return new Response(guarded.pipeThrough(new CompressionStream("gzip")), {
+        status: response.status,
+        headers: responseHeaders,
+      });
+    }
+
     return new Response(guarded, { status: response.status, headers: responseHeaders });
   } catch (err: any) {
     console.error(`[backend-proxy-error] failed proxying to ${target.toString()}:`, err, err?.cause);

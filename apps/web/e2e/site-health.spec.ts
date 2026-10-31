@@ -80,28 +80,6 @@ test.describe("CareerOS web health", () => {
     await expect(page.getByText(/saved answers|No answers saved yet/i)).toBeVisible();
   });
 
-  test("hydrates the connected workspace from cached data without a mismatch @local", async ({ page }) => {
-    const consoleErrors: string[] = [];
-    page.on("console", (message) => {
-      if (message.type() === "error") consoleErrors.push(message.text());
-    });
-
-    await page.addInitScript(() => {
-      window.localStorage.setItem("career-os:workspace:snapshot", JSON.stringify({
-        profile: { targetRole: "Cached role" },
-        discoverTotal: 42,
-        discoverStrongMatches: 7,
-        applicationsCount: 3,
-        profileCompleteness: 50,
-        loadedAt: "2026-01-01T00:00:00.000Z",
-      }));
-    });
-
-    await page.goto("/jobs/discover");
-    await expect(page.getByRole("region", { name: "Connected pages" })).toBeVisible();
-    expect(consoleErrors.filter((message) => message.includes("Hydration failed"))).toEqual([]);
-  });
-
   test("apply outreach page shows recruiter campaign dashboard", async ({ page }) => {
     await page.goto("/apply/outreach");
     await expectStylesLoaded(page);

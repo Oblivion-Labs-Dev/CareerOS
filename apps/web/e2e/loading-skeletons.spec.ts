@@ -63,7 +63,6 @@ test("the dashboard shows content-shaped placeholders while matches load @skelet
  */
 const WORKSPACES: { path: string; label: string; minBlocks: number }[] = [
   { path: "/applications?tab=applications", label: "Loading applications…", minBlocks: 6 },
-  { path: "/jobs/discover", label: "Finding your next opportunity…", minBlocks: 6 },
 ];
 
 for (const { path, label, minBlocks } of WORKSPACES) {

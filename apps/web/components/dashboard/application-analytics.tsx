@@ -6,6 +6,8 @@ import Link from "next/link";
 import { CountUp } from "@/components/count-up";
 import { WorkspaceLoading } from "@/components/ui/workspace-loading";
 import styles from "./application-analytics.module.css";
+import { getClientApiBaseUrl } from "@/lib/api";
+import { fetchCachedJson, invalidateCached } from "@/lib/client-fetch-cache";
 
 type Kind = "submissions" | "responses" | "interviews";
 type Activity = {kind: Kind; at: string; id: string; company: string; title: string};
@@ -20,12 +22,18 @@ export function ApplicationAnalytics({refreshKey = 0}: {refreshKey?: number}) {
   const [kind, setKind] = useState<Kind>("submissions");
   const [selected, setSelected] = useState<string | null>(null);
   useEffect(() => {
-    const controller = new AbortController();
+    // Same URL and cache as useCareerWorkspace, so the dashboard's two readers
+    // of /tracker/summary share one request. No shared abort signal: one
+    // reader unmounting must not cancel the other's fetch.
+    let cancelled = false;
+    const url = `${getClientApiBaseUrl()}/tracker/summary`;
+    if (refreshKey > 0 || revision > 0) invalidateCached(url);
     setError(false);
-    fetch("/api/backend/tracker/summary", {signal: controller.signal, cache: "no-store"})
-      .then(async response => {if (!response.ok) throw new Error(); const value = await response.json(); if (!value.outcomes) throw new Error(); return value.outcomes as Outcomes;})
-      .then(setData).catch(() => {if (!controller.signal.aborted) setError(true);});
-    return () => controller.abort();
+    fetchCachedJson<{outcomes?: Outcomes}>(url)
+      .then(value => {if (!value.outcomes) throw new Error("tracker summary has no outcomes"); return value.outcomes;})
+      .then(value => {if (!cancelled) setData(value);})
+      .catch(() => {if (!cancelled) setError(true);});
+    return () => {cancelled = true;};
   }, [refreshKey, revision]);
   const days = useMemo(() => Array.from({length: 14}, (_, index) => {
     const date = new Date(); date.setDate(date.getDate() - 13 + index);
