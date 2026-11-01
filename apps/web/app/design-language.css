@@ -757,7 +757,9 @@ button:focus-visible,
   mix-blend-mode: normal;
 }
 
-::view-transition-new(root) {
+/* Only the theme switch reveals in a circle. Other view transitions (opening
+   the application dossier) keep their own motion, e.g. the panel slide-in. */
+:root.theme-reveal::view-transition-new(root) {
   animation: theme-reveal 0.78s cubic-bezier(0.4, 0, 0.2, 1);
 }
 

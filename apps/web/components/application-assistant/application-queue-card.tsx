@@ -9,7 +9,6 @@ import {
   type ResolvedReadiness,
 } from "./application-readiness";
 import "./application-queue-card.css";
-import { APPLICATION_CARD_STYLE_EVENT, applyApplicationCardStyleAttribute, readApplicationCardStyle, type ApplicationCardStyle } from "./application-card-preferences";
 
 export type QueueApplication = {
   id: string;
@@ -361,7 +360,6 @@ export function ApplicationQueueCard({
 }: ApplicationQueueCardProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const [cardStyle, setCardStyle] = useState<ApplicationCardStyle>("compact");
   const wrapRef = useRef<HTMLDivElement>(null);
 
   const updated = formatRelativeTime(app.updatedAt);
@@ -452,19 +450,6 @@ export function ApplicationQueueCard({
 
   const closeDrawer = () => setDrawerOpen(false);
 
-  useEffect(() => {
-    const syncStyle = () => {
-      const next = readApplicationCardStyle();
-      setCardStyle(next);
-      // Also publish it on <html>, so the page behind the cards can match the
-      // treatment. Done here rather than only on save so a reload restores it.
-      applyApplicationCardStyleAttribute(next);
-    };
-    syncStyle();
-    window.addEventListener(APPLICATION_CARD_STYLE_EVENT, syncStyle);
-    return () => window.removeEventListener(APPLICATION_CARD_STYLE_EVENT, syncStyle);
-  }, []);
-
   return (
     <div
       ref={wrapRef}
@@ -472,7 +457,7 @@ export function ApplicationQueueCard({
     >
       {gateSlot}
       <article
-        className={`aac-card aac-card--${cardStyle} aac-card--${statusAccent}${isBrowserOpen ? " aac-card--live" : ""}${isAnalyzing ? " aac-card--busy" : ""}${cardBusy ? " aac-card--preparing" : ""}`}
+        className={`aac-card aac-card--compact aac-card--${statusAccent}${isBrowserOpen ? " aac-card--live" : ""}${isAnalyzing ? " aac-card--busy" : ""}${cardBusy ? " aac-card--preparing" : ""}`}
         onClick={openDrawer}
         onKeyDown={(event) => {
           if (event.key === "Enter" || event.key === " ") {

@@ -1,0 +1,265 @@
+/* Lab flip application card. Composes the flip, faces, accent tokens and clay
+   digits from ui/lab-kpi-card.module.css; this file only lays out the job.
+   The front sits in normal flow so the card is as tall as its content; the
+   back is laid over it. */
+
+.card {
+  min-height: 244px;
+  min-width: 0;
+}
+
+/* One calm accent on every job card, whatever its status. Status keeps its
+   own muted colour, but only on the small dot and label beside it. The doubled
+   class outranks the bright per-accent tokens of the shared KPI card. */
+.card.card[data-accent] { --accent: #9fb3d6; --status: #9fb3d6; }
+.card.card[data-accent="green"] { --status: #7fbf9f; }
+.card.card[data-accent="gold"] { --status: #cfae6c; }
+.card.card[data-accent="orange"] { --status: #d39272; }
+.card.card[data-accent="purple"] { --status: #a79cc9; }
+:global([data-theme="light"]) .card.card[data-accent] { --accent: #3f5b8a; --status: #3f5b8a; }
+:global([data-theme="light"]) .card.card[data-accent="green"] { --status: #2f7a58; }
+:global([data-theme="light"]) .card.card[data-accent="gold"] { --status: #8a6a24; }
+:global([data-theme="light"]) .card.card[data-accent="orange"] { --status: #9c5634; }
+:global([data-theme="light"]) .card.card[data-accent="purple"] { --status: #5f5294; }
+
+.card .front {
+  position: relative;
+  inset: auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 244px;
+  height: 100%;
+  padding: 16px;
+}
+
+.card .back {
+  justify-content: flex-start;
+  padding: 16px;
+  gap: 7px;
+}
+
+/* Tab onto an action on the back: keep the card turned so it stays visible. */
+.card:has(button:focus-visible) .front { transform: rotateY(-180deg); }
+.card:has(button:focus-visible) .back { transform: rotateY(0deg); }
+
+.identity {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+}
+.monogram {
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.company {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--label);
+}
+.status {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex: none;
+  max-width: 50%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 9.5px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--status);
+}
+.status i {
+  width: 6px;
+  height: 6px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--status);
+}
+
+/* Editorial serif title. */
+.title {
+  margin: 14px 0 0;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  font-family: var(--font-display), Georgia, serif;
+  font-size: 20px;
+  line-height: 1.15;
+  font-weight: 400;
+  letter-spacing: -0.005em;
+  color: var(--lab-ink, #f4f7ff);
+}
+
+/* Score: light numerals and one thin real match bar, no extra chrome. */
+.scoreRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px 8px;
+  margin-top: auto;
+  padding-top: 14px;
+}
+.card .scoreRow > span:first-child {
+  margin: 0;
+  min-height: 0;
+  align-items: baseline;
+  gap: 0;
+  filter: none;
+}
+/* The shared KPI digits are chunky 3D clay; on a job card they shouted. */
+.card .scoreRow > span:first-child > span:not(.percent) {
+  font-family: var(--font-sans), system-ui, sans-serif;
+  font-size: 22px;
+  font-weight: 500;
+  letter-spacing: 0;
+  font-variant-numeric: proportional-nums;
+  color: var(--lab-ink, #f4f7ff);
+  text-shadow: none;
+}
+.meter {
+  flex-basis: 100%;
+  height: 3px;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  overflow: hidden;
+}
+.meter i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent);
+  transform-origin: left center;
+  animation: meter-fill 0.9s cubic-bezier(0.16, 0.85, 0.25, 1) 0.2s both;
+}
+@keyframes meter-fill { from { transform: scaleX(0); } }
+.card .scoreRow .percent {
+  margin-left: 3px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--soft);
+}
+.scoreLabel {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--soft);
+}
+
+.footer {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 10px;
+  padding-top: 10px;
+  font-size: 11px;
+  color: var(--soft);
+}
+.footer span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.footer span + span { flex: none; }
+
+.card .headline {
+  max-width: none;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  font-size: 15px;
+}
+.detail {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* Short facts: label column, value column, one line each. */
+.facts {
+  display: grid;
+  gap: 3px;
+  margin: 2px 0 0;
+  font-size: 11.5px;
+  line-height: 1.35;
+}
+.facts > div {
+  display: grid;
+  grid-template-columns: 68px minmax(0, 1fr);
+  gap: 8px;
+}
+.facts dt {
+  color: var(--soft);
+  font-weight: 600;
+}
+.facts dd {
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--lab-ink, #f4f7ff);
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: auto;
+  padding-top: 4px;
+}
+/* Pills; the first real action is the filled primary. */
+.actions button {
+  padding: 7px 13px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--lab-ink, #f4f7ff);
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease, transform 0.12s ease, box-shadow 0.12s ease;
+}
+.actions button:hover:not(:disabled) { border-color: var(--accent); }
+.actions button:active:not(:disabled) { transform: translateY(1px); }
+.actions button:first-child:not(.detailsBtn) {
+  border-color: transparent;
+  background: var(--accent);
+  color: #0b1220;
+}
+.actions button:disabled { opacity: 0.55; cursor: progress; }
+.actions button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.actions .detailsBtn {
+  background: transparent;
+  border-color: color-mix(in srgb, var(--soft) 45%, transparent);
+  color: var(--accent);
+}
+
+/* Light: warm paper faces come from the shared tokens; ink goes dark. */
+:global([data-theme="light"]) .card { --lab-ink: #1b2233; }
+:global([data-theme="light"]) .actions button:first-child:not(.detailsBtn) { color: #fff; }
+
+@media (prefers-reduced-motion: reduce) {
+  .meter i { animation: none; }
+  .actions button { transition: none; }
+  .card:has(button:focus-visible) .front { opacity: 0; }
+  .card:has(button:focus-visible) .back { opacity: 1; }
+}

@@ -3,8 +3,8 @@
 import { useCallback, useSyncExternalStore } from "react";
 
 /**
- * Metric card look, chosen by the viewer. "classic" is the original flat tile
- * and stays the default; "lab" is the opt-in flip card ported from the
+ * Card look, chosen by the viewer. "lab" is the flip card and the default;
+ * "classic" is the original flat tile, kept as a fallback. Lab is ported from the
  * Orchestrator Analytics Lab. Stored per browser, so it is a convenience only.
  */
 export type CardStyle = "classic" | "lab";
@@ -22,7 +22,7 @@ function read(): CardStyle {
   } catch {
     // fall through to the in-memory choice
   }
-  return memory ?? "classic";
+  return memory ?? "lab";
 }
 
 function subscribe(onChange: () => void) {
@@ -35,7 +35,7 @@ function subscribe(onChange: () => void) {
 }
 
 export function useCardStyle(): [CardStyle, (next: CardStyle) => void] {
-  const style = useSyncExternalStore(subscribe, read, () => "classic" as CardStyle);
+  const style = useSyncExternalStore(subscribe, read, () => "lab" as CardStyle);
   const set = useCallback((next: CardStyle) => {
     memory = next;
     try {

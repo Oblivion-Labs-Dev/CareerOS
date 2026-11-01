@@ -4,11 +4,40 @@ import type { AutopilotJobRow } from "./job-types";
 import { useCountUp } from "./use-count-up";
 import { INELIGIBILITY_LABELS, capCountdown, getJobReasonMeta, relativeTime, statusView } from "./job-presentation";
 import styles from "./application-card.module.css";
+import { useCardStyle } from "@/hooks/use-card-style";
+import { LabApplicationCard } from "./lab-application-card";
 
-export function ApplicationCard({ job, busy, onDetails, onApply, onAssistedFill, onRetry, detailed = false }: {
+type CardProps = {
   detailed?: boolean; job: AutopilotJobRow; busy: string | null; onDetails: () => void; onApply: () => void;
   onAssistedFill?: () => void; onRetry?: () => void;
-}) {
+};
+
+/** Classic stays the default; Lab is the opt-in flip card from the Classic/Lab switch. */
+export function ApplicationCard(props: CardProps) {
+  const [cardStyle] = useCardStyle();
+  if (cardStyle === "lab") {
+    return (
+      <LabApplicationCard
+        job={props.job}
+        reason={cardReason(props.job)}
+        detailed={props.detailed ?? false}
+        onDetails={props.onDetails}
+        actions={<CardActions {...props} />}
+      />
+    );
+  }
+  return <ClassicApplicationCard {...props} />;
+}
+
+function cardReason(job: AutopilotJobRow): string | null {
+  return job.status === "INELIGIBLE"
+    ? INELIGIBILITY_LABELS[String(job.ineligibilityReason)] || job.ineligibilityDetail || "Cannot be applied to"
+    : job.status === "REJECTED"
+      ? (job.rejectionEvidence?.subject ? `From: "${job.rejectionEvidence.subject}"` : "Marked rejected")
+      : job.skipReason || job.lastError || null;
+}
+
+function ClassicApplicationCard({ job, busy, onDetails, onApply, onAssistedFill, onRetry, detailed = false }: CardProps) {
   const surface = useSurfaceDepth(job.status);
   const status = statusView(job.status);
   const score = typeof job.matchScore === "number" && Number.isFinite(job.matchScore)
@@ -16,21 +45,7 @@ export function ApplicationCard({ job, busy, onDetails, onApply, onAssistedFill,
   // Dial and number are driven by one animated value so they cannot disagree
   // mid-sweep: both climb from zero to the real score together.
   const shownScore = useCountUp(score);
-  const canApply = job.status === "QUEUED" || (job.status === "SKIPPED" && job.skipReason?.startsWith("Match score stayed below"));
   const initials = (job.company || "?").split(/\s+/).slice(0, 2).map(word => word[0]).join("").toUpperCase();
-  // Every bucket the user finishes by hand gets the same offer. Assisted fill
-  // was restricted to MANUAL_REVIEW, so a Failed or Review application the user
-  // intended to complete themselves had no way to get the form pre-filled and
-  // they retyped it from scratch. These are exactly the buckets the state
-  // selector already lets them relabel - the ones they are working through -
-  // so the two should agree. QUEUED is excluded because the automation still
-  // intends to try it, and SUBMITTED because it is already done.
-  const ASSISTABLE = ["MANUAL_REVIEW", "FAILED", "NEEDS_REVIEW", "STAGED"];
-  const canAssist = ASSISTABLE.includes(job.status || "");
-  // A failed attempt is usually a bug we have since fixed, but without this the
-  // card is a dead end: the only other action is claiming a submission that
-  // never happened. Retry puts the job back in the queue and applies again.
-  const canRetry = job.status === "FAILED";
   // Held by the per-employer rate limit. Recomputed from the stored expiry on
   // each render rather than trusted as a flag, so the badge clears itself when
   // the window rolls even if the row has not been rewritten yet.
@@ -38,11 +53,7 @@ export function ApplicationCard({ job, busy, onDetails, onApply, onAssistedFill,
   const isPostProcessing = ["manual", "review", "failed", "ineligible", "skipped", "unverified"].includes(status.key);
   const reasonMeta = isPostProcessing ? getJobReasonMeta(job) : null;
   const isCaptcha = reasonMeta?.tone === "captcha";
-  const reason = job.status === "INELIGIBLE"
-    ? INELIGIBILITY_LABELS[String(job.ineligibilityReason)] || job.ineligibilityDetail || "Cannot be applied to"
-    : job.status === "REJECTED"
-      ? (job.rejectionEvidence?.subject ? `From: "${job.rejectionEvidence.subject}"` : "Marked rejected")
-      : job.skipReason || job.lastError || null;
+  const reason = cardReason(job);
   return (
     // The whole card opens the dossier — there is no separate View button to
     // aim for. Inner controls stop propagation so Apply and Autofill still do
@@ -101,43 +112,67 @@ export function ApplicationCard({ job, busy, onDetails, onApply, onAssistedFill,
       <footer className={styles.footer}>
         <span>{job.status === "SUBMITTED" && job.submittedAt ? `Submitted ${relativeTime(job.submittedAt)}` : job.updatedAt ? `Updated ${relativeTime(job.updatedAt)}` : "Application workspace"}</span>
         <span className={styles.actions}>
-          {canAssist && onAssistedFill && (
-            <button
-              type="button"
-              className={styles.secondaryBtn}
-              disabled={busy === job.id}
-              onClick={(event) => { event.stopPropagation(); onAssistedFill(); }}
-              title="Open this form in a browser with everything filled in — you solve the challenge and press Submit"
-            >
-              {busy === job.id ? "Filling…" : "Autofill & open"}
-            </button>
-          )}
-          {canRetry && onRetry && (
-            <button
-              type="button"
-              disabled={busy !== null}
-              onClick={(event) => { event.stopPropagation(); onRetry(); }}
-              title="Put this back in the queue and try applying again"
-            >
-              {busy === job.id ? "Retrying…" : "Retry →"}
-            </button>
-          )}
-          {canApply && (
-            <button
-              type="button"
-              disabled={busy !== null}
-              onClick={(event) => { event.stopPropagation(); onApply(); }}
-              title={
-                paced
-                  ? "Send this now, ignoring the per-company limit"
-                  : "Start an Autopilot application for this role"
-              }
-            >
-              {busy === job.id ? "Applying…" : paced ? "Apply anyway →" : "Apply →"}
-            </button>
-          )}
+          <CardActions job={job} busy={busy} onApply={onApply} onAssistedFill={onAssistedFill} onRetry={onRetry} />
         </span>
       </footer>
     </article>
+  );
+}
+
+/** Apply / Autofill / Retry, shared by both card looks so they cannot drift. */
+function CardActions({ job, busy, onApply, onAssistedFill, onRetry }: Pick<CardProps, "job" | "busy" | "onApply" | "onAssistedFill" | "onRetry">) {
+  const canApply = job.status === "QUEUED" || (job.status === "SKIPPED" && job.skipReason?.startsWith("Match score stayed below"));
+  // Every bucket the user finishes by hand gets the same offer. Assisted fill
+  // was restricted to MANUAL_REVIEW, so a Failed or Review application the user
+  // intended to complete themselves had no way to get the form pre-filled and
+  // they retyped it from scratch. These are exactly the buckets the state
+  // selector already lets them relabel - the ones they are working through -
+  // so the two should agree. QUEUED is excluded because the automation still
+  // intends to try it, and SUBMITTED because it is already done.
+  const ASSISTABLE = ["MANUAL_REVIEW", "FAILED", "NEEDS_REVIEW", "STAGED"];
+  const canAssist = ASSISTABLE.includes(job.status || "");
+  // A failed attempt is usually a bug we have since fixed, but without this the
+  // card is a dead end: the only other action is claiming a submission that
+  // never happened. Retry puts the job back in the queue and applies again.
+  const canRetry = job.status === "FAILED";
+  const paced = capCountdown(job);
+  return (
+    <>
+      {canAssist && onAssistedFill && (
+        <button
+          type="button"
+          className={styles.secondaryBtn}
+          disabled={busy === job.id}
+          onClick={(event) => { event.stopPropagation(); onAssistedFill(); }}
+          title="Open this form in a browser with everything filled in — you solve the challenge and press Submit"
+        >
+          {busy === job.id ? "Filling…" : "Autofill & open"}
+        </button>
+      )}
+      {canRetry && onRetry && (
+        <button
+          type="button"
+          disabled={busy !== null}
+          onClick={(event) => { event.stopPropagation(); onRetry(); }}
+          title="Put this back in the queue and try applying again"
+        >
+          {busy === job.id ? "Retrying…" : "Retry →"}
+        </button>
+      )}
+      {canApply && (
+        <button
+          type="button"
+          disabled={busy !== null}
+          onClick={(event) => { event.stopPropagation(); onApply(); }}
+          title={
+            paced
+              ? "Send this now, ignoring the per-company limit"
+              : "Start an Autopilot application for this role"
+          }
+        >
+          {busy === job.id ? "Applying…" : paced ? "Apply anyway →" : "Apply →"}
+        </button>
+      )}
+    </>
   );
 }

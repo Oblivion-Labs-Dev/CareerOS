@@ -44,9 +44,15 @@ export function ThemeMorphButton() {
     );
 
     // Modern Chrome/Edge/Firefox View Transition API for expanding circular ripple
-    const docWithTransition = document as unknown as { startViewTransition?: (cb: () => void) => void };
+    const docWithTransition = document as unknown as {
+      startViewTransition?: (cb: () => void) => { finished: Promise<void> };
+    };
     if (typeof docWithTransition.startViewTransition === "function") {
-      docWithTransition.startViewTransition(apply);
+      // The circle is scoped to this class so other view transitions don't get it.
+      root.classList.add("theme-reveal");
+      docWithTransition
+        .startViewTransition(apply)
+        .finished.finally(() => root.classList.remove("theme-reveal"));
       return;
     }
 

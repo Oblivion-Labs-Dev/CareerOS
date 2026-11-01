@@ -410,6 +410,8 @@ export function AutopilotControlCenter({
                   insight={
                     !readiness
                       ? { headline: "Readiness still loading" }
+                      : !readiness.questions
+                        ? { headline: "Blocking questions unknown", detail: "Readiness did not report them" }
                       : readiness.questions.questionCount > 0
                         ? {
                             eyebrow: "Fastest unblock",
