@@ -23,8 +23,23 @@ import styles from "./control-center.module.css";
 import { NightBatchCard, type NightBatchConfig } from "./night-batch-card";
 import { LastUpdatePanel } from "./last-update-panel";
 import { LabKpiCard } from "@/components/ui/lab-kpi-card";
+import { CountUp } from "@/components/count-up";
 import labStyles from "@/components/ui/lab-kpi-card.module.css";
 import { useCardStyle } from "@/hooks/use-card-style";
+import { ProgressProvider } from "@/components/career-progress/progress-provider";
+import { ApplicationAnalytics } from "@/components/dashboard/application-analytics";
+import { getClientApiBaseUrl } from "@/lib/api";
+import { fetchCachedJson } from "@/lib/client-fetch-cache";
+
+/** The tracker's outcome figures, shown in the KPI cards' detail panels. Same
+ *  URL and cache as the chart below, so both share one request. */
+type TrackerOutcomes = {
+  responses: number;
+  interviews: number;
+  cohortSize: number;
+  medianResponseDays: number | null;
+  awaitingConfirmation: number;
+};
 
 const svg = (d: string) => (
   <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -88,6 +103,17 @@ export function AutopilotControlCenter({
   const [submittedToday, setSubmittedToday] = useState(0);
   const [submitted24h, setSubmitted24h] = useState(0);
   const [statsLoading, setStatsLoading] = useState(true);
+  // Whole-queue match-floor counts from the stats aggregate. null = the
+  // server did not report them, which the card shows as unknown, not zero.
+  const [queueFloors, setQueueFloors] = useState<Record<string, number> | null>(null);
+  const [outcomes, setOutcomes] = useState<TrackerOutcomes | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    fetchCachedJson<{ outcomes?: TrackerOutcomes }>(`${getClientApiBaseUrl()}/tracker/summary`)
+      .then((v) => { if (!cancelled) setOutcomes(v.outcomes ?? null); })
+      .catch((err) => { console.warn("tracker summary unavailable for KPI details", err); });
+    return () => { cancelled = true; };
+  }, []);
   const [controlBusy, setControlBusy] = useState(false);
   const [controlError, setControlError] = useState<string | null>(null);
   // Pre-flight readiness, fetched alongside the rest of the dashboard so the
@@ -126,6 +152,7 @@ export function AutopilotControlCenter({
           setStatusCounts(res.statusCounts || {});
           setSubmittedToday(res.submittedToday ?? 0);
           setSubmitted24h(res.submitted24h ?? 0);
+          setQueueFloors(res.queueScoreFloors ?? null);
         }
       })
       .catch(() => {
@@ -165,7 +192,6 @@ export function AutopilotControlCenter({
         title: liveWorker.currentJob.title,
         step: liveWorker.currentStep,
         stage: undefined,
-        model: state?.batchConfig?.aiModel || "Qwen3:4b-instruct",
         durationMs: undefined,
         message: undefined,
       }
@@ -175,7 +201,6 @@ export function AutopilotControlCenter({
           title: String(state.activeJob.title ?? ""),
           step: String(state.activeJob.currentStep ?? ""),
           stage: state.activeJob.stage as string | undefined,
-          model: (state.activeJob.model as string | undefined) || state?.batchConfig?.aiModel || "Qwen3:4b-instruct",
           durationMs: state.activeJob.durationMs as number | undefined,
           message: state.activeJob.message as string | undefined,
         }
@@ -250,15 +275,14 @@ export function AutopilotControlCenter({
     setControlError(null);
     try {
       // Both keys are sent because the runner accepts either; `minMatchScore`
-      // is the one that matters most — it is the bar a tailored resume has to
-      // clear before an application is actually sent to an employer.
+      // is the one that matters most — it is the match floor every auto-apply
+      // has to clear; Autopilot never tailors, so the master resume is scored.
       await startAutopilot({
         targetProcessCount: config.batchSize,
         batchSize: config.batchSize,
         concurrency: 1,
         minMatchScore: config.minMatchScore,
         tierGuardrails: config.tierGuardrails,
-        selfHealing: config.selfHealing,
       });
       await refresh();
       void loadJobs();
@@ -310,19 +334,8 @@ export function AutopilotControlCenter({
     };
   }, [jobs]);
 
-  // Scores of everything still queued — the card draws the match floor against
-  // this so the floor's reach is visible before the run, not after it.
-  const queueScores = useMemo(
-    () => jobs.filter((j) => j.status === "QUEUED").map((j) => Number(j.matchScore ?? 0)),
-    [jobs],
-  );
-
-  return (
-    <div className={styles.page}>
-      <h1 className={styles.accessibleTitle}>Autopilot</h1>
-
-      {controlError && <div className={styles.empty}>{controlError}</div>}
-
+  const batchRow = (
+    <>
       {/* Overview is always visible up top now, not a tab you navigate away
           from — Night Batch's own header shows running/ready state and
           carries its own Start (idle) and Pause/Stop (live) buttons, so it
@@ -341,12 +354,12 @@ export function AutopilotControlCenter({
           resumeCount={state?.run?.resumeCount ?? 1}
           submittedCount={state?.run?.submittedCount ?? 0}
           stagedCount={state?.run?.stagedCount ?? 0}
-          queueScores={queueScores}
-          queueLoading={jobsLoading}
+          queueFloors={queueFloors}
+          queueTotal={statsLoading ? null : (statusCounts.QUEUED ?? null)}
+          queueLoading={statsLoading}
           liveConfig={state?.batchConfig ?? null}
           stageIndex={activeStageIndex}
           logs={state?.recentLogs ?? []}
-          healing={state?.selfHealing ?? null}
         />
         {(lastActivity || (state?.run?.processedCount ?? 0) > 0) && <LastUpdatePanel
           lastActivity={lastActivity}
@@ -354,6 +367,10 @@ export function AutopilotControlCenter({
           isLive={isLive}
         />}
       </div>
+    </>
+  );
+
+  const overview = (
       <div className={styles.overviewGrid}>
           <div className={styles.mainCol}>
             {/* ── Operational metrics ── */}
@@ -366,8 +383,12 @@ export function AutopilotControlCenter({
                   value={statsLoading ? null : today.submitted}
                   hint={`${today.submitted24h} in last 24h`}
                   insight={{
-                    headline: statusCounts.QUEUED != null ? `${statusCounts.QUEUED} queued next` : "Queue size unknown",
-                    detail: `${today.failed} failed and ${today.skipped} skipped today`,
+                    headline: statusCounts.QUEUED != null ? `${statusCounts.QUEUED.toLocaleString()} queued next` : "Queue size unknown",
+                    rows: [
+                      { label: "Last 24 hours", value: String(today.submitted24h) },
+                      { label: "Failed today", value: String(today.failed) },
+                      { label: "Skipped today", value: String(today.skipped) },
+                    ],
                   }}
                 />
                 <LabKpiCard
@@ -379,7 +400,18 @@ export function AutopilotControlCenter({
                   hint="All time"
                   insight={
                     cumulative
-                      ? { headline: `${cumulative.failed} failed, ${cumulative.staged} sent to review`, detail: "All-time outcomes besides submitted" }
+                      ? {
+                          headline: "What came back",
+                          rows: outcomes
+                            ? [
+                                { label: "Response rate", value: outcomes.responses && outcomes.cohortSize ? `${Math.round((outcomes.responses / outcomes.cohortSize) * 100)}%` : "—" },
+                                { label: "Interview rate", value: outcomes.interviews && outcomes.cohortSize ? `${Math.round((outcomes.interviews / outcomes.cohortSize) * 100)}%` : "—" },
+                                { label: "Median reply", value: outcomes.medianResponseDays == null ? "—" : `${outcomes.medianResponseDays}d` },
+                                { label: "Awaiting confirmation", value: String(outcomes.awaitingConfirmation) },
+                              ]
+                            : undefined,
+                          detail: outcomes ? "Rates over the last 30 days of dated records" : "Outcome data not loaded",
+                        }
                       : { headline: "History not loaded yet" }
                   }
                 />
@@ -395,7 +427,11 @@ export function AutopilotControlCenter({
                     cumulative && successRate != null
                       ? {
                           headline: `${cumulative.submitted} of ${cumulative.submitted + cumulative.staged + cumulative.failed} attempts went through`,
-                          detail: "Attempts = submitted + review + failed",
+                          rows: [
+                            { label: "Submitted", value: cumulative.submitted.toLocaleString() },
+                            { label: "Sent to review", value: cumulative.staged.toLocaleString() },
+                            { label: "Failed", value: cumulative.failed.toLocaleString() },
+                          ],
                         }
                       : { headline: "No attempts yet" }
                   }
@@ -426,25 +462,25 @@ export function AutopilotControlCenter({
             ) : (
             <div className={styles.metricGrid}>
               <div className={styles.metric} data-tone="success">
-                <div className={styles.metricValue}>{statsLoading ? "—" : today.submitted}</div>
+                <div className={styles.metricValue}><CountUp value={statsLoading ? null : today.submitted} /></div>
                 <div className={styles.metricLabel}>Submitted today</div>
                 {today.submitted24h > today.submitted && (
                   <div className={styles.metricHint}>{today.submitted24h} in last 24h</div>
                 )}
               </div>
               <div className={styles.metric} data-tone="info">
-                <div className={styles.metricValue}>{cumulative ? cumulative.submitted : "—"}</div>
+                <div className={styles.metricValue}><CountUp value={cumulative ? cumulative.submitted : null} delayMs={60} /></div>
                 <div className={styles.metricLabel}>Total submitted</div>
               </div>
               <div className={styles.metric} data-tone="active">
                 <div className={styles.metricValue}>
-                  {successRate == null ? <span className={styles.unknownValue}>—</span> : `${successRate}%`}
+                  {successRate == null ? <span className={styles.unknownValue}>—</span> : <CountUp value={successRate} suffix="%" delayMs={120} />}
                 </div>
                 <div className={styles.metricLabel}>Success rate</div>
                 <div className={styles.metricHint}>submitted ÷ (submitted + review + failed)</div>
               </div>
               <div className={styles.metric} data-tone="attention">
-                <div className={styles.metricValue}>{statsLoading ? "—" : needsReviewCount}</div>
+                <div className={styles.metricValue}><CountUp value={statsLoading ? null : needsReviewCount} delayMs={180} /></div>
                 <div className={styles.metricLabel}>Need your review</div>
               </div>
             </div>
@@ -452,6 +488,28 @@ export function AutopilotControlCenter({
           </div>
 
       </div>
+  );
+
+  return (
+    <div className={styles.page}>
+      <h1 className={styles.accessibleTitle}>Autopilot</h1>
+
+      {controlError && <div className={styles.empty}>{controlError}</div>}
+
+      {cardStyle === "lab" ? (
+        <>
+          {overview}
+          <ProgressProvider>
+            <ApplicationAnalytics chartOnly />
+          </ProgressProvider>
+          {batchRow}
+        </>
+      ) : (
+        <>
+          {batchRow}
+          {overview}
+        </>
+      )}
 
       <div id="application-workspace">
         <AutopilotApplicationsView

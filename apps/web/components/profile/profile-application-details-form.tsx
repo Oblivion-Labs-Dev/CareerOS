@@ -1,7 +1,7 @@
 "use client";
 import {ChoiceGroup} from "@/components/ui/choice-group";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type MutableRefObject } from "react";
 import { postJson } from "@/lib/api";
 import type { UserProfile } from "@career-os/core";
 
@@ -210,13 +210,31 @@ const GROUPS: Group[] = [
 
 const ALL_KEYS = GROUPS.flatMap((group) => group.fields.map((field) => field.key));
 
+/** Group name -> field keys, so the Lab stepper can show progress per step. */
+export const DETAIL_GROUP_KEYS: Record<string, string[]> = Object.fromEntries(
+  GROUPS.map((group) => [group.group, group.fields.map((field) => field.key)]),
+);
+
+/** Pseudo-group for the education rows editor. */
+export const EDUCATION_ROWS = "__educationRows";
+
 export function ProfileApplicationDetailsForm({
   profile,
   onSaved,
+  only,
+  bare = false,
+  saveRef,
 }: {
   profile: ApplyPilotProfile;
   onSaved: () => void;
+  /** Render only these group names (plus EDUCATION_ROWS for the degree rows). All by default. */
+  only?: string[];
+  /** Drop the panel header, for use inside a stepper step. */
+  bare?: boolean;
+  /** Filled with a save-if-dirty function; resolves false when saving failed. */
+  saveRef?: MutableRefObject<(() => Promise<boolean>) | null>;
 }) {
+  const shows = (name: string) => !only || only.includes(name);
   const initial = useMemo(() => {
     const seed: Record<string, string> = {};
     for (const key of ALL_KEYS) {
@@ -278,10 +296,10 @@ export function ProfileApplicationDetailsForm({
   // until there is a profile to merge into.
   const profileLoaded = Object.keys(profile || {}).length > 0;
 
-  const save = async () => {
+  const save = async (): Promise<boolean> => {
     if (!profileLoaded) {
       setNote("Still loading your profile — try again in a moment.");
-      return;
+      return false;
     }
     setSaving(true);
     setNote(null);
@@ -322,15 +340,24 @@ export function ProfileApplicationDetailsForm({
       await postJson("/profile", { profile: next });
       setNote("Saved. New applications will use these values.");
       onSaved();
+      return true;
     } catch (error) {
       setNote(error instanceof Error ? error.message : "Could not save");
+      return false;
     } finally {
       setSaving(false);
     }
   };
 
+  if (saveRef) saveRef.current = () => (dirty ? save() : Promise.resolve(true));
+
   return (
-    <section className="workflow-panel dashboard-panel--wide" id="application-details" aria-label="Application details">
+    <section
+      className={bare ? undefined : "workflow-panel dashboard-panel--wide"}
+      id={bare ? undefined : "application-details"}
+      aria-label="Application details"
+    >
+      {bare ? null : (
       <div className="dashboard-panel-header">
         <div>
           <span className="toc-card-kicker">Used by Autopilot</span>
@@ -341,8 +368,10 @@ export function ProfileApplicationDetailsForm({
           </p>
         </div>
       </div>
+      )}
 
-      <div style={{ marginTop: "1.25rem" }}>
+      {shows(EDUCATION_ROWS) ? (
+      <div style={{ marginTop: bare ? 0 : "1.25rem" }}>
         <h3 style={{ margin: 0, fontSize: "0.95rem" }}>Education</h3>
         <p className="muted" style={{ margin: "0.25rem 0 0.75rem" }}>
           Most recent degree first. Forms ask for the undergraduate degree as often as the
@@ -411,8 +440,9 @@ export function ProfileApplicationDetailsForm({
           Add a degree
         </button>
       </div>
+      ) : null}
 
-      {GROUPS.map((group) => (
+      {GROUPS.filter((group) => shows(group.group)).map((group) => (
         <div key={group.group} style={{ marginTop: "1.25rem" }}>
           <h3 style={{ margin: 0, fontSize: "0.95rem" }}>{group.group}</h3>
           <p className="muted" style={{ margin: "0.25rem 0 0.75rem" }}>{group.blurb}</p>

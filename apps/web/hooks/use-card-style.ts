@@ -3,9 +3,10 @@
 import { useCallback, useSyncExternalStore } from "react";
 
 /**
- * Card look, chosen by the viewer. "lab" is the flip card and the default;
- * "classic" is the original flat tile, kept as a fallback. Lab is ported from the
- * Orchestrator Analytics Lab. Stored per browser, so it is a convenience only.
+ * Look chosen by the viewer. "lab" (the default) is the matte material app-wide,
+ * slide-panel KPI cards and the combined Autopilot layout; "classic" is the
+ * original glass look and flat tiles, kept as a fallback. Stored per browser,
+ * so it is a convenience only. MaterialSync mirrors it onto <html>.
  */
 export type CardStyle = "classic" | "lab";
 

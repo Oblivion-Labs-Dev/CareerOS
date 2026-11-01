@@ -48,11 +48,15 @@
 .card[data-status=applying] { --state: var(--ai); }
 .card[data-status=review],
 .card[data-status=manual] { --state: var(--warning); }
-.card[data-status=rejected],
 .card[data-status=failed] { --state: var(--danger); }
 .card[data-status=submitted] { --state: var(--success); }
+/* Violet, matching the Lab tags and the details panel for these statuses. */
 .card[data-status=skipped],
-.card[data-status=ineligible] { --state: var(--muted); }
+.card[data-status=ineligible],
+.card[data-status=rejected] { --state: #b896ff; }
+:global([data-theme="light"]) .card[data-status=skipped],
+:global([data-theme="light"]) .card[data-status=ineligible],
+:global([data-theme="light"]) .card[data-status=rejected] { --state: #6a3fd0; }
 .card[data-captcha="true"] { --state: #f59e0b; }
 
 .reasonTag {

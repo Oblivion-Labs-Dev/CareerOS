@@ -19,7 +19,14 @@ async function request(path = "", body?: unknown, method = "GET") {
     const detail = await response.json().catch(() => null);
     throw new Error(typeof detail?.detail === "string" ? detail.detail : "Progress could not be saved. Please try again.");
   }
-  return response.json() as Promise<Progress>;
+  const next = await response.json();
+  // A partial body used to be accepted as-is, and the first `records.x` read
+  // crashed the whole page it sits on (Applications included). Reject it here
+  // so it surfaces as the provider's error instead.
+  if (!next || typeof next.records !== "object" || !next.records || !Array.isArray(next.milestones)) {
+    throw new Error("Career progress came back incomplete.");
+  }
+  return next as Progress;
 }
 
 export function ProgressProvider({children}: {children: ReactNode}) {

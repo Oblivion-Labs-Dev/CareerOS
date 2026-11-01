@@ -7,10 +7,8 @@ import {
   addMemoryNote,
   deleteMemoryNote,
   getPortfolioSettings,
-  listJobBoards,
   listMemoryNotes,
   savePortfolioSettings,
-  type JobBoard,
   type MemoryNote,
   type PortfolioSettings,
 } from "@/lib/settings-api";
@@ -29,8 +27,6 @@ export default function SettingsPage() {
   const [portfolioError, setPortfolioError] = useState<string | null>(null);
   const [portfolioLoaded, setPortfolioLoaded] = useState(false);
 
-  const [jobBoards, setJobBoards] = useState<JobBoard[]>([]);
-
   const [blacklist, setBlacklist] = useState<BlacklistedCompany[]>([]);
   const [blacklistCompanyDraft, setBlacklistCompanyDraft] = useState("");
   const [blacklistReasonDraft, setBlacklistReasonDraft] = useState("");
@@ -38,17 +34,28 @@ export default function SettingsPage() {
   const [blacklistError, setBlacklistError] = useState<string | null>(null);
 
   useEffect(() => {
-    void listMemoryNotes().then(setNotes).catch(() => setNotes([]));
+    void listMemoryNotes()
+      .then(setNotes)
+      .catch((err) => {
+        console.warn("[settings] memory notes failed to load", err);
+        setNotesError("Could not load saved preferences.");
+      });
     void getPortfolioSettings()
       .then((cfg) => {
         setPortfolio(cfg);
         setPortfolioLoaded(true);
       })
-      .catch(() => setPortfolioLoaded(true));
-    void listJobBoards().then(setJobBoards).catch(() => setJobBoards([]));
+      .catch((err) => {
+        console.warn("[settings] portfolio settings failed to load", err);
+        setPortfolioError("Could not load portfolio settings.");
+        setPortfolioLoaded(true);
+      });
     void getSettings()
       .then((res) => setBlacklist(Array.isArray(res.settings?.companyBlacklist) ? res.settings.companyBlacklist : []))
-      .catch(() => setBlacklist([]));
+      .catch((err) => {
+        console.warn("[settings] company blacklist failed to load", err);
+        setBlacklistError("Could not load blocked companies.");
+      });
   }, []);
 
   async function handleAddBlacklistedCompany() {
@@ -125,29 +132,11 @@ export default function SettingsPage() {
   return (
     <WorkflowPage
       title="Settings"
-      eyebrow="Make it yours"
-      subtitle="A workspace that works your way. Fine-tune your preferences, connected tools, and the details CareerOS remembers."
-      primaryAction={{ href: "/profile", label: "Review profile" }}
-      secondaryAction={{ href: "/roadmap", label: "View roadmap" }}
-      outcomes={[
-        "Keep API, extension, and local workspace settings understandable.",
-        "Make privacy and data ownership controls visible before they are urgent.",
-        "Separate product preferences from application content.",
-      ]}
-      focusAreas={[
-        {
-          title: "Sync",
-          description: "Connection status between web, API, and ApplyPilot.",
-        },
-        {
-          title: "Privacy",
-          description: "Export, delete, retention, and local-first controls.",
-        },
-        {
-          title: "Defaults",
-          description: "Workspace preferences, application behavior, and notification rhythm.",
-        },
-      ]}
+      eyebrow="Settings"
+      subtitle="What the assistant remembers, companies Autopilot skips, and your public portfolio."
+      primaryAction={{ href: "/profile", label: "Tailoring & profile" }}
+      outcomes={[]}
+      focusAreas={[]}
     >
 
     <section className="dashboard-panel" aria-labelledby="assistant-memory">
@@ -296,20 +285,6 @@ export default function SettingsPage() {
       )}
     </section>
 
-    <section className="dashboard-panel" aria-labelledby="apply-settings-link">
-      <div className="dashboard-panel-header">
-        <div>
-          <span className="toc-card-kicker">Trust</span>
-          <h2 id="apply-settings-link">Apply settings</h2>
-          <p className="muted dashboard-panel-copy">
-            The Off / Honest / Aggressive tailoring dial and every application&apos;s review-before-submit state live on
-            your Profile, next to the resume they affect — no separate copy of this control here.
-          </p>
-        </div>
-        <Link href="/profile" className="btn-secondary btn-sm">Open Profile</Link>
-      </div>
-    </section>
-
     <section className="dashboard-panel" aria-labelledby="public-portfolio">
       <div className="dashboard-panel-header">
         <div>
@@ -365,54 +340,6 @@ export default function SettingsPage() {
       ) : (
         <p className="muted dashboard-panel-copy">Loading…</p>
       )}
-    </section>
-
-    <section className="dashboard-panel" aria-labelledby="job-boards">
-      <div className="dashboard-panel-header">
-        <div>
-          <span className="toc-card-kicker">Connect</span>
-          <h2 id="job-boards">Job boards</h2>
-          <p className="muted dashboard-panel-copy">
-            Direct job-board sync needs a data partnership we don&apos;t have yet — shown here so it&apos;s an honest
-            &quot;not yet&quot;, not a missing feature.
-          </p>
-        </div>
-      </div>
-      <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-        {jobBoards.map((board) => (
-          <div
-            key={board.id}
-            style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              padding: "10px 12px",
-              background: "var(--card)",
-              border: "1px solid var(--border)",
-              borderRadius: "var(--radius-sm, 10px)",
-            }}
-          >
-            <span style={{ color: "var(--text)" }}>{board.name}</span>
-            <span
-              title="Coming soon — needs a data partnership we don't have yet"
-              style={{ color: "var(--text-secondary)", fontSize: "var(--cos-text-xs, 0.72rem)" }}
-            >
-              Coming soon
-            </span>
-          </div>
-        ))}
-      </div>
-    </section>
-
-    <section className="dashboard-panel" aria-labelledby="referrals-link">
-      <div className="dashboard-panel-header">
-        <div>
-          <span className="toc-card-kicker">Connect</span>
-          <h2 id="referrals-link">Referrals</h2>
-          <p className="muted dashboard-panel-copy">Warm-contact tracking and referral asks live on their own page.</p>
-        </div>
-        <Link href="/referrals" className="btn-secondary btn-sm">Open Referrals</Link>
-      </div>
     </section>
     </WorkflowPage>
   );

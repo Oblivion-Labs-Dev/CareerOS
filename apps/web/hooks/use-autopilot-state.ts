@@ -8,7 +8,7 @@ import { getAutopilotEventSource, getAutopilotStatus } from "@/lib/application-a
  *
  * Everything here comes straight off the backend's /autopilot/status payload —
  * no derived "operational" claims are invented client-side. When the backend
- * can't tell us something (no active job, no self-healing history), callers get
+ * can't tell us something (no active job), callers get
  * null/empty and are expected to render an honest empty state rather than a
  * placeholder number.
  */
@@ -42,23 +42,12 @@ export type AutopilotCumulative = {
   queueRemaining: number;
 };
 
-export type SelfHealingState = {
-  status: string;
-  currentRound: number;
-  maxRounds: number;
-  lastPatchSummary: string;
-  patchesApplied: number;
-  lastError?: string;
-  patchHistory?: any[];
-};
-
 export type ConcurrencyMetrics = {
   activeWorkers: number;
   totalWorkers: number;
   avgJobTimeSec: number;
   throughputPerMin: number;
   lockContentionCount: number;
-  selfHealingRoundsCompleted: number;
   totalJobsStarted: number;
   totalJobsFinished: number;
 };
@@ -69,7 +58,6 @@ export type AutopilotBatchConfig = {
   batchSize: number;
   minMatchScore: number;
   tierGuardrails: boolean;
-  selfHealing: boolean;
   aiModel: string;
   tailoringMode: string;
 };
@@ -86,7 +74,6 @@ export type AutopilotState = {
   workers: AutopilotWorker[];
   concurrency: number;
   concurrencyMetrics: ConcurrencyMetrics | null;
-  selfHealing: SelfHealingState | null;
   batchConfig: AutopilotBatchConfig | null;
 };
 
@@ -96,7 +83,6 @@ export type OperationalState = "running" | "recovering" | "paused" | "completed"
 export function resolveOperationalState(state: AutopilotState | null, connectionError: boolean): OperationalState {
   if (connectionError) return "error";
   if (!state) return "unknown";
-  if (["analyzing", "patching", "requeuing"].includes(state.selfHealing?.status || "")) return "recovering";
   const raw = (state.status || "").toUpperCase();
   if (raw === "RUNNING") return "running";
   if (raw === "RECOVERING") return "recovering";
@@ -108,7 +94,7 @@ export function resolveOperationalState(state: AutopilotState | null, connection
 
 export const OPERATIONAL_LABELS: Record<OperationalState, { label: string; detail: string }> = {
   running: { label: "Running", detail: "Applying to jobs" },
-  recovering: { label: "Recovering", detail: "Repairing an automation issue" },
+  recovering: { label: "Recovering", detail: "Resuming after a stalled worker heartbeat" },
   paused: { label: "Paused", detail: "Autopilot is paused" },
   completed: { label: "Idle", detail: "Batch complete — nothing queued to run" },
   stopped: { label: "Stopped", detail: "Not currently applying" },

@@ -75,5 +75,12 @@ export function useCountUp(target: number | null, options: CountUpOptions = {}):
     };
   }, [target, durationMs, delayMs, decimals]);
 
+  if (target === null) return null;
+  // The render where a figure first arrives runs before the effect resets the
+  // state, so `value` is still null. Start the climb at 0 there instead of
+  // flashing the final number for a frame.
+  if (value === null) {
+    return prefersReducedMotion() || document.documentElement.dataset.motion === "paused" ? target : 0;
+  }
   return value;
 }

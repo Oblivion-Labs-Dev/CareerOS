@@ -22,8 +22,6 @@ export type PublicPortfolio = {
   experience: { company: string; title: string; startDate: string; endDate: string }[];
 };
 
-export type JobBoard = { id: string; name: string; connected: boolean };
-
 export async function listMemoryNotes(): Promise<MemoryNote[]> {
   const res = await fetch(`${getClientApiBaseUrl()}/settings/memory`, { cache: "no-store" });
   if (!res.ok) throw new Error("Failed to load memory notes");
@@ -50,13 +48,6 @@ export async function getPortfolioSettings(): Promise<PortfolioSettings> {
 export async function savePortfolioSettings(patch: Partial<PortfolioSettings>): Promise<PortfolioSettings> {
   const data = await postJson<{ settings: PortfolioSettings }>("/settings/portfolio", patch, "PATCH");
   return data.settings;
-}
-
-export async function listJobBoards(): Promise<JobBoard[]> {
-  const res = await fetch(`${getClientApiBaseUrl()}/settings/job-boards`, { cache: "no-store" });
-  if (!res.ok) throw new Error("Failed to load job boards");
-  const data = (await res.json()) as { boards: JobBoard[] };
-  return data.boards ?? [];
 }
 
 export async function fetchPublicPortfolio(slug: string): Promise<PublicPortfolio | null> {

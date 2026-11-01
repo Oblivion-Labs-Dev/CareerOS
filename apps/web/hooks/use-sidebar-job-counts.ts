@@ -58,12 +58,12 @@ export function useSidebarJobCounts(pollMs = 30_000) {
     poll();
     const interval = setInterval(poll, pollMs);
     const onCountsChanged = () => void refresh();
-    window.addEventListener("qwen-prep-started", onCountsChanged);
+    window.addEventListener("prep-started", onCountsChanged);
     window.addEventListener("careeros-job-counts-changed", onCountsChanged);
     document.addEventListener("visibilitychange", poll);
     return () => {
       clearInterval(interval);
-      window.removeEventListener("qwen-prep-started", onCountsChanged);
+      window.removeEventListener("prep-started", onCountsChanged);
       window.removeEventListener("careeros-job-counts-changed", onCountsChanged);
       document.removeEventListener("visibilitychange", poll);
     };

@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useState, type CSSProperties, type ReactNode } from "react";
+import { useCountUp } from "@/hooks/use-count-up";
 import styles from "./lab-kpi-card.module.css";
 
 export type LabAccent = "blue" | "green" | "orange" | "purple" | "gold";
@@ -16,8 +17,8 @@ type LabKpiCardProps = {
   hint?: ReactNode;
   /** Optional real 0–1 ratio drawn as a thin meter (never a made-up trend). */
   meter?: number | null;
-  /** Back face: eyebrow, headline and detail derived from real data. */
-  insight: { eyebrow?: string; headline: string; detail?: string };
+  /** Slide-in panel: eyebrow, headline, detail and optional figure rows, all from real data. */
+  insight: { eyebrow?: string; headline: string; detail?: string; rows?: { label: string; value: string }[] };
   /** Optional "Read full" style link on the back face. */
   action?: { href: string; label: string };
   /** Entry stagger in ms. */
@@ -25,54 +26,60 @@ type LabKpiCardProps = {
 };
 
 /**
- * Flip KPI card ported from the Orchestrator Analytics Lab: clay digits on a
- * layered face, flipping to a single insight on hover, keyboard focus or tap.
- * Reduced motion swaps the 3D flip for a crossfade.
+ * Lab KPI card: clay digits on a matte face. On hover, keyboard focus or tap a
+ * detail panel slides in from the right inside the same card. Reduced motion
+ * swaps the slide for a crossfade.
  */
 export function LabKpiCard({ label, value, icon, accent, hint, meter, insight, action, delay = 0 }: LabKpiCardProps) {
-  const [flipped, setFlipped] = useState(false);
+  const [open, setOpen] = useState(false);
   const text = value == null ? null : String(value);
+  // Plain figures ("765", "8%") climb from zero on load; anything else renders as given.
+  const figure = text == null ? null : /^(\d+(?:\.\d+)?)(%?)$/.exec(text);
+  const decimals = figure?.[1].split(".")[1]?.length ?? 0;
+  const counted = useCountUp(figure ? Number(figure[1]) : null, { delayMs: delay + 120, decimals });
+  const shown = figure && counted != null ? `${counted.toFixed(decimals)}${figure[2]}` : text;
   const ratio = meter == null || Number.isNaN(meter) ? null : Math.max(0, Math.min(1, meter));
 
   return (
     <div
       className={styles.card}
       data-accent={accent}
-      data-flipped={flipped}
+      data-open={open}
       style={{ "--delay": `${delay}ms` } as CSSProperties}
       role="button"
       tabIndex={0}
-      aria-pressed={flipped}
-      aria-label={`${label}: ${text ?? "unknown"}. ${insight.headline}${insight.detail ? `. ${insight.detail}` : ""}`}
+      aria-expanded={open}
+      aria-label={`${label}: ${text ?? "unknown"}. ${insight.headline}${insight.detail ? `. ${insight.detail}` : ""}${insight.rows?.length ? `. ${insight.rows.map((r) => `${r.label} ${r.value}`).join(", ")}` : ""}`}
       onClick={(e) => {
         if ((e.target as HTMLElement).closest("a")) return;
-        setFlipped((f) => !f);
+        setOpen((f) => !f);
       }}
       onKeyDown={(e) => {
         if (e.target !== e.currentTarget) return;
         if (e.key === "Enter" || e.key === " ") {
           e.preventDefault();
-          setFlipped((f) => !f);
+          setOpen((f) => !f);
         } else if (e.key === "Escape") {
-          setFlipped(false);
+          setOpen(false);
         }
       }}
-      onMouseLeave={() => setFlipped(false)}
+      onMouseLeave={() => setOpen(false)}
       onBlur={(e) => {
-        // Keep the card turned while focus moves onto its own back-face link.
-        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setFlipped(false);
+        // Keep the panel open while focus moves onto its own link.
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setOpen(false);
       }}
     >
+      <div className={styles.frame}>
       <div className={`${styles.face} ${styles.front}`} aria-hidden="true">
         <div className={styles.top}>
           <span>{label}</span>
           <span className={styles.icon}>{icon}</span>
         </div>
         <span className={styles.number}>
-          {text == null ? (
+          {shown == null ? (
             <span className={styles.unknown}>—</span>
           ) : (
-            text.split("").map((ch, i) => (
+            shown.split("").map((ch, i) => (
               <span key={i} className={styles.digit} style={{ "--i": i } as CSSProperties}>
                 {ch}
               </span>
@@ -86,15 +93,26 @@ export function LabKpiCard({ label, value, icon, accent, hint, meter, insight, a
           </span>
         ) : null}
       </div>
-      <div className={`${styles.face} ${styles.back}`} aria-hidden={!flipped}>
+      <div className={`${styles.face} ${styles.back}`} aria-hidden={!open}>
         <span className={styles.eyebrow}>{insight.eyebrow ?? "Insight"}</span>
         <strong>{insight.headline}</strong>
         {insight.detail ? <small>{insight.detail}</small> : null}
+        {insight.rows?.length ? (
+          <ul className={styles.rows}>
+            {insight.rows.map((row) => (
+              <li key={row.label}>
+                <span>{row.label}</span>
+                <b>{row.value}</b>
+              </li>
+            ))}
+          </ul>
+        ) : null}
         {action ? (
-          <Link className={styles.read} href={action.href} tabIndex={flipped ? 0 : -1} onClick={(e) => e.stopPropagation()}>
+          <Link className={styles.read} href={action.href} tabIndex={open ? 0 : -1} onClick={(e) => e.stopPropagation()}>
             {action.label} →
           </Link>
         ) : null}
+      </div>
       </div>
     </div>
   );

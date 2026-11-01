@@ -361,7 +361,6 @@ export function DummyJobTestingApp() {
   const [selectedCategory, setSelectedCategory] = useState<string>("all");
   const [testResults, setTestResults] = useState<Record<string, any>>({});
   const [loadingMap, setLoadingMap] = useState<Record<string, boolean>>({});
-  const [activeModel, setActiveModel] = useState<string>("qwen2.5:3b");
   const [batchRunning, setBatchRunning] = useState<boolean>(false);
   const [userInputs, setUserInputs] = useState<Record<string, any>>({});
 
@@ -381,7 +380,6 @@ export function DummyJobTestingApp() {
           question,
           options,
           fieldId,
-          model: activeModel,
         }),
       });
       if (res.ok) {
@@ -661,20 +659,6 @@ export function DummyJobTestingApp() {
         </div>
 
         <div style={{ display: "flex", gap: "0.75rem", alignItems: "center" }}>
-          <div style={{ background: "rgba(30, 41, 59, 0.7)", border: "1px solid rgba(255, 255, 255, 0.1)", borderRadius: "8px", padding: "0.4rem 0.8rem", display: "flex", alignItems: "center", gap: "0.5rem" }}>
-            <span style={{ fontSize: "0.8rem", color: "#94a3b8" }}>Resolver Model:</span>
-            <select
-              value={activeModel}
-              onChange={(e) => setActiveModel(e.target.value)}
-              style={{ background: "transparent", color: "#f8fafc", border: "none", outline: "none", fontWeight: 600, cursor: "pointer" }}
-            >
-              <option value="qwen2.5:3b" style={{ background: "#0f172a" }}>qwen2.5:3b (Fast)</option>
-              <option value="gemma3:12b" style={{ background: "#0f172a" }}>gemma3:12b (Recommended)</option>
-              <option value="mistral-small3.2:24b" style={{ background: "#0f172a" }}>mistral-small3.2:24b (Top Acc)</option>
-              <option value="gemini-3.6-flash" style={{ background: "#0f172a" }}>gemini-3.6-flash (Cloud)</option>
-            </select>
-          </div>
-
           <button
             onClick={handleRunAllInView}
             disabled={batchRunning}

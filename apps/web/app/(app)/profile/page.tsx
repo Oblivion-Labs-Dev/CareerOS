@@ -10,9 +10,10 @@ import { ProfileExperienceSection } from "@/components/profile/profile-experienc
 import { ProfileDocumentsSection } from "@/components/profile/profile-documents-section";
 import { ResumeProfileSwitcher } from "@/components/profile/resume-profile-switcher";
 import { ResumeTailoringPanel } from "@/components/profile/resume-tailoring-panel";
-import { ResumeScannerDashboard } from "@/components/resume-scanner/resume-scanner-dashboard";
+import { ProfileStepper } from "@/components/profile/profile-stepper";
 import { OnboardingWizardModal } from "@/components/profile/onboarding-wizard-modal";
 import { WorkflowPage } from "@/components/scaffold-page";
+import { useCardStyle } from "@/hooks/use-card-style";
 import { useCareerWorkspace } from "@/hooks/use-career-workspace";
 import { getClientApiBaseUrl } from "@/lib/api";
 import { dashboardHref, discoverHref } from "@/lib/career-workspace";
@@ -141,18 +142,24 @@ function ProfileDataGrid({ profile }: { profile: ApplyPilotProfile }) {
 
 export default function ProfilePage() {
   const { snapshot, prefs, targetLabel } = useCareerWorkspace();
+  const [cardStyle] = useCardStyle();
+  const lab = cardStyle === "lab";
   const [activeResumeProfile, setActiveResumeProfile] = useState<ResumeProfile | null>(null);
   const [onboardingOpen, setOnboardingOpen] = useState(false);
   const profileUrl = `${getClientApiBaseUrl()}/profile`;
   const cached = getCachedStale<{ profile: ApplyPilotProfile | null }>(profileUrl);
   const [profile, setProfile] = useState<ApplyPilotProfile>(() => cached?.profile ?? {});
   const [loading, setLoading] = useState(() => !cached);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const reloadProfile = useCallback(() => {
     invalidateCached(profileUrl);
     void fetchCachedJson<{ profile: ApplyPilotProfile | null }>(profileUrl)
       .then((data) => setProfile(data.profile ?? {}))
-      .catch(() => setProfile({}));
+      .catch((err) => {
+        console.warn("[profile] reload failed", err);
+        setLoadError("Could not reload your profile. Values shown may be out of date.");
+      });
   }, [profileUrl]);
 
   useEffect(() => {
@@ -161,8 +168,9 @@ export default function ProfilePage() {
       .then((data) => {
         if (!cancelled) setProfile(data.profile ?? {});
       })
-      .catch(() => {
-        if (!cancelled) setProfile({});
+      .catch((err) => {
+        console.warn("[profile] load failed", err);
+        if (!cancelled) setLoadError("Could not load your profile. Check that the API is running, then refresh.");
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -202,12 +210,12 @@ export default function ProfilePage() {
         outcomes={[
           "Upload your default resume and sync contact fields into your profile.",
           "Set target role, skills, and location so Job Scraper can score matches.",
-          "Scan your resume with Qwen to extract accomplishments and check job fit.",
+          "Keep application answers complete so Autopilot never has to guess.",
         ]}
         focusAreas={[
           {
             title: "Resume & documents",
-            description: "Upload a default resume for matching, autofill, and Qwen-powered scan.",
+            description: "Upload a default resume for matching and autofill.",
           },
           {
             title: "Job Scraper link",
@@ -220,6 +228,25 @@ export default function ProfilePage() {
         ]}
       >
         <CareerWorkspaceStrip active="profile" />
+
+        {loadError ? (
+          <p className="workflow-panel" role="alert" style={{ color: "var(--risk, #d9655a)" }}>
+            {loadError}
+          </p>
+        ) : null}
+
+        {lab ? (
+          loading ? (
+            <p className="muted dashboard-empty" role="status">
+              Loading profile…
+            </p>
+          ) : (
+            <Suspense fallback={<p className="muted dashboard-empty">Loading profile…</p>}>
+              <ProfileStepper profile={profile as ApplyPilotProfile & Record<string, unknown>} onSaved={reloadProfile} />
+            </Suspense>
+          )
+        ) : (
+        <>
 
         <section className="workflow-panel" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "1rem", flexWrap: "wrap", border: "1px solid var(--accent, #38bdf8)" }}>
           <div style={{ maxWidth: "700px" }}>
@@ -290,22 +317,6 @@ export default function ProfilePage() {
 
             <ResumeTailoringPanel profileId={activeResumeProfile?.id ?? null} />
 
-            <section className="workflow-panel dashboard-panel--wide profile-resume-scanner-section" id="resume" aria-label="Resume scanner">
-              <div className="dashboard-panel-header">
-                <div>
-                  <span className="toc-card-kicker">Resume intelligence</span>
-                  <h2>Scan, match, and improve</h2>
-                  <p className="muted" style={{ marginTop: "0.35rem" }}>
-                    Qwen extracts skills and accomplishments from your resume, analyzes job fit, and builds your knowledge graph.
-                  </p>
-                </div>
-              </div>
-              <ResumeScannerDashboard
-                embedded
-                profileName={String(profile.fullName || profile.firstName || "").trim()}
-              />
-            </section>
-
             <section className="workflow-panel dashboard-panel--wide" id="corpus" aria-label="Experience corpus">
               <div className="dashboard-panel-header">
                 <div>
@@ -360,6 +371,8 @@ export default function ProfilePage() {
               </article>
             </section>
           </>
+        )}
+        </>
         )}
       </WorkflowPage>
 

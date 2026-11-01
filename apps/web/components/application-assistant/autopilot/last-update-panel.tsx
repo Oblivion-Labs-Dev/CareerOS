@@ -89,6 +89,8 @@ export function LastUpdatePanel({
     (lastRun?.ineligibleCount || 0);
   const needsReviewCount = Math.max(0, (lastRun?.processedCount || 0) - accountedFor);
 
+  const showActivity = !isLive && Boolean(lastActivity);
+
   return (
     <aside className={styles.panel} aria-label="Recent Activity">
       <div className={styles.head}>
@@ -139,11 +141,13 @@ export function LastUpdatePanel({
             )}
           </ul>
         </div>
-      ) : (
-        <p className={styles.empty}>Nothing has run yet.</p>
+      ) : showActivity ? null : (
+        // Only claim nothing has happened when nothing else on this panel says
+        // otherwise: a single application can fail or send outside a batch run.
+        <p className={styles.empty}>{isLive ? "First run in progress." : "Nothing has run yet."}</p>
       )}
 
-      {!isLive && lastActivity && (
+      {showActivity && lastActivity && (
         <div className={styles.activity}>
           <span className={styles.badge} data-kind={view?.key}>
             {view?.label}

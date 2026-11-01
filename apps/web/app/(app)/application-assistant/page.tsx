@@ -1,20 +1,7 @@
 import { Suspense } from "react";
 
-import nextDynamic from "next/dynamic";
-
 import { PageTitleWithStatus } from "@/components/page-title-with-status";
 import { ApplicationAssistantDashboard } from "@/components/application-assistant/application-assistant-dashboard";
-import { ModelBenchmarkSelector } from "@/components/ui/model-benchmark-selector";
-
-
-
-const QwenAgentPanel = nextDynamic(
-
-  () => import("@/components/qwen/qwen-agent-panel").then((mod) => mod.QwenAgentPanel),
-
-  { loading: () => <p className="muted">Loading Qwen agent…</p> },
-
-);
 
 
 
@@ -44,18 +31,12 @@ export default function ApplicationAssistantPage() {
 
       <header className="cos-page-header aa-page-header">
 
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", flexWrap: "wrap", gap: "1rem" }}>
-          <div className="stack gap-xs">
-            <span className="toc-eyebrow">Intelligence Layer</span>
-            <PageTitleWithStatus>AI Assistant</PageTitleWithStatus>
-            <p className="muted">
-              Prep applications in a visible browser and track what still needs your input.
-            </p>
-          </div>
-
-          <div style={{ marginBottom: "0.5rem" }}>
-            <ModelBenchmarkSelector />
-          </div>
+        <div className="stack gap-xs">
+          <span className="toc-eyebrow">Intelligence Layer</span>
+          <PageTitleWithStatus>AI Assistant</PageTitleWithStatus>
+          <p className="muted">
+            Prep applications in a visible browser and track what still needs your input.
+          </p>
         </div>
       </header>
 
@@ -64,8 +45,6 @@ export default function ApplicationAssistantPage() {
         <ApplicationAssistantDashboard />
 
       </Suspense>
-
-      <QwenAgentPanel />
 
     </div>
 

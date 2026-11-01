@@ -2,7 +2,6 @@
 
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { QwenLiveFloat, type LiveLogLine } from "@/components/qwen/qwen-live-float";
 import { usePrepQueueStatus } from "@/hooks/use-prep-queue-status";
 import { ApplicationQueueCard } from "@/components/application-assistant/application-queue-card";
 import {
@@ -248,7 +247,7 @@ ref,
       onClose={() => setWizardOpen(false)}
       layout="panel"
       loading={wizardLoading || loading}
-      loadingMessage={app.aiAnalyzed || wizardData ? "Loading saved questions…" : "Checking your profile with Qwen…"}
+      loadingMessage={app.aiAnalyzed || wizardData ? "Loading saved questions…" : "Checking your profile…"}
       appId={app.id}
       companyName={app.companyName}
       roleTitle={app.roleTitle}
@@ -377,7 +376,7 @@ ref,
   if (loading) {
     return (
       <div className="aa-profile-gate-banner" role="status">
-        Qwen is interpreting and deduplicating questions across {applicationCount} applications…
+        Interpreting and deduplicating questions across {applicationCount} applications…
       </div>
     );
   }
@@ -454,7 +453,7 @@ function PrepReportPanel({ app, embedded = false }: PrepReportProps & { embedded
   const body = (
     <div className="aa-prep-report-body">
       <p className="muted aa-prep-report-hint">
-        Complete the application in the browser window — this panel only shows what Qwen could not fill or parse.
+        Complete the application in the browser window — this panel only shows what prep could not fill or parse.
       </p>
       {(prepLog || app.missingCount > 0) && (
         <div className="aa-prep-log-summary">
@@ -580,12 +579,6 @@ function ReviewStatusBanner({
         )}
       </div>
     </div>
-  );
-}
-
-function dispatchQwenContext(appId: string, company?: string, role?: string) {
-  window.dispatchEvent(
-    new CustomEvent("qwen-app-context", { detail: { applicationId: appId, companyName: company, roleTitle: role } }),
   );
 }
 
@@ -732,8 +725,6 @@ export function ApplicationAssistantDashboard() {
   const [wizardDataByApp, setWizardDataByApp] = useState<Record<string, AppWizardData>>({});
   const [wizardOpenAppId, setWizardOpenAppId] = useState<string | null>(null);
   const [wizardLoadingAppId, setWizardLoadingAppId] = useState<string | null>(null);
-  const [liveFloatLines, setLiveFloatLines] = useState<LiveLogLine[]>([]);
-  const [liveFloatHold, setLiveFloatHold] = useState(false);
   const [missingOverview, setMissingOverview] = useState<{
     open: boolean;
     loading: boolean;
@@ -749,20 +740,6 @@ export function ApplicationAssistantDashboard() {
     singleApp: null,
     rawOccurrenceCount: 0,
   });
-
-  const pushLiveFloat = useCallback((summary: string, type = "analyze_progress") => {
-    setLiveFloatLines((prev) => [
-      ...prev,
-      {
-        id: `local_${Date.now()}_${prev.length}`,
-        timestamp: new Date().toISOString(),
-        type,
-        summary,
-        success: true,
-        local: true,
-      },
-    ]);
-  }, []);
 
   const markOpeningStarted = useCallback((appId: string, session?: ReviewSessionStatus) => {
     if (!openingStartedAtRef.current[appId]) {
@@ -1030,8 +1007,8 @@ export function ApplicationAssistantDashboard() {
     const onPrepStarted = () => {
       void refreshAll();
     };
-    window.addEventListener("qwen-prep-started", onPrepStarted);
-    return () => window.removeEventListener("qwen-prep-started", onPrepStarted);
+    window.addEventListener("prep-started", onPrepStarted);
+    return () => window.removeEventListener("prep-started", onPrepStarted);
   }, [refreshAll]);
 
   useEffect(() => {
@@ -1263,10 +1240,10 @@ export function ApplicationAssistantDashboard() {
             });
             delete prepStartedAtRef.current[appId];
             if (status.run?.success) {
-              setMessage(`Qwen completed: ${status.run.verifiedCount ?? 0} verified fields filled.`);
+              setMessage(`Prep completed: ${status.run.verifiedCount ?? 0} verified fields filled.`);
               void prefetchWizardQuestions(appId);
             } else {
-              setError(status.run?.analysis || status.run?.stoppedReason || "Qwen could not complete prep — see chat below.");
+              setError(status.run?.analysis || status.run?.stoppedReason || "Prep could not complete.");
             }
           }
         } catch {
@@ -1282,7 +1259,7 @@ export function ApplicationAssistantDashboard() {
     return () => clearInterval(interval);
   }, [activePrepIds, loadApplications, loadStats, refreshPrepQueue, prefetchWizardQuestions]);
 
-  function startQwenPrep(opts: { appId: string; company?: string; role?: string; force?: boolean }) {
+  function startPrep(opts: { appId: string; company?: string; role?: string; force?: boolean }) {
     setError("");
     setMessage("");
 
@@ -1308,7 +1285,7 @@ export function ApplicationAssistantDashboard() {
 
     prepStartedAtRef.current[key] = Date.now();
     setPreparing((prev) => new Set(prev).add(key));
-    window.dispatchEvent(new CustomEvent("qwen-prep-started"));
+    window.dispatchEvent(new CustomEvent("prep-started"));
 
     void (async () => {
       try {
@@ -1316,13 +1293,12 @@ export function ApplicationAssistantDashboard() {
 
         const nextAppId = started.applicationId;
         setActivePrepIds((prev) => new Set(prev).add(nextAppId));
-        dispatchQwenContext(nextAppId, opts.company, opts.role);
         void refreshPrepQueue();
         const queue = started.queue;
         setMessage(
           queue
             ? `Queued prep for ${opts.company || "this application"} (${queue.running} running, ${queue.waiting} waiting).`
-            : `Qwen is preparing ${opts.company || "this application"} — watch the preparing animation on the card.`,
+            : `Preparing ${opts.company || "this application"} — watch the preparing animation on the card.`,
         );
         setHighlightAppId(nextAppId);
         loadApplications();
@@ -1331,7 +1307,7 @@ export function ApplicationAssistantDashboard() {
           document.getElementById(`aa-app-${nextAppId}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
         }, 300);
       } catch (e) {
-        setError(e instanceof Error ? e.message : "Failed to start Qwen prep");
+        setError(e instanceof Error ? e.message : "Failed to start prep");
       } finally {
         setPreparing((prev) => {
           const next = new Set(prev);
@@ -1362,7 +1338,7 @@ export function ApplicationAssistantDashboard() {
   }, [focusAppId, bootstrapping]);
 
   async function handleResume(app: Application) {
-    startQwenPrep({ appId: app.id, company: app.companyName, role: app.roleTitle, force: true });
+    startPrep({ appId: app.id, company: app.companyName, role: app.roleTitle, force: true });
   }
 
   async function handleFocusBrowser(appId: string, app?: Application) {
@@ -1414,7 +1390,7 @@ export function ApplicationAssistantDashboard() {
     setMessage(
       hasReplayPlan
         ? "Quick apply — opening Chrome with saved Playwright steps…"
-        : "Start prep — Playwright is mapping fields with Qwen…",
+        : "Start prep — Playwright is mapping fields…",
     );
     setReviewSessions((prev) => ({
       ...prev,
@@ -1426,8 +1402,6 @@ export function ApplicationAssistantDashboard() {
         updatedAt: Date.now(),
       },
     }));
-    dispatchQwenContext(appId, app?.companyName, app?.roleTitle);
-    pushLiveFloat(hasReplayPlan ? "Quick apply — replaying saved steps…" : "Launching browser and filling saved fields…", "review_open_start");
     let opened: Awaited<ReturnType<typeof openApplicationReview>>;
     try {
       opened = await openApplicationReview(appId, { force: false });
@@ -1474,7 +1448,7 @@ export function ApplicationAssistantDashboard() {
       }
 
       if (opened.status === "preparing" || opened.status === "busy") {
-        setError(opened.message || "This application is still being prepared — wait for Qwen to finish.");
+        setError(opened.message || "This application is still being prepared — wait for prep to finish.");
         setReviewSessions((prev) => ({
           ...prev,
           [appId]: {
@@ -1699,7 +1673,6 @@ export function ApplicationAssistantDashboard() {
     setError("");
 
     try {
-      pushLiveFloat("Qwen is checking missing questions against your profile…", "analyze_progress");
       const res = await getAggregatePendingFields(targetIds.length ? targetIds : undefined, { useAi: true });
       const data = applyPendingApiResponse(res);
       setMissingOverview({
@@ -1717,7 +1690,7 @@ export function ApplicationAssistantDashboard() {
       setMissingOverview((prev) => ({ ...prev, open: false, loading: false }));
       setError(err instanceof Error ? err.message : "Could not load missing questions");
     }
-  }, [appsWithMissingFields, applications, pushLiveFloat, stats?.fieldTotals?.missing]);
+  }, [appsWithMissingFields, applications, stats?.fieldTotals?.missing]);
 
   const closeMissingOverview = useCallback(() => {
     setMissingOverview({
@@ -1730,39 +1703,10 @@ export function ApplicationAssistantDashboard() {
     });
   }, []);
 
-  const firstActivePrepId = activePrepIds.size ? [...activePrepIds][0] : undefined;
-  const liveFloatOpen = Boolean(activePrepIds.size || openingReview || liveFloatHold);
-  const liveFloatApp = firstActivePrepId
-    ? applications.find((a) => a.id === firstActivePrepId)
-    : openingReview
-      ? applications.find((a) => a.id === openingReview)
-      : undefined;
-  const liveFloatTitle = openingReview && liveFloatApp
-    ? `Opening · ${liveFloatApp.companyName}`
-    : liveFloatApp
-      ? `Qwen · ${liveFloatApp.companyName}`
-      : "Qwen · working";
-  const liveFloatElapsed = openingReview
-    ? getOpeningElapsed(openingReview, reviewSessions[openingReview])
-    : firstActivePrepId
-      ? getPrepElapsed(firstActivePrepId)
-      : 0;
   void openingTick;
 
   return (
     <div className="aa-dashboard">
-      <QwenLiveFloat
-        open={liveFloatOpen}
-        title={liveFloatTitle}
-        subtitle={
-          openingReview
-            ? "Launching Chromium and filling saved answers — check for a browser window"
-            : liveFloatApp?.roleTitle
-        }
-        applicationId={firstActivePrepId ?? openingReview ?? undefined}
-        elapsedSec={liveFloatElapsed}
-        localLines={liveFloatLines}
-      />
       {bootstrapping && (
         <div className="aa-bootstrapping" role="status" aria-label="Loading applications">
           <span className="page-loading-bar" />
@@ -1812,7 +1756,7 @@ export function ApplicationAssistantDashboard() {
             </header>
             <div className="aa-wizard-body aa-wizard-body--loading">
               <span className="aa-wizard-loading-spinner" aria-hidden />
-              <p><strong>Checking your profile with Qwen…</strong></p>
+              <p><strong>Checking your profile…</strong></p>
               <p className="muted">Collecting answers needed across your applications.</p>
             </div>
           </div>
@@ -2094,7 +2038,7 @@ export function ApplicationAssistantDashboard() {
               void loadApplications();
               void loadStats();
               if (reprepStarted) {
-                setMessage("Answers saved — Qwen is re-running prep on ready applications.");
+                setMessage("Answers saved — re-running prep on ready applications.");
               } else {
                 setMessage("Unified answers saved across your applications.");
               }
@@ -2251,7 +2195,7 @@ export function ApplicationAssistantDashboard() {
                         setWizardOpenAppId(null);
                         if (reprepStarted) {
                           setActivePrepIds((prev) => new Set(prev).add(app.id));
-                          setMessage("Profile complete — Qwen is re-running prep with your saved answers.");
+                          setMessage("Profile complete — re-running prep with your saved answers.");
                         } else if (ready) {
                           setMessage("All profile questions saved — you can open the browser.");
                           handlePendingChange(app.id, 0, true, false, true);

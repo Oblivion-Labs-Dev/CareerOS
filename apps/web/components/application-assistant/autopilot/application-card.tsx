@@ -7,7 +7,7 @@ import styles from "./application-card.module.css";
 import { useCardStyle } from "@/hooks/use-card-style";
 import { LabApplicationCard } from "./lab-application-card";
 
-type CardProps = {
+export type CardProps = {
   detailed?: boolean; job: AutopilotJobRow; busy: string | null; onDetails: () => void; onApply: () => void;
   onAssistedFill?: () => void; onRetry?: () => void;
 };
@@ -22,14 +22,13 @@ export function ApplicationCard(props: CardProps) {
         reason={cardReason(props.job)}
         detailed={props.detailed ?? false}
         onDetails={props.onDetails}
-        actions={<CardActions {...props} />}
       />
     );
   }
   return <ClassicApplicationCard {...props} />;
 }
 
-function cardReason(job: AutopilotJobRow): string | null {
+export function cardReason(job: AutopilotJobRow): string | null {
   return job.status === "INELIGIBLE"
     ? INELIGIBILITY_LABELS[String(job.ineligibilityReason)] || job.ineligibilityDetail || "Cannot be applied to"
     : job.status === "REJECTED"
@@ -120,7 +119,7 @@ function ClassicApplicationCard({ job, busy, onDetails, onApply, onAssistedFill,
 }
 
 /** Apply / Autofill / Retry, shared by both card looks so they cannot drift. */
-function CardActions({ job, busy, onApply, onAssistedFill, onRetry }: Pick<CardProps, "job" | "busy" | "onApply" | "onAssistedFill" | "onRetry">) {
+export function CardActions({ job, busy, onApply, onAssistedFill, onRetry }: Pick<CardProps, "job" | "busy" | "onApply" | "onAssistedFill" | "onRetry">) {
   const canApply = job.status === "QUEUED" || (job.status === "SKIPPED" && job.skipReason?.startsWith("Match score stayed below"));
   // Every bucket the user finishes by hand gets the same offer. Assisted fill
   // was restricted to MANUAL_REVIEW, so a Failed or Review application the user

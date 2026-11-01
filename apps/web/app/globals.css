@@ -5976,131 +5976,6 @@ a {
 
 /* ─── Qwen Agent Panel ─── */
 
-.qwen-agent-panel {
-  display: flex;
-  flex-direction: column;
-  gap: 1.25rem;
-  padding: 1.25rem;
-  border-radius: var(--radius-lg);
-  border: 1px solid var(--border);
-  background: var(--card);
-}
-
-.qwen-agent-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 1rem;
-  flex-wrap: wrap;
-}
-
-.qwen-agent-header h2 {
-  font-size: 1.15rem;
-  font-weight: 600;
-  margin-top: 0.25rem;
-}
-
-.qwen-status-badge {
-  display: flex;
-  align-items: center;
-  gap: 0.45rem;
-  font-size: 0.85rem;
-  padding: 0.35rem 0.75rem;
-  border-radius: var(--radius-full);
-  border: 1px solid var(--border);
-  background: var(--bg-elevated);
-}
-
-.qwen-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: #9ca3af;
-}
-
-.qwen-dot--online {
-  background: #22c55e;
-  box-shadow: 0 0 6px rgba(34, 197, 94, 0.6);
-}
-
-.qwen-dot--offline {
-  background: #ef4444;
-}
-
-.qwen-metrics-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-  gap: 0.75rem;
-}
-
-.qwen-metric-card {
-  padding: 0.85rem 1rem;
-  border-radius: var(--radius-md);
-  border: 1px solid var(--border);
-  background: var(--bg-elevated);
-}
-
-.qwen-metric-card span {
-  display: block;
-  font-size: 0.78rem;
-  color: var(--text-muted);
-  margin-bottom: 0.25rem;
-}
-
-.qwen-metric-card strong {
-  font-size: 1.1rem;
-}
-
-.qwen-metric-card p {
-  font-size: 0.78rem;
-  color: var(--text-muted);
-  margin-top: 0.25rem;
-}
-
-.qwen-agent-body {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 1rem;
-}
-
-@media (max-width: 960px) {
-  .qwen-agent-body {
-    grid-template-columns: 1fr;
-  }
-}
-
-.qwen-logs-panel,
-.qwen-chat-panel {
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
-  padding: 1rem;
-  border-radius: var(--radius-md);
-  border: 1px solid var(--border);
-  background: var(--bg-elevated);
-  min-height: 320px;
-}
-
-.qwen-panel-toolbar {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  flex-wrap: wrap;
-}
-
-.qwen-panel-toolbar h3,
-.qwen-chat-panel h3 {
-  font-size: 0.95rem;
-  font-weight: 600;
-  margin-right: auto;
-}
-
-.qwen-quick-prompts {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-}
-
 .qwen-live-badge {
   display: inline-flex;
   align-items: center;
@@ -6118,162 +5993,6 @@ a {
 @keyframes qwen-live-pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.65; }
-}
-
-.qwen-log-type--prep_step,
-.qwen-log-type--agent_prep_start {
-  color: var(--accent, #22d3ee);
-}
-
-.qwen-log-type--agent_prep_complete {
-  color: #22c55e;
-}
-
-.qwen-log-type--agent_prep_failed,
-.qwen-log-type--prep_error {
-  color: #ef4444;
-}
-
-.qwen-logs-list {
-  max-height: 420px;
-  overflow-y: auto;
-}
-
-.qwen-logs-list {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-  max-height: 280px;
-  overflow-y: auto;
-}
-
-.qwen-log-item {
-  padding: 0.6rem 0.75rem;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--border);
-  background: var(--card);
-}
-
-.qwen-log-item--error {
-  border-color: rgba(239, 68, 68, 0.35);
-  background: rgba(239, 68, 68, 0.05);
-}
-
-.qwen-log-meta {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  flex-wrap: wrap;
-  font-size: 0.75rem;
-  color: var(--text-muted);
-  margin-bottom: 0.25rem;
-}
-
-.qwen-log-type {
-  padding: 0.1rem 0.45rem;
-  border-radius: var(--radius-full);
-  font-weight: 500;
-  text-transform: uppercase;
-  font-size: 0.68rem;
-  border: 1px solid var(--border);
-}
-
-.qwen-log-type--chat {
-  background: rgba(59, 130, 246, 0.1);
-  border-color: rgba(59, 130, 246, 0.3);
-}
-
-.qwen-log-type--completion {
-  background: rgba(168, 85, 247, 0.1);
-  border-color: rgba(168, 85, 247, 0.3);
-}
-
-.qwen-log-fail {
-  color: #ef4444;
-  font-weight: 600;
-}
-
-.qwen-log-summary {
-  font-size: 0.82rem;
-  line-height: 1.4;
-}
-
-.qwen-last-error {
-  font-size: 0.78rem;
-  color: #ef4444;
-}
-
-.qwen-chat-messages {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 0.65rem;
-  overflow-y: auto;
-  max-height: 280px;
-  padding-right: 0.25rem;
-}
-
-.qwen-chat-bubble {
-  padding: 0.65rem 0.85rem;
-  border-radius: var(--radius-md);
-  border: 1px solid var(--border);
-  max-width: 92%;
-}
-
-.qwen-chat-bubble--user {
-  align-self: flex-end;
-  background: rgba(59, 130, 246, 0.08);
-  border-color: rgba(59, 130, 246, 0.25);
-}
-
-.qwen-chat-bubble--assistant {
-  align-self: flex-start;
-  background: var(--card);
-}
-
-.qwen-chat-role {
-  display: block;
-  font-size: 0.72rem;
-  font-weight: 600;
-  color: var(--text-muted);
-  margin-bottom: 0.25rem;
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-}
-
-.qwen-chat-bubble p {
-  font-size: 0.88rem;
-  line-height: 1.45;
-  white-space: pre-wrap;
-}
-
-.qwen-chat-typing {
-  opacity: 0.7;
-  font-style: italic;
-}
-
-.qwen-chat-error {
-  font-size: 0.82rem;
-  color: #ef4444;
-}
-
-.qwen-chat-input-row {
-  display: flex;
-  gap: 0.5rem;
-}
-
-.qwen-chat-input-row input {
-  flex: 1;
-  padding: 0.55rem 0.75rem;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--border);
-  background: var(--card);
-  color: var(--text);
-  font-size: 0.88rem;
-}
-
-.qwen-chat-input-row input:disabled {
-  opacity: 0.6;
 }
 
 /* ─── Application Assistant live dashboard ─── */
@@ -6545,16 +6264,6 @@ a {
 .aa-review-status--failed .aa-review-status-dot,
 .aa-review-status--stuck .aa-review-status-dot {
   background: #ef4444;
-}
-
-.qwen-log-type--prep_field_report,
-.qwen-log-type--review_open_complete {
-  color: #22c55e;
-}
-
-.qwen-log-type--review_open_failed,
-.qwen-log-type--prep_error {
-  color: #ef4444;
 }
 
 .aa-prep-log {
@@ -7110,6 +6819,69 @@ body.side-panel-open .aa-wizard-panel {
   }
 }
 
+/* Flip dialog: a centred card-like window that flips up out of the card
+   that opened it (lib/flip-dialog.ts drives the motion). Two faces: the
+   cover holds a copy of that card, the face holds the content. */
+body.side-panel-open .aa-flip-dialog { pointer-events: auto; }
+
+.aa-flip-dialog {
+  position: fixed;
+  inset: 0;
+  margin: auto;
+  z-index: 10110;
+  width: min(880px, calc(100vw - 32px));
+  height: min(900px, calc(100vh - 48px));
+  border-radius: 22px;
+  transform-style: preserve-3d;
+  outline: none;
+}
+
+.aa-flip-cover,
+.aa-flip-face {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  overflow: hidden;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+}
+
+.aa-flip-cover {
+  transform: rotateY(180deg);
+  pointer-events: none;
+}
+
+.aa-flip-face {
+  border: 1px solid var(--matte-edge, var(--border));
+  background: var(--matte-face, var(--card));
+  box-shadow:
+    0 40px 90px rgba(2, 6, 18, 0.62),
+    0 0 0 1px rgba(255, 255, 255, 0.03),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+/* Content inside fills the face and scrolls on its own. */
+.aa-flip-face > * {
+  height: 100%;
+  background: transparent;
+}
+
+[data-theme="light"] .aa-flip-face {
+  box-shadow:
+    0 30px 70px rgba(74, 59, 32, 0.18),
+    0 2px 6px rgba(74, 59, 32, 0.08);
+}
+
+.aa-flip-dialog[data-state="closed"] { pointer-events: none; }
+
+@media (max-width: 600px) {
+  .aa-flip-dialog {
+    width: 100vw;
+    height: 100dvh;
+    border-radius: 0;
+  }
+}
+
 .aa-wizard-panel-inner {
   display: flex;
   flex-direction: column;
@@ -7182,11 +6954,6 @@ body.side-panel-open .aa-wizard-panel {
   font-size: 0.88rem;
 }
 
-.qwen-chat-bubble--live {
-  border-left: 3px solid #22d3ee;
-  opacity: 0.95;
-}
-
 .aa-sparkline {
   width: 100%;
   height: 36px;
@@ -7217,113 +6984,6 @@ body.side-panel-open .aa-wizard-panel {
 }
 
 /* Floating Qwen live activity box */
-.qwen-live-float {
-  position: fixed;
-  bottom: 1.25rem;
-  right: 1.25rem;
-  width: min(420px, calc(100vw - 2rem));
-  max-height: min(420px, 55vh);
-  z-index: 10050;
-  display: flex;
-  flex-direction: column;
-  border-radius: var(--radius-md, 12px);
-  background: rgba(12, 18, 28, 0.96);
-  border: 1px solid rgba(56, 189, 248, 0.35);
-  box-shadow:
-    0 12px 40px rgba(0, 0, 0, 0.55),
-    0 0 0 1px rgba(255, 255, 255, 0.04) inset;
-  backdrop-filter: blur(12px);
-  overflow: hidden;
-}
-
-.qwen-live-float-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 0.75rem;
-  padding: 0.75rem 0.9rem 0.5rem;
-}
-
-.qwen-live-float-header strong {
-  display: block;
-  font-size: 0.92rem;
-  margin-top: 0.25rem;
-}
-
-.qwen-live-float-header p {
-  margin: 0.15rem 0 0;
-  font-size: 0.78rem;
-}
-
-.qwen-live-float-elapsed {
-  font-size: 0.82rem;
-  font-variant-numeric: tabular-nums;
-  color: #7dd3fc;
-  white-space: nowrap;
-}
-
-.qwen-live-float-progress {
-  padding: 0 0.9rem 0.45rem;
-}
-
-.qwen-live-float-list {
-  flex: 1;
-  overflow-y: auto;
-  padding: 0.5rem 0.9rem 0.85rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.55rem;
-}
-
-.qwen-live-float-line {
-  padding: 0.45rem 0.55rem;
-  border-radius: var(--radius-sm);
-  background: rgba(255, 255, 255, 0.03);
-  border-left: 3px solid rgba(56, 189, 248, 0.5);
-  font-size: 0.8rem;
-  line-height: 1.4;
-}
-
-.qwen-live-float-line--local {
-  border-left-color: rgba(167, 139, 250, 0.65);
-}
-
-.qwen-live-float-line--error {
-  border-left-color: #f87171;
-}
-
-.qwen-live-float-line-meta {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.35rem;
-  margin-bottom: 0.2rem;
-}
-
-.qwen-live-float-line-meta time {
-  font-size: 0.7rem;
-  color: var(--text-muted);
-}
-
-.qwen-live-float-type {
-  font-size: 0.65rem;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  padding: 0.05rem 0.35rem;
-  border-radius: 3px;
-  background: rgba(56, 189, 248, 0.15);
-  color: #7dd3fc;
-}
-
-.qwen-live-float-line p {
-  margin: 0;
-}
-
-.qwen-live-float-error {
-  margin: 0.2rem 0 0 !important;
-  color: #f87171;
-  font-size: 0.75rem;
-}
 
 /* ─── Application Assistant — Premium refresh ─── */
 

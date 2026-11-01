@@ -12,6 +12,9 @@ import "./cos-light-mode.css";
 // Last: re-expresses the global classes the 37 pages already use in the shared
 // token language, so the whole app inherits one design language at once.
 import "./design-language.css";
+// Lab's matte material, scoped to html[data-material="matte"]; loads after
+// everything so its overrides win while Lab is chosen.
+import "./matte-material.css";
 
 const inter = Inter({
   subsets: ["latin"],
@@ -77,6 +80,13 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       className={`${inter.variable} ${outfit.variable} ${geist.variable} ${instrumentSerif.variable} ${jetbrainsMono.variable}`}
     >
       <body className={geist.className}>
+        {/* Set the material before first paint so Lab users never see a frame
+            of glass. Mirrors useCardStyle: anything but "classic" is Lab. */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `try{document.documentElement.dataset.material=localStorage.getItem("careeros.cardStyle")==="classic"?"glass":"matte"}catch(e){document.documentElement.dataset.material="matte"}`,
+          }}
+        />
         <NextTopLoader color="var(--accent)" height={2} showSpinner={false} shadow={false} crawlSpeed={120} speed={180} zIndex={2000} />
         <AppProviders>{children}</AppProviders>
       </body>

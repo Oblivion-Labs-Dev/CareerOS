@@ -1,0 +1,116 @@
+/* Matte material — the Lab look, applied app-wide.
+
+   The KPI cards on the Autopilot page introduced a matte face: a solid
+   navy gradient with a defined edge and a deep, soft shadow (warm paper in
+   light mode). Lab mode makes that the surface for every page: sidebar,
+   top bar, side panel, cards and the landing page. Glass (translucent
+   fills over backdrop blur) is replaced by solid faces.
+
+   Scoped to html[data-material="matte"], which MaterialSync sets while the
+   viewer has Lab chosen, so Classic still shows the old material untouched.
+   Loaded last so its token overrides win over the .main blocks in
+   reference-match.css. */
+
+html[data-material="matte"] {
+  --matte-from: rgb(28, 39, 64);
+  --matte-to: rgb(16, 22, 37);
+  --matte-solid: rgb(21, 29, 48);
+  --matte-raised: rgb(30, 41, 66);
+  --matte-edge: rgb(51, 65, 91);
+  --matte-shadow: 0 18px 40px rgba(0, 0, 0, 0.42), inset 0 1px 0 rgba(255, 255, 255, 0.055);
+  --matte-chrome-from: rgb(20, 28, 47);
+  --matte-chrome-to: rgb(12, 17, 29);
+  --matte-face: linear-gradient(145deg, var(--matte-from), var(--matte-to));
+  --matte-chrome: linear-gradient(180deg, var(--matte-chrome-from), var(--matte-chrome-to));
+}
+
+html[data-material="matte"][data-theme="light"] {
+  --matte-from: #fffdf8;
+  --matte-to: #f4efe4;
+  --matte-solid: #fbf8f1;
+  --matte-raised: #ffffff;
+  --matte-edge: #e2dacb;
+  --matte-shadow: 0 14px 30px rgba(74, 59, 32, 0.09), inset 0 1px 0 #ffffff;
+  --matte-chrome-from: #fbf8f1;
+  --matte-chrome-to: #f3eee3;
+}
+
+/* ── Tokens: every surface that reads --card / --surface-* becomes matte. ── */
+html[data-material="matte"] body,
+html[data-material="matte"] .main,
+html[data-material="matte"][data-theme="dark"] .main,
+html[data-material="matte"][data-theme="light"] .main {
+  --card: var(--matte-solid);
+  --card-hover: var(--matte-raised);
+  --bg-elevated: var(--matte-raised);
+  --bg-surface: var(--matte-solid);
+  --surface-1: var(--matte-solid);
+  --surface-2: var(--matte-raised);
+  --card-edge: var(--matte-edge);
+  --cos-panel: var(--matte-solid);
+  --cos-panel-strong: var(--matte-raised);
+  --shadow-card: var(--matte-shadow);
+}
+
+html[data-material="matte"][data-theme="light"] body,
+html[data-material="matte"][data-theme="light"] .main {
+  /* Paper cards need a slightly deeper page under them to stay separated. */
+  --surface-0: #efe9dd;
+  --cos-canvas: #efe9dd;
+}
+
+/* ── Chrome: solid, never see-through. ── */
+html[data-material="matte"] header.app-topbar {
+  background: var(--matte-chrome);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  border-bottom-color: var(--matte-edge);
+}
+
+html[data-material="matte"] .app-topbar-search {
+  background: var(--matte-solid);
+  border-color: var(--matte-edge);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+html[data-material="matte"] aside.sidebar {
+  background: var(--matte-chrome);
+  border-right-color: var(--matte-edge);
+}
+
+html[data-material="matte"] .aa-wizard-panel {
+  background: var(--matte-chrome);
+  border-left-color: var(--matte-edge);
+}
+
+/* ── Shared card classes: the full gradient face, not just the flat token. ── */
+html[data-material="matte"] :is(
+  .glass-card,
+  .workflow-panel,
+  .dashboard-panel,
+  .dashboard-metric-card,
+  .data-panel,
+  .aa-panel,
+  .aa-stat-card,
+  .stat-card,
+  .focus-panel,
+  .intelligence-panel,
+  .landing-feature-item,
+  .landing-cta-band,
+  .landing-stat
+) {
+  background: var(--matte-face);
+  border-color: var(--matte-edge);
+  box-shadow: var(--matte-shadow);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+/* ── Landing page: same material as the app behind it. ── */
+html[data-material="matte"] :is(.landing-nav, .landing-footer) {
+  background: var(--matte-chrome);
+  border-color: var(--matte-edge);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}

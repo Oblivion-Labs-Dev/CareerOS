@@ -9,11 +9,6 @@ const ApplicationTrackerRefresh = nextDynamic(
   { loading: () => <p className="muted">Loading live tracker…</p> },
 );
 
-const QwenAgentPanel = nextDynamic(
-  () => import("@/components/qwen/qwen-agent-panel").then((mod) => mod.QwenAgentPanel),
-  { loading: () => <p className="muted">Loading Qwen agent…</p> },
-);
-
 export type TrackerApplication = {
   id?: string;
   roleTitle?: string;
@@ -115,8 +110,6 @@ export function ApplicationPipelineSection({ snapshot }: ApplicationPipelineSect
   const recentApplications = [...applications]
     .sort((a, b) => appSortDate(b).localeCompare(appSortDate(a)))
     .slice(0, 8);
-  const submittedCount = applications.filter((app) => app.status === "submitted").length;
-  const interviewingCount = applications.filter((app) => app.status === "interviewing").length;
 
   return (
     <div id="applications" className="dashboard-pipeline-section">
@@ -144,14 +137,6 @@ export function ApplicationPipelineSection({ snapshot }: ApplicationPipelineSect
       </section>
 
       <ApplicationTrackerRefresh />
-
-      <QwenAgentPanel
-        trackerContext={{
-          applicationsCount: applications.length,
-          submittedCount,
-          interviewingCount,
-        }}
-      />
 
       {submittedApplications.length ? (
         <section className="dashboard-panel">

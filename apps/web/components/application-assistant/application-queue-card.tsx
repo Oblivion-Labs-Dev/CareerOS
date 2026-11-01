@@ -746,7 +746,7 @@ export function ApplicationQueueCard({
                       onClick={handleAnswerAlert}
                       disabled={isWizardLoading || isAnalyzing}
                     >
-                      {isWizardLoading ? "Checking profile with Qwen…" : `${actionAlert.text} — click to answer`}
+                      {isWizardLoading ? "Checking profile…" : `${actionAlert.text} — click to answer`}
                     </button>
                   ) : (
                     <p className={`aac-drawer-blocker aac-drawer-blocker--${actionAlert.tone}`}>{actionAlert.text}</p>

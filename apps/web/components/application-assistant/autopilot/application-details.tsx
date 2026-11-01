@@ -1,5 +1,5 @@
 import { identityTransition } from "@/lib/surface-transition";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { ApplicationJourney } from "./application-journey";
 import type { AutopilotJobRow } from "./job-types";
 import { INELIGIBILITY_LABELS, matchBand, statusView } from "./job-presentation";
@@ -49,8 +49,11 @@ export function ApplicationDetails({
   onSkip,
   onSetState,
   busy,
+  lead,
 }: {
   job: AutopilotJobRow;
+  /** Rendered right under the hero; the Lab popup puts its summary and actions here. */
+  lead?: ReactNode;
   onClose: () => void;
   /** Draft answers keyed `${job.id}:${question}` — shared with the card grid. */
   answerDrafts?: Record<string, string>;
@@ -141,6 +144,7 @@ export function ApplicationDetails({
       </button>
       <div className={styles.heroArt} aria-hidden="true"><i /><i /><span>↗</span></div>
     </header>
+    {lead}
     {canSetState && onSetState && states.length > 0 && (
       <div className={styles.stateBar} data-status={status.key}>
         <label htmlFor="application-state-picker">What happened with this one?</label>

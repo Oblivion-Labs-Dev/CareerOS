@@ -607,7 +607,6 @@ button:focus-visible,
   .stat-card,
   .dashboard-metric-card,
   .aa-stat-card,
-  .qwen-metric-card,
   [class*="minimal-dashboard_todayCard"],
   [class*="minimal-dashboard_matchCard"]
 ) {

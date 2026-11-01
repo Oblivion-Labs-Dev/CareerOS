@@ -14,7 +14,9 @@ type Activity = {kind: Kind; at: string; id: string; company: string; title: str
 type Outcomes = {totalSubmitted: number; awaitingConfirmation: number; cohortSize: number; linkedRecords: number; responses: number; interviews: number; medianResponseDays: number | null; datedSubmissions: number; events: Activity[]; windowDays: number; attention: {label: string; count: number; href: string}[]};
 const localDay = (date: Date) => `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,"0")}-${String(date.getDate()).padStart(2,"0")}`;
 
-export function ApplicationAnalytics({refreshKey = 0}: {refreshKey?: number}) {
+/** `chartOnly` renders just the per-day chart, for the Autopilot page where the
+ *  KPI cards above it already carry the outcome figures in their hover panels. */
+export function ApplicationAnalytics({refreshKey = 0, chartOnly = false}: {refreshKey?: number; chartOnly?: boolean}) {
   const {data: progress} = useCareerProgress();
   const [data, setData] = useState<Outcomes | null>(null);
   const [error, setError] = useState(false);
@@ -53,7 +55,7 @@ export function ApplicationAnalytics({refreshKey = 0}: {refreshKey?: number}) {
       {data && <p className={styles.chartSubtitle}>{kind === "submissions" ? `${data.datedSubmissions} of ${data.totalSubmitted} submitted records have a submission date. Status alone is not confirmation.` : "Only dated events on explicitly linked tracker records appear. Missing dates are not treated as zero outcomes."}</p>}
       {selectedDay && <div className={styles.drilldown} aria-live="polite"><strong>{selectedDay.label} · {selectedDay.events.length} recorded {kind}</strong>{selectedDay.events.length ? selectedDay.events.map(event => <Link key={`${event.id}-${event.at}`} href={`/applications?tab=submitted&job=${encodeURIComponent(event.id)}`}>{event.company || "Unknown company"}<span>{event.title || "Untitled role"} ↗</span></Link>) : <p>No dated events recorded for this day.</p>}</div>}
     </section>
-    {data && <>
+    {data && !chartOnly && <>
       <section className={styles.attention} aria-label="Needs attention"><h3>Needs attention</h3>{data.attention.filter(item => item.count > 0).map(item => <Link key={item.label} href={item.href}><strong>{item.count}</strong><span>{item.label}</span><span aria-hidden="true">↗</span></Link>)}{data.attention.every(item => !item.count) && <p>No pending items in the recorded data.</p>}</section>
       <div className={styles.statRow}>{[
         {label: "Recorded submissions", value: data.totalSubmitted.toLocaleString(), note: "All time · Autopilot status", tone: "accent"},

@@ -125,15 +125,20 @@ function ApplicationsPageInner() {
         >
           Autopilot
         </Link>
-        <Link
-          href="/applications?tab=dashboard"
-          role="tab"
-          aria-selected={view === "dashboard"}
-          className={styles.viewTab}
-          data-active={view === "dashboard"}
-        >
-          Dashboard
-        </Link>
+        {/* Lab folds the dashboard's chart and outcome figures into the
+            Autopilot view, so its separate tab only exists in Classic.
+            ?tab=dashboard still resolves for old links. */}
+        {cardStyle === "classic" || view === "dashboard" ? (
+          <Link
+            href="/applications?tab=dashboard"
+            role="tab"
+            aria-selected={view === "dashboard"}
+            className={styles.viewTab}
+            data-active={view === "dashboard"}
+          >
+            Dashboard
+          </Link>
+        ) : null}
       </nav>
       {view === "autopilot" ? <CardStyleSwitch value={cardStyle} onChange={setCardStyle} /> : null}
       </div>

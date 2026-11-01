@@ -99,8 +99,6 @@ export function ErrorsTable({
             <option value="autopilot">Autopilot</option>
             <option value="careeros_api">CareerOS API</option>
             <option value="playwright_worker">Playwright</option>
-            <option value="ollama">Ollama</option>
-            <option value="qwen">Qwen</option>
             <option value="gemini">Gemini</option>
           </select>
         </div>
@@ -183,7 +181,7 @@ export function ErrorsTable({
                               </div>
                               <div>
                                 <strong>Provider / Model:</strong>{" "}
-                                <code>{err.provider || "ollama"} / {err.model || "qwen"}</code>
+                                <code>{err.provider || "unknown"} / {err.model || "unknown"}</code>
                               </div>
                             </div>
 

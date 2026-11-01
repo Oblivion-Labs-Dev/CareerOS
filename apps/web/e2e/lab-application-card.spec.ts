@@ -2,9 +2,9 @@ import { expect, test, type Page } from "@playwright/test";
 
 /**
  * The Lab flip look for application cards. Lab is the default; Classic stays
- * reachable through the Classic/Lab switch. Each job card turns on hover to show
- * why it is where it is plus its actions, and must keep every Classic
- * behaviour: a click opens the dossier, Apply still sends, and an unscored job
+ * reachable through the Classic/Lab switch. A click flips the card open into a
+ * centred popup that explains where it stands, with its actions, and keeps
+ * every Classic behaviour: Apply still sends, and an unscored job
  * shows a dash rather than a made-up number.
  *
  * Every API call is a local fixture, so nothing is ever really applied to.
@@ -55,6 +55,11 @@ test("Lab is the default application card; Classic is still a saved choice", asy
   // Regression: readiness without a questions block used to crash the whole
   // page under Lab; the tile now says the count is unknown.
   await expect(page.getByText("Blocking questions unknown")).toHaveCount(1);
+  // Regression: with no batch run recorded, Recent Activity said "Nothing has
+  // run yet." right above the failed application it was showing.
+  const activity = page.getByRole("complementary", { name: "Recent Activity" });
+  await expect(activity).toContainText("Initech");
+  await expect(activity).not.toContainText("Nothing has run yet");
 
   await page.evaluate(() => window.localStorage.setItem("careeros.cardStyle", "classic"));
   await page.reload();
@@ -70,7 +75,7 @@ test("Settings no longer offers the retired application card styles", async ({ p
   await expect(page.getByRole("button", { name: /Holographic|Heritage|Clay/ })).toHaveCount(0);
 });
 
-test("Lab application cards flip, keep their actions and open the dossier", async ({ page, baseURL }) => {
+test("Lab cards sit flat in the grid and a click flips open the details popup", async ({ page, baseURL }) => {
   const applied: string[] = [];
   await mockApi(page, baseURL!, applied);
   await page.setViewportSize({ width: 1440, height: 1000 });
@@ -86,36 +91,83 @@ test("Lab application cards flip, keep their actions and open the dossier", asyn
   await expect(queued.getByLabel("91% match")).toBeVisible();
   await expect(card(page, "lab-unscored").getByLabel("Not scored")).toContainText("—");
 
-  // The back explains the failure from the stored error, not a guess.
-  await expect(card(page, "lab-failed")).toContainText("Upload field never appeared");
-  await expect(card(page, "lab-failed").getByRole("button", { name: /Retry/ })).toHaveCount(1);
+  // Regression: the shared KPI hover-slide pushed the old back face out of
+  // the card, leaving a stray column beside the grid. Cards are front-only now
+  // and nothing inside one may spill past its edge.
+  const spills = await page.locator('article[data-card-variant="lab"]').evaluateAll(cards =>
+    cards.flatMap(card => {
+      const box = card.getBoundingClientRect();
+      return [...card.querySelectorAll("*")]
+        .map(el => el.getBoundingClientRect())
+        .filter(r => r.width > 0 && (r.right > box.right + 1 || r.left < box.left - 1))
+        .map(() => card.getAttribute("data-job-id"));
+    }));
+  expect(spills).toEqual([]);
 
-  // The back speaks plainly and lists only facts the job really has.
-  const queuedBack = queued.locator("dl");
-  await expect(queued).toContainText("Ready to send");
-  await expect(queuedBack).toContainText("91% · Excellent match");
-  await expect(queuedBack).toContainText("Go, Kubernetes, Postgres +1");
-  await expect(queuedBack).toContainText("Rust");
-  await expect(queuedBack).toContainText("$180k–$210k");
-  await expect(card(page, "lab-failed")).toContainText("Couldn't finish sending");
-  await expect(card(page, "lab-failed").locator("dt")).toHaveText(["Match"]);
-  await expect(card(page, "lab-unscored").locator("dl")).toHaveCount(0);
-
-  // Hover turns the card: the front rotates away.
-  const frontTransform = () => queued.locator("> div").first().evaluate(el => getComputedStyle(el).transform);
-  await page.mouse.move(0, 0);
-  const resting = await frontTransform();
+  // Hover no longer turns the card over: nothing rotates.
   await queued.hover();
-  await expect.poll(frontTransform, { message: "front face should rotate on hover" }).not.toBe(resting);
+  const rotated = await queued.evaluate(el =>
+    [el, ...el.querySelectorAll("*")].some(n => getComputedStyle(n).transform.startsWith("matrix3d")));
+  expect(rotated).toBe(false);
 
-  // Apply on the back still sends, and does not also open the dossier.
-  await queued.getByRole("button", { name: /^Apply →/ }).click();
+  // A click flips open a centred popup, not the right-hand side panel.
+  await queued.click({ position: { x: 20, y: 20 } });
+  const dialog = page.locator(".aa-flip-dialog");
+  await expect(dialog).toBeVisible();
+  await expect(page.locator(".aa-wizard-panel")).toHaveCount(0);
+  const summary = dialog.getByRole("region", { name: "Where this application stands" });
+  await expect(summary).toContainText("Ready to send");
+  const facts = summary.locator("dl");
+  await expect(facts).toContainText("91% · Excellent match");
+  await expect(facts).toContainText("Go, Kubernetes, Postgres +1");
+  await expect(facts).toContainText("Rust");
+  await expect(facts).toContainText("$180k–$210k");
+  await expect(dialog.getByRole("region", { name: "Application summary" })).toBeVisible();
+
+  // Apply inside the popup still sends.
+  await summary.getByRole("button", { name: /^Apply →/ }).click();
   await expect.poll(() => applied).toEqual([expect.stringContaining("lab-queued/preflight-approve")]);
+
+  // Escape flips it back into the card, which is visible again afterwards.
+  // Regression: the details used to unmount the instant the dialog closed, so
+  // it flipped back into the card as a blank shell. The content stays for the
+  // whole way home.
+  await page.keyboard.press("Escape");
+  await expect(dialog).toHaveAttribute("data-state", "closed");
+  expect((await dialog.locator(".aa-flip-face").innerText()).trim()).not.toBe("");
+  await expect(dialog).toHaveCount(0);
+  await expect(queued).toBeVisible();
+  await expect(queued).toHaveCSS("visibility", "visible");
+
+  // The failure is explained from the stored error, not a guess.
+  await card(page, "lab-failed").press("Enter");
+  const failed = page.locator(".aa-flip-dialog").getByRole("region", { name: "Where this application stands" });
+  await expect(failed).toContainText("Couldn't finish sending");
+  await expect(failed).toContainText("Upload field never appeared");
+  await expect(failed.locator("dt")).toHaveText(["Match"]);
+  await expect(failed.getByRole("button", { name: /Retry/ })).toHaveCount(1);
+  await page.keyboard.press("Escape");
+  await expect(page.locator(".aa-flip-dialog")).toHaveCount(0);
+});
+
+test("Classic still slides the dossier in from the side; only the theme switch reveals in a circle", async ({ page, baseURL }) => {
+  await mockApi(page, baseURL!, []);
+  await page.addInitScript(() => window.localStorage.setItem("careeros.cardStyle", "classic"));
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto("/applications?tab=applications");
+  await expect(card(page, "lab-queued")).toBeVisible({ timeout: 60_000 });
+
+  // Regression: the theme's circular reveal was bound to every view
+  // transition, so opening the dossier played as an expanding circle.
+  const opening = await animationsAfter(page, 'article[data-job-id="lab-unscored"]');
+  expect(opening).toContain("aa-wizard-panel-in");
+  expect(opening).not.toContain("theme-reveal");
+  await expect(page.getByRole("dialog")).toBeVisible();
+  await page.keyboard.press("Escape");
   await expect(page.getByRole("dialog")).toHaveCount(0);
 
-  // A click on the card body opens the dossier, exactly like Classic.
-  await card(page, "lab-unscored").click({ position: { x: 20, y: 20 } });
-  await expect(page.getByRole("dialog").getByRole("region", { name: "Application summary" })).toBeVisible();
+  const theming = await animationsAfter(page, 'button[aria-label^="Switch to"]');
+  expect(theming).toContain("theme-reveal");
 });
 
 /**
@@ -135,22 +187,3 @@ async function animationsAfter(page: Page, selector: string) {
     return [...seen];
   }, selector);
 }
-
-test("the dossier slides in; only the theme switch reveals in a circle", async ({ page, baseURL }) => {
-  await mockApi(page, baseURL!, []);
-  await page.setViewportSize({ width: 1440, height: 1000 });
-  await page.goto("/applications?tab=applications");
-  await expect(card(page, "lab-queued")).toBeVisible({ timeout: 60_000 });
-
-  // Regression: the theme's circular reveal was bound to every view
-  // transition, so opening the dossier played as an expanding circle.
-  const opening = await animationsAfter(page, 'article[data-job-id="lab-unscored"]');
-  expect(opening).toContain("aa-wizard-panel-in");
-  expect(opening).not.toContain("theme-reveal");
-  await expect(page.getByRole("dialog")).toBeVisible();
-  await page.keyboard.press("Escape");
-  await expect(page.getByRole("dialog")).toHaveCount(0);
-
-  const theming = await animationsAfter(page, 'button[aria-label^="Switch to"]');
-  expect(theming).toContain("theme-reveal");
-});

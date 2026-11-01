@@ -2,11 +2,13 @@
    list and the outstanding-question form, which were cramped at 560px. */
 .panel { width:min(760px,100vw)!important; background:var(--card)!important; padding:0!important; }
 .detail { --tone:#648ac6; color:var(--text); height:100%; overflow-y:auto; background:var(--card); }
-.detail[data-status=submitted] { --tone:#249d7a; }.detail[data-status=failed] { --tone:#d45360; }.detail[data-status=review] { --tone:#d5a218; }.detail[data-status=ineligible] { --tone:#8894a8; }
-/* Completes the map so the panel matches the card palette on every status —
-   manual, skipped and applying previously fell through to the default blue. */
-.detail[data-status=manual] { --tone:#9b7bf0; }
-.detail[data-status=skipped] { --tone:#4c82d6; }
+.detail[data-status=submitted] { --tone:#249d7a; }.detail[data-status=failed] { --tone:#d45360; }.detail[data-status=review] { --tone:#d5a218; }
+/* Same colour families as the card tags (labAccentFor): amber for anything
+   waiting on a person, violet for skipped/ineligible/rejected, red for failed.
+   Manual was purple and skipped blue here while their tags were amber and
+   violet, so opening a card changed its colour. */
+.detail[data-status=manual], .detail[data-status=unverified] { --tone:#d5a218; }
+.detail[data-status=skipped], .detail[data-status=ineligible], .detail[data-status=rejected] { --tone:#9b7bf0; }
 .detail[data-status=applying] { --tone:#6873cb; }
 .detail[data-status=queued] { --tone:#648ac6; }
 .hero { position:relative; isolation:isolate; overflow:hidden; padding:24px 28px 26px; border-bottom:1px solid var(--border); background:radial-gradient(ellipse at 100% 0,color-mix(in srgb,var(--tone) 22%,transparent),transparent 70%),color-mix(in srgb,var(--tone) 4%,var(--card)); }

@@ -613,11 +613,6 @@
 
 /* ─── Qwen panels ─── */
 
-.qwen-agent-panel,
-.qwen-activity-feed {
-  border-radius: var(--radius-md);
-}
-
 /* ─── Landing: calmer hero ─── */
 
 .gradient-text {

@@ -579,16 +579,6 @@
   border-top: 1px dashed var(--border-strong);
 }
 .liveStageLink[data-done="true"] { border-top-color: color-mix(in srgb, var(--success) 50%, transparent); }
-
-.healingNote {
-  padding: 0.35rem 0.55rem;
-  border-radius: 6px;
-  border: 1px solid color-mix(in srgb, var(--warning) 30%, transparent);
-  background: color-mix(in srgb, var(--warning) 8%, transparent);
-  font-size: 0.68rem;
-  color: var(--warning);
-}
-
 .liveFeed {
   padding: 0.25rem 0.45rem;
   max-height: 3.25rem;

@@ -8,26 +8,21 @@ test.describe("CareerOS Observability & Diagnostic Suite", () => {
       timeout: 20_000,
     });
 
-    // Ensure live activity dock is expanded
-    const expandBtn = page.getByRole("button", { name: "Expand activity" });
-    if (await expandBtn.isVisible().catch(() => false)) {
-      await expandBtn.click();
-    }
+    // The old "Live Autopilot Activity" dock was removed (da24099); live state
+    // now lives in the Night Batch card, which is always rendered at the top.
+    const batch = page.getByRole("region", { name: "Night Batch Center" });
+    await expect(batch).toBeVisible({ timeout: 15_000 });
+    await expect(batch.getByRole("heading", { name: "Night Batch Mode" })).toBeVisible();
 
-    // Verify Live Autopilot Activity section is present
-    await expect(page.getByText("Live Autopilot Activity")).toBeVisible({ timeout: 15_000 });
-
-    // When idle, shows "Ready when you are." with queue info and macro workflow steps
-    const idleHeadline = page.getByText(/Ready when you are|Autopilot running|A moment to regroup/i);
-    await expect(idleHeadline.first()).toBeVisible();
-
-    // Verify the macro workflow stages are visible
-    await expect(page.getByText("DISCOVER", { exact: true }).first()).toBeVisible();
-    await expect(page.getByText("PREPARE", { exact: true }).first()).toBeVisible();
-    await expect(page.getByText("APPLY", { exact: true }).first()).toBeVisible();
+    // Real runtime state, either way: a live run shows its pipeline, an idle
+    // one offers Start. Nothing here clicks Start — that would submit real
+    // applications.
+    const livePipeline = batch.getByRole("list", { name: "Application pipeline" });
+    const startButton = batch.getByRole("button", { name: /Start Night Batch|Starting Night Batch/ });
+    await expect(livePipeline.or(startButton).first()).toBeVisible({ timeout: 15_000 });
   });
 
-  test("2. Diagnostic page renders complete System Health with all 10 subsystems", async ({ page }) => {
+  test("2. Diagnostic page renders complete System Health with all 8 subsystems", async ({ page }) => {
     await page.goto("/diagnostic");
 
     await expect(page.getByRole("heading", { name: /System Diagnostics & Telemetry/i, level: 1 })).toBeVisible({
@@ -37,14 +32,12 @@ test.describe("CareerOS Observability & Diagnostic Suite", () => {
     const healthCard = page.getByRole("region", { name: "System Health" });
     await expect(healthCard).toBeVisible();
 
-    // Check all required 10 subsystems inside System Health card
+    // Check all required 8 subsystems inside System Health card
     const expectedSubsystems = [
       "CareerOS API",
       "SQLite Database",
       "Job Scraper",
       "Playwright Browser Worker",
-      "Ollama Service",
-      "Qwen Model",
       "Gemini Cloud Fallback",
       "LangSmith / LangGraph",
       "OpenTelemetry Collector",
@@ -147,10 +140,10 @@ test.describe("CareerOS Observability & Diagnostic Suite", () => {
       timeout: 20_000,
     });
 
-    // Check System Health shows Qwen is Down
-    const qwenCard = page.locator('[data-service-id="qwen"]');
-    await expect(qwenCard).toBeVisible({ timeout: 15_000 });
-    await expect(qwenCard).toHaveAttribute("data-status", "down");
+    // Check System Health shows the model endpoint is Down
+    const modelCard = page.locator('[data-service-id="gemini_fallback"]');
+    await expect(modelCard).toBeVisible({ timeout: 15_000 });
+    await expect(modelCard).toHaveAttribute("data-status", "down");
 
     // Verify error is visible in Errors table
     await expect(page.getByText("Simulated failure: invalid model endpoint configured").first()).toBeVisible({
@@ -173,7 +166,7 @@ test.describe("CareerOS Observability & Diagnostic Suite", () => {
 
     // 4. Refresh and confirm service returns to Healthy
     await page.reload();
-    await expect(qwenCard).toBeVisible({ timeout: 15_000 });
+    await expect(modelCard).toBeVisible({ timeout: 15_000 });
     await expect(page.getByText("Simulated failure: model endpoint unreachable")).toHaveCount(0);
   });
 
@@ -193,10 +186,10 @@ test.describe("CareerOS Observability & Diagnostic Suite", () => {
   });
 
   test("8. Capture UI screenshots for Autopilot and Diagnostic dashboard @local", async ({ page }) => {
-    // 1. Capture Autopilot page with upgraded Live Autopilot Activity
+    // 1. Capture the Autopilot page once its live Night Batch card has rendered
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto("/applications");
-    await expect(page.getByText("Live Autopilot Activity")).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByRole("region", { name: "Night Batch Center" })).toBeVisible({ timeout: 15_000 });
     await page.screenshot({ path: "../../apps/web/e2e/screenshots/autopilot_live_activity.png", fullPage: true });
 
     // 2. Capture Diagnostic dashboard

@@ -289,7 +289,7 @@ export function resolveQuickApplyHint(
     return `${readiness.pendingCount} profile answer${readiness.pendingCount === 1 ? "" : "s"} needed before prep`;
   }
   if (readiness.needsAiAnalysis) {
-    return "Analyzing profile questions with Qwen…";
+    return "Analyzing profile questions…";
   }
   if (opts?.isPreparing) {
     return "Preparing application in the background…";

@@ -22,7 +22,9 @@ import { FILTERS, INELIGIBILITY_LABELS, REASON_FILTER_TABS, SORTS, STATUS_VIEWS,
 import { PAGE_SIZE, useApplicationPages } from "./use-application-pages";
 import { ApplicationDetails } from "./application-details";
 import detailStyles from "./application-details.module.css";
-import { ApplicationCard } from "./application-card";
+import { ApplicationCard, CardActions, cardReason } from "./application-card";
+import { LabJobSummary } from "./lab-application-card";
+import { useCardStyle } from "@/hooks/use-card-style";
 import { StackedApplicationGroup } from "./stacked-application-group";
 import stackStyles from "./stacked-application-group.module.css";
 import { QuickAddJobPanel } from "./quick-add-job-panel";
@@ -81,6 +83,11 @@ export function AutopilotApplicationsView({
   const [confirmRequeue, setConfirmRequeue] = useState<RequeueBucket | null>(null);
   const [detail, setDetail] = useState<AutopilotJobRow | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  // Lab opens a centred popup that flips up out of the clicked card; Classic
+  // keeps the slide-in drawer with its shared-element monogram.
+  const [cardStyle] = useCardStyle();
+  const flipDetails = cardStyle === "lab";
+  const openDetails = (job: AutopilotJobRow) => (flipDetails ? setDetail(job) : transitionSurface(() => setDetail(job)));
   const [note, setNote] = useState<string | null>(null);
   const [answerDrafts, setAnswerDrafts] = useState<Record<string, string>>({});
   useEffect(() => {
@@ -613,7 +620,7 @@ export function AutopilotApplicationsView({
               jobs={group.jobs}
               busy={busy}
               detailId={detail?.id}
-              onDetails={(job) => transitionSurface(() => setDetail(job))}
+              onDetails={openDetails}
               onApply={(job) => void applyNow(job)}
               onAssistedFill={(job) => void assistedFill(job)}
               onRetry={(job) => void retryNow(job)}
@@ -625,7 +632,7 @@ export function AutopilotApplicationsView({
         <div className={gridStyles.grid} aria-label="Applications">
           {visible.map((job) => (
             <ApplicationCard key={job.id} job={job} busy={busy} detailed={detail?.id === job.id}
-              onDetails={() => transitionSurface(() => setDetail(job))} onApply={() => void applyNow(job)}
+              onDetails={() => openDetails(job)} onApply={() => void applyNow(job)}
               onAssistedFill={() => void assistedFill(job)}
               onRetry={() => void retryNow(job)} />
           ))}
@@ -636,9 +643,15 @@ export function AutopilotApplicationsView({
       <SidePanelPortal
         open={Boolean(detail)}
         onClose={() => setDetail(null)}
-        panelClassName={detailStyles.panel}
+        panelClassName={flipDetails ? "" : detailStyles.panel}
         ariaLabelledBy="application-details-title"
         backdropAriaLabel="Close application details"
+        variant={flipDetails ? "flip" : "side"}
+        originEl={() =>
+          detail
+            ? document.querySelector<HTMLElement>(`[data-card-variant="lab"][data-job-id="${CSS.escape(detail.id)}"]`)
+            : null
+        }
       >
         {detail && (
           <ApplicationDetails
@@ -652,6 +665,26 @@ export function AutopilotApplicationsView({
             onSkip={() => void skipJob(detail)}
             onSetState={(status, label) => void setJobState(detail, status, label)}
             busy={busy === detail.id}
+            lead={flipDetails ? (() => {
+              // The row in the grid is refreshed after an action; the opened
+              // snapshot is not, so the summary reads the live one.
+              const live = visible.find((row) => row.id === detail.id) ?? detail;
+              return (
+                <LabJobSummary
+                  job={live}
+                  reason={cardReason(live)}
+                  actions={
+                    <CardActions
+                      job={live}
+                      busy={busy}
+                      onApply={() => void applyNow(live)}
+                      onAssistedFill={() => void assistedFill(live)}
+                      onRetry={() => void retryNow(live)}
+                    />
+                  }
+                />
+              );
+            })() : undefined}
           />
         )}
       </SidePanelPortal>

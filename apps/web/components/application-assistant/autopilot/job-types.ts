@@ -8,7 +8,7 @@ export type AutopilotJobRow = {
   matchScore?: number | null;
   /** Cheap local BM25 + hybrid resume-match score (precomputed). */
   resumeMatchScore?: number | null;
-  /** Mistral/Ollama resume-vs-JD comparison stored alongside the score. */
+  /** Resume-vs-JD comparison reason stored alongside the score. */
   matchReason?: string;
   keyMatchingSkills?: string[];
   missingSkills?: string[];

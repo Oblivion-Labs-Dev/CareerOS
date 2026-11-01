@@ -33,6 +33,7 @@ export function ResumeScannerDashboard({ embedded = false, profileName = "" }: P
   const [personId, setPersonId] = useState("");
   const [newPersonName, setNewPersonName] = useState(profileName);
   const [qwenOk, setQwenOk] = useState<boolean | null>(null);
+  const [llmModel, setLlmModel] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -60,7 +61,10 @@ export function ResumeScannerDashboard({ embedded = false, profileName = "" }: P
   useEffect(() => {
     void refreshPeople().catch(() => setPeople([]));
     void getQwenStatus()
-      .then((s) => setQwenOk(s.enabled && s.connection?.success))
+      .then((s) => {
+        setQwenOk(s.enabled && s.connection?.success);
+        setLlmModel(s.model || "");
+      })
       .catch(() => setQwenOk(false));
   }, [refreshPeople]);
 
@@ -194,7 +198,7 @@ export function ResumeScannerDashboard({ embedded = false, profileName = "" }: P
           ))}
         </div>
         <div className={styles.qwenBadge} data-ok={qwenOk === true ? "yes" : qwenOk === false ? "no" : "unknown"}>
-          Qwen {qwenOk === true ? "connected" : qwenOk === false ? "offline" : "…"}
+          {llmModel || "AI model"} {qwenOk === true ? "connected" : qwenOk === false ? "offline" : "…"}
         </div>
       </div>
 
@@ -240,7 +244,7 @@ export function ResumeScannerDashboard({ embedded = false, profileName = "" }: P
         <div className={styles.grid}>
           <section className={styles.panel}>
             <h2>Upload or paste resume</h2>
-            <p className={styles.hint}>Qwen extracts contact info, skills, work history, accomplishment candidates, and ATS keyword sets.</p>
+            <p className={styles.hint}>The AI model extracts contact info, skills, work history, accomplishment candidates, and ATS keyword sets.</p>
             <input
               type="file"
               aria-label="Upload resume file"
@@ -255,7 +259,7 @@ export function ResumeScannerDashboard({ embedded = false, profileName = "" }: P
               onChange={(e) => setResumeText(e.target.value)}
             />
             <button type="button" className={styles.primary} onClick={handleTextScan} disabled={loading || !resumeText.trim()}>
-              Scan with Qwen
+              Scan with AI
             </button>
           </section>
 
@@ -266,7 +270,7 @@ export function ResumeScannerDashboard({ embedded = false, profileName = "" }: P
             ) : (
               <>
                 <div className={styles.metaRow}>
-                  <span>{scan.qwenUsed ? "Qwen enriched" : "Heuristic only"}</span>
+                  <span>{scan.qwenUsed ? "AI enriched" : "Heuristic only"}</span>
                   {scan.qwenError && <span className={styles.warn}>{scan.qwenError}</span>}
                 </div>
                 {scan.contact && (
@@ -325,7 +329,7 @@ export function ResumeScannerDashboard({ embedded = false, profileName = "" }: P
               onChange={(e) => setJobDescription(e.target.value)}
             />
             <button type="button" className={styles.primary} onClick={handleMatch} disabled={loading || !jobDescription.trim()}>
-              Analyze match + Qwen recommendations
+              Analyze match + AI recommendations
             </button>
           </section>
 
@@ -358,7 +362,7 @@ export function ResumeScannerDashboard({ embedded = false, profileName = "" }: P
                 )}
                 {recommendations && (
                   <div className={styles.block}>
-                    <h3>Qwen — what to add</h3>
+                    <h3>AI — what to add</h3>
                     {recommendations.callLikelihoodSummary && <p>{recommendations.callLikelihoodSummary}</p>}
                     <ul className={styles.list}>
                       {(recommendations.addToResume || []).map((item) => <li key={item}>{item}</li>)}

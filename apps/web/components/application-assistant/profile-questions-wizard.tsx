@@ -230,7 +230,7 @@ export function ProfileQuestionsWizard({
   mode = "single",
   layout = "panel",
   loading = false,
-  loadingMessage = "Checking your profile with Qwen…",
+  loadingMessage = "Checking your profile…",
   appId = "",
   companyName = "",
   roleTitle = "",
@@ -412,7 +412,7 @@ export function ProfileQuestionsWizard({
             <span className="aa-wizard-loading-spinner" aria-hidden />
             <p><strong>{loadingMessage}</strong></p>
             <p className="muted">
-              Qwen compares each question to your saved profile and answer library — even when wording differs.
+              Each question is compared to your saved profile and answer library — even when wording differs.
             </p>
           </div>
         </div>

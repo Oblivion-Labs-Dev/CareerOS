@@ -9,7 +9,6 @@ export interface NightBatchConfig {
   batchSize: number;
   minMatchScore: number;
   tierGuardrails: boolean;
-  selfHealing: boolean;
 }
 
 interface NightBatchCardProps {
@@ -31,12 +30,15 @@ interface NightBatchCardProps {
   resumeCount?: number;
   submittedCount?: number;
   stagedCount?: number;
-  /** Match scores of everything currently QUEUED, so the floor can be set
-   *  against the real distribution rather than guessed at. */
-  queueScores?: number[];
-  /** True while that list is still being fetched. Without it an empty
-   *  queueScores is indistinguishable from a genuinely empty queue, and the
-   *  card claimed "queue is empty" over a queue of 369 jobs. */
+  /** How many QUEUED jobs clear each floor ("60" -> n), counted server-side
+   *  over the whole queue. It used to be derived from a 100-row sample of all
+   *  statuses, which reported "0 clear 60%" over a queue with 142 that did.
+   *  null = not reported, shown as unknown rather than as zero. */
+  queueFloors?: Record<string, number> | null;
+  /** QUEUED job total, or null while unknown. */
+  queueTotal?: number | null;
+  /** True while the counts are still being fetched. Without it an unknown
+   *  count is indistinguishable from a genuinely empty queue. */
   queueLoading?: boolean;
   /** What the runner reports it is actually using, so a live batch shows the
    *  configuration in force rather than whatever this card last sent. */
@@ -44,15 +46,11 @@ interface NightBatchCardProps {
     minMatchScore: number;
     aiModel: string;
     tierGuardrails: boolean;
-    selfHealing: boolean;
   } | null;
   /** Index into PIPELINE_STAGES for the step the live job is on, or -1. */
   stageIndex?: number;
   /** The runner's streaming activity log, newest last. */
   logs?: AutopilotLog[];
-  /** Self-healing state, so a recovery round is visible rather than looking
-   *  like the batch has stalled. */
-  healing?: { status: string; currentRound: number; maxRounds: number; lastPatchSummary?: string } | null;
 }
 
 // 1 is deliberately offered: trying a single application is how you check a
@@ -76,18 +74,17 @@ export function NightBatchCard({
   resumeCount = 1,
   submittedCount = 0,
   stagedCount = 0,
-  queueScores = [],
+  queueFloors = null,
+  queueTotal = null,
   queueLoading = false,
   liveConfig = null,
   stageIndex = -1,
   logs = [],
-  healing = null,
 }: NightBatchCardProps) {
   const [batchSize, setBatchSize] = useState<number>(10);
 
   const [minMatchScore, setMinMatchScore] = useState<number>(60);
   const [tierGuardrails, setTierGuardrails] = useState<boolean>(true);
-  const [selfHealing, setSelfHealing] = useState<boolean>(true);
 
   const finalSize = batchSize;
 
@@ -96,7 +93,6 @@ export function NightBatchCard({
       batchSize: finalSize,
       minMatchScore,
       tierGuardrails,
-      selfHealing,
     });
   };
 
@@ -104,23 +100,15 @@ export function NightBatchCard({
   // nothing, so its consequence belongs next to the dial rather than in the
   // logs afterwards: how much of the queue it actually reaches, drawn against
   // the real score distribution.
-  const eligibleCount = React.useMemo(
-    () => queueScores.filter((score) => score >= minMatchScore).length,
-    [queueScores, minMatchScore],
-  );
-
-
-  const shortfall = queueScores.length > 0 && eligibleCount < finalSize;
-
   // Each floor carries the number of queued jobs it reaches, so the trade-off
   // is visible while choosing rather than only after the choice is made.
-  const floorCounts = React.useMemo(() => {
-    const counts = new Map<number, number>();
-    for (const floor of MATCH_FLOORS) {
-      counts.set(floor, queueScores.filter((score) => score >= floor).length);
-    }
-    return counts;
-  }, [queueScores]);
+  const floorCount = (floor: number): number | null => {
+    const n = queueFloors?.[String(floor)];
+    return typeof n === "number" ? n : null;
+  };
+  const eligibleCount = floorCount(minMatchScore);
+  const queueEmpty = queueTotal === 0;
+  const shortfall = !queueEmpty && eligibleCount != null && eligibleCount < finalSize;
 
   // Answering a grouped question here saves it once and requeues every
   // application it finishes — the alternative being to answer the same
@@ -231,14 +219,6 @@ export function NightBatchCard({
               </div>
             </div>
 
-            {healing && ["analyzing", "patching", "requeuing"].includes(healing.status) && (
-              <div className={styles.healingNote} role="status">
-                <span aria-hidden="true">↻</span> Self-healing: {healing.status} · round{" "}
-                {healing.currentRound} of {healing.maxRounds}
-                {healing.lastPatchSummary ? ` — ${healing.lastPatchSummary}` : ""}
-              </div>
-            )}
-
             {/* Streaming activity. The runner pushes these over SSE, so this
                 fills in as the application progresses instead of only after. */}
             {logs.length > 0 && (
@@ -314,9 +294,7 @@ export function NightBatchCard({
                     {MATCH_FLOORS.map((floor) => (
                       <option key={floor} value={floor}>
                         {floor}% and above
-                        {queueScores.length
-                          ? ` (${(floorCounts.get(floor) ?? 0).toLocaleString()})`
-                          : ""}
+                        {floorCount(floor) != null ? ` (${floorCount(floor)!.toLocaleString()})` : ""}
                       </option>
                     ))}
                   </select>
@@ -326,14 +304,12 @@ export function NightBatchCard({
 
             {/* The floor is the setting most likely to make a run do nothing,
                 so its consequence stays - as one line rather than a chart. */}
-            {(queueScores.length === 0 || shortfall) && (
+            {(queueEmpty || shortfall || (eligibleCount == null && queueLoading)) && (
               <p className={styles.floorReach} data-warn={shortfall ? "true" : "false"}>
-                {queueScores.length === 0 ? (
-                  queueLoading ? (
-                    <>Reading the queue…</>
-                  ) : (
-                    <>Queue is empty — nothing to measure the floor against yet.</>
-                  )
+                {eligibleCount == null && queueLoading ? (
+                  <>Reading the queue…</>
+                ) : queueEmpty ? (
+                  <>Queue is empty — nothing to measure the floor against yet.</>
                 ) : (
                   <>
                     Only <strong>{eligibleCount}</strong> queued job
@@ -358,17 +334,6 @@ export function NightBatchCard({
                 </span>
               </label>
 
-              <label className={styles.toggleRow}>
-                <input
-                  type="checkbox"
-                  checked={selfHealing}
-                  onChange={(e) => setSelfHealing(e.target.checked)}
-                  className={styles.checkbox}
-                />
-                <span className={styles.toggleLabel}>
-                  <strong>Post-batch self-healing:</strong> let the local model diagnose this run&rsquo;s failures once it finishes
-                </span>
-              </label>
             </div>
           </div>
         )}

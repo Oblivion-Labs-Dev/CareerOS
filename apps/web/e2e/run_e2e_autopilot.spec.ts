@@ -5,7 +5,7 @@
  * Goal: 10 genuinely submitted applications, each verified against:
  *   1. External ATS site confirmation
  *   2. CareerOS status = SUBMITTED + receipt exists
- *   3. Mistral resume tailoring was run (diff generated, PDF attached)
+ *   3. Resume tailoring was run (diff generated, PDF attached)
  *
  * Uses the preflight-approve path (same as a real user clicking "Apply →").
  * Writes a detailed JSON results file alongside the test for the final report.
@@ -24,7 +24,7 @@ import { expect, test } from "@playwright/test";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const TARGET_SUCCESSES = 10;
-const PER_JOB_TIMEOUT_MS = 8 * 60_000; // 8 min per job (Mistral tailoring + browser submit)
+const PER_JOB_TIMEOUT_MS = 8 * 60_000; // 8 min per job (tailoring + browser submit)
 const POLL_INTERVAL_MS = 5_000;
 const TERMINAL_STATUSES = /^(submitted|review|failed|skipped|ineligible|staged|needs_review)$/i;
 const SUCCESS_STATUS = /^submitted$/i;

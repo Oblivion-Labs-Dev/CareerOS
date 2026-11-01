@@ -17,7 +17,7 @@ import { expect, test, type Locator, type Page } from "@playwright/test";
 
 const TARGET_SUBMISSIONS = Number(process.env.CAREEROS_TARGET_SUBMISSIONS || 3);
 const API = "/api/backend/application-assistant";
-// The employer's form, the Mistral resume tailoring pass and the browser
+// The employer's form, the resume tailoring pass and the browser
 // verification read-back all happen inside one Apply; on this hardware that
 // runs into several minutes for a slow ATS.
 const TERMINAL_TIMEOUT_MS = 8 * 60_000;

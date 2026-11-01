@@ -2,7 +2,7 @@ import { expect, test } from "@playwright/test";
 
 /**
  * Drives the Night Batch card the way a person would: pick a batch size, set
- * the match floor, choose the local model, confirm the guardrails, press start.
+ * the match floor, confirm the guardrail, press start.
  *
  * This is deliberately a UI test and not an API call. The whole point of the
  * card is that the values shown on it are the values the runner uses, and the
@@ -16,7 +16,6 @@ import { expect, test } from "@playwright/test";
 const LIVE = process.env.NIGHT_BATCH_LIVE === "1";
 const BATCH_SIZE = process.env.NIGHT_BATCH_SIZE || "10";
 const MIN_SCORE = process.env.NIGHT_BATCH_MIN_SCORE || "60";
-const MODEL = process.env.NIGHT_BATCH_MODEL || "qwen3:4b-instruct";
 
 test("night batch card configures and starts a run @local", async ({ page }) => {
   test.setTimeout(180_000);
@@ -34,15 +33,10 @@ test("night batch card configures and starts a run @local", async ({ page }) => 
   await expect(floorSelect).toBeVisible();
   await floorSelect.selectOption(MIN_SCORE);
 
-  // ── Model Badge ──
-  await expect(card.getByText("Qwen 4B Instruct")).toBeVisible();
-
-  // ── Guardrails: Tier-1 hold stays on, self-healing stays on ──
+  // ── Guardrail: Tier-1 hold stays on (self-healing was removed) ──
   const checkboxes = card.locator('input[type="checkbox"]');
-  await expect(checkboxes).toHaveCount(2);
-  for (let i = 0; i < 2; i += 1) {
-    if (!(await checkboxes.nth(i).isChecked())) await checkboxes.nth(i).check();
-  }
+  await expect(checkboxes).toHaveCount(1);
+  if (!(await checkboxes.first().isChecked())) await checkboxes.first().check();
 
   await page.screenshot({ path: "e2e/.artifacts/night-batch-configured.png", fullPage: false });
 

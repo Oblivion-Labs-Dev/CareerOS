@@ -88,7 +88,7 @@ export type RiGraph = {
 };
 
 export async function getQwenStatus() {
-  return riFetch<{ success: boolean; enabled: boolean; model: string; connection: { success: boolean } }>("/qwen/status");
+  return riFetch<{ success: boolean; enabled: boolean; model: string; connection: { success: boolean } }>("/llm/status");
 }
 
 export async function listPeople() {

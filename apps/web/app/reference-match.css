@@ -2492,9 +2492,6 @@ body::before {
   .dashboard-metric-card,
   .aa-panel,
   .aa-stat-card,
-  .qwen-agent-panel,
-  .qwen-logs-panel,
-  .qwen-chat-panel,
   .career-workspace-strip,
   [class*="minimal-dashboard_todayCard"],
   [class*="minimal-dashboard_matchCard"],
@@ -2511,7 +2508,6 @@ body::before {
 .main :is(
   .aa-stat-card,
   .dashboard-metric-card,
-  .qwen-metric-card,
   [class*="minimal-dashboard_todayCard"],
   [class*="minimal-dashboard_matchCard"]
 ) {
@@ -2527,7 +2523,6 @@ body::before {
   .stat-card,
   .dashboard-panel,
   .aa-panel,
-  .qwen-agent-panel,
   [class*="minimal-dashboard_todayCard"],
   [class*="minimal-dashboard_matchCard"],
   [class*="minimal-dashboard_panel"]
@@ -3052,7 +3047,6 @@ body::before {
   .panel,
   .dashboard-panel,
   .aa-panel,
-  .qwen-agent-panel,
   .job-guide-timeline,
   .guide-step,
   .job-portals-priority-card,
@@ -3080,7 +3074,6 @@ body::before {
   .panel,
   .dashboard-panel,
   .aa-panel,
-  .qwen-agent-panel,
   [class*="minimal-dashboard_panel"]
 ):hover {
   border-color: rgba(119, 176, 227, 0.3);
@@ -3088,12 +3081,12 @@ body::before {
 }
 
 /* Section labels and headers follow the control-center label rhythm. */
-.main :is(.dashboard-panel-header, .aa-panel-header, .data-panel-header, .referral-message-header, .qwen-agent-header) {
+.main :is(.dashboard-panel-header, .aa-panel-header, .data-panel-header, .referral-message-header) {
   padding-bottom: 14px;
   border-bottom: 1px solid rgba(91, 132, 177, 0.14);
 }
 
-.main :is(.dashboard-panel-header, .aa-panel-header, .data-panel-header, .referral-message-header, .qwen-agent-header) h2 {
+.main :is(.dashboard-panel-header, .aa-panel-header, .data-panel-header, .referral-message-header) h2 {
   color: var(--ref-text);
   font-size: 17px;
   font-weight: 640;
@@ -3109,7 +3102,6 @@ body::before {
   .stat-card,
   .dashboard-metric-card,
   .aa-stat-card,
-  .qwen-metric-card,
   [class*="minimal-dashboard_todayCard"],
   [class*="minimal-dashboard_matchCard"]
 ) {

@@ -86,20 +86,10 @@ function parseActivityItem(log: ActivityLogItem) {
     color = "text-[#38bdf8]";
     title = "Processing Application";
     detail = msg.replace(/^Processing( job)?:\s*/i, "").trim();
-  } else if (msg.includes("Qwen Pre-Submission Review: 100% APPROVED") || msg.includes("APPROVED ✓")) {
+  } else if (msg.includes("Pre-Submission Review: 100% APPROVED") || msg.includes("APPROVED ✓")) {
     icon = IconShieldCheck;
     color = "text-emerald-400";
-    title = "AI Review Approved";
-    detail = msg;
-  } else if (msg.includes("Qwen AI Form Review") || msg.includes("Qwen Pre-Submission Review")) {
-    icon = IconShieldCheck;
-    color = "text-[#38bdf8]";
-    title = "Qwen AI Form Review";
-    detail = msg;
-  } else if (msg.includes("Auto-healing") || msg.includes("Self-healed") || msg.includes("Self-Healing") || msg.includes("self-healing")) {
-    icon = IconShieldCheck;
-    color = "text-amber-400";
-    title = "Form Self-Healing";
+    title = "Pre-Submission Review Approved";
     detail = msg;
   } else if (msg.includes("Attached resume")) {
     icon = IconCheckCircle;

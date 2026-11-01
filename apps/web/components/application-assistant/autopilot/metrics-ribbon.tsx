@@ -16,15 +16,6 @@ interface ConcurrencyMetrics {
   avgJobTimeSec: number;
   throughputPerMin: number;
   lockContentionCount: number;
-  selfHealingRoundsCompleted: number;
-}
-
-interface SelfHealingInfo {
-  status: string;
-  currentRound: number;
-  maxRounds: number;
-  lastPatchSummary: string;
-  patchesApplied: number;
 }
 
 interface MetricsRibbonProps {
@@ -35,7 +26,6 @@ interface MetricsRibbonProps {
   queueRemaining: number;
   processedCount: number;
   concurrencyMetrics?: ConcurrencyMetrics;
-  selfHealing?: SelfHealingInfo;
   onSelectCategory?: (category: "SUBMITTED" | "STAGED" | "SKIPPED" | "FAILED" | "QUEUED") => void;
 }
 
@@ -99,7 +89,6 @@ export function MetricsRibbon({
   queueRemaining,
   processedCount,
   concurrencyMetrics,
-  selfHealing,
   onSelectCategory,
 }: MetricsRibbonProps) {
   const baseCount = Math.max(1, processedCount);
@@ -185,26 +174,6 @@ export function MetricsRibbon({
                 <span className={styles.concurrencyValueMuted}>
                   (avg {concurrencyMetrics.avgJobTimeSec.toFixed(0)}s)
                 </span>
-              </div>
-            </div>
-          </div>
-
-          <div className={styles.concurrencyCard} data-variant="healing">
-            <div className={styles.concurrencyIconWrap}>🔧</div>
-            <div className="min-w-0">
-              <div className={styles.concurrencyLabel}>Self-Healing</div>
-              <div className={styles.concurrencyValue}>
-                {selfHealing?.status === "idle" ? (
-                  <>
-                    {selfHealing.patchesApplied > 0
-                      ? `${selfHealing.patchesApplied} patch(es) applied`
-                      : "Standby"}
-                  </>
-                ) : (
-                  <span className="animate-pulse">
-                    {selfHealing?.status}… (Round {selfHealing?.currentRound}/{selfHealing?.maxRounds})
-                  </span>
-                )}
               </div>
             </div>
           </div>

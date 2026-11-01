@@ -132,7 +132,7 @@ export function FailedJobsCenter({ onReprocessSuccess, onOpenPrep }: { onReproce
     setError(null);
     try {
       const res = await reprocessSingleAutopilotJob(id);
-      setSuccessMsg(`Queued "${title}" for self-healing reprocessing.`);
+      setSuccessMsg(`Queued "${title}" for reprocessing.`);
       await fetchFailed();
       if (onReprocessSuccess) onReprocessSuccess();
       setTimeout(() => setSuccessMsg(null), 3000);

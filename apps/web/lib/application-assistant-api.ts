@@ -328,18 +328,8 @@ export async function getAutopilotStatus() {
       avgJobTimeSec: number;
       throughputPerMin: number;
       lockContentionCount: number;
-      selfHealingRoundsCompleted: number;
       totalJobsStarted: number;
       totalJobsFinished: number;
-    };
-    selfHealing?: {
-      status: string;
-      currentRound: number;
-      maxRounds: number;
-      lastPatchSummary: string;
-      patchesApplied: number;
-      lastError: string;
-      patchHistory: any[];
     };
     // Lifetime counters the backend already returns; the dashboard activity
     // card reads these to draw its status breakdown.
@@ -395,6 +385,10 @@ export async function getAutopilotStats(opts: { facets?: boolean } = {}) {
     titleCountsByStatus?: Record<string, Record<string, number>>;
     submittedToday: number;
     submitted24h: number;
+    /** QUEUED jobs at or above each match floor ("60" -> n), whole queue. */
+    queueScoreFloors?: Record<string, number>;
+    queueScored?: number;
+    queueUnscored?: number;
   }>(opts.facets === false ? "/autopilot/stats?facets=false" : "/autopilot/stats");
 }
 
@@ -651,33 +645,6 @@ export async function getAutopilotWorkers() {
   }>("/autopilot/workers");
 }
 
-export async function triggerSelfHeal() {
-  return aaFetch<{
-    success: boolean;
-    totalRounds?: number;
-    patchesApplied?: number;
-    lastPatchSummary?: string;
-    rounds?: any[];
-    autopilotRestarted?: boolean;
-    run?: any;
-    message?: string;
-  }>("/autopilot/self-heal", { method: "POST" });
-}
-
-export async function getSelfHealingLog() {
-  return aaFetch<{
-    success: boolean;
-    status: string;
-    currentRound: number;
-    maxRounds: number;
-    lastPatchSummary: string;
-    patchesApplied: number;
-    lastError: string;
-    patchHistory: any[];
-  }>("/autopilot/self-healing-log");
-}
-
-
 export async function createApplication(jobId: string, resumeId?: string) {
   return aaFetch<{ success: boolean; application: Record<string, unknown> }>("/applications", {
     method: "POST",
@@ -744,7 +711,7 @@ export async function qwenPrepareJob(jobId: string) {
     status?: string;
     queue?: PrepQueueStatus;
   }>(
-    "/qwen/agent/prepare",
+    "/assistant/agent/prepare",
     { method: "POST", body: JSON.stringify({ jobId }) },
   );
 }
@@ -763,7 +730,7 @@ export type PrepQueueStatus = {
 };
 
 export async function getPrepQueueStatus() {
-  return aaFetch<{ success: boolean } & PrepQueueStatus>("/qwen/agent/prep-queue");
+  return aaFetch<{ success: boolean } & PrepQueueStatus>("/assistant/agent/prep-queue");
 }
 
 export async function qwenPrepareApplication(appId: string) {
@@ -773,7 +740,7 @@ export async function qwenPrepareApplication(appId: string) {
     status?: string;
     queue?: PrepQueueStatus;
   }>(
-    "/qwen/agent/prepare",
+    "/assistant/agent/prepare",
     { method: "POST", body: JSON.stringify({ applicationId: appId }) },
   );
 }
@@ -792,38 +759,7 @@ export async function getQwenAgentStatus(appId: string) {
       roleTitle?: string;
     } | null;
     application: Record<string, unknown> | null;
-  }>(`/qwen/agent/status/${appId}`);
-}
-
-export type QwenActivityLog = {
-  id: string;
-  timestamp: string;
-  type: string;
-  summary: string;
-  success: boolean;
-  latencyMs?: number;
-  error?: string;
-  metadata?: Record<string, unknown>;
-};
-
-export async function getQwenLogs(limit = 80) {
-  return aaFetch<{
-    success: boolean;
-    logs: QwenActivityLog[];
-    activePrep: { active?: boolean; applicationId?: string } | null;
-    activeAnalyze: { active?: boolean; applicationId?: string; companyName?: string } | null;
-  }>(`/qwen/logs?limit=${limit}`);
-}
-
-export async function getQwenLive() {
-  return aaFetch<{
-    success: boolean;
-    activePrep: { active?: boolean; applicationId?: string; step?: string; companyName?: string; roleTitle?: string } | null;
-    activeAnalyze: { active?: boolean; applicationId?: string; companyName?: string } | null;
-    agentRun: Record<string, unknown> | null;
-    logs: { id: string; timestamp: string; type: string; summary: string; success: boolean; metadata?: Record<string, unknown> }[];
-    metrics: Record<string, unknown>;
-  }>("/qwen/live");
+  }>(`/assistant/agent/status/${appId}`);
 }
 
 export async function getDashboardStats() {
@@ -843,13 +779,6 @@ export async function getDashboardStats() {
       lastScrapedAt?: string;
     };
   }>("/dashboard/stats");
-}
-
-export async function qwenChat(message: string, context: Record<string, unknown> = {}, history: { role: string; content: string }[] = []) {
-  return aaFetch<{ success: boolean; reply: string }>("/qwen/chat", {
-    method: "POST",
-    body: JSON.stringify({ message, history, context }),
-  });
 }
 
 export async function openApplicationReview(appId: string, options?: { force?: boolean }) {
