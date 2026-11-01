@@ -29,7 +29,6 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from app.services.gemini import schemas
-from app.services.gemini.ambiguity import Uncertainty
 from app.services.gemini.gateway import GeminiRequest, Priority, get_gateway
 from app.services.gemini.grounding import Corpus, build_corpus, check, load_default_corpus
 from app.services.gemini.telemetry import telemetry
@@ -38,7 +37,6 @@ logger = logging.getLogger("careeros.gemini.enrichment")
 
 TASK_QUESTION = "application_question"
 TASK_TAILORING = "resume_tailoring"
-TASK_MATCH = "ambiguous_match"
 TASK_TEACHER = "benchmark_label"
 
 
@@ -332,102 +330,6 @@ async def tailor_bullets(
     return TailoringEnrichment(
         available=True, bullets=accepted, rejected=rejected,
         outcome=result.outcome.value, cached=result.cached,
-    )
-
-
-# ── 3. Ambiguous job matching ────────────────────────────────────────────────
-
-@dataclass
-class MatchEnrichment:
-    available: bool = False
-    decision: str = ""
-    primary_role_family: str = ""
-    secondary_role_family: str = ""
-    seniority_match: bool = False
-    critical_mismatch: bool = False
-    critical_requirements: list[str] = field(default_factory=list)
-    confidence: float = 0.0
-    reason: str = ""
-    outcome: str = ""
-    cached: bool = False
-
-    def to_dict(self) -> dict[str, Any]:
-        """Stored beside - never instead of - the deterministic match result."""
-        return {
-            "source": "gemini",
-            "decision": self.decision,
-            "primaryRoleFamily": self.primary_role_family,
-            "secondaryRoleFamily": self.secondary_role_family,
-            "seniorityMatch": self.seniority_match,
-            "criticalMismatch": self.critical_mismatch,
-            "criticalRequirements": self.critical_requirements,
-            "confidence": round(self.confidence, 3),
-            "reason": self.reason,
-            "cached": self.cached,
-        }
-
-
-async def clarify_match(
-    job: dict[str, Any],
-    uncertainty: Uncertainty,
-    *,
-    corpus: Corpus | None = None,
-    profile: dict[str, Any] | None = None,
-    documents: dict[str, Any] | None = None,
-    accomplishments: list[dict[str, Any]] | None = None,
-) -> MatchEnrichment:
-    """A second opinion on a posting the deterministic matcher could not settle.
-
-    Only called for postings `ambiguity.assess` flagged. The result never
-    replaces the deterministic score - the caller stores it alongside, and a
-    failure here means the posting goes to review rather than the run failing.
-    """
-    if not uncertainty.ambiguous:
-        return MatchEnrichment(available=False, outcome="not_ambiguous")
-
-    description = str(job.get("description") or job.get("snippet") or "")
-    evidence_corpus = corpus or _evidence_corpus(
-        profile, documents=documents, accomplishments=accomplishments
-    )
-
-    prompt = (
-        f"## Candidate\n{evidence_corpus.text[:6000] or 'No candidate material available.'}\n\n"
-        f"## Posting\n{job.get('title') or 'Unknown role'} at {job.get('company') or 'unknown company'}\n"
-        f"{description[:9000]}\n\n"
-        f"## Why this needs a second opinion\n"
-        + "\n".join(f"- {reason}" for reason in uncertainty.reasons)
-    )
-
-    result = await get_gateway().submit(GeminiRequest(
-        task=TASK_MATCH,
-        system=schemas.AMBIGUOUS_MATCH_SYSTEM,
-        prompt=prompt,
-        schema=schemas.AMBIGUOUS_MATCH_SCHEMA,
-        schema_name="match_clarification",
-        prompt_version=schemas.AMBIGUOUS_MATCH_VERSION,
-        priority=Priority.AMBIGUOUS_MATCH,
-        cache_parts=(evidence_corpus.version, normalized_hash(description)),
-        max_tokens=700,
-        deadline_seconds=120.0,
-    ))
-
-    if not result.ok or not result.data:
-        telemetry.record_fallback(TASK_MATCH)
-        return MatchEnrichment(available=False, outcome=result.outcome.value, reason=result.detail)
-
-    data = result.data
-    return MatchEnrichment(
-        available=True,
-        decision=str(data.get("decision") or "REVIEW").upper(),
-        primary_role_family=str(data.get("primary_role_family") or ""),
-        secondary_role_family=str(data.get("secondary_role_family") or ""),
-        seniority_match=bool(data.get("seniority_match")),
-        critical_mismatch=bool(data.get("critical_mismatch")),
-        critical_requirements=[str(item) for item in (data.get("critical_requirements") or [])][:8],
-        confidence=float(data.get("confidence") or 0.0),
-        reason=str(data.get("reason") or "")[:400],
-        outcome=result.outcome.value,
-        cached=result.cached,
     )
 
 

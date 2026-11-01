@@ -67,7 +67,7 @@ APPLICATION_ASSISTANT_LLM_BASE_URL=http://localhost:1234/v1
 APPLICATION_ASSISTANT_LLM_MODEL=your-model-name
 ```
 
-Works with LM Studio, Ollama (OpenAI-compatible endpoint), and similar servers. The feature works without an LLM for standard Greenhouse field mappings.
+Uses a hosted model (Gemini, or OpenAI/OpenRouter when configured); local model servers are no longer supported. The feature works without an LLM for standard Greenhouse field mappings.
 
 ### Browser profile
 

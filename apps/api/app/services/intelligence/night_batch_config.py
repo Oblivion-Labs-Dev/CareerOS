@@ -17,7 +17,7 @@ BATCH_SIZE = int(os.environ.get("CAREEROS_NIGHT_BATCH_SIZE", "10"))
 MAX_BATCH_CONCURRENT = 1  # Strictly one application at a time via the UI.
 
 # Safety and validation
-MIN_MATCH_SCORE = int(os.environ.get("CAREEROS_MIN_MATCH_SCORE", "75"))
+MIN_MATCH_SCORE = int(os.environ.get("CAREEROS_MIN_MATCH_SCORE", "60"))
 
 # Priority rules (job_filter_ranker.queue_priority_score):
 # 1. Postings from the last 24 hours, then older recency bands

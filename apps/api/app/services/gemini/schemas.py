@@ -103,57 +103,6 @@ Every returned bullet keeps its original "index" and stays within roughly the \
 same length. Return one entry per bullet you were given, in the order given."""
 
 
-# ── 3. Ambiguous job matching ────────────────────────────────────────────────
-
-AMBIGUOUS_MATCH_VERSION = "v1"
-
-AMBIGUOUS_MATCH_SCHEMA: dict[str, Any] = {
-    "type": "object",
-    "properties": {
-        "decision": {"type": "string", "enum": ["APPLY", "REVIEW", "SKIP"]},
-        "primary_role_family": {"type": "string", "enum": ROLE_FAMILIES},
-        "secondary_role_family": {"type": "string", "enum": [*ROLE_FAMILIES, ""]},
-        "seniority_match": {"type": "boolean"},
-        "critical_mismatch": {"type": "boolean"},
-        "critical_requirements": {"type": "array", "items": {"type": "string"}},
-        "confidence": {"type": "number", "minimum": 0, "maximum": 1},
-        "reason": {"type": "string"},
-    },
-    "required": [
-        "decision", "primary_role_family", "secondary_role_family",
-        "seniority_match", "critical_mismatch", "critical_requirements",
-        "confidence", "reason",
-    ],
-}
-
-AMBIGUOUS_MATCH_SYSTEM = """You are resolving a job posting that CareerOS's own \
-deterministic matcher could not classify confidently. Judge from the described \
-work and the candidate material.
-
-decision:
-  APPLY  - the described work is the kind of engineering this candidate does, at \
-a compatible level, with no requirement they plainly cannot meet
-  REVIEW - plausible but genuinely uncertain, or the posting does not describe \
-the work clearly enough to judge
-  SKIP   - a different kind of engineering, an incompatible level, or a \
-requirement the candidate cannot meet
-
-primary_role_family / secondary_role_family: the shape of the work. Use \
-secondary only when the posting genuinely spans two; otherwise "".
-
-critical_requirements: must-haves the posting states that the candidate material \
-does not evidence. Empty when there are none.
-
-confidence: 0..1, how clearly the posting supports your decision. Be low when the \
-posting is short, generic, or does not describe the work.
-
-reason: one factual sentence naming the deciding evidence.
-
-Judge the work, not the writing quality. A vague posting is REVIEW with low \
-confidence, never SKIP. Never assume the candidate has experience the material \
-does not show."""
-
-
 # ── 4. Offline benchmark labelling (MatchLab teacher) ────────────────────────
 
 TEACHER_VERSION = "v1"

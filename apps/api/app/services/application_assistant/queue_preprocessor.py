@@ -3,8 +3,8 @@
 The Autopilot applies to one job at a time. That leaves the machine idle for
 everything *except* the browser session, so this service keeps the pipeline
 
-    Job Scraper -> dedupe -> eligibility filters -> Mistral resume/JD match
-    -> match score -> queue
+    Job Scraper -> dedupe -> eligibility filters -> role-shape match score
+    -> queue
 
 running the whole time an application is in flight, and re-orders the pending
 queue whenever a newly discovered posting outranks what is already waiting.
@@ -16,12 +16,12 @@ Design notes
   submission count, which lives in the test, not in the queue.
 * Applications stay strictly sequential — this service never submits anything.
   It only reads discovered postings, scores them, and writes ``QUEUED`` rows.
-* Match scoring is Mistral running under Ollama (see ``mistral_resume_match``).
-  A posting the model could not score is left unscored and retried on a later
-  cycle rather than being persisted with a fake zero.
-* Every LLM call happens *outside* an open SQLAlchemy session. A scoring pass
-  takes tens of seconds on this hardware, and holding a SQLite session open
-  across it is what previously produced "database is locked" during a live run.
+* Match scoring is the deterministic role-shape scorer (see
+  ``role_shape_match``). A posting it could not score is left unscored and
+  retried on a later cycle rather than being persisted with a fake zero.
+* Scoring happens *outside* an open SQLAlchemy session; holding a SQLite
+  session open across slow work is what previously produced "database is
+  locked" during a live run.
 """
 
 from __future__ import annotations
@@ -36,21 +36,15 @@ from datetime import datetime, timezone
 from typing import Any
 
 from app.db.store import get_kv, new_id, now_iso, session_scope, set_kv
-from app.services.application_assistant.candidate_match_context import load_match_context
 from app.services.application_assistant.domain import AutopilotJobStatus
 from app.services.application_assistant.job_filter_ranker import (
     _is_unapplyable_listing_url,
-    evaluate_hard_filters,
     filter_and_rank_jobs,
     queue_priority_score,
 )
-from app.services.application_assistant.mistral_resume_match import (
-    build_mistral_match_client,
-    score_jobs_against_resume,
-)
 from app.services.application_assistant.role_shape_match import (
     MATCH_METHOD as ROLE_SHAPE_METHOD,
-    MODEL_MATCH_METHODS,
+    current_resume_key,
     role_shape_matches,
 )
 from app.services.application_assistant.persistence import (
@@ -72,11 +66,6 @@ STATS_KV_KEY = "autopilot_queue_preprocessor"
 
 # How long to wait between preparation cycles when there is nothing new to do.
 IDLE_CYCLE_SECONDS = 30.0
-# How many postings to hand Mistral per cycle. Kept small so the queue keeps
-# growing steadily while leaving the local GPU available to the resume
-# tailoring of the application that is actively running.
-SCORE_BATCH_SIZE = 6
-SCORE_CONCURRENCY = 2
 # Re-run the scraper at most this often; the job boards do not change faster.
 SCRAPE_INTERVAL_SECONDS = 45 * 60
 # How recently an APPLYING row must have been written to still count as a
@@ -140,15 +129,6 @@ def _due_for_scheduled_rejection_reconcile(last_run_iso: str | None, now: dateti
 # LOW_QUEUE_WATERMARK, so Night Batch always has jobs prepared ahead of time
 # without piling up unbounded, uncontrolled work. Rows already queued are
 # never removed to get under the ceiling.
-# Match scoring is the only stage that loads the local Ollama model, and it
-# holds several GB of RAM resident for as long as the preprocessor keeps
-# cycling — on this 8GB-GPU laptop that is what makes the machine crawl during
-# an Autopilot run. Set CAREEROS_LOCAL_LLM=off to keep the model unloaded: the
-# pipeline still scrapes, dedupes, filters, enqueues and re-ranks, it just
-# stops scoring *new* postings, so already-scored jobs remain fully usable.
-LOCAL_LLM_ENABLED = os.environ.get("CAREEROS_LOCAL_LLM", "on").strip().lower() not in ("off", "0", "false")
-
-
 def _empty_stats() -> dict[str, Any]:
     return {
         "running": False,
@@ -164,7 +144,6 @@ def _empty_stats() -> dict[str, Any]:
         "lastScrapeStartedAt": None,
         "lastCycleAt": None,
         "lastError": "",
-        "matchModel": "",
         "yieldingToApplication": False,
         "queueAtCapacity": False,
         "queueReplenishing": True,
@@ -287,9 +266,6 @@ class QueuePreprocessor:
         # is safe off the loop.
         did_work |= await asyncio.to_thread(self._ingest_scraper_snapshot) > 0
 
-        scored = await self._score_pending_jobs()
-        did_work |= scored > 0
-
         enqueued = await asyncio.to_thread(self._enqueue_scored_jobs)
         did_work |= enqueued > 0
 
@@ -348,7 +324,6 @@ class QueuePreprocessor:
                 with session_scope() as _kv_db:
                     set_kv(_kv_db, REJECTION_RECONCILE_LAST_RUN_KV_KEY, now_iso())
 
-        did_work |= await asyncio.to_thread(self._sync_queue_match_scores) > 0
         did_work |= await asyncio.to_thread(self._role_shape_rescore_queue) > 0
         await asyncio.to_thread(self._rerank_pending_queue)
 
@@ -472,119 +447,6 @@ class QueuePreprocessor:
             logger.info("Queue preprocessor ingested %d new scraper postings", added)
         return added
 
-    def _eligible_unscored(self) -> tuple[list[dict[str, Any]], dict[str, Any], dict[str, Any], list[dict[str, Any]]]:
-        """Discovered postings that pass the hard filters and have no Mistral score yet.
-
-        ``allowDuplicates`` is on deliberately. The hard filters reject a
-        posting that is already sitting in the queue as a duplicate, which would
-        otherwise mean the rows *at the head of the queue* are the only ones
-        never scored by Mistral. Deduping still happens — at enqueue time, in
-        ``_enqueue_scored_jobs`` — so nothing is queued twice.
-        """
-        with session_scope() as db:
-            profile, documents, accomplishments = load_match_context(db)
-            existing_autopilot = list_autopilot_jobs(db)
-            discovered = list_discovered_jobs(db, active_only=True, exclude_demo=True)
-
-        self.stats["jobsDiscovered"] = len(discovered)
-
-        queued_job_ids = {
-            j.get("jobId") for j in existing_autopilot
-            if j.get("status") == AutopilotJobStatus.QUEUED.value
-        }
-
-        rejected = 0
-        pending: list[dict[str, Any]] = []
-        for job in discovered:
-            if isinstance(job.get("mistralMatch"), dict):
-                continue
-            passed, _reason = evaluate_hard_filters(
-                job, profile, existing_autopilot, {"allowDuplicates": True}
-            )
-            if not passed:
-                # Let aggregator URLs pass through to the resolver at enqueue
-                # time: scoring, not filtering, is their gatekeeper. The posted
-                # date / role / location checks are still enforced above.
-                if "aggregator listing page" in str(_reason):
-                    pending.append(job)
-                    continue
-                rejected += 1
-                continue
-            pending.append(job)
-
-        self.stats["jobsRejectedByFilters"] = rejected
-        # Postings already waiting in the queue are scored first — they are the
-        # ones about to be applied to, so their ranking has to be the real
-        # Mistral one before anything else gets attention. Within each group,
-        # the highest tier goes first.
-        pending.sort(
-            key=lambda j: (j.get("id") in queued_job_ids, queue_priority_score(j)),
-            reverse=True,
-        )
-        return pending, profile, documents, accomplishments
-
-    async def _score_pending_jobs(self) -> int:
-        if not LOCAL_LLM_ENABLED:
-            self.stats["matchModel"] = "disabled (CAREEROS_LOCAL_LLM=off)"
-            return 0
-        pending, profile, documents, accomplishments = self._eligible_unscored()
-        if not pending:
-            return 0
-
-        # Match scoring and resume tailoring are the same local 7B model on one
-        # 8GB GPU. Sharing it cost a real submission: a scoring call in flight
-        # pushed Coupang's tailoring past its 120s budget, the run fell back to
-        # template wording, and the tailored resume the application was supposed
-        # to carry never got generated. So scoring — and only scoring — steps
-        # aside while a job is actually in an employer form. Everything else in
-        # the pipeline (scrape, ingest, dedupe, filter, enqueue, re-rank) keeps
-        # running, which is what "keep preparing future jobs" actually needs.
-        if self._application_in_flight():
-            self.stats["yieldingToApplication"] = True
-            return 0
-        self.stats["yieldingToApplication"] = False
-
-        # Scored one at a time with the in-flight check repeated between jobs.
-        # Checking once per cycle was not enough: a batch of six takes minutes,
-        # so an application starting mid-batch kept competing with scoring for
-        # the same GPU — measured as jd_resume_match latency rising from ~11s to
-        # 50-85s, and one resume-tailoring call timing out into the fallback.
-        batch = pending[:SCORE_BATCH_SIZE]
-        concurrency = SCORE_CONCURRENCY
-        client = build_mistral_match_client()
-        self.stats["matchModel"] = client.model
-        matches = await score_jobs_against_resume(
-            batch,
-            profile,
-            documents=documents,
-            accomplishments=accomplishments,
-            concurrency=concurrency,
-            client=client,
-            should_continue=lambda: not self._application_in_flight(),
-        )
-        if not matches:
-            return 0
-
-        with session_scope() as db:
-            for job in batch:
-                match = matches.get(str(job.get("id")))
-                if not match:
-                    continue
-                upsert_discovered_job(db, {
-                    **job,
-                    "mistralMatch": match,
-                    "matchScore": match["matchScore"],
-                    "matchReason": match["matchReason"],
-                    "keyMatchingSkills": match["keyMatchingSkills"],
-                    "missingSkills": match["missingSkills"],
-                    "matchMethod": match["matchMethod"],
-                    "matchScoredAt": now_iso(),
-                })
-
-        self.stats["jobsPreprocessed"] = int(self.stats.get("jobsPreprocessed", 0)) + len(matches)
-        logger.info("Queue preprocessor scored %d posting(s) with %s", len(matches), client.model)
-        return len(matches)
-
     def _enqueue_scored_jobs(self, only_scraper_ids: set[str] | None = None) -> int:
         # The loop and an import's priority intake can both land here; one at a
         # time, or the same posting could be queued twice.
@@ -592,7 +454,7 @@ class QueuePreprocessor:
             return self._enqueue_scored_jobs_locked(only_scraper_ids)
 
     def _enqueue_scored_jobs_locked(self, only_scraper_ids: set[str] | None = None) -> int:
-        """Move Mistral-scored, filter-passing postings into the QUEUED state.
+        """Move filter-passing postings into the QUEUED state, role-shape scored.
 
         No size limit is applied — ``filter_and_rank_jobs`` is called without a
         ``maxApplicationsPerRun``, so the queue grows to hold every eligible
@@ -643,30 +505,12 @@ class QueuePreprocessor:
             return 0
         self.stats["queueAtCapacity"] = False
 
-        # Requiring a Mistral score before a posting could be queued starves
-        # this path to nothing while LOCAL_LLM_ENABLED is off (see module
-        # docstring / CAREEROS_LOCAL_LLM=off) - no posting will ever get a
-        # mistralMatch, so the queue would sit empty forever. With the model
-        # off there is no GPU contention risk left to protect against, so use
-        # filter_and_rank_jobs's deterministic heuristic path directly for
-        # every unqueued posting.
-        #
-        # (An earlier attempt to do this unconditionally - while the model
-        # was still on - hit a real O(n x m) duplicate-check blowup that hung
-        # the whole server; that was the *duplicate check*, not the heuristic
-        # matching itself, and is fixed below with an O(1) in-memory index.
-        # Kept this path Mistral-gated whenever the model is actually on, to
-        # match the proven-stable behavior and not reopen that investigation
-        # while it's unresolved.)
         already_queued_job_ids = {j.get("jobId") for j in existing_autopilot}
         if only_scraper_ids is not None:
             candidates = [
                 j for j in discovered
                 if j.get("scraperJobId") in only_scraper_ids and j.get("id") not in already_queued_job_ids
             ]
-        elif LOCAL_LLM_ENABLED:
-            scored = [j for j in discovered if isinstance(j.get("mistralMatch"), dict)]
-            candidates = [j for j in scored if j.get("id") not in already_queued_job_ids]
         else:
             candidates = [j for j in discovered if j.get("id") not in already_queued_job_ids]
         if not candidates:
@@ -675,16 +519,10 @@ class QueuePreprocessor:
             )
             return 0
 
-        precomputed = {
-            str(j["id"]): j["mistralMatch"] for j in candidates if isinstance(j.get("mistralMatch"), dict)
-        }
-        # Everything the model has not scored gets a deterministic role-shape
-        # score instead of the "unscored" placeholder (#50). It only orders the
-        # queue. Bounded per call; the rest are scored on later cycles.
-        precomputed.update(role_shape_matches(
-            [j for j in candidates if str(j.get("id")) not in precomputed],
-            profile, documents, discovered,
-        ))
+        # Every candidate gets a deterministic role-shape score instead of the
+        # "unscored" placeholder (#50). Bounded per call; the rest are scored on
+        # later cycles.
+        precomputed = role_shape_matches(candidates, profile, documents, discovered)
         ranked = filter_and_rank_jobs(
             existing_autopilot, candidates, profile, {}, precomputed_matches=precomputed,
             documents=documents, accomplishments=accomplishments,
@@ -803,6 +641,8 @@ class QueuePreprocessor:
                     "missingSkills": r.get("missingSkills", []),
                     "matchMethod": r.get("matchMethod", ""),
                     "matchModel": r.get("matchModel", ""),
+                    "matchScoredAt": r.get("matchScoredAt", ""),
+                    "matchResumeKey": r.get("matchResumeKey", ""),
                     "matchReasons": r.get("matchReasons", []),
                     "queuePriority": r.get("queuePriority", 0.0),
                     "datePosted": r.get("datePosted") or r.get("postingDate") or r.get("dateDiscovered") or r.get("createdAt") or "",
@@ -825,81 +665,30 @@ class QueuePreprocessor:
             logger.info("Queue preprocessor enqueued %d new posting(s)", enqueued)
         return enqueued
 
-    def _sync_queue_match_scores(self) -> int:
-        """Copy the Mistral match onto queue rows still carrying an older score.
-
-        Rows queued before this pipeline existed (or refilled by the runner's
-        own catch-up path) hold a keyword-heuristic ``matchScore``. Once the
-        posting they point at has been scored by Mistral, the queue row has to
-        pick that up or the ordering at the head of the queue is still the old
-        heuristic ranking. Only ``QUEUED`` rows are rewritten — a job that has
-        already been applied to keeps the score it was submitted under.
-        """
-        with session_scope() as db:
-            queued = [
-                j for j in list_autopilot_jobs(db)
-                if j.get("status") == AutopilotJobStatus.QUEUED.value
-                and j.get("matchMethod") != "ollama-local"
-            ]
-            if not queued:
-                return 0
-            discovered_by_id = {
-                j.get("id"): j
-                for j in list_discovered_jobs(db, active_only=False, exclude_demo=False)
-            }
-
-            updated = 0
-            for job in queued:
-                source = discovered_by_id.get(job.get("jobId"))
-                match = source.get("mistralMatch") if isinstance(source, dict) else None
-                if not isinstance(match, dict):
-                    continue
-                # Already carries this match. The `!= "ollama-local"` filter above
-                # does not exclude a source whose method is anything else, so
-                # without this the same rows were rewritten every cycle and the
-                # loop never idled (#74).
-                if (job.get("matchMethod"), job.get("matchScore")) == (match["matchMethod"], match["matchScore"]):
-                    continue
-                job.update({
-                    "matchScore": match["matchScore"],
-                    "matchReason": match["matchReason"],
-                    "keyMatchingSkills": match["keyMatchingSkills"],
-                    "missingSkills": match["missingSkills"],
-                    "matchMethod": match["matchMethod"],
-                    "matchModel": match.get("matchModel", ""),
-                    "matchReasons": match["keyMatchingSkills"][:8],
-                })
-                job["queuePriority"] = queue_priority_score(job)
-                save_autopilot_job(db, job)
-                updated += 1
-
-        if updated:
-            logger.info("Queue preprocessor re-scored %d queued row(s) with Mistral", updated)
-        return updated
-
     def _role_shape_rescore_queue(self) -> int:
-        """Give waiting jobs without a real score a role-shape one (#50).
+        """Re-score waiting jobs whose score is not a current role-shape one (#50).
 
-        Covers rows queued as "unscored" while the local model was off, rows
-        with no match method at all, and rows still carrying the old keyword
-        heuristic, which the matcher benchmark measured as worse than chance.
-        A model score is never overwritten, and only ``QUEUED`` rows are
-        touched: a job that was already applied to keeps the score it had.
-        Bounded per call by the scorer's budget.
+        Covers rows queued as "unscored", rows with no match method, rows still
+        carrying the old keyword heuristic or a score from the removed local
+        model, and role-shape rows scored against a different resume (their
+        ``matchResumeKey`` no longer matches). Only ``QUEUED`` rows are touched:
+        a job that was already applied to keeps the score it had. Bounded per
+        call by the scorer's budget.
         """
-        if LOCAL_LLM_ENABLED:
-            return 0
         with session_scope() as db:
-            queued = [
-                j for j in list_autopilot_jobs(db)
-                if j.get("status") == AutopilotJobStatus.QUEUED.value
-                and j.get("matchMethod") not in MODEL_MATCH_METHODS
-                and j.get("matchMethod") != ROLE_SHAPE_METHOD
-            ]
-            if not queued:
-                return 0
             profile = get_kv(db, "profile") or {}
             documents = get_kv(db, "documents") or {}
+            resume_key = current_resume_key(profile, documents)
+            queued = [
+                j for j in list_autopilot_jobs(db)
+                if j.get("status") == AutopilotJobStatus.QUEUED.value
+                and (
+                    j.get("matchMethod") != ROLE_SHAPE_METHOD
+                    or j.get("matchResumeKey") != resume_key
+                )
+            ]
+            if not queued:
+                return 0
             discovered = list_discovered_jobs(db, active_only=True, exclude_demo=True)
             by_id = {
                 j.get("id"): j

@@ -23,8 +23,6 @@ async def main():
         "tierGuardrails": True,
         "submittableBoardsOnly": True,
         "submittableBoardsStrict": False,
-        "selfHealing": True,
-        "aiModel": "qwen3:4b-instruct",
         "tailoringMode": "honest"
     })
     print(f"Started: {run}")

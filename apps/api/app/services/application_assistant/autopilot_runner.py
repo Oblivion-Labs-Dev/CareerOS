@@ -1,7 +1,7 @@
 """Fault-Tolerant Autopilot Application Runner Daemon for CareerOS.
 
 Supports N concurrent browser workers with per-worker status tracking,
-concurrency metrics, and a batch-end self-healing cycle powered by Qwen.
+and concurrency metrics.
 """
 
 from __future__ import annotations
@@ -84,58 +84,7 @@ PLAYWRIGHT_WATCHDOG_TIMEOUT = float(os.environ.get("AUTOPILOT_JOB_TIMEOUT_SEC", 
 PLAYWRIGHT_INNER_TIMEOUT = max(60.0, PLAYWRIGHT_WATCHDOG_TIMEOUT - 60.0)
 # An application is submitted once its resume's match score reaches this
 # bar. All queued jobs have already passed strict role, seniority, and location filters.
-MIN_MATCH_SCORE_TO_SUBMIT = float(os.environ.get("AUTOPILOT_MIN_MATCH_SCORE", "80.0"))
-# How many times a resume may be re-tailored for one posting before giving up.
-# Each attempt is a full local-model rewrite plus a scoring pass (~30-60s on
-# this hardware), so this trades wall-clock against the chance of clearing the
-# bar. Three is enough for the pattern that actually works: one honest pass, one
-# targeted at the reported gaps, one with the framing escalated.
-MAX_TAILORING_ATTEMPTS = int(os.environ.get("AUTOPILOT_MAX_TAILORING_ATTEMPTS", "3"))
-# The fewest rewritten bullets that still counts as a tailored resume.
-#
-# A high score alone is not sufficient grounds to submit. Match scoring reads
-# the whole candidate context - profile, accomplishments, resume - so a posting
-# can score well while the document itself came out byte-identical to the
-# original, which is what happened when every batch was discarded by the
-# alignment guard: the run reported a passing score and attached an untailored
-# resume. Requiring that the rewrite actually changed something makes "the score
-# is fine" and "the resume is fine" two separate conditions, both of which must
-# hold before anything is sent to an employer.
-MIN_TAILORED_BULLETS = int(os.environ.get("AUTOPILOT_MIN_TAILORED_BULLETS", "3"))
-TAILORING_ESCALATION_ORDER = ["off", "honest", "aggressive"]
-
-# Score bands that decide how hard to tailor. Set by the operator: a posting
-# already at or above the submit bar needs no rewriting, one within striking
-# distance gets honest re-emphasis, and one well below gets the strongest
-# framing the underlying facts support.
-TAILORING_HONEST_FLOOR = float(os.environ.get("AUTOPILOT_TAILORING_HONEST_FLOOR", "60.0"))
-
-
-def _tailoring_mode_for_score(
-    score: float, configured_mode: str, submit_bar: float | None = None
-) -> str:
-    """Pick a tailoring mode from the pre-tailoring match score.
-
-    Bands:
-        >= submit_bar             : "off"        - already clears the bar
-        >= TAILORING_HONEST_FLOOR : "honest"     - near miss, re-emphasise
-        below that                : "aggressive" - distant, push the framing
-
-    ``submit_bar`` is the batch's own match floor, not the module default: the
-    bands describe distance from *the bar this run is actually judged against*,
-    so lowering the floor for a run has to move them with it.
-
-    An operator who has explicitly turned tailoring off keeps it off: the bands
-    decide how much to tailor, not whether the feature is enabled at all.
-    """
-    bar = MIN_MATCH_SCORE_TO_SUBMIT if submit_bar is None else submit_bar
-    if configured_mode == "off":
-        return "off"
-    if score >= bar:
-        return "off"
-    if score >= min(TAILORING_HONEST_FLOOR, bar):
-        return "honest"
-    return "aggressive"
+MIN_MATCH_SCORE_TO_SUBMIT = float(os.environ.get("AUTOPILOT_MIN_MATCH_SCORE", "60.0"))
 # Launches are staggered just enough to avoid a burst of browser startups.  The
 # former three-second default left most worker slots idle at the start of every
 # batch without improving form reliability.
@@ -348,7 +297,6 @@ class ConcurrencyMetrics:
     total_jobs_finished: int = 0
     total_job_time_sec: float = 0.0
     lock_contention_count: int = 0
-    self_healing_rounds_completed: int = 0
     batch_start_time: float = 0.0
 
     @property
@@ -367,7 +315,6 @@ class ConcurrencyMetrics:
             "avgJobTimeSec": round(self.avg_job_time_sec, 1),
             "throughputPerMin": round(self.throughput_per_min, 2),
             "lockContentionCount": self.lock_contention_count,
-            "selfHealingRoundsCompleted": self.self_healing_rounds_completed,
             "totalJobsStarted": self.total_jobs_started,
             "totalJobsFinished": self.total_jobs_finished,
         }
@@ -413,7 +360,6 @@ class AutopilotRunner:
         # ── Concurrency state ──
         self.concurrency: int = APPLY_CONCURRENCY
         self.stagger_delay: float = DEFAULT_STAGGER_DELAY
-        self.self_healing_enabled: bool = True
         self.worker_states: dict[int, WorkerState] = {}
         self.metrics = ConcurrencyMetrics()
 
@@ -491,7 +437,7 @@ class AutopilotRunner:
         """Settings from the most recent run, used to fill in an omitted option.
 
         Start paths that are not the batch console (per-job retry, reprocess
-        sweeps, the self-healer) send only the job they care about. Reading the
+        sweeps) send only the job they care about. Reading the
         previous run's settings keeps the operator's chosen match floor, model
         and guardrails in force across those, instead of snapping back to the
         environment defaults behind their back.
@@ -513,6 +459,10 @@ class AutopilotRunner:
             opts = kwargs.get("options") or db or {}
         else:
             opts = options or kwargs.get("options") or {}
+        # Self-healing was removed. Older clients still send `selfHealing`;
+        # accept it and drop it so it is never persisted onto the run.
+        if isinstance(opts, dict) and "selfHealing" in opts:
+            opts = {k: v for k, v in opts.items() if k != "selfHealing"}
         # ── Pre-flight: refuse rather than discover a gap mid-application ────
         #
         # A missing answer used to be found only once the browser had opened the
@@ -527,7 +477,7 @@ class AutopilotRunner:
         # in _ensure_queue_preprocessor's docstring.
         #
         # `start()` is not only the console's path - per-job retry, the
-        # reprocess sweeps and the self-healer all call it. A deliberate
+        # and reprocess sweeps all call it. A deliberate
         # single-job retry is the user asking for exactly that job, so
         # priorityJobId bypasses the gate; only unattended batches are held.
         if not (opts.get("priorityJobId") or opts.get("priorityJobIds")):
@@ -564,14 +514,13 @@ class AutopilotRunner:
                 level="info",
             )
         self.stagger_delay = float(opts.get("staggerDelay") or DEFAULT_STAGGER_DELAY)
-        self.self_healing_enabled = bool(opts.get("selfHealing", True))
 
         # Batch configuration chosen in the console. `minMatchScore` reaching
         # the apply path is the point: it is the bar a tailored resume has to
         # clear before anything is sent to an employer.
         #
         # Not every start comes from the console: a per-job "Retry", a
-        # reprocess-failed sweep and the self-healer all call start() with only
+        # and a reprocess-failed sweep both call start() with only
         # a priorityJobId. Those must not silently reset the operator's floor to
         # the environment default - a retry at 80% of a job the operator queued
         # at 60% judges it by a bar they never chose. So an omitted option falls
@@ -666,7 +615,7 @@ class AutopilotRunner:
                     # the honest number: how many times this run has been resumed,
                     # for the UI to show as "Batch N" instead.
                     existing["resumeCount"] = int(existing.get("resumeCount") or 1) + 1
-                    # The resolved opts (tierGuardrails, minMatchScore, selfHealing,
+                    # The resolved opts (tierGuardrails, minMatchScore, tailoring,
                     # ...) reflect this start() call and are already governing the
                     # runner in-memory below - without writing them back here, the
                     # persisted run row keeps whatever settings it was *first*
@@ -890,10 +839,6 @@ class AutopilotRunner:
         workers_list = [ws.to_dict() for ws in self.worker_states.values()]
         active_worker_count = sum(1 for ws in self.worker_states.values() if ws.status not in ("idle", "done"))
 
-        # Self-healing state
-        from app.services.application_assistant.autopilot_self_healer import get_self_healing_state
-        heal_state = get_self_healing_state().to_dict()
-
         # What the batch is actually configured to do, reported from the runner
         # rather than echoed back from the request the console sent, so the
         # console shows the values in force instead of the ones it asked for.
@@ -901,7 +846,6 @@ class AutopilotRunner:
             "batchSize": self.batch_size,
             "minMatchScore": self.min_match_score,
             "tierGuardrails": self.tier_guardrails,
-            "selfHealing": self.self_healing_enabled,
             "aiModel": (get_settings(db).get("llm") or {}).get("model", ""),
             "tailoringMode": get_settings(db).get("tailoringMode", "off"),
         }
@@ -918,7 +862,6 @@ class AutopilotRunner:
                 "workers": workers_list,
                 "concurrency": self.concurrency,
                 "concurrencyMetrics": self.metrics.to_dict(active_worker_count, self.concurrency),
-                "selfHealing": heal_state,
                 "batchConfig": batch_config,
             }
 
@@ -942,7 +885,6 @@ class AutopilotRunner:
             "workers": workers_list,
             "concurrency": self.concurrency,
             "concurrencyMetrics": self.metrics.to_dict(active_worker_count, self.concurrency),
-            "selfHealing": heal_state,
             "batchConfig": batch_config,
         }
 
@@ -1025,7 +967,7 @@ class AutopilotRunner:
     def _ensure_queue_preprocessor(self) -> None:
         """Keep the background queue pipeline alive alongside the run.
 
-        Scraping, deduping, eligibility filtering and Mistral match scoring all
+        Scraping, deduping, eligibility filtering and role-shape match scoring all
         continue while an application is mid-flight, so the next job is already
         prepared and ranked by the time the current one finishes.
 
@@ -1045,7 +987,7 @@ class AutopilotRunner:
                 return
             asyncio.create_task(preprocessor.start())
             self.log_event(
-                "Background queue preparation started (scrape → dedupe → filters → Mistral match → queue)",
+                "Background queue preparation started (scrape → dedupe → filters → role-shape match → queue)",
                 level="info",
             )
         except Exception as exc:
@@ -1055,7 +997,7 @@ class AutopilotRunner:
     async def _refill_queue(self, deficit: int, run_settings: dict[str, Any]) -> None:
         """Top up the QUEUED pool when it drops below the target threshold.
 
-        Preserves the same Mistral match caching, profile tailoring,
+        Preserves the same role-shape match caching, profile tailoring,
         ranking and duplicate protection as the original queue-population path.
         Safe to run concurrently with in-progress job processing - it only
         ever adds new QUEUED rows, never touches a job that is already claimed.
@@ -1076,22 +1018,11 @@ class AutopilotRunner:
                 return (0, 0, 0)
 
             refill_settings = {**run_settings, "maxApplicationsPerRun": deficit}
-            # Reuse whatever the background preprocessor has already scored with
-            # Mistral so this catch-up path never re-ranks the same posting with the
-            # weaker keyword heuristic.
-            precomputed = {
-                str(j.get("id")): j["mistralMatch"]
-                for j in raw_jobs
-                if isinstance(j.get("mistralMatch"), dict)
-            }
-            # Everything else gets the deterministic role-shape score (#50),
-            # the same one the background preprocessor uses.
+            # The deterministic role-shape score (#50), the same one the
+            # background preprocessor uses, memoised per posting.
             from app.services.application_assistant.role_shape_match import role_shape_matches
 
-            precomputed.update(role_shape_matches(
-                [j for j in raw_jobs if str(j.get("id")) not in precomputed],
-                profile, documents, raw_jobs,
-            ))
+            precomputed = role_shape_matches(raw_jobs, profile, documents, raw_jobs)
             ranked = filter_and_rank_jobs(
                 existing_autopilot_jobs,
                 raw_jobs,
@@ -1126,6 +1057,8 @@ class AutopilotRunner:
                         "missingSkills": r.get("missingSkills", []),
                         "matchMethod": r.get("matchMethod", ""),
                         "matchModel": r.get("matchModel", ""),
+                        "matchScoredAt": r.get("matchScoredAt", ""),
+                        "matchResumeKey": r.get("matchResumeKey", ""),
                         "matchReasons": r.get("matchReasons", []),
                         "queuePriority": r.get("queuePriority", 0.0),
                         "location": r.get("location", ""),
@@ -1164,8 +1097,7 @@ class AutopilotRunner:
                 run = (get_autopilot_run(db, self.active_run_id) if self.active_run_id else None) or get_active_autopilot_run(db)
 
             if not run or run.get("status") not in (AutopilotRunStatus.RUNNING.value, AutopilotRunStatus.RECOVERING.value):
-                # The run this loop was tracking finished (e.g. self-healing just
-                # wrapped up). Before exiting, check for a *different* run that was
+                # The run this loop was tracking finished (e.g. it was stopped). Before exiting, check for a *different* run that was
                 # started while we were busy — otherwise a Start Run click that lands
                 # in this exact window leaves the new run stuck at RUNNING with no
                 # worker actually processing it until the next manual start/reload.
@@ -1278,16 +1210,14 @@ class AutopilotRunner:
                             r["currentJobId"] = None
                             save_autopilot_run(db, r)
                     self.log_event("Queue empty and no new postings available — run paused.", level="info")
-                    # Do NOT trigger post-batch self-healing here; that happens when a
-                    # batch actually completes its target. Just wait for manual restart or
-                    # new postings.
+                    # Wait for a manual restart or new postings.
                     break
                 # Continue the loop — we have jobs to process after refill.
                 continue
 
             # 3. Claim the next job, never more than the batch still needs.
             # Claim order is exactly the queue's own ordering key — the
-            # location/level tier bonus plus the Mistral resume-match score
+            # location/level tier bonus plus the role-shape resume-match score
             # (see job_filter_ranker.queue_priority_score) — so a posting the
             # preprocessor scored higher five minutes ago genuinely overtakes
             # what was already waiting. list_autopilot_jobs returns rows in
@@ -1570,67 +1500,6 @@ class AutopilotRunner:
                     metadata={"slot": slot_idx, "elapsedSec": round(job_elapsed, 1)},
                 )
 
-    async def _trigger_post_batch_self_healing(self, run_id: str) -> None:
-        """After a batch completes, check for failures and trigger self-healing if enabled."""
-        if not self.self_healing_enabled:
-            return
-
-        failed_jobs: list[dict[str, Any]] = []
-        with session_scope() as db:
-            all_jobs = list_autopilot_jobs(db)
-            from app.services.application_assistant.submission_outcome import is_retryable_technical_failure
-
-            failed_jobs = [
-                j for j in all_jobs
-                if (is_retryable_technical_failure(j) or j.get("status") == "ERROR")
-                and j.get("lastAttemptRunId") == run_id
-            ]
-
-        if not failed_jobs:
-            self.log_event("Post-batch check: No failures detected — self-healing not needed.", level="info")
-            return
-
-        self.log_event(
-            f"Post-batch check: {len(failed_jobs)} failed job(s) detected — triggering self-healing cycle...",
-            level="warning",
-            metadata={"failedCount": len(failed_jobs)},
-        )
-
-        from app.services.application_assistant.autopilot_self_healer import run_self_healing_cycle
-
-        try:
-            result = await run_self_healing_cycle(
-                failed_jobs=failed_jobs,
-                log_event_fn=self.log_event,
-                max_rounds=MAX_JOB_ATTEMPTS,
-            )
-            self.metrics.self_healing_rounds_completed += result.get("totalRounds", 0)
-
-            # If patches were applied and jobs were re-queued, restart the batch loop
-            if result.get("patchesApplied", 0) > 0:
-                self.log_event(
-                    f"Self-healing applied {result['patchesApplied']} patch(es) — re-entering batch loop to retry failed jobs",
-                    level="info",
-                )
-                # Update the run status back to RUNNING so the loop continues
-                with session_scope() as db:
-                    r = get_autopilot_run(db, run_id)
-                    if r:
-                        r["status"] = AutopilotRunStatus.RUNNING.value
-                        r["completedAt"] = None
-                        # Increase target count to cover the re-queued jobs
-                        requeued_count = sum(1 for j in failed_jobs)
-                        r["targetProcessCount"] = (r.get("processedCount") or 0) + requeued_count
-                        save_autopilot_run(db, r)
-                # Re-enter the batch loop — spawn a new loop task
-                if self._loop_task is None or self._loop_task.done():
-                    self._loop_task = asyncio.create_task(self._run_batch_worker())
-            else:
-                self.log_event("Self-healing completed but no patches were applied.", level="info")
-        except Exception as e:
-            self.log_event(f"Self-healing cycle failed: {e}", level="error")
-            logger.error("Self-healing cycle error: %s", traceback.format_exc())
-
     def _record_checkpoint(self, job_item: dict[str, Any], step: CheckpointStep, details: str = "") -> None:
         if "checkpointHistory" not in job_item or job_item["checkpointHistory"] is None:
             job_item["checkpointHistory"] = []
@@ -1649,8 +1518,8 @@ class AutopilotRunner:
             application_id=job_item.get("id"),
             job_id=job_item.get("jobId") or job_item.get("id"),
             workflow_stage=step.value,
-            provider="ollama",
-            model=job_item.get("resumeTailoringModel") or "qwen3:4b-instruct",
+            provider="",
+            model=job_item.get("resumeTailoringModel") or "",
         )
 
         # Broadcast structured event for Live Autopilot Activity & Diagnostic observers
@@ -1670,63 +1539,12 @@ class AutopilotRunner:
             "workflowStep": step.value,
             "status": "running" if step not in (CheckpointStep.SUBMITTED, CheckpointStep.SKIPPED, CheckpointStep.FAILED) else step.value.lower(),
             "message": details or f"Step {step.value}",
-            "provider": "ollama",
-            "model": job_item.get("resumeTailoringModel") or "qwen3:4b-instruct",
+            "provider": "",
+            "model": job_item.get("resumeTailoringModel") or "",
             "timestamp": now_ts,
             "durationMs": 2100,
             "traceId": ctx.get("trace_id"),
         })
-
-    async def _gemini_match_gate(
-        self,
-        job_item: dict[str, Any],
-        profile: dict[str, Any],
-        score: float,
-        log: Any,
-    ) -> Any:
-        """One optional second opinion on a posting the matcher could not settle.
-
-        Returns None when the gate cannot run at all, which is treated exactly
-        like "proceed" by the caller - an optional enhancement that is itself
-        unavailable must not change what CareerOS does.
-
-        The posting text is loaded from the discovered-job row, because an
-        Autopilot job row carries only company, title, URL and location. Without
-        the description there is nothing to be ambiguous *about*, so the gate
-        steps aside rather than judging a posting it cannot read.
-        """
-        from app.services.gemini.config import applications_enabled
-
-        if not applications_enabled():
-            return None  # Treated as "proceed", exactly like an unavailable gate.
-        try:
-            from app.services.gemini import match_gate
-
-            job_for_gate = dict(job_item)
-            if not str(job_for_gate.get("description") or "").strip():
-                source_id = job_item.get("jobId") or job_item.get("id")
-                if source_id:
-                    from app.db.store import get_entity
-                    from app.services.application_assistant.persistence import (
-                        ENTITY_DISCOVERED_JOB,
-                    )
-
-                    with session_scope() as db:
-                        source = get_entity(db, ENTITY_DISCOVERED_JOB, source_id)
-                    if source:
-                        job_for_gate["description"] = source.get("description") or source.get("snippet") or ""
-            if not str(job_for_gate.get("description") or "").strip():
-                return None
-
-            decision = await match_gate.evaluate(
-                job_for_gate, score=score if score > 0 else None, profile=profile
-            )
-            if decision.consulted:
-                log(f"Gemini match gate: {decision.action} — {decision.reason}")
-            return decision
-        except Exception:  # noqa: BLE001 - never let an optional gate fail a run
-            logger.warning("Gemini match gate failed; continuing deterministically", exc_info=True)
-            return None
 
     async def _process_single_job_with_retries(
         self, run_id: str, job_item: dict[str, Any], worker_state: WorkerState | None = None
@@ -2119,7 +1937,7 @@ class AutopilotRunner:
             return ApplicationErrorType.ELEMENT_NOT_FOUND.value
         if "browser" in msg or "crash" in msg:
             return ApplicationErrorType.BROWSER_CRASH.value
-        if "ai" in msg or "ollama" in msg or "llm" in msg:
+        if "ai" in msg or "llm" in msg:
             return ApplicationErrorType.AI_TIMEOUT.value
         return ApplicationErrorType.UNKNOWN_ERROR.value
 
@@ -2357,68 +2175,26 @@ class AutopilotRunner:
         except (TypeError, ValueError):
             base_match_score = 0.0
 
-        # Postings the deterministic matcher could not settle get one optional
-        # second opinion here. Most do not: `evaluate` checks cheaply first and
-        # only reaches Gemini for a genuinely undecided posting, so this adds no
-        # latency to the normal path. The gate can send a job to review; it can
-        # never talk one into being applied to, and a Gemini outage produces
-        # review rather than a failed run.
-        gate = await self._gemini_match_gate(
-            job_item, profile, base_match_score, _granular_log
-        )
-        if gate is not None and not gate.proceed:
-            job_item.update(gate.to_job_fields())
-            job_item["status"] = AutopilotJobStatus.NEEDS_REVIEW.value
-            job_item["skipReason"] = gate.reason
-            job_item["lastError"] = gate.reason
-            job_item["aiExplanation"] = gate.reason
-            self.log_event(
-                f"{w_prefix}Staged {company} — {title} for review: {gate.reason}",
-                level="warning",
-                metadata={"slot": slot_idx, "company": company, "title": title,
-                          "status": "NEEDS_REVIEW", "reason": gate.reason},
-            )
-            self._record_checkpoint(job_item, CheckpointStep.SKIPPED, gate.reason)
-            with self._run_update_lock:
-                with session_scope() as db:
-                    save_autopilot_job(db, job_item)
-            return
-        if gate is not None:
-            job_item.update(gate.to_job_fields())
-
         from app.services.application_assistant.resume_diff_service import (
-            generate_role_tailoring_diff,
             render_tailored_resume_pdf,
         )
 
-        # Tailoring effort is chosen by how far the posting starts from the bar.
-        # A near-miss needs its real experience surfaced in the posting's own
-        # vocabulary; a distant one needs the framing pushed as far as the facts
-        # allow. Both modes are bound by the same absolute rule in the tailoring
-        # prompt - employer, product, domain and every number stay exactly as
-        # written - and by _reject_fabrication afterwards, so "aggressive"
-        # amplifies framing, never invents experience.
-        # Tailor, score the document that would actually be submitted, and try
-        # again when it falls short. Each retry is told which requirements the
-        # scorer said were still unevidenced, so attempt two is a targeted
-        # second pass rather than a re-roll of attempt one. The mode escalates
-        # once on the final attempt because a near-miss that honest rewriting
-        # could not close is exactly the case aggressive framing exists for.
+        # Autopilot never tailors a resume (owner decision, 2026-11-01).
+        # Tailoring is a manual step the user takes from the application card;
+        # the autonomous path submits the master resume, and only when the
+        # queue match clears this run's floor. A job below the floor is held in
+        # NEEDS_REVIEW, never submitted. The floor gates every auto-apply,
+        # whatever the configured tailoring mode. An explicit Apply from the user
+        # (`manualMatchOverride`) or an approved Career OS resume is a manual
+        # action, not an auto-apply, and is not gated.
         submit_bar = self.min_match_score
-        start_mode = _tailoring_mode_for_score(base_match_score, tailoring_mode, submit_bar)
         _granular_log(
-            f"Queue match {base_match_score:.0f}% -> tailoring mode '{start_mode}', "
-            f"up to {MAX_TAILORING_ATTEMPTS} attempt(s) against a "
-            f"{submit_bar:.0f}% bar"
+            f"Queue match {base_match_score:.0f}% against a {submit_bar:.0f}% floor "
+            "(Autopilot submits the master resume; tailoring is manual)"
         )
 
         diff_data: dict[str, Any] | None = None
         winning_mode: str | None = None
-        best_score = 0.0
-        best_diff: dict[str, Any] | None = None
-        best_mode: str | None = None
-        gaps: list[str] = []
-        best_changed = 0
         override = job_item.get("manualMatchOverride") is True
         attempts_log: list[dict[str, Any]] = []
         frozen_resume: Path | None = None
@@ -2443,8 +2219,6 @@ class AutopilotRunner:
             return
 
         try:
-            from app.services.application_assistant.tailored_match import describe_gaps
-
             if frozen_resume is not None:
                 _granular_log(
                     f"Using approved Career OS resume {job_item['careerResumeId']} as approved; "
@@ -2476,12 +2250,12 @@ class AutopilotRunner:
                     "visaStatus": "",
                 }
                 winning_mode = "careeros"
-                best_score = base_match_score
-                best_mode = "careeros"
                 job_item["tailoringAttempts"] = attempts_log
-            elif start_mode == "off":
+            elif base_match_score >= submit_bar or override:
                 _granular_log(
-                    f"Tailoring off (score {base_match_score:.0f}%); proceeding with master resume untailored"
+                    f"Match {base_match_score:.0f}% "
+                    + ("clears the floor" if base_match_score >= submit_bar else "is below the floor; explicit Apply")
+                    + "; proceeding with the master resume untailored"
                 )
                 diff_data = {
                     "matchScore": base_match_score,
@@ -2490,7 +2264,7 @@ class AutopilotRunner:
                     "mode": "off",
                     "documentMatch": {},
                     "matchRescored": False,
-                    "matchReason": "Tailoring off; master resume matched preselected.",
+                    "matchReason": "Master resume, untailored; Autopilot does not tailor.",
                     "missingSkills": [],
                     "keyMatchingSkills": [],
                     "bulletDiffs": [],
@@ -2509,128 +2283,10 @@ class AutopilotRunner:
                     "visaStatus": "",
                 }
                 winning_mode = "off"
-                best_score = base_match_score
-                best_mode = "off"
                 job_item["tailoringAttempts"] = attempts_log
             else:
-                for attempt in range(1, MAX_TAILORING_ATTEMPTS + 1):
-                    # Escalate only on the last attempt, and only upward: an
-                    # operator who explicitly chose "off" is not overridden here.
-                    candidate_mode = start_mode
-                    if (
-                        attempt == MAX_TAILORING_ATTEMPTS
-                        and start_mode == "honest"
-                        and MAX_TAILORING_ATTEMPTS > 1
-                    ):
-                        candidate_mode = "aggressive"
-
-                    t_start = time.perf_counter()
-                    candidate_diff = await generate_role_tailoring_diff(
-                        job_item,
-                        profile,
-                        master_resume,
-                        mode=candidate_mode,
-                        feedback_gaps=gaps or None,
-                        documents=documents,
-                        accomplishments=accomplishments,
-                    )
-                    t_duration_ms = (time.perf_counter() - t_start) * 1000
-                    score = float(candidate_diff.get("matchScore") or 0)
-                    rescored = bool(candidate_diff.get("matchRescored"))
-
-                    agent_tracker.record_agent_call(
-                        name="generate_role_tailoring_diff",
-                        agent_type="resume_tailor",
-                        stage="TAILOR",
-                        # Tailoring is local evidence selection: no model runs,
-                        # so no provider and no tokens. This used to report a
-                        # fixed 450/320-token Ollama call that never happened,
-                        # inflating every LLM usage and cost figure.
-                        provider="local",
-                        model=candidate_diff.get("tailoringModel") or "none (local evidence selection)",
-                        duration_ms=t_duration_ms,
-                        status="success" if not candidate_diff.get("tailoringFailed") else "error",
-                        metadata={
-                            "attempt": attempt,
-                            "mode": candidate_mode,
-                            "score": score,
-                            "changedBullets": candidate_diff.get("totalChanges"),
-                        },
-                        error=candidate_diff.get("tailoringError"),
-                    )
-
-                    attempts_log.append(
-                        {
-                            "attempt": attempt,
-                            "mode": candidate_mode,
-                            "score": score,
-                            "rescored": rescored,
-                            "gapsTargeted": list(gaps),
-                            "changedBullets": candidate_diff.get("totalChanges"),
-                        }
-                    )
-                    _granular_log(
-                        f"Attempt {attempt}/{MAX_TAILORING_ATTEMPTS} (mode={candidate_mode}): "
-                        f"tailored resume scores {score:.0f}%"
-                        + ("" if rescored else " [NOT re-scored - local model unavailable]")
-                        + (f", changed {candidate_diff.get('totalChanges')} bullets"
-                           if candidate_diff.get("totalChanges") is not None else "")
-                    )
-
-                    # Two independent conditions, both required: the document has
-                    # to score well enough AND actually be a tailored document.
-                    quality = candidate_diff.get("quality") or {}
-                    changed = int(quality.get("changed") or candidate_diff.get("totalChanges") or 0)
-
-                    if score > best_score or best_diff is None:
-                        best_score, best_diff, best_mode = score, candidate_diff, candidate_mode
-                        best_changed = changed
-                    resume_is_good = candidate_mode == "off" or (
-                        not candidate_diff.get("tailoringFailed") and bool(quality.get("ok"))
-                    )
-                    if not resume_is_good:
-                        problems = "; ".join(str(p) for p in (quality.get("problems") or []))
-                        _granular_log(
-                            f"Score {score:.0f}% clears the bar but the resume does not: "
-                            + (problems or "tailoring fell back to the static template")
-                            + ". Not submitting this."
-                        )
-
-                    if (score >= submit_bar or override or candidate_mode == "off") and resume_is_good:
-                        if score < submit_bar and candidate_mode != "off":
-                            _granular_log(
-                                f"Explicit Apply overrides the match cutoff ({score:.0f}%); "
-                                f"keeping {candidate_mode} tailoring and all eligibility checks"
-                            )
-                        elif candidate_mode == "off":
-                            _granular_log(
-                                f"Resume tailoring is off; proceeding with master resume (score {score:.0f}%)"
-                            )
-                        diff_data = candidate_diff
-                        winning_mode = candidate_mode
-                        break
-
-                    # A rewrite that could not be scored must not drive a retry:
-                    # the score did not fall short, it never existed, and re-running
-                    # would just burn a second model call on the same blind guess.
-                    if not rescored:
-                        _granular_log(
-                            "Tailored resume could not be re-scored, so there is nothing to "
-                            "improve against; stopping after this attempt."
-                        )
-                        break
-
-                    gaps = describe_gaps(
-                        {"missingSkills": candidate_diff.get("missingSkills") or []}
-                    )
-                    if attempt < MAX_TAILORING_ATTEMPTS:
-                        _granular_log(
-                            f"{score:.0f}% is below the {submit_bar:.0f}% bar; "
-                            "retrying against the gaps the scorer found: "
-                            + (", ".join(gaps[:6]) if gaps else "none reported")
-                        )
-
-            job_item["tailoringAttempts"] = attempts_log
+                # Below the floor: held below for manual review (winning_mode stays None).
+                job_item["tailoringAttempts"] = attempts_log
         except Exception as e:
             logger.warning(
                 "Resume tailoring/match-scoring failed for %s (mode=%s): %s",
@@ -2645,23 +2301,10 @@ class AutopilotRunner:
             return
 
         if winning_mode is None or diff_data is None:
-            attempted = len(job_item.get("tailoringAttempts") or []) or 1
             skip_reason = (
-                f"Match score stayed below {submit_bar:.0f}% after "
-                f"{attempted} tailoring attempt(s) (best {best_score:.0f}%, "
-                f"queue score {base_match_score:.0f}%)"
+                f"Match {base_match_score:.0f}% is below the {submit_bar:.0f}% floor; "
+                "Autopilot does not tailor resumes. Tailor it and apply from the card if it fits."
             )
-            if best_changed < MIN_TAILORED_BULLETS:
-                skip_reason = (
-                    f"Resume was not usefully tailored after "
-                    f"{len(job_item.get('tailoringAttempts') or []) or 1} attempt(s): only "
-                    f"{best_changed} bullet(s) changed (need {MIN_TAILORED_BULLETS}); "
-                    f"best score {best_score:.0f}%"
-                )
-            if best_diff and best_diff.get("missingSkills"):
-                skip_reason += "; still unevidenced: " + ", ".join(
-                    str(m) for m in best_diff["missingSkills"][:6]
-                )
             self.log_event(
                 f"{w_prefix}Skipped {company} — {title}: {skip_reason}",
                 level="warning",
@@ -3014,13 +2657,11 @@ class AutopilotRunner:
                     metadata={"slot": slot_idx, "company": company, "title": title, "persistent": True},
                 )
 
-            # Structured, answerable questions for the Apply-board popup. Browser-automation
-            # errors are inherently non-deterministic (wording varies per ATS, per field type,
-            # per employer) — rather than hand-coding an ever-growing set of string patterns,
-            # each blocking reason is classified by a local model into a fixed enum, which
-            # decides both whether it's something a candidate can answer at all and, if so,
-            # phrases it as one clean question. See error_normalizer.build_pending_questions —
-            # shared with the on-demand re-classification endpoint for pre-existing jobs.
+            # Structured, answerable questions for the Apply-board popup. Each blocking
+            # reason is sorted into a fixed category by deterministic rules (no model),
+            # which decide whether the candidate can answer it and which question to ask.
+            # See error_normalizer.build_pending_questions - shared with the on-demand
+            # re-classification endpoint for pre-existing jobs.
             from app.services.application_assistant.error_normalizer import (
                 build_pending_questions,
                 issues_from_error_fields,

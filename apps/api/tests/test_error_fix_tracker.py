@@ -52,11 +52,11 @@ def test_metrics_endpoint_includes_error_fix_payload() -> None:
     assert "history" in body["errorFix"]
 
 
-def test_root_dashboard_includes_manual_repair_panel() -> None:
+def test_root_dashboard_includes_error_fix_panel() -> None:
+    # The manual-repair "Process Logs & Errors" panel went with self-healing;
+    # the error-fix history and investigate dialog remain.
     response = client.get("/")
     assert response.status_code == 200
-    assert "Process Logs &amp; Errors" in response.text or "Process Logs & Errors" in response.text
-    assert "process-logs-btn" in response.text
     assert "error-fix-history" in response.text
     assert "chart-error-fix" in response.text
     assert "investigate-open-btn" in response.text

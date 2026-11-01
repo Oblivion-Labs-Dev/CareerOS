@@ -80,13 +80,13 @@ def default_settings() -> dict[str, Any]:
         "allowInferredAnswers": False,
         "llm": {
             "enabled": True,
-            "baseUrl": "http://localhost:11434/v1",
-            "model": "mistral-small3.2:24b",
+            "baseUrl": "",
+            "model": "",
             "apiKey": "",
             "timeout": 60,
             "maxRetries": 2,
             "confidenceThreshold": 0.7,
-            "provider": "ollama",
+            "provider": "",
         },
         "browser": {
             "headed": True,
@@ -1153,6 +1153,53 @@ def _display_names(rows: Any) -> dict[str, str]:
     return display
 
 
+#: Match-score floors the console offers; each gets a "queued at or above" count.
+QUEUE_SCORE_FLOORS = (40, 50, 60, 70, 80, 90)
+
+
+def _queue_score_floor_counts(db: Session) -> dict[str, Any]:
+    """How many QUEUED jobs clear each match-score floor, in one SQL pass.
+
+    A row counts as scored only when it carries a real score: a missing
+    ``matchScore`` and the ``"unscored"`` placeholder (stored as 0.0) are both
+    unscored, never a score of 0, so they appear in ``queueUnscored`` and in no
+    floor bucket.
+    """
+    from sqlalchemy import text
+
+    floor_columns = ", ".join(
+        f"SUM(CASE WHEN scored = 1 AND score >= {floor} THEN 1 ELSE 0 END) AS f{floor}"
+        for floor in QUEUE_SCORE_FLOORS
+    )
+    query = text(f"""
+        SELECT
+            SUM(scored) AS scored,
+            SUM(1 - scored) AS unscored,
+            {floor_columns}
+        FROM (
+            SELECT
+                CAST(json_extract(payload, '$.matchScore') AS REAL) AS score,
+                CASE
+                    WHEN json_extract(payload, '$.matchScore') IS NOT NULL
+                     AND COALESCE(json_extract(payload, '$.matchMethod'), '') != 'unscored'
+                    THEN 1 ELSE 0
+                END AS scored
+            FROM entities
+            WHERE entity_type = 'aa_autopilot_job'
+              AND COALESCE(json_extract(payload, '$.status'), 'QUEUED') = 'QUEUED'
+        )
+    """)
+    row = db.execute(query).fetchone()
+    values = [int(v or 0) for v in row] if row else [0] * (2 + len(QUEUE_SCORE_FLOORS))
+    return {
+        "queueScored": values[0],
+        "queueUnscored": values[1],
+        "queueScoreFloors": {
+            str(floor): values[2 + i] for i, floor in enumerate(QUEUE_SCORE_FLOORS)
+        },
+    }
+
+
 def get_autopilot_status_company_stats(db: Session) -> dict[str, Any]:
     """Precomputed aggregated counts by status and company.
 
@@ -1292,6 +1339,8 @@ def get_autopilot_status_company_stats(db: Session) -> dict[str, Any]:
     """)
     today_row = db.execute(today_query).fetchone()
 
+    queue_scores = _queue_score_floor_counts(db)
+
     stats = {
         "statusCounts": status_counts,
         "uiCounts": ui_counts,
@@ -1299,6 +1348,7 @@ def get_autopilot_status_company_stats(db: Session) -> dict[str, Any]:
         "titleCountsByStatus": title_counts_by_status,
         "submittedToday": int(today_row[0] or 0) if today_row else 0,
         "submitted24h": int(today_row[1] or 0) if today_row else 0,
+        **queue_scores,
     }
     try:
         set_kv(db, "autopilot_status_company_stats", stats)

@@ -1,45 +1,19 @@
-"""Qwen Pre-Submission Form Reviewer and Self-Healing Engine for CareerOS Autopilot."""
+"""Deterministic pre-submission form check and submission confirmation for Autopilot.
+
+No model is involved: the form check reads the live DOM for empty required
+fields and profile contradictions, and confirmation matches the ATS's own
+confirmation URL and wording. (The module name predates the removal of the
+local model and is kept so existing imports stay stable.)"""
 
 from __future__ import annotations
 
-import asyncio
-import json
 import logging
 import re
 from typing import Any
 from urllib.parse import parse_qs, urlsplit
 
-from app.db.store import session_scope
-from app.services.application_assistant.llm_client import create_llm_client
-from app.services.application_assistant.persistence import get_settings
 
-logger = logging.getLogger("career_os.qwen_form_reviewer")
-
-REVIEW_PROMPT_SYSTEM = """You are Qwen, the elite ATS form verification and self-healing engine inside CareerOS.
-Your job is to inspect the current state of a live job application form before final submission.
-
-Check for:
-1. Are all required fields (marked with * or required attribute) populated with valid candidate data?
-2. Are there any empty required dropdowns, text inputs, radio buttons, or phone/country selectors?
-3. Are there any validation error messages on the page (e.g., 'This field is required', 'Invalid email', 'Select a country')?
-4. Is the resume attached?
-
-Return ONLY valid JSON matching this schema:
-{
-  "readyToSubmit": boolean,
-  "overallAssessment": "string explanation",
-  "missingOrInvalidFields": [
-    {
-      "fieldId": "string",
-      "label": "string",
-      "issue": "string",
-      "suggestedFixValue": "string",
-      "actionType": "select_option" | "type_text" | "check_box" | "upload_file"
-    }
-  ]
-}
-"""
-
+logger = logging.getLogger("career_os.form_reviewer")
 
 async def review_and_heal_form_state(
     form_state: list[dict[str, Any]],
@@ -51,20 +25,10 @@ async def review_and_heal_form_state(
 ) -> dict[str, Any]:
     """Run verification on live form DOM fields and determine if self-healing actions are needed.
 
-    Enhanced to also validate filled answers against the candidate profile.
-    qwenPreApproved=true now means:
-      - form complete
-      - answers semantically correct
-      - answers consistent with candidate profile
+    Plain code, no model: readyToSubmit=true means every required field is
+    filled, the page shows no validation errors, and no filled answer
+    contradicts the candidate profile.
     """
-    try:
-        with session_scope() as db:
-            settings = get_settings(db)
-        llm = create_llm_client(settings)
-    except Exception as e:
-        logger.debug("Failed to init LLM client: %s", e)
-        llm = None
-
     # 1. Fast Strict-Required Check: Ignore optional fields completely
     missing_required = []
     for f in form_state:
@@ -166,24 +130,6 @@ async def review_and_heal_form_state(
         "profileContradictions": profile_contradictions,
         "hasBlockingContradictions": has_blocking,
     }
-
-
-CONFIRMATION_PROMPT_SYSTEM = """You are Qwen, the strict submission auditor inside CareerOS.
-Your job is to examine the post-submission text, URL, and page evidence from a job application to confirm whether the application was truly submitted.
-
-Strict criteria:
-1. Is there an unambiguous confirmation phrase (e.g., 'thank you for applying', 'application submitted', 'application received', 'we have received your application')?
-2. Is the candidate clearly on a success or thank-you page?
-3. Are there ANY remaining form validation errors or rejected fields?
-
-Return ONLY valid JSON matching this schema:
-{
-  "submissionConfirmed": boolean,
-  "confidence": number,
-  "confirmationMessage": "string",
-  "reason": "string explanation"
-}
-"""
 
 
 async def verify_submission_confirmation(

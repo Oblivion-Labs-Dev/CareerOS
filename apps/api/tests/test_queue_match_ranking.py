@@ -28,10 +28,6 @@ from app.services.application_assistant.job_filter_ranker import (
     role_priority_rank,
     software_role_rejection,
 )
-from app.services.application_assistant.mistral_resume_match import (
-    is_empty_payload,
-    sanitize_match_payload,
-)
 
 
 def job(title: str, location: str, score: float = 0.0) -> dict:
@@ -238,66 +234,3 @@ def test_unapplyable_urls_never_reach_the_browser(url: str, should_pass: bool) -
     }
     passed, reason = evaluate_hard_filters(posting, {}, [], {"allowDuplicates": True})
     assert passed is should_pass, reason
-
-
-EVIDENCE_TEXT = (
-    "senior software engineer at microsoft and amazon. built distributed systems "
-    "in c# and .net on azure, plus python services and kusto dashboards."
-).lower()
-EVIDENCE_TERMS = {
-    "senior", "software", "engineer", "microsoft", "amazon", "distributed",
-    "systems", "azure", "python", "kusto", "net", "c#",
-}
-
-
-def test_unevidenced_skills_are_moved_to_gaps_and_cost_score() -> None:
-    raw = {
-        "matchScore": 90,
-        "matchReason": "Strong overlap.",
-        "keyMatchingSkills": ["Python", "distributed systems", "Kubernetes", "Rust"],
-        "missingSkills": ["Terraform"],
-    }
-    result = sanitize_match_payload(raw, evidence_text=EVIDENCE_TEXT, evidence_terms=EVIDENCE_TERMS)
-
-    assert result["keyMatchingSkills"] == ["Python", "distributed systems"]
-    # Fabricated claims become gaps rather than silently disappearing.
-    assert set(result["missingSkills"]) == {"Terraform", "Kubernetes", "Rust"}
-    assert result["unevidencedClaimsDropped"] == ["Kubernetes", "Rust"]
-    # A posting cannot keep the score it earned on invented skills.
-    assert result["matchScore"] < 90
-    assert "no resume evidence" in result["matchReason"]
-
-
-def test_honest_payload_keeps_its_score() -> None:
-    raw = {
-        "matchScore": 82,
-        "matchReason": "Directly relevant background.",
-        "keyMatchingSkills": ["C#", "Azure", "distributed systems"],
-        "missingSkills": ["Go"],
-    }
-    result = sanitize_match_payload(raw, evidence_text=EVIDENCE_TEXT, evidence_terms=EVIDENCE_TERMS)
-    assert result["matchScore"] == 82.0
-    assert result["keyMatchingSkills"] == ["C#", "Azure", "distributed systems"]
-    assert result["missingSkills"] == ["Go"]
-    assert result["unevidencedClaimsDropped"] == []
-    assert result["matchMethod"] == "ollama-local"
-
-
-def test_resume_speak_is_normalised_before_the_evidence_check() -> None:
-    """"Experience with X" is a claim about X, and must be checked as X."""
-    raw = {
-        "matchScore": 70,
-        "matchReason": "Backend overlap.",
-        "keyMatchingSkills": ["Experience with distributed systems", "Proficiency in Python"],
-        "missingSkills": [],
-    }
-    result = sanitize_match_payload(raw, evidence_text=EVIDENCE_TEXT, evidence_terms=EVIDENCE_TERMS)
-    assert result["keyMatchingSkills"] == ["distributed systems", "Python"]
-    assert result["unevidencedClaimsDropped"] == []
-
-
-def test_blank_model_output_is_not_a_zero_score() -> None:
-    """A blank answer is an unscored posting, not a posting that scored zero."""
-    assert is_empty_payload({"matchScore": 0, "matchReason": "", "keyMatchingSkills": [], "missingSkills": []})
-    assert not is_empty_payload({"matchScore": 0, "matchReason": "No overlap at all.", "keyMatchingSkills": [], "missingSkills": []})
-    assert not is_empty_payload({"matchScore": 41, "matchReason": "", "keyMatchingSkills": [], "missingSkills": []})

@@ -74,5 +74,5 @@ Status: **DONE** · **IN PROGRESS** · **TODO** · **BLOCKED** (why) · **DECISI
 | F6 | Needs Review: second-opinion match gate (113) | DECISION |
 | F7 | Riot Games watchdog at QUESTIONS_COMPLETED (15) | TODO: diagnose |
 | F8 | Greenhouse emailed security-code step (Segment ×6) | DECISION |
-| F9 | Low match scores submitted while tailoring is off (`minMatchScore` bypassed) | DECISION (from 11:00 entry) |
+| F9 | Low match scores submitted while tailoring is off (`minMatchScore` bypassed) | FIXED 2026-11-01: floor (default 60) gates every auto-apply; Autopilot never tailors (`test_autopilot_floor_gate.py`) |
 | F10 | Defeat or evade CAPTCHA / DataDome / hCaptcha / Turnstile / Himalayas challenge (Camoufox, nodriver, SeleniumBase UC, TLS impersonation, residential proxies, solver services) | **WON'T DO**: these are the sites' own anti-automation controls. Affected postings (OpenAI 51, Okta 19, ServiceNow/Bosch DataDome 17, Palantir 8, Cerebras 9, Datadog 9…) stay in Manual Review for hand-applying |

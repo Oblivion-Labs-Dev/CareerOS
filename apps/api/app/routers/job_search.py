@@ -198,7 +198,7 @@ def analytics_market_trends(country: str = "US") -> dict[str, Any]:
 
 @router.get("/analytics/model-usage")
 def analytics_model_usage() -> dict[str, Any]:
-    """Ollama (local/Mistral) vs OpenRouter (Gemini) call volume, success rate,
+    """Model call volume per provider, success rate,
     and latency — real aggregation over logged `model_usage_event` records."""
     from app.services.model_usage_tracker import summarize_model_usage
 

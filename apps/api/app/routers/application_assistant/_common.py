@@ -139,13 +139,13 @@ class SettingsPayload(BaseModel):
     companyBlacklist: list[dict[str, Any]] | None = None
 
 
-class QwenChatPayload(BaseModel):
+class AssistantChatPayload(BaseModel):
     message: str
     history: list[dict[str, str]] = Field(default_factory=list)
     context: dict[str, Any] = Field(default_factory=dict)
 
 
-class QwenAgentPreparePayload(BaseModel):
+class AssistantAgentPreparePayload(BaseModel):
     jobId: str = ""
     applicationId: str = ""
 

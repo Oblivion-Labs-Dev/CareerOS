@@ -1,4 +1,7 @@
-"""At most 20 applications to one employer per rolling 30 days, as a hold.
+"""Per-employer pacing across the day, week and month tiers, as a hold.
+
+The allowances are read from ``COMPANY_CAP_TIERS`` rather than restated here,
+so changing the caps does not silently invalidate these tests.
 
 A capped posting is live and wanted — it is simply not this employer's turn. It
 must stay QUEUED with a countdown rather than being filed INELIGIBLE, and when
@@ -23,6 +26,23 @@ from app.services.application_assistant.company_cap import (
 )
 
 NOW = datetime(2026, 9, 19, 12, 0, tzinfo=timezone.utc)
+
+_CAPS = {name: cap for name, cap, _days in company_cap.COMPANY_CAP_TIERS}
+DAY_CAP = _CAPS["day"]
+WEEK_CAP = _CAPS["week"]
+
+#: Days between submissions that fills the monthly allowance evenly inside the
+#: window, sparse enough that the daily and weekly tiers are not the cause.
+MONTH_SPACING = COMPANY_CAP_WINDOW_DAYS / COMPANY_APPLICATION_CAP
+
+
+def _month_full(company: str = "Acme") -> list[dict]:
+    return [_submitted(company, i * MONTH_SPACING, f"j{i}") for i in range(COMPANY_APPLICATION_CAP)]
+
+
+def _day_full(count: int = DAY_CAP) -> list[dict]:
+    """``count`` submissions inside the last day."""
+    return [_submitted("Acme", (0.9 / DAY_CAP) * i, f"j{i}") for i in range(count)]
 
 
 def _submitted(company: str, days_ago: float, job_id: str = "") -> dict:
@@ -89,9 +109,9 @@ def test_under_the_cap_there_is_no_hold():
 
 
 def test_at_the_cap_the_hold_expires_with_the_oldest_submission():
-    """A rolling window frees one slot at a time, not all twenty at once."""
-    jobs = [_submitted("Acme", i, f"j{i}") for i in range(COMPANY_APPLICATION_CAP)]
-    oldest_days_ago = COMPANY_APPLICATION_CAP - 1
+    """A rolling window frees one slot at a time, not the whole month at once."""
+    jobs = _month_full()
+    oldest_days_ago = (COMPANY_APPLICATION_CAP - 1) * MONTH_SPACING
 
     until = hold_until(jobs, "Acme", now=NOW)
 
@@ -101,7 +121,7 @@ def test_at_the_cap_the_hold_expires_with_the_oldest_submission():
 
 
 def test_the_hold_lifts_once_the_window_rolls():
-    jobs = [_submitted("Acme", i, f"j{i}") for i in range(COMPANY_APPLICATION_CAP)]
+    jobs = _month_full()
     until = hold_until(jobs, "Acme", now=NOW)
 
     later = until + timedelta(minutes=1)
@@ -117,7 +137,7 @@ def test_a_capped_job_stays_queued_and_is_never_marked_ineligible():
     Filing a live posting as INELIGIBLE buries it in a terminal bucket the user
     works through expecting genuine dead ends.
     """
-    submitted = [_submitted("Acme", i, f"j{i}") for i in range(COMPANY_APPLICATION_CAP)]
+    submitted = _month_full()
     queued = [_queued("Acme", 90.0, "q1")]
 
     applyable, held = partition_by_cap(queued, submitted + queued, now=NOW)
@@ -163,7 +183,7 @@ def test_the_hold_clears_itself_when_the_window_rolls():
 
 def test_released_jobs_keep_best_match_first_ordering():
     """The runner sorts by queue_priority_score before calling this, and that
-    order must survive — the twenty that go next are the twenty best."""
+    order must survive — the ones that go next are the best ones."""
     queued = [_queued("Acme", s, f"q{s}") for s in (95.0, 88.0, 70.0, 55.0)]
 
     applyable, held = partition_by_cap(queued, queued, now=NOW)
@@ -176,8 +196,8 @@ def test_one_batch_is_bounded_by_the_daily_tier_not_the_monthly_one():
     """A single pass must not spend the whole month's allowance at once.
 
     This is why the daily tier exists. Everything admitted in one batch lands
-    inside the same day, so five is the most one employer can take from it,
-    even though twenty a month is also permitted. The running tally has to
+    inside the same day, so the daily allowance is the most one employer can
+    take from it, even though the monthly one is larger. The running tally has to
     include what this same pass already allowed, or the cap only holds between
     batches.
     """
@@ -193,7 +213,7 @@ def test_one_batch_is_bounded_by_the_daily_tier_not_the_monthly_one():
 
 
 def test_one_capped_employer_does_not_block_others():
-    capped = [_submitted("Acme", i, f"j{i}") for i in range(COMPANY_APPLICATION_CAP)]
+    capped = _month_full()
     queued = [_queued("Acme", 99.0, "acme1"), _queued("Globex", 60.0, "globex1")]
 
     applyable, held = partition_by_cap(queued, capped + queued, now=NOW)
@@ -231,8 +251,8 @@ def test_each_tier_paces_on_its_own(tier, cap, window_days):
 
 
 def test_the_daily_tier_binds_before_the_monthly_one():
-    """Five today is paced even though twenty a month is far from spent."""
-    jobs = [_submitted("Acme", 0.1 * i, f"j{i}") for i in range(5)]
+    """A full day is paced even though the month is far from spent."""
+    jobs = _day_full()
 
     hold = company_cap.company_hold(jobs, "Acme", now=NOW)
 
@@ -241,8 +261,8 @@ def test_the_daily_tier_binds_before_the_monthly_one():
     assert hold.until <= NOW + timedelta(days=1)
 
 
-def test_four_today_still_has_room():
-    jobs = [_submitted("Acme", 0.1 * i, f"j{i}") for i in range(4)]
+def test_one_under_the_daily_allowance_still_has_room():
+    jobs = _day_full(DAY_CAP - 1)
 
     assert company_cap.company_hold(jobs, "Acme", now=NOW) is None
 
@@ -250,8 +270,8 @@ def test_four_today_still_has_room():
 def test_when_several_tiers_bind_the_latest_release_governs():
     """Holding only until the daily window rolls would release into a full
     weekly window and pace again an hour later."""
-    # Ten in one day exhausts the daily (5) and weekly (10) tiers at once.
-    jobs = [_submitted("Acme", 0.01 * i, f"j{i}") for i in range(10)]
+    # A week's allowance in one day exhausts the daily and weekly tiers at once.
+    jobs = [_submitted("Acme", (0.9 / WEEK_CAP) * i, f"j{i}") for i in range(WEEK_CAP)]
 
     hold = company_cap.company_hold(jobs, "Acme", now=NOW)
 
@@ -271,7 +291,7 @@ def _fresh(company: str, job_id: str, hours_old: float = 2.0) -> dict:
 
 def test_a_posting_published_today_gets_extra_room():
     """The whole point of the override: a same-day posting still goes out."""
-    jobs = [_submitted("Acme", 0.1 * i, f"j{i}") for i in range(5)]
+    jobs = _day_full()
     queued = [_fresh("Acme", "fresh1")]
 
     applyable, held = partition_by_cap(queued, jobs + queued, now=NOW)
@@ -282,7 +302,7 @@ def test_a_posting_published_today_gets_extra_room():
 
 def test_a_stale_posting_gets_no_extra_room_at_the_same_moment():
     """Same employer, same instant — only the fresh one is let through."""
-    jobs = [_submitted("Acme", 0.1 * i, f"j{i}") for i in range(5)]
+    jobs = _day_full()
     stale = _queued("Acme", 90.0, "stale1")
     stale["postingDate"] = (NOW - timedelta(days=9)).isoformat()
 
@@ -295,7 +315,7 @@ def test_a_stale_posting_gets_no_extra_room_at_the_same_moment():
 def test_an_undated_posting_is_never_assumed_fresh():
     """Most postings carry no publication date; guessing would hand out the
     bonus on a fabricated fact."""
-    jobs = [_submitted("Acme", 0.1 * i, f"j{i}") for i in range(5)]
+    jobs = _day_full()
     undated = _queued("Acme", 90.0, "undated")
     assert "postingDate" not in undated
 
@@ -308,7 +328,7 @@ def test_an_undated_posting_is_never_assumed_fresh():
 def test_a_recent_datePosted_alone_earns_no_bonus():
     """datePosted can be a board's last-modified time or the discovery time.
     DoorDash re-saved its whole board and eight years-old roles went out in a day."""
-    jobs = [_submitted("Acme", 0.1 * i, f"j{i}") for i in range(5)]
+    jobs = _day_full()
     modified = _queued("Acme", 90.0, "modified")
     modified["datePosted"] = (NOW - timedelta(hours=2)).isoformat()
 
@@ -339,7 +359,7 @@ def test_the_bonus_expires_with_the_posting():
 
 
 def test_the_bonus_is_bounded_and_does_not_uncap_the_month():
-    """The override raises every tier, so 23 in 30 days remains the ceiling —
+    """The override raises every tier, so cap + bonus in 30 days remains the ceiling —
     a fresh posting must not be a way around the monthly limit."""
     cap = COMPANY_APPLICATION_CAP + company_cap.FRESH_POSTING_BONUS
     # Spread across the month so neither the daily nor weekly tier is the cause.
@@ -365,14 +385,14 @@ def test_a_future_dated_posting_is_not_treated_as_fresh():
 
 def test_the_hold_names_the_tier_that_bound():
     """The countdown and the reason must agree, or the message misleads."""
-    jobs = [_submitted("Acme", 0.1 * i, f"j{i}") for i in range(5)]
+    jobs = _day_full()
     queued = [_queued("Acme", 90.0, "q1")]
 
     _, held = partition_by_cap(queued, jobs + queued, now=NOW)
 
     job = held[0]
     assert job["companyCapTier"] == "day"
-    assert "5 per day" in job["companyCapReason"]
+    assert f"{DAY_CAP} per day" in job["companyCapReason"]
 
 
 # ── Cost ─────────────────────────────────────────────────────────────────────

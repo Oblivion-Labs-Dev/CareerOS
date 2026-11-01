@@ -13,6 +13,7 @@ import pytest
 from app.services.application_assistant.tailored_match import (
     build_submitted_resume_text,
     describe_gaps,
+    evidence_only_text,
     score_tailored_resume,
     strip_markup,
 )
@@ -105,72 +106,63 @@ def test_describe_gaps_tolerates_missing_or_malformed_payloads():
 # The anti-gaming property
 # --------------------------------------------------------------------------
 
+TAILOR_JOB = {
+    "id": "j1",
+    "title": "Senior Platform Engineer",
+    "company": "Acme",
+    "description": (
+        "Requirements:\n- Kubernetes and Terraform in production\n"
+        "- Distributed systems at scale\n- Python services"
+    ),
+}
+
+TAILOR_DOCS = {"defaultResume": {"parsedText": ORIGINAL}}
+
+
+@pytest.fixture()
+def empty_corpus(monkeypatch):
+    monkeypatch.setattr("app.services.story_index.load_corpus", lambda path=None: [])
+
+
+def test_words_the_original_never_had_are_dropped_before_scoring():
+    evidence = "Built distributed systems in Python on AWS."
+    kept = evidence_only_text("Led Kubernetes and Terraform work on distributed systems in Python", evidence)
+    assert "kubernetes" not in kept and "terraform" not in kept
+    assert "distributed" in kept and "python" in kept
+
+
 @pytest.mark.anyio
-async def test_evidence_terms_come_from_the_original_not_the_tailored_text(monkeypatch):
+async def test_writing_the_posting_s_keywords_into_a_bullet_does_not_raise_the_score(empty_corpus):
     """A skill that exists only in the tailored bullet must not count as a match.
 
-    This is the property that makes acting on a re-scored number safe. If the
-    evidence set were built from the tailored text, the model could write
-    "Kubernetes" into a bullet and then match against its own output.
+    This is the property that makes acting on a re-scored number safe: the
+    rewrite cannot match against its own invention.
     """
-    seen: dict[str, object] = {}
-
-    class FakeClient:
-        enabled = True
-
-    async def fake_score(client, job, *, candidate_summary, evidence_text, evidence_terms):
-        seen["summary"] = candidate_summary
-        seen["evidence_text"] = evidence_text
-        seen["evidence_terms"] = evidence_terms
-        return {"matchScore": 88.0, "missingSkills": ["Rust"]}
-
-    import app.services.application_assistant.mistral_resume_match as mrm
-
-    monkeypatch.setattr(mrm, "build_mistral_match_client", lambda timeout=None: FakeClient())
-    monkeypatch.setattr(mrm, "score_job_against_resume", fake_score)
-    monkeypatch.setattr(
-        mrm,
-        "build_candidate_evidence",
-        lambda profile, documents=None, accomplishments=None: (
-            "summary", "python java aws", {"python", "java", "aws"}
-        ),
+    honest = await score_tailored_resume(
+        TAILOR_JOB, ["Built a developer platform."],
+        profile={"headline": "Senior Software Engineer"}, documents=TAILOR_DOCS, accomplishments=[],
     )
-
-    result = await score_tailored_resume(
-        {"id": "j1", "title": "Platform Engineer", "description": "Kubernetes"},
-        ["<b>Led Kubernetes work</b> at scale."],
-        profile={"firstName": "A"},
-        documents={},
-        accomplishments=[],
+    stuffed = await score_tailored_resume(
+        TAILOR_JOB, ["Built a developer platform with Kubernetes and Terraform in production."],
+        profile={"headline": "Senior Software Engineer"}, documents=TAILOR_DOCS, accomplishments=[],
     )
-
-    assert result["matchScore"] == 88.0
-    # The tailored bullet mentions Kubernetes...
-    assert "Kubernetes" in seen["summary"]
-    # ...but the evidence the scorer checks claims against does not.
-    assert "kubernetes" not in seen["evidence_text"]
-    assert "kubernetes" not in seen["evidence_terms"]
+    assert honest is not None and stuffed is not None
+    assert stuffed["matchMethod"] == "role-shape"
+    assert stuffed["matchScore"] == honest["matchScore"]
 
 
 @pytest.mark.anyio
 async def test_no_bullets_returns_none_not_zero():
     """None means 'could not score'. Zero would read as a failed match and
-    reject a resume the model simply never looked at."""
+    reject a resume that was never looked at."""
     assert await score_tailored_resume({"id": "j"}, [], profile={}) is None
     assert await score_tailored_resume({"id": "j"}, ["   "], profile={}) is None
 
 
 @pytest.mark.anyio
-async def test_disabled_model_returns_none(monkeypatch):
-    import app.services.application_assistant.mistral_resume_match as mrm
+async def test_a_scoring_failure_returns_none(monkeypatch, empty_corpus):
+    def boom(*args, **kwargs):
+        raise RuntimeError("scorer broke")
 
-    class Disabled:
-        enabled = False
-
-    monkeypatch.setattr(mrm, "build_mistral_match_client", lambda timeout=None: Disabled())
-    monkeypatch.setattr(
-        mrm,
-        "build_candidate_evidence",
-        lambda profile, documents=None, accomplishments=None: ("s", "t", set()),
-    )
-    assert await score_tailored_resume({"id": "j"}, ["<b>x</b> y"], profile={}) is None
+    monkeypatch.setattr("app.services.application_assistant.role_shape_match.build_context", boom)
+    assert await score_tailored_resume(TAILOR_JOB, ["<b>x</b> y"], profile={}, documents=TAILOR_DOCS) is None

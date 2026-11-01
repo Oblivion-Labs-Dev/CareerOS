@@ -1,7 +1,7 @@
 #Requires -Version 5.1
 <#
 .SYNOPSIS
-  One-command CareerOS startup: prereqs, deps, builds, Ollama, servers, health checks.
+  One-command CareerOS startup: prereqs, deps, builds, servers, health checks.
 
 .EXAMPLE
   .\start.bat
@@ -10,6 +10,7 @@
 param(
     [switch]$SkipJobs,
     [switch]$SkipExtension,
+    # Accepted for old callers; local models were removed, so it does nothing.
     [switch]$SkipOllama,
     [switch]$SkipNightBatch,
     [switch]$Background
@@ -134,22 +135,11 @@ $env:CAREER_OS_API_PUBLIC_URL = $apiUrl
 $env:CAREER_OS_CORS_ORIGINS = $webUrl + ',chrome-extension://*'
 $env:CAREER_OS_DEV_MODE = 'true'
 $env:APPLICATION_ASSISTANT_ENABLED = 'true'
-if (-not $env:APPLICATION_ASSISTANT_LLM_BASE_URL) { $env:APPLICATION_ASSISTANT_LLM_BASE_URL = 'http://localhost:11434/v1' }
-if (-not $env:APPLICATION_ASSISTANT_LLM_MODEL) { $env:APPLICATION_ASSISTANT_LLM_MODEL = 'mistral-small3.2:24b' }
 $env:CHRONOS_MAPPING_ENABLED = 'true'
-$env:CHRONOS_MAPPING_MODEL = $env:APPLICATION_ASSISTANT_LLM_MODEL
 
 if (Test-Path $VenvPython) {
     $env:PATH = (Split-Path $VenvPython -Parent) + ';' + $env:PATH
     $env:VIRTUAL_ENV = Join-Path $ApiDir '.venv'
-}
-
-# ── Ollama ────────────────────────────────────────────────────────────────────
-$env:CAREEROS_LOCAL_LLM = 'off'
-$localLlmOff = @('off', '0', 'false', 'no') -contains ("$env:CAREEROS_LOCAL_LLM".Trim().ToLower())
-if (-not $localLlmOff -and -not $SkipOllama) {
-    Write-Step 'Ensuring Ollama is running'
-    & (Join-Path $PSScriptRoot 'restart-dev.ps1') -SkipOllamaCheck:$false -ApiPort 4000 -WebPort 5000 -ErrorAction SilentlyContinue | Out-Null
 }
 
 # ── Start servers ─────────────────────────────────────────────────────────────

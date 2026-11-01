@@ -1,13 +1,13 @@
-"""Application Assistant API routes — qwen domain."""
+"""Application Assistant API routes — assistant agent (prep, status, logs, chat)."""
 
 from ._common import *  # noqa: F401,F403
 
 router = APIRouter(prefix="/application-assistant", tags=["application-assistant"])
 
 
-# ── Qwen agent (metrics, logs, chat) ──────────────────────────────────────────
+# ── Assistant agent (metrics, logs, chat) ──────────────────────────────────────────
 
-QWEN_SYSTEM_PROMPT = """You are Qwen, the autonomous application assistant inside CareerOS.
+ASSISTANT_SYSTEM_PROMPT = """You are the autonomous application assistant inside CareerOS.
 You run application preparation in a visible browser and log every step.
 The user watches your activity log — they do not drive prep manually.
 When asked what went wrong, use the prep context provided and explain clearly.
@@ -15,8 +15,8 @@ If the issue is a UI or backend bug, name the layer and suggest a specific fix.
 Never claim to submit applications or bypass submission guards."""
 
 
-@router.post("/qwen/agent/prepare")
-async def qwen_agent_prepare(payload: QwenAgentPreparePayload, db: Session = Depends(db_session)) -> dict[str, Any]:
+@router.post("/assistant/agent/prepare")
+async def assistant_agent_prepare(payload: AssistantAgentPreparePayload, db: Session = Depends(db_session)) -> dict[str, Any]:
     from app.services.application_assistant.agent import (
         start_autonomous_prepare,
         start_autonomous_prepare_for_job,
@@ -34,15 +34,15 @@ async def qwen_agent_prepare(payload: QwenAgentPreparePayload, db: Session = Dep
     return result
 
 
-@router.get("/qwen/agent/prep-queue")
-def qwen_agent_prep_queue() -> dict[str, Any]:
+@router.get("/assistant/agent/prep-queue")
+def assistant_agent_prep_queue() -> dict[str, Any]:
     from app.services.application_assistant.worker import prep_queue_status
 
     return {"success": True, **prep_queue_status()}
 
 
-@router.get("/qwen/agent/status/{app_id}")
-def qwen_agent_status(app_id: str, db: Session = Depends(db_session)) -> dict[str, Any]:
+@router.get("/assistant/agent/status/{app_id}")
+def assistant_agent_status(app_id: str, db: Session = Depends(db_session)) -> dict[str, Any]:
     from app.services.application_assistant.agent import get_agent_run
 
     run = get_agent_run(db, app_id)
@@ -50,8 +50,8 @@ def qwen_agent_status(app_id: str, db: Session = Depends(db_session)) -> dict[st
     return {"success": True, "run": run, "application": draft}
 
 
-@router.get("/qwen/status")
-async def qwen_status(db: Session = Depends(db_session)) -> dict[str, Any]:
+@router.get("/assistant/status")
+async def assistant_status(db: Session = Depends(db_session)) -> dict[str, Any]:
     from app.services.application_assistant.qwen_activity import update_connection_status
 
     settings = get_settings(db)
@@ -65,15 +65,15 @@ async def qwen_status(db: Session = Depends(db_session)) -> dict[str, Any]:
         "connected": ping.get("success", False),
         "model": model,
         "baseUrl": llm.get("baseUrl", ""),
-        "provider": llm.get("provider", "ollama"),
+        "provider": llm.get("provider", ""),
         "models": ping.get("models", []),
         "error": ping.get("error"),
         "metrics": metrics,
     }
 
 
-@router.get("/qwen/metrics")
-def qwen_metrics(db: Session = Depends(db_session)) -> dict[str, Any]:
+@router.get("/assistant/metrics")
+def assistant_metrics(db: Session = Depends(db_session)) -> dict[str, Any]:
     from app.services.application_assistant.qwen_activity import get_metrics
 
     settings = get_settings(db)
@@ -84,8 +84,8 @@ def qwen_metrics(db: Session = Depends(db_session)) -> dict[str, Any]:
     }
 
 
-@router.get("/qwen/logs")
-def qwen_logs(
+@router.get("/assistant/logs")
+def assistant_logs(
     db: Session = Depends(db_session),
     limit: int = Query(default=50, ge=1, le=200),
 ) -> dict[str, Any]:
@@ -103,8 +103,8 @@ def qwen_logs(
     }
 
 
-@router.get("/qwen/live")
-def qwen_live_status(db: Session = Depends(db_session)) -> dict[str, Any]:
+@router.get("/assistant/live")
+def assistant_live_status(db: Session = Depends(db_session)) -> dict[str, Any]:
     from app.services.application_assistant.qwen_activity import (
         get_active_analyze_from_logs,
         get_active_prep_from_logs,
@@ -129,14 +129,14 @@ def qwen_live_status(db: Session = Depends(db_session)) -> dict[str, Any]:
     }
 
 
-@router.post("/qwen/chat")
-async def qwen_chat(payload: QwenChatPayload, db: Session = Depends(db_session)) -> dict[str, Any]:
+@router.post("/assistant/chat")
+async def assistant_chat(payload: AssistantChatPayload, db: Session = Depends(db_session)) -> dict[str, Any]:
     from app.services.application_assistant.qwen_activity import ActivityTimer, append_log
 
     settings = get_settings(db)
     client = create_llm_client(settings)
     if not client.enabled:
-        raise HTTPException(status_code=503, detail="Qwen is not configured. Set llm.model in settings.")
+        raise HTTPException(status_code=503, detail="The assistant model is not configured. Set llm.model in settings.")
 
     messages = [
         *[{"role": m["role"], "content": m["content"]} for m in payload.history if m.get("role") and m.get("content")],
@@ -150,7 +150,7 @@ async def qwen_chat(payload: QwenChatPayload, db: Session = Depends(db_session))
     if context_note:
         context_note = "\n\n" + context_note
 
-    system = QWEN_SYSTEM_PROMPT + context_note
+    system = ASSISTANT_SYSTEM_PROMPT + context_note
 
     with ActivityTimer() as timer:
         result = await client.chat(messages, system=system)
@@ -170,7 +170,7 @@ async def qwen_chat(payload: QwenChatPayload, db: Session = Depends(db_session))
     )
 
     if not result.get("success"):
-        raise HTTPException(status_code=502, detail=result.get("error", "Qwen request failed"))
+        raise HTTPException(status_code=502, detail=result.get("error", "Assistant request failed"))
 
     return {
         "success": True,

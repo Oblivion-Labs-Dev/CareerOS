@@ -56,7 +56,7 @@ async def generate_answer_route(
     payload: GenerateAnswerPayload,
     db: Session = Depends(db_session),
 ) -> dict[str, Any]:
-    """Generate answer for a freeform screening/textarea question using Ollama Qwen + user profile."""
+    """Generate answer for a freeform screening/textarea question using the configured model + user profile."""
     from app.services.application_assistant.llm_answer_generator import generate_theory_answer
 
     profile = get_kv(db, "profile") or {}

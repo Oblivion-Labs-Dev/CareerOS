@@ -16,7 +16,6 @@ import re
 from typing import Any
 from app.services.application_assistant.llm_client import (
     DEFAULT_CONTEXT_WINDOW,
-    DEFAULT_LOCAL_MODEL,
     estimate_tokens,
 )
 from app.services.application_assistant.tailoring_metadata import authorization_summary, job_match_score

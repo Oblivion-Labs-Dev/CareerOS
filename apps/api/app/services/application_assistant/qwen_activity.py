@@ -27,7 +27,7 @@ def _default_metrics() -> dict[str, Any]:
         "lastRequestAt": None,
         "lastError": None,
         "model": "",
-        "provider": "ollama",
+        "provider": "",
         "connected": False,
         "lastCheckedAt": None,
     }

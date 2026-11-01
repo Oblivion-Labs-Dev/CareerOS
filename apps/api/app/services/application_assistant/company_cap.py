@@ -5,17 +5,17 @@ people on the other end, and it crowds the queue with one employer while better
 matches elsewhere wait. The cap is a pacing rule, not a judgement about the
 postings.
 
-**Three tiers apply at once** — 5 a day, 10 a week, 20 a month — and a company is
+**Three tiers apply at once** — 15 a day, 30 a week, 60 a month — and a company is
 paced when *any* of them is exhausted. A single monthly figure was not enough on
-its own: twenty a month still allowed the entire month's allowance to be spent
+its own: a monthly figure alone still allowed the entire month's allowance to be spent
 in one overnight batch, which is the exact pattern the cap exists to prevent.
 
 **Fresh postings get a little more room.** A role published in the last 24 hours
 is worth applying to promptly — that is when an application is most likely to be
 read — so a posting that fresh is measured against every tier raised by
-``FRESH_POSTING_BONUS``: 8 a day, 13 a week, 23 a month. The bonus lifts every
+``FRESH_POSTING_BONUS``: 18 a day, 33 a week, 63 a month. The bonus lifts every
 tier rather than only the daily one, so the monthly ceiling stays a real ceiling:
-a company can never receive more than 23 applications in 30 days however fresh
+a company can never receive more than 63 applications in 30 days however fresh
 its postings are. A posting with no known publication date does not get the
 bonus, because we cannot claim it is fresh without inventing the fact.
 
@@ -31,7 +31,7 @@ dead ends, and it would need a second pass to dig them back out.
 in ``queue_priority_score`` order, so held jobs re-enter that same ordering on
 their own. There is no separate queue and no second ranking to keep in sync.
 
-**Windows are rolling, not calendar.** A company that took five applications this
+**Windows are rolling, not calendar.** A company that took a day's applications this
 afternoon frees them one at a time over the following afternoon, rather than the
 whole allowance reappearing at midnight. ``until`` is keyed on the *oldest*
 submission still inside the binding window, which is the first one due to age

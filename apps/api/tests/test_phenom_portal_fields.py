@@ -482,7 +482,7 @@ REPUBLIC_BODY = (
 
 
 def test_phenom_thank_you_page_confirms_even_with_the_site_search_form_visible():
-    from app.services.application_assistant.qwen_form_reviewer import verify_submission_confirmation
+    from app.services.application_assistant.form_reviewer import verify_submission_confirmation
 
     result = asyncio.run(verify_submission_confirmation(
         REPUBLIC_BODY, REPUBLIC_THANKS, [], "Republic Services", "Full Stack Engineer III",
@@ -492,7 +492,7 @@ def test_phenom_thank_you_page_confirms_even_with_the_site_search_form_visible()
 
 
 def test_a_visible_form_without_a_thank_you_url_is_still_not_confirmed():
-    from app.services.application_assistant.qwen_form_reviewer import verify_submission_confirmation
+    from app.services.application_assistant.form_reviewer import verify_submission_confirmation
 
     result = asyncio.run(verify_submission_confirmation(
         REPUBLIC_BODY, "https://jobs.republicservices.com/us/en/apply?jobSeqNo=X&step=6", [], "R", "T",

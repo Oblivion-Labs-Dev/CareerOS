@@ -19,7 +19,7 @@ import asyncio
 
 import pytest
 
-from app.services.gemini import ambiguity, enrichment, grounding, match_gate
+from app.services.gemini import enrichment, grounding
 from app.services.gemini import config as gemini_config
 from app.services.gemini.gateway import (
     CircuitState,
@@ -269,91 +269,6 @@ async def test_circuit_half_opens_and_closes_after_a_successful_probe(gateway):
 
     assert result.ok
     assert gateway.breaker.snapshot()["state"] == CircuitState.CLOSED.value
-
-
-# ── 7/8. application behaviour around an ambiguous match ─────────────────────
-
-AMBIGUOUS_JOB = {
-    "title": "Software Engineer",
-    "company": "Example",
-    "description": (
-        "We are hiring an engineer to work across our systems. "
-        "The team ships services and also owns data pipelines, spark jobs and "
-        "the etl that feeds them, alongside backend microservice work and api "
-        "development. This role requires an active security clearance. "
-    ) * 4,
-}
-
-CLEAR_JOB = {
-    "title": "Senior Backend Engineer",
-    "company": "Example",
-    "description": (
-        "Build and operate backend microservice systems. You will own api "
-        "development for a distributed system serving millions of requests, "
-        "working server-side in a backend team on back-end infrastructure. "
-    ) * 6,
-}
-
-
-@pytest.mark.anyio
-async def test_unavailable_gemini_on_an_ambiguous_match_stages_for_review(gateway, monkeypatch):
-    monkeypatch.setattr("app.services.gemini.gateway.get_gateway", lambda: gateway)
-    monkeypatch.setattr("app.services.gemini.enrichment.get_gateway", lambda: gateway)
-    gateway.transport = Recorder(reply_error(503))
-
-    decision = await match_gate.evaluate(
-        AMBIGUOUS_JOB, score=79.0, profile={"summary": "Backend engineer"},
-    )
-
-    assert decision.action == match_gate.REVIEW
-    assert "no second opinion" in decision.reason.lower()
-    # Review, not failure: the posting is still workable by hand.
-    assert decision.uncertainty["ambiguous"] is True
-
-
-@pytest.mark.anyio
-async def test_confident_deterministic_match_never_calls_gemini(gateway, monkeypatch):
-    monkeypatch.setattr("app.services.gemini.enrichment.get_gateway", lambda: gateway)
-    transport = Recorder(reply_ok())
-    gateway.transport = transport
-
-    decision = await match_gate.evaluate(CLEAR_JOB, score=94.0)
-
-    assert decision.proceed
-    assert decision.consulted is False
-    assert transport.calls == 0, "a confident match must not reach Gemini at all"
-
-
-@pytest.mark.anyio
-async def test_gemini_can_divert_to_review_but_never_forces_an_apply(gateway, monkeypatch):
-    monkeypatch.setattr("app.services.gemini.enrichment.get_gateway", lambda: gateway)
-    gateway.transport = Recorder(reply_ok(
-        '{"decision": "SKIP", "primary_role_family": "data", "secondary_role_family": "",'
-        ' "seniority_match": true, "critical_mismatch": true,'
-        ' "critical_requirements": ["security clearance"], "confidence": 0.91,'
-        ' "reason": "Requires a clearance the candidate does not hold."}'
-    ))
-
-    decision = await match_gate.evaluate(AMBIGUOUS_JOB, score=81.0, profile={"summary": "x"})
-
-    assert decision.action == match_gate.REVIEW
-    assert decision.gemini is not None
-    assert decision.gemini["source"] == "gemini"
-
-
-@pytest.mark.anyio
-async def test_an_unsure_gemini_does_not_override_the_deterministic_result(gateway, monkeypatch):
-    monkeypatch.setattr("app.services.gemini.enrichment.get_gateway", lambda: gateway)
-    gateway.transport = Recorder(reply_ok(
-        '{"decision": "SKIP", "primary_role_family": "data", "secondary_role_family": "",'
-        ' "seniority_match": true, "critical_mismatch": true, "critical_requirements": [],'
-        ' "confidence": 0.2, "reason": "Not sure."}'
-    ))
-
-    decision = await match_gate.evaluate(AMBIGUOUS_JOB, score=81.0, profile={"summary": "x"})
-
-    assert decision.proceed
-    assert "too unsure" in decision.reason.lower()
 
 
 # ── 9. cache and dedupe ──────────────────────────────────────────────────────
@@ -661,64 +576,6 @@ async def test_an_unconfigured_gemini_is_simply_unavailable(gateway, monkeypatch
     assert gateway.health() == "DISABLED"
 
 
-# ── ambiguity detection ──────────────────────────────────────────────────────
-
-def test_a_score_near_the_auto_apply_boundary_is_ambiguous():
-    verdict = ambiguity.assess(CLEAR_JOB, score=79.0)
-    assert verdict.ambiguous
-    assert any("boundary" in reason for reason in verdict.reasons)
-
-
-def test_a_clearly_scored_posting_is_not_ambiguous():
-    assert not ambiguity.assess(CLEAR_JOB, score=95.0).ambiguous
-
-
-def test_an_unscored_posting_is_ambiguous_rather_than_dropped():
-    verdict = ambiguity.assess(CLEAR_JOB, score=None)
-    assert verdict.ambiguous
-    assert any("no deterministic match score" in reason for reason in verdict.reasons)
-
-
-def test_a_hedged_clearance_requirement_is_flagged():
-    """"Ability to obtain a clearance" is a judgement call - worth asking about."""
-    job = dict(CLEAR_JOB)
-    job["description"] += (
-        " Candidates must be eligible to obtain a security clearance, or equivalent."
-    )
-
-    verdict = ambiguity.assess(job, score=95.0)
-
-    assert verdict.ambiguous
-    assert "security clearance" in verdict.critical_requirements
-
-
-def test_a_flatly_stated_requirement_is_not_worth_an_api_call():
-    """"Requires an active clearance" needs no second opinion: the candidate
-    either evidences it or does not, and CareerOS can decide that itself."""
-    job = dict(CLEAR_JOB)
-    job["description"] += " This role requires an active security clearance."
-
-    assert "security clearance" not in ambiguity.assess(job, score=95.0).critical_requirements
-    # It is still visible to anything that wants the full picture.
-    assert "security clearance" in ambiguity.find_critical_requirements(
-        job["description"], hedged_only=False
-    )
-
-
-def test_military_in_a_job_description_is_not_an_export_control_requirement():
-    """The token ITAR sits inside the word "military". Without word boundaries
-    that flagged 95 of 400 real postings as export-controlled."""
-    assert ambiguity.find_critical_requirements(
-        "Build software for military logistics customers. Clearance preferred.",
-        hedged_only=False,
-    ) == []
-
-
-def test_a_posting_too_short_to_judge_is_not_worth_a_call():
-    verdict = ambiguity.assess({"title": "Engineer", "description": "Come work here."}, score=None)
-    assert not verdict.ambiguous
-
-
 # ── title redaction for benchmark labels ─────────────────────────────────────
 
 def test_the_job_title_is_removed_from_the_body_before_labelling():
@@ -739,30 +596,23 @@ def test_the_job_title_is_removed_from_the_body_before_labelling():
 # ── safe application behaviour when nothing can answer ───────────────────────
 
 @pytest.mark.anyio
-async def test_no_answer_source_stages_for_review_rather_than_inventing(monkeypatch):
-    """The rule that matters most: never fabricate to keep Autopilot moving."""
+async def test_no_answer_source_stages_for_review_rather_than_inventing():
+    """The rule that matters most: never fabricate to keep Autopilot moving.
+
+    An open question with no profile field and no saved answer goes straight to
+    review. There is no model level any more (owner decision, 2026-11-01)."""
     from app.services.application_assistant import structured_answer_engine as engine
 
-    monkeypatch.setattr(engine, "LOCAL_LLM_ENABLED", False)
-
-    result = await engine.resolve_level_3_llm(
-        "Why are you interested in this role?", None, {"fullName": "A B"},
+    assert not hasattr(engine, "resolve_level_3_gemini")
+    result = await engine.resolve_application_question(
+        db=[], question_text="Why are you interested in this role?",
+        profile={"fullName": "A B"}, resume_text=RESUME,
     )
 
     assert result["supported"] is False
     assert result["needsUserInput"] is True
     assert result["answer"] == ""
-
-
-@pytest.mark.anyio
-async def test_gemini_level_returns_none_when_the_layer_is_off():
-    """The suite runs with Gemini disabled, so this is the real production shape
-    of "no key configured": the hierarchy simply moves on to the next level."""
-    from app.services.application_assistant import structured_answer_engine as engine
-
-    assert await engine.resolve_level_3_gemini(
-        "Describe your relevant experience.", None, {}, resume_text=RESUME,
-    ) is None
+    assert result["level"] == 4
 
 
 @pytest.mark.anyio

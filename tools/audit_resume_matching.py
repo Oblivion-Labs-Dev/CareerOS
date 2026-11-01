@@ -1,5 +1,5 @@
 """Read-only comparison of saved JDs. No queue writes or generation API calls."""
-import sys, os, json, sqlite3, time, re, statistics, asyncio
+import sys, os, json, sqlite3, time, re, statistics
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'apps/api'))
 os.environ['HF_HUB_OFFLINE'] = '1'
@@ -7,7 +7,6 @@ from app.services.resume_intelligence.baseline_document import load_baseline, re
 from app.services.resume_intelligence.minimal_tailoring import tailor, TailoringConfig
 from app.services.resume_intelligence.match_engine import match_corpus_to_job
 from app.services.application_assistant.job_matching import match_job, _parse_qualifications
-from app.services.application_assistant.mistral_resume_match import _is_evidenced, score_job_against_resume
 from app.services.application_assistant import candidate_match_context as context
 from app.services.application_assistant.tailored_match import build_submitted_resume_text
 from app.services.resume_intelligence import semantic
@@ -49,7 +48,6 @@ def main():
   print(json.dumps(rows[-1]),flush=True)
  # Controlled probes with known answers: separate algorithm flaws from JD ambiguity.
  probes={}
- probes['substringGoInDjango']=_is_evidenced('Go','built django services',set())
  probes['shortSkillsTokenized']=sorted(context.extract_keywords('Go C# C++ Rust Python'))
  probes['directResumeProof']=match_corpus_to_job([], 'Required: Kubernetes Python.',resume_text='Built Kubernetes Python services.')['overallScore']
  probes['compoundQualification']=match_job({'title':'Engineer','description':'Requirements\nExperience developing Rust kernels for embedded avionics safety certification.'},{'skills':['experience']})['requiredCoverage']
@@ -65,12 +63,6 @@ def main():
  a=context._cached_resume_text({'id':'same','base64':'AAAA'});b=context._cached_resume_text({'id':'same','base64':'BBBB'})
  context.extract_text_from_attachment=parser;context._resume_text_cache.clear()
  probes['equalLengthCacheStale']=a==b
- class CapturingClient:
-  enabled=True
-  async def complete(self,prompt,**kwargs):
-   probes['tailRequirementSurvivesPrompt']='CRITICAL_FINAL_REQUIREMENT' in prompt
-   return {'success':False}
- asyncio.run(score_job_against_resume(CapturingClient(),{'description':'Company introduction. '*240+'Requirements\nCRITICAL_FINAL_REQUIREMENT','title':'Engineer'},candidate_summary=before,evidence_text=before.lower(),evidence_terms=set()))
  report={'rows':rows,'probes':probes,'timingsMedianMs':{key:statistics.median(r['ms'][key] for r in rows[1:]) for key in ('tailor','candidate','corpus','prototype')}}
  out=ROOT/'tmp/resume-match-audit';out.mkdir(exist_ok=True,parents=True);(out/'results.json').write_text(json.dumps(report,indent=2),encoding='utf-8')
  print(json.dumps({k:v for k,v in report.items() if k!='rows'}),flush=True)

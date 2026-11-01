@@ -3,6 +3,7 @@ param(
     [int]$ApiPort = 4000,
     [int]$WebPort = 5000,
     [switch]$Background,
+    # Accepted for old callers; local models were removed, so there is nothing to check.
     [switch]$SkipOllamaCheck,
     # Serve the web app from a production build (next build + next start)
     # instead of next dev. Much faster for daily use; use dev for UI work.
@@ -109,73 +110,6 @@ function Wait-PortFree([int]$Port, [int]$TimeoutSec = 15) {
         }
         if (-not $busy) { return $true }
         Start-Sleep -Milliseconds 400
-    }
-    return $false
-}
-
-function Test-OllamaRunning([string]$BaseUrl) {
-    try {
-        $uri = $BaseUrl -replace '/v1/?$', ''
-        if (-not $uri.EndsWith('/')) { $uri += '/' }
-        $response = Invoke-WebRequest -Uri ($uri + 'api/tags') -UseBasicParsing -TimeoutSec 3
-        return $response.StatusCode -eq 200
-    } catch {
-        return $false
-    }
-}
-
-function Start-OllamaIfNeeded([string]$BaseUrl) {
-    if (Test-OllamaRunning $BaseUrl) {
-        Write-Host '  Ollama: already running and reachable' -ForegroundColor DarkGreen
-        return $true
-    }
-
-    Write-Step 'Starting Ollama service...'
-
-    # Memory tuning for a 16GB laptop that also runs the dev stack and a
-    # browser. Measured on qwen3:4b-instruct at an 8192 context: 3.87 GB
-    # resident before, 3.31 GB after, with no context reduction and no change
-    # to output quality.
-    #   FLASH_ATTENTION  - required for the quantised KV cache below
-    #   KV_CACHE_TYPE    - q8_0 roughly halves KV cache memory
-    #   MAX_LOADED_MODELS- stops a second model becoming resident alongside the
-    #                      first; mistral:7b and qwen3:4b were both loaded at
-    #                      once (5.6 + 3.9 GB) before this was set
-    #   NUM_PARALLEL     - each parallel slot allocates its own KV cache
-    $env:OLLAMA_FLASH_ATTENTION   = '1'
-    $env:OLLAMA_KV_CACHE_TYPE     = 'q8_0'
-    $env:OLLAMA_MAX_LOADED_MODELS = '1'
-    $env:OLLAMA_NUM_PARALLEL      = '1'
-
-    $ollamaCmd = Get-Command ollama -ErrorAction SilentlyContinue
-    $ollamaPath = $null
-    if ($ollamaCmd) {
-        $ollamaPath = $ollamaCmd.Source
-    } else {
-        $candidate = "$env:LOCALAPPDATA\Programs\Ollama\ollama.exe"
-        if (Test-Path $candidate) {
-            $ollamaPath = $candidate
-        }
-    }
-
-    if ($ollamaPath) {
-        try {
-            Start-Process -FilePath $ollamaPath -ArgumentList 'serve' -WindowStyle Hidden
-            Write-Host ('  Launched Ollama serve (' + $ollamaPath + ')') -ForegroundColor DarkGreen
-            $deadline = (Get-Date).AddSeconds(15)
-            while ((Get-Date) -lt $deadline) {
-                if (Test-OllamaRunning $BaseUrl) {
-                    Write-Host '  Ollama is ready!' -ForegroundColor DarkGreen
-                    return $true
-                }
-                Start-Sleep -Milliseconds 600
-            }
-            Write-Warning '  Ollama started but taking longer than 15s to respond.'
-        } catch {
-            Write-Warning ('  Failed to start Ollama automatically: ' + $_.Exception.Message)
-        }
-    } else {
-        Write-Warning '  Ollama executable not found on PATH or default location. Please install Ollama.'
     }
     return $false
 }
@@ -308,14 +242,7 @@ foreach ($port in @($ApiPort, $WebPort)) {
     }
 }
 
-if (-not $env:APPLICATION_ASSISTANT_LLM_BASE_URL) {
-    $env:APPLICATION_ASSISTANT_LLM_BASE_URL = 'http://localhost:11434/v1'
-}
-if (-not $env:APPLICATION_ASSISTANT_LLM_MODEL) {
-    $env:APPLICATION_ASSISTANT_LLM_MODEL = 'mistral-small3.2:24b'
-}
 $env:CHRONOS_MAPPING_ENABLED = 'true'
-$env:CHRONOS_MAPPING_MODEL = $env:APPLICATION_ASSISTANT_LLM_MODEL
 $env:CHRONOS_VISION_ENABLED = 'false'
 $env:CHRONOS_MAPPING_CONFIDENCE = '0.90'
 $env:CHRONOS_REVIEW_CONFIDENCE = '0.70'
@@ -337,17 +264,6 @@ if (Test-Path $VenvPython) {
 
 Write-Host ('  API:  ' + $apiUrl)
 Write-Host ('  Web:  ' + $webUrl)
-Write-Host ('  LLM:  ' + $env:APPLICATION_ASSISTANT_LLM_BASE_URL + ' (' + $env:APPLICATION_ASSISTANT_LLM_MODEL + ')')
-
-# Same switch the API reads: with the local model off, nothing may call it,
-# so Ollama is not started either.
-$env:CAREEROS_LOCAL_LLM = 'off'
-$localLlmOff = @('off', '0', 'false', 'no') -contains ("$env:CAREEROS_LOCAL_LLM".Trim().ToLower())
-if ($localLlmOff) {
-    Write-Host '  Ollama: not started (CAREEROS_LOCAL_LLM=off)' -ForegroundColor DarkGray
-} elseif (-not $SkipOllamaCheck) {
-    Start-OllamaIfNeeded $env:APPLICATION_ASSISTANT_LLM_BASE_URL | Out-Null
-}
 
 $pnpmScript = if ($Prod) { 'start:prod' } else { 'dev' }
 Write-Step ('Starting pnpm ' + $pnpmScript)

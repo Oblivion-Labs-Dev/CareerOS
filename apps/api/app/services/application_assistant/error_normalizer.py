@@ -1,29 +1,20 @@
-"""Normalizes non-deterministic browser-automation review errors into a fixed
-set of deterministic categories, using an LLM classification step with a safe,
-fully-deterministic fallback when the model call fails or returns junk.
+"""Sorts review-blocking browser-automation errors into a fixed set of
+categories, with plain deterministic rules and no model call.
 
-Browser automation surfaces a wide, unpredictable variety of raw DOM-verification
-error strings — radio groups, autocomplete mismatches, ATS-specific wording that
-changes per employer. Rather than growing an ever-longer set of string-matching
-heuristics for every phrasing we happen to have seen, each raw reason plus its
-known field metadata (label/type/options, already extracted deterministically by
-browser_verifier.py) is handed to a small local model that classifies it into one
-of a stable enum and, when it represents something the candidate can answer,
-produces one clean question.
+Each blocking issue already carries its field metadata (label, type, options,
+issue type), extracted deterministically by browser_verifier.py. The rules
+below read that metadata and decide whether the issue is something the
+candidate can answer and, if so, which question to ask: the field's own label,
+so the saved answer keys straight back to what fill-time matching compares.
 
-Deterministic code still decides what to DO with each category (ask, retry, or
-block) — the model only interprets text, it never makes the submit/block decision.
-Same Mistral-primary / Gemini-fallback pair used for resume tailoring elsewhere in
-this service, so classification degrades to the fallback model rather than failing
-outright, and to the deterministic heuristic below rather than blocking on the LLM
-entirely if both are unavailable.
+Owner's rule (2026-11-01): Autopilot fills, checks and stages applications with
+deterministic code only. Nothing on this path calls an LLM.
 """
 
 from __future__ import annotations
 
-import asyncio
-import json
 import logging
+import re
 from enum import Enum
 from typing import Any
 
@@ -53,26 +44,43 @@ ANSWERABLE_CATEGORIES = {
 
 _VALID_CATEGORIES = {c.value for c in ReviewErrorCategory}
 
-_CATEGORY_GUIDE = """- ACKNOWLEDGMENT: a yes/no consent question (hybrid work, relocation, policy acknowledgment).
-- DEMOGRAPHIC: EEOC-style self-identification (gender, race, veteran, disability).
-- WORK_AUTHORIZATION: visa, sponsorship, or citizenship status.
-- COMPENSATION: salary or rate expectation.
-- MISSING_FIELD: any other genuinely required field a candidate could fill in directly.
-- AUTOFILL_MISMATCH: the system filled in a WRONG value (e.g. wrong city/country) — retyping an answer doesn't fix this, it needs a re-fill.
-- DATA_CONTRADICTION: the candidate's own profile facts conflict with each other.
-- JOB_EXPIRED: the posting itself is closed, filled, or removed.
-- UNKNOWN: none of the above fit."""
+
+_JOB_EXPIRED_HINTS = (
+    "no longer accepting", "no longer available", "posting has closed", "posting is closed",
+    "job has expired", "job is closed", "position has been filled", "job not found",
+)
+_MISMATCH_HINTS = ("doesn't match", "does not match", "conflicts with", "mismatch")
+_DEMOGRAPHIC_WORDS = (
+    "gender", "race", "ethnicity", "hispanic", "latino", "veteran", "disability",
+    "sexual orientation", "pronoun", "transgender",
+)
+_AUTH_WORDS = (
+    "sponsor", "visa", "work authori", "authorized to work", "legally authorized",
+    "citizen", "export control", "u.s. person", "right to work", "work permit",
+)
+_COMP_WORDS = ("salary", "compensation", "pay expectation", "desired pay", "hourly rate", "expected pay")
+_ACK_WORDS = (
+    "acknowledge", "i agree", "consent", "certify", "attest", "hybrid", "on-site", "onsite",
+    "in office", "in-office", "relocat", "commute",
+)
 
 
-def _deterministic_fallback(label: str, issue_type: str) -> dict[str, Any]:
-    """Used whenever the model is unavailable or returns something unusable —
-    classification never blocks progress on an LLM call being up."""
-    if issue_type == "MISSING_REQUIRED" and label.strip():
-        return {"category": ReviewErrorCategory.MISSING_FIELD.value, "question": label.strip()}
-    return {"category": ReviewErrorCategory.UNKNOWN.value, "question": None}
+#: "Required field 'Start date' was rejected as empty", "Field \"Pronouns\" is required".
+_QUOTED_FIELD_RE = re.compile(r"""field\s+['"‘“]([^'"’”]{2,200})['"’”]""", re.IGNORECASE)
 
 
-async def classify_review_issue(
+def _label_from_reason(raw_reason: str) -> str:
+    """The field label quoted in a raw reason, for issues stored without one
+    (jobs staged before field metadata was captured)."""
+    m = _QUOTED_FIELD_RE.search(raw_reason or "")
+    return " ".join(m.group(1).split()) if m else ""
+
+
+def _has_any(text: str, words: tuple[str, ...]) -> bool:
+    return any(w in text for w in words)
+
+
+def classify_review_issue(
     raw_reason: str,
     *,
     label: str = "",
@@ -81,102 +89,37 @@ async def classify_review_issue(
     issue_type: str = "",
 ) -> dict[str, Any]:
     """Classify one raw review-blocking reason into a stable category and, if the
-    candidate can answer it, a single clean question.
+    candidate can answer it, the question to ask.
 
     Returns {"category": <ReviewErrorCategory value>, "question": str | None}.
-    Never raises — falls back to a deterministic heuristic on any model failure.
+    Pure function of its inputs: the same issue always gets the same answer.
     """
-    fallback = _deterministic_fallback(label, issue_type)
-    key = _cache_key(raw_reason, label, field_type, options, issue_type)
-    cached = _CLASSIFICATION_CACHE.get(key)
-    if cached is not None:
-        return dict(cached)
-    result = await _classify_with_model(raw_reason, label, field_type, options, fallback)
-    if result is None:
-        return fallback
-    _remember(key, result)
-    return dict(result)
+    reason = " ".join((raw_reason or "").lower().split())
+    clean_label = " ".join((label or "").split()) or _label_from_reason(raw_reason)
+    lab = clean_label.lower()
 
+    if _has_any(reason, _JOB_EXPIRED_HINTS):
+        return {"category": ReviewErrorCategory.JOB_EXPIRED.value, "question": None}
+    # The system wrote a wrong value: retyping an answer does not fix that,
+    # a re-fill does, so it is not a question for the candidate.
+    if (issue_type or "").upper() == "MISMATCH" or _has_any(reason, _MISMATCH_HINTS):
+        return {"category": ReviewErrorCategory.AUTOFILL_MISMATCH.value, "question": None}
+    if not clean_label or clean_label == "?":
+        return {"category": ReviewErrorCategory.UNKNOWN.value, "question": None}
 
-#: Model classifications keyed by the issue's content. The same screening
-#: question blocks many postings with identical wording, and the model is the
-#: one call on the Auto Apply path, so each distinct issue is classified once
-#: per process. Only real model answers are cached, never the fallback, so a
-#: model outage does not pin the fallback for the rest of the run.
-_CLASSIFICATION_CACHE: dict[tuple, dict[str, Any]] = {}
-_CLASSIFICATION_CACHE_MAX = 4096
-
-#: The most time one job's review questions may spend on the model. Past it the
-#: remaining issues take the deterministic fallback, so a slow or wedged local
-#: model holds the worker slot for seconds, not a minute per issue.
-REVIEW_CLASSIFY_BUDGET_SECONDS = 30.0
-
-
-def _cache_key(raw_reason: str, label: str, field_type: str, options: list[str] | None, issue_type: str) -> tuple:
-    return (raw_reason, label, field_type, tuple(options or ()), issue_type)
-
-
-def _remember(key: tuple, result: dict[str, Any]) -> None:
-    if len(_CLASSIFICATION_CACHE) >= _CLASSIFICATION_CACHE_MAX:
-        _CLASSIFICATION_CACHE.pop(next(iter(_CLASSIFICATION_CACHE)))
-    _CLASSIFICATION_CACHE[key] = dict(result)
-
-
-async def _classify_with_model(
-    raw_reason: str,
-    label: str,
-    field_type: str,
-    options: list[str] | None,
-    fallback: dict[str, Any],
-) -> dict[str, Any] | None:
-    """The model's classification, or None whenever it cannot be trusted."""
-    try:
-        from app.services.application_assistant.llm_client import create_llm_client
-
-        client = create_llm_client()
-
-        prompt = (
-            "A browser-automation job-application filler hit this raw error while filling a form:\n"
-            f"Raw error: {raw_reason}\n"
-            f"Field label (if known): {label or 'unknown'}\n"
-            f"Field type: {field_type or 'unknown'}\n"
-            f"Available options (if a dropdown): {options or 'none'}\n\n"
-            "Classify this into exactly one category from this fixed list:\n"
-            f"{_CATEGORY_GUIDE}\n\n"
-            "If the category is one a candidate can answer (ACKNOWLEDGMENT, DEMOGRAPHIC, WORK_AUTHORIZATION, "
-            "COMPENSATION, MISSING_FIELD), rephrase the field label as ONE short, plain-language question a "
-            "non-technical person could answer directly. Otherwise \"question\" must be null.\n\n"
-            'Respond ONLY with JSON: {"category": "ONE_OF_THE_ENUM_VALUES", "question": "..." or null}'
-        )
-
-        res = await client.complete(
-            prompt,
-            system="You classify job-application form-filling errors into a fixed enum. Respond only with the requested JSON.",
-        )
-        if not res.get("success") or not res.get("data"):
-            return None
-
-        raw = res["data"].strip()
-        if raw.startswith("```"):
-            raw = raw.strip("`")
-            if raw.lower().startswith("json"):
-                raw = raw[4:]
-        parsed = json.loads(raw.strip())
-
-        category = parsed.get("category")
-        if category not in _VALID_CATEGORIES:
-            return None
-
-        question = parsed.get("question")
-        if category not in ANSWERABLE_CATEGORIES:
-            question = None
-        elif not question:
-            question = label.strip() or fallback.get("question")
-
-        return {"category": category, "question": question}
-    except Exception as e:
-        logger.warning("Review-issue classification failed, using deterministic fallback: %s", e)
-        return None
+    if _has_any(lab, _DEMOGRAPHIC_WORDS):
+        category = ReviewErrorCategory.DEMOGRAPHIC
+    elif _has_any(lab, _AUTH_WORDS):
+        category = ReviewErrorCategory.WORK_AUTHORIZATION
+    elif _has_any(lab, _COMP_WORDS) or re.search(r"\bpay\b", lab):
+        category = ReviewErrorCategory.COMPENSATION
+    elif _has_any(lab, _ACK_WORDS):
+        category = ReviewErrorCategory.ACKNOWLEDGMENT
+    elif (issue_type or "").upper() == "MISSING_REQUIRED" or "required" in reason:
+        category = ReviewErrorCategory.MISSING_FIELD
+    else:
+        return {"category": ReviewErrorCategory.UNKNOWN.value, "question": None}
+    return {"category": category.value, "question": clean_label}
 
 
 def issues_from_error_fields(evidence: dict[str, Any]) -> list[dict[str, Any]]:
@@ -204,69 +147,43 @@ def issues_from_error_fields(evidence: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 async def build_pending_questions(blocking_issues: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Classify a job's full list of policy blocking-issues into the structured,
-    answerable questions the Apply-board popup renders (dropdown when `options`
-    is non-empty, text input otherwise).
+    """Turn a job's policy blocking-issues into the structured, answerable
+    questions the Apply-board popup renders (dropdown when `options` is
+    non-empty, text input otherwise).
 
     Shared by the live submission path (autopilot_runner) and the on-demand
     re-classification endpoint (for jobs staged before this existed) so the two
     never drift into two different notions of "what counts as a question."
 
     The aggregate "N fields unfilled" summary (`REQUIRED_FIELDS_CHECK`) is always
-    dropped: it only restates the individual issues already in the same list, so
-    classifying it too would just produce a duplicate question.
+    dropped: it only restates the individual issues already in the same list.
+    Kept async so both callers stay unchanged.
     """
-    issues = [bi for bi in blocking_issues if bi.get("gate") != "REQUIRED_FIELDS_CHECK"]
-    if not issues:
-        return []
-
-    # Throttle concurrency so local Ollama does not queue multiple heavy completions simultaneously
-    sem = asyncio.Semaphore(1)
-    loop = asyncio.get_running_loop()
-    deadline = loop.time() + REVIEW_CLASSIFY_BUDGET_SECONDS
-
-    async def _throttled_classify(bi: dict[str, Any]) -> dict[str, Any]:
-        async with sem:
-            remaining = deadline - loop.time()
-            fallback = _deterministic_fallback(bi.get("label", ""), bi.get("issueType", ""))
-            key = _cache_key(bi.get("reason", ""), bi.get("label", ""), bi.get("fieldType", ""),
-                             bi.get("options", []), bi.get("issueType", ""))
-            if remaining <= 0 and key not in _CLASSIFICATION_CACHE:
-                return fallback
-            try:
-                return await asyncio.wait_for(
-                    classify_review_issue(
-                        bi.get("reason", ""),
-                        label=bi.get("label", ""),
-                        field_type=bi.get("fieldType", ""),
-                        options=bi.get("options", []),
-                        issue_type=bi.get("issueType", ""),
-                    ),
-                    timeout=max(remaining, 0.01),
-                )
-            except asyncio.TimeoutError:
-                logger.warning("Review-issue classification over budget; using deterministic fallback.")
-                return fallback
-
-    classifications = await asyncio.gather(
-        *[_throttled_classify(bi) for bi in issues],
-        return_exceptions=True,
-    )
-
     pending_questions = []
-    for bi, cls in zip(issues, classifications):
-        if isinstance(cls, BaseException) or not isinstance(cls, dict):
+    seen: set[str] = set()
+    for bi in blocking_issues:
+        if bi.get("gate") == "REQUIRED_FIELDS_CHECK":
             continue
-        if cls.get("category") in ANSWERABLE_CATEGORIES and cls.get("question"):
-            pending_questions.append({
-                "question": cls["question"],
-                # The raw DOM label, not the model's rephrasing — used as the key
-                # when saving the answer, since it's what fill-time matching
-                # (resolve_answer) actually compares against and, unlike the
-                # model's output, is deterministic across repeated attempts.
-                "rawLabel": bi.get("label") or cls["question"],
-                "category": cls["category"],
-                "fieldType": bi.get("fieldType", ""),
-                "options": bi.get("options", []),
-            })
+        cls = classify_review_issue(
+            bi.get("reason", ""),
+            label=bi.get("label", ""),
+            field_type=bi.get("fieldType", ""),
+            options=bi.get("options", []),
+            issue_type=bi.get("issueType", ""),
+        )
+        if cls["category"] not in ANSWERABLE_CATEGORIES or not cls["question"]:
+            continue
+        raw_label = bi.get("label") or cls["question"]
+        if raw_label.lower() in seen:
+            continue
+        seen.add(raw_label.lower())
+        pending_questions.append({
+            "question": cls["question"],
+            # The raw DOM label: the key the saved answer is stored under,
+            # since it is what fill-time matching (resolve_answer) compares.
+            "rawLabel": raw_label,
+            "category": cls["category"],
+            "fieldType": bi.get("fieldType", ""),
+            "options": bi.get("options", []),
+        })
     return pending_questions

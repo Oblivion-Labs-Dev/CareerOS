@@ -23,7 +23,7 @@ from app.services.application_assistant.playwright_autopilot_executor import (
     _phenom_step_button,
     _select_radio_option,
 )
-from app.services.application_assistant.qwen_form_reviewer import review_and_heal_form_state
+from app.services.application_assistant.form_reviewer import review_and_heal_form_state
 from tests.browser_test_utils import eval_in_pooled_page
 
 # Lever: question text in a sibling .application-label, controls carry only a
@@ -215,10 +215,8 @@ def test_a_sign_in_page_that_rendered_late_is_never_submitted(monkeypatch, tmp_p
     import threading
     from http.server import BaseHTTPRequestHandler, HTTPServer
 
-    from app.services.application_assistant import llm_client
     from app.services.application_assistant import playwright_autopilot_executor as executor
 
-    monkeypatch.setattr(llm_client, "LOCAL_LLM_ENABLED", False)
     monkeypatch.setattr(executor, "SCREENSHOTS_DIR", tmp_path)
     posts: list[str] = []
 

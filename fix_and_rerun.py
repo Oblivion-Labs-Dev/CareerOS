@@ -16,8 +16,6 @@ async def main():
         "tierGuardrails": True,
         "submittableBoardsOnly": True,   # Only boards we know
         "submittableBoardsStrict": False, # <-- RELAXED: try boards even if not in guaranteed list
-        "selfHealing": True,
-        "aiModel": "qwen3:4b-instruct",
         "tailoringMode": "honest"
     })
     print(f"Started: {run.get('id')}")

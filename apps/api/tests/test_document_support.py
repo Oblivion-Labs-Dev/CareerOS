@@ -1,4 +1,3 @@
-import asyncio
 from copy import deepcopy
 
 import pytest
@@ -7,7 +6,6 @@ from app.services.resume_intelligence import evidence_match as em
 from app.services.resume_intelligence import minimal_tailoring as mt
 from app.services.resume_intelligence.baseline_document import approved_path, render_baseline
 from app.services.application_assistant import candidate_match_context as context
-from app.services.application_assistant.mistral_resume_match import _is_evidenced, score_job_against_resume
 from app.services.application_assistant.job_matching import match_job
 from tests.resume_baseline_fixture import baseline
 
@@ -29,8 +27,6 @@ def test_direct_document_evidence_not_zero_and_partial_compound():
 
 
 def test_short_names_boundaries_and_negation():
-    assert not _is_evidenced("Go","built django services",set())
-    assert not _is_evidenced("Java","built javascript services",set())
     assert {"go","c#","c++"} <= context.extract_keywords("Go C# C++")
     for text in ("I have no Kubernetes experience.", "I have no experience with Kubernetes.", "I never used Kubernetes."):
         assert em.match_text(text,"Required: Kubernetes experience.",use_semantic=False)["score"]==0
@@ -126,14 +122,3 @@ def test_modes_preserve_configuration_and_aggressive_changes_more(baseline,monke
         for b in result["resumeBullets"]:
             assert b["source"]["text"]==b["optimizedBullet"]
     with pytest.raises(ValueError):mt.mode_config("invent")
-
-
-def test_local_model_prompt_keeps_late_requirements():
-    seen=[]
-    class Client:
-        enabled=True
-        async def complete(self,prompt,**kwargs):
-            seen.append(prompt)
-            return {"success":False}
-    asyncio.run(score_job_against_resume(Client(),{"description":"About us\n"+"Company. "*1000+"\nRequirements\nCRITICAL_FINAL_REQUIREMENT Python services."},candidate_summary="Python engineer",evidence_text="python",evidence_terms={"python"}))
-    assert "CRITICAL_FINAL_REQUIREMENT" in seen[0]

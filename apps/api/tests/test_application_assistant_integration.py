@@ -10,23 +10,6 @@ FIXTURES_DIR = Path(__file__).parent / "fixtures" / "greenhouse"
 FORM_FIXTURE = FIXTURES_DIR / "application_form.html"
 
 
-@pytest.fixture(autouse=True)
-def _no_local_llm(monkeypatch):
-    """Keep these tests off the local Ollama model.
-
-    The fill step asks the model three times per run. With Ollama stopped, each
-    ask waited ~10s for qwen and then mistral to refuse the connection (~40s a
-    test); with Ollama running it loaded multi-GB models and timed out under
-    load, which is why these tests were skipped as flaky. Neither outcome is
-    what they test. With the local model off (and Gemini already off for the
-    suite in conftest), the client reports itself unavailable and the fill runs
-    its deterministic path.
-    """
-    from app.services.application_assistant import llm_client
-
-    monkeypatch.setattr(llm_client, "LOCAL_LLM_ENABLED", False)
-
-
 @pytest.fixture(scope="class")
 def fixture_site():
     """Simple HTTP server serving Greenhouse fixtures, recording each path requested."""
@@ -67,40 +50,33 @@ def filled(fixture_site):
     import base64
 
     pytest.importorskip("playwright")
-    from app.services.application_assistant import llm_client
     from app.services.application_assistant.browser_runner import prepare_application
     from app.services.application_assistant.providers.greenhouse import GreenhouseAdapter
 
-    # See _no_local_llm: that fixture is function-scoped, so this class-scoped
-    # run switches the model off itself.
-    previous, llm_client.LOCAL_LLM_ENABLED = llm_client.LOCAL_LLM_ENABLED, False
-    try:
-        result = asyncio.run(prepare_application(
-            application_url=fixture_site.url,
-            adapter=GreenhouseAdapter(),
-            context={
-                "profile": {
-                    "firstName": "Jane",
-                    "lastName": "Doe",
-                    "email": "jane@example.com",
-                    "phone": "+1 555-123-4567",
-                    "linkedin": "https://linkedin.com/in/jane",
-                },
-                "answerLibrary": [],
-                "allowInferred": False,
-                "documents": {
-                    "defaultResume": {
-                        "name": "Jane_Resume.pdf",
-                        "type": "application/pdf",
-                        "base64": base64.b64encode(MINIMAL_PDF).decode(),
-                    }
-                },
+    result = asyncio.run(prepare_application(
+        application_url=fixture_site.url,
+        adapter=GreenhouseAdapter(),
+        context={
+            "profile": {
+                "firstName": "Jane",
+                "lastName": "Doe",
+                "email": "jane@example.com",
+                "phone": "+1 555-123-4567",
+                "linkedin": "https://linkedin.com/in/jane",
             },
-            app_id="test_integration",
-            headed=False,
-        ))
-    finally:
-        llm_client.LOCAL_LLM_ENABLED = previous
+            "answerLibrary": [],
+            "allowInferred": False,
+            "documents": {
+                "defaultResume": {
+                    "name": "Jane_Resume.pdf",
+                    "type": "application/pdf",
+                    "base64": base64.b64encode(MINIMAL_PDF).decode(),
+                }
+            },
+        },
+        app_id="test_integration",
+        headed=False,
+    ))
     return result
 
 

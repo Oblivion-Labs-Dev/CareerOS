@@ -4,7 +4,7 @@ module, so `from app.routers.application_assistant import router` keeps
 working unchanged for main.py.
 
 Split by domain for SRP: each area (settings, discovery, jobs, applications,
-answers, llm, qwen, diagnostics, autopilot, llm_metrics, tailoring/receipts)
+answers, llm, assistant, diagnostics, autopilot, llm_metrics, tailoring/receipts)
 now owns its own small file instead of all 79 endpoints living in one.
 """
 
@@ -14,6 +14,7 @@ from fastapi import APIRouter
 
 from . import (
     answers,
+    assistant,
     browse_searches,
     applications,
     autopilot,
@@ -23,7 +24,6 @@ from . import (
     jobs,
     llm,
     llm_metrics,
-    qwen,
     progress,
     settings,
     tailoring_receipts,
@@ -38,7 +38,7 @@ for _sub in (
     answers.router,
     browse_searches.router,
     llm.router,
-    qwen.router,
+    assistant.router,
     progress.router,
     diagnostics.router,
     autopilot.router,

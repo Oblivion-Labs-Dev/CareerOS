@@ -13,7 +13,6 @@ from app.db.store import get_kv, tracker_summary
 from app.services.error_fix_tracker import error_fix_tracker
 from app.services.extension_packager import extension_info
 from app.services.log_store import read_client_logs
-from app.services.repair.log_source import log_inventory
 
 _TEMPLATE_PATH = Path(__file__).resolve().parent.parent / "static" / "api-dashboard" / "index.html"
 
@@ -103,11 +102,8 @@ def _build_boot_payload(db: Session) -> dict[str, Any]:
         "server": {
             "devMode": settings.career_os_dev_mode,
             "refreshed": datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC"),
-            "repairManualEnabled": settings.career_os_dev_mode,
-            "repairAgentAdapter": settings.career_os_repair_agent_adapter,
         },
         "errorFix": error_fix_tracker.snapshot(),
-        "logInventory": log_inventory(),
     }
 
 
@@ -135,26 +131,13 @@ def _chart_seed_from_history() -> dict[str, Any]:
     return {"labels": labels, "errors": errors, "fixes": fixes}
 
 
-def _latest_repair_run() -> dict[str, Any] | None:
-    try:
-        from app.services.repair.processor import latest_manual_run
-
-        return latest_manual_run()
-    except Exception:
-        return None
-
-
-def _build_boot_payload_with_repair(db: Session) -> dict[str, Any]:
+def _build_boot_payload_with_chart(db: Session) -> dict[str, Any]:
     payload = _build_boot_payload(db)
-    payload["repairRun"] = _latest_repair_run()
     payload["chartSeed"] = _chart_seed_from_history()
     return payload
 
 
 def render_api_dashboard(db: Session) -> str:
     template = _TEMPLATE_PATH.read_text(encoding="utf-8")
-    boot_json = json.dumps(_build_boot_payload_with_repair(db), ensure_ascii=False)
-    html = template.replace("__BOOT_JSON__", boot_json)
-    if settings.career_os_dev_mode:
-        html = html.replace('id="repair-manual-panel" aria-label="Manual log repair" hidden', 'id="repair-manual-panel" aria-label="Manual log repair"')
-    return html
+    boot_json = json.dumps(_build_boot_payload_with_chart(db), ensure_ascii=False)
+    return template.replace("__BOOT_JSON__", boot_json)

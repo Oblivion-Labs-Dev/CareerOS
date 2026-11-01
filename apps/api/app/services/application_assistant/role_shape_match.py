@@ -567,9 +567,22 @@ def build_context(
 
 MATCH_METHOD = "role-shape"
 
-#: Matches carrying one of these methods came from a model and are left alone:
-#: the model path is out of scope for deterministic scoring (#50).
-MODEL_MATCH_METHODS = frozenset({"ollama-local", "mistral-ollama", "qwen"})
+#: What a title-only posting is assumed to score on the signals it cannot be
+#: measured on (coverage and BM25 need posting text). 0.5 is the no-information
+#: midpoint: the requirements are unknown, not met and not missed.
+#:
+#: Why not renormalise over family + seniority, as this scorer used to? That
+#: treated "we could not read the requirements" as "every requirement is met":
+#: a bare "Senior Backend Engineer" scored 100 and ranked above every described
+#: posting, including ones the resume demonstrably covers. Imputing the
+#: midpoint keeps the title signals' full weight (a good title still beats a
+#: bad one by the same margin) but caps a title-only score at
+#: 100 * (0.45 + 0.10 + 0.45 * 0.5) = 77.5, below the 80 top band and the
+#: default submit floor. A title alone is not enough evidence for the top band.
+TITLE_ONLY_UNKNOWN_PRIOR = 0.5
+
+#: The signals a title-only posting lacks, imputed at the prior above.
+TEXT_SIGNALS = ("coverage", "bm25")
 
 
 def _reason(job: JobShape, parts: dict[str, float], ctx: Context, has_text: bool) -> str:
@@ -582,7 +595,10 @@ def _reason(job: JobShape, parts: dict[str, float], ctx: Context, has_text: bool
     if has_text:
         pieces.append(f"requirement coverage {parts['coverage'] * 100:.0f}%")
     else:
-        pieces.append("no posting text, so scored on the title alone")
+        pieces.append(
+            "no posting text, so scored on the title alone with requirement "
+            "coverage unknown (capped below the top band)"
+        )
     return "Role-shape match: " + "; ".join(pieces) + "."
 
 
@@ -599,12 +615,12 @@ def match_for(job: dict[str, Any], ctx: Context) -> dict[str, Any]:
         score = 100.0 * sum(ROLE_SHAPE_WEIGHTS[k] * v for k, v in parts.items())
     else:
         # With no text, coverage and BM25 are 0 for want of data, not for want
-        # of fit. Scoring them as 0 would rank every text-less posting below
-        # every described one. Renormalise over the two signals that exist
-        # (the ablation measured family + seniority alone at 0.945 ROC-AUC).
-        used = ("family", "seniority")
-        score = 100.0 * sum(ROLE_SHAPE_WEIGHTS[k] * parts[k] for k in used) / sum(
-            ROLE_SHAPE_WEIGHTS[k] for k in used
+        # of fit, so they are neither scored as 0 (which would bury every
+        # text-less posting) nor as perfect (which put them all at the top).
+        # They take the no-information prior; see TITLE_ONLY_UNKNOWN_PRIOR.
+        score = 100.0 * sum(
+            ROLE_SHAPE_WEIGHTS[k] * (TITLE_ONLY_UNKNOWN_PRIOR if k in TEXT_SIGNALS else v)
+            for k, v in parts.items()
         )
     return {
         "matchScore": round(score, 1),
@@ -647,6 +663,17 @@ def _fingerprint(*parts: Any) -> str:
     return hashlib.sha1(payload.encode("utf-8")).hexdigest()
 
 
+def current_resume_key(profile: dict[str, Any], documents: dict[str, Any]) -> str:
+    """Fingerprint of everything the resume side of a score depends on.
+
+    Stored on each queued row as ``matchResumeKey``; a row whose key differs was
+    scored against an older resume and is re-scored.
+    """
+    from app.services.story_index import load_corpus
+
+    return _fingerprint(profile, documents, load_corpus())
+
+
 class QueueScorer:
     """Role-shape scores for the queue, computed once per posting.
 
@@ -676,7 +703,7 @@ class QueueScorer:
         from app.services.story_index import load_corpus
 
         corpus_records = load_corpus()
-        resume_key = _fingerprint(profile, documents, corpus_records)
+        resume_key = _fingerprint(profile, documents, corpus_records)  # == current_resume_key
         count = len(idf_documents)
         drifted = abs(count - self._fitted_on) > IDF_REFIT_DRIFT * max(self._fitted_on, 1)
         if self._ctx is None or resume_key != self._resume_key or drifted:
@@ -694,6 +721,8 @@ class QueueScorer:
         idf_documents: list[str],
     ) -> dict[str, dict[str, Any]]:
         """Matches keyed by job id: every memoised one, plus up to the budget of new ones."""
+        from app.db.store import now_iso
+
         with self._lock:
             ctx = self._context(profile, documents, idf_documents)
             out: dict[str, dict[str, Any]] = {}
@@ -709,7 +738,13 @@ class QueueScorer:
                     continue
                 if scored_now >= self._max_new:
                     continue
-                match = match_for(job, ctx)
+                match = {
+                    **match_for(job, ctx),
+                    # Which resume this score was computed against, and when,
+                    # so a resume change can find and re-score stale rows.
+                    "matchResumeKey": self._resume_key,
+                    "matchScoredAt": now_iso(),
+                }
                 self._memo[job_id] = (text_key, match)
                 out[job_id] = match
                 scored_now += 1

@@ -74,6 +74,10 @@ than making a person wait.
 
 ### 1. Application questions — the clearest win
 
+> Since 2026-11-01 Autopilot never asks Gemini: the structured answer engine stops at
+> the profile and the saved answer library, then stages for review. What follows now
+> applies only to the user-triggered answer generator (`llm_answer_generator`).
+
 Open-ended prose ("Why are you interested in this role?", "Describe relevant
 experience") is the one place a bigger model is plainly better, and it costs no
 local RAM.
@@ -118,65 +122,12 @@ This does not change the standing default that tailoring is **off**. It does
 change what "on" costs: tailoring through Gemini uses no local RAM, which was
 the reason it was switched off in the first place.
 
-### 3. Ambiguous job matching
+### 3. Ambiguous job matching — removed
 
-Gemini is **not** in the normal matching path. `ambiguity.assess()` runs first —
-pure string scanning, no I/O — and flags a posting only when:
-
-* it has no deterministic score at all;
-* its score is within 8 points of the auto-apply boundary;
-* no role family can be determined from the text;
-* two role families are in a near-tie (runner-up within 90% of the leader);
-* the posting states an eligibility requirement **ambiguously** — "clearance
-  preferred", "ability to obtain", "or equivalent".
-
-A posting shorter than 400 characters is explicitly *not* ambiguous — it is
-empty, and asking Gemini to judge boilerplate spends a call to be told what the
-length already said.
-
-### The thresholds were measured, not guessed
-
-Run over 400 real postings from the database, the first version of this gate
-flagged **65%** of them. That is not a gate. Three things were wrong:
-
-* **The token `itar` had no word boundaries**, so it matched the middle of
-  "military" and flagged 95 postings as export-controlled because they described
-  a defence customer.
-* **A PhD listed as an alternative** ("a bachelor's and 5 years, or a master's
-  and 3, or a PhD") was read as a requirement, and a years-of-experience bar
-  matched 140 postings because "8+ years" is in nearly every senior posting.
-  The years rule was removed outright — it is the one requirement CareerOS *can*
-  check itself.
-* **A flatly stated requirement is not ambiguous.** The candidate either
-  evidences it or does not. Only a *hedged* requirement is a judgement call, and
-  the hedge has to be in the same clause: a 220-character window found
-  "preferred" or "or equivalent" next to almost everything.
-
-Plus a looser role-family rule: a share threshold on the leader was replaced by
-a direct comparison with the runner-up, because with thirteen families a leader
-holding 44% of the signal is dominant, not contested.
-
-| Version | Postings flagged (of 400) |
-|---|---|
-| first attempt | 65% |
-| word-boundary and years fixes | 44% |
-| clause-scoped hedging | 23.5% |
-| near-tie role families | **15%** |
-
-So roughly one application in seven gets a second opinion, and the other six
-never touch the network.
-
-The gate is asymmetric by design:
-
-* Gemini **can** divert a posting to Review.
-* Gemini **cannot** talk a posting into being applied to — a posting it likes
-  simply keeps the deterministic decision it already had.
-* A Gemini opinion below 0.6 confidence is ignored entirely.
-* Gemini being unavailable produces **Review**, never a failed run.
-
-The Gemini judgement is stored under `geminiMatchGate` on the job row. The
-deterministic `matchScore` is never overwritten, so the two can be compared
-later instead of one having quietly replaced the other.
+Removed on 2026-11-01 with the owner's "deterministic code only" decision for
+Autopilot. The match floor (default 60, set on the dashboard) is the only
+pre-apply gate; `match_gate.py`, `ambiguity.py` and `enrichment.clarify_match`
+no longer exist.
 
 ### 4. Offline benchmark labelling (MatchLab teacher)
 
@@ -294,11 +245,11 @@ existing call site was assessed as.
 
 | Call site | Was | Now |
 |---|---|---|
-| `structured_answer_engine.resolve_level_3_llm` | local model only | **Gemini first, local second, Review third** |
+| `structured_answer_engine` level 3 | local model, then Gemini | **removed 2026-11-01: no profile or library answer means Review** |
 | `llm_answer_generator.generate_theory_answer` | local model only | **Gemini first, then existing fallbacks** |
 | `resume_diff_service._complete_batch` | local model, Gemini-as-fallback inside `LLMClient` | **Gateway-managed Gemini first, local second** |
 | `matchlab/teacher.py` | its own httpx client, throttle and retry loop | **routed through the gateway at lowest priority** |
-| *(new)* `autopilot_runner` pre-apply gate | did not exist | **ambiguity check, then optional Gemini second opinion** |
+| `autopilot_runner` Gemini pre-apply gate | added, then | **removed 2026-11-01: the match floor is the only gate** |
 
 ### Keep — deterministic already, or local is correct
 
@@ -306,10 +257,9 @@ existing call site was assessed as.
 |---|---|
 | `profile_answer_resolver`, `ats_plugin_reference` | pure profile lookups. Correct, instant, and the one place a model must never be involved |
 | `question_classifier`, `answer_classification` | deterministic classification with a test suite behind it |
-| `mistral_resume_match`, `queue_preprocessor` scoring | bulk scoring of hundreds of postings. Sending every posting to Gemini is slower, quota-bound and no more correct on the cases the local path already gets right |
+| `queue_preprocessor` scoring (role-shape, no model) | bulk scoring of hundreds of postings. Sending every posting to Gemini is slower, quota-bound and no more correct on the cases the local path already gets right |
 | `mapping_pipeline` (`create_mapping_client`), `semantic_field_resolution` | runs inside the Playwright worker against live DOM, needs low latency and no network dependency mid-form |
-| `field_mapping_agent`, `qwen_form_reviewer` | same — form-time, latency-sensitive |
-| `autopilot_self_healer`, `repair_agent`, `adaptive_browser_recovery` | self-healing is explicitly wanted on the *local* model for unattended overnight runs |
+| `field_mapping_agent`, `form_reviewer` | same — form-time, latency-sensitive |
 | `error_normalizer` | already has a fully deterministic fallback and classifies into a fixed enum; a bigger model buys nothing |
 | `tracker/classification` | rule-based first, LLM only when no rule matches. Already the right shape |
 | `resume_intelligence/qwen_services` | user-initiated, local-first, and not on any submission path |
@@ -318,7 +268,6 @@ existing call site was assessed as.
 
 | Call site | Why |
 |---|---|
-| Role-family detection for the ambiguity gate | keyword scanning, microseconds, runs on every posting |
 | Job-description fingerprinting for cache keys | a hash, not a judgement |
 | Title redaction for teacher labels | must be exactly reproducible, so it is regex, not a model |
 

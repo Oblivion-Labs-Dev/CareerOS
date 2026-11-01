@@ -1,15 +1,16 @@
 #Requires -Version 5.1
 <#
 .SYNOPSIS
-  First-time CareerOS setup: dependencies, Python venv, Playwright, Ollama, and Qwen model.
+  First-time CareerOS setup: dependencies, Python venv and Playwright.
 
 .EXAMPLE
   .\setup.bat
-  .\scripts\setup.ps1 -Model mistral-small3.2:24b
-  .\scripts\setup.ps1 -SkipOllama -SkipModels
+  .\scripts\setup.ps1 -SkipExtension -SkipTests
 #>
 param(
-    [string]$Model = "mistral-small3.2:24b",
+    # -Model, -SkipOllama and -SkipModels are accepted for old callers and do
+    # nothing: local models were removed.
+    [string]$Model = "",
     [switch]$SkipOllama,
     [switch]$SkipModels,
     [switch]$SkipExtension,
@@ -122,21 +123,15 @@ function Write-DefaultEnvFiles {
             "NEXT_PUBLIC_API_URL=http://localhost:8001" = "NEXT_PUBLIC_API_URL=http://localhost:8000"
             "CAREER_OS_API_PUBLIC_URL=http://localhost:8001" = "CAREER_OS_API_PUBLIC_URL=http://localhost:8000"
             "CAREER_OS_API_URL=http://localhost:8001" = "CAREER_OS_API_URL=http://localhost:8000"
-            "APPLICATION_ASSISTANT_LLM_BASE_URL=http://localhost:1234/v1" = "APPLICATION_ASSISTANT_LLM_BASE_URL=http://localhost:11434/v1"
         }
         foreach ($pair in $replacements.GetEnumerator()) {
             $content = $content.Replace($pair.Key, $pair.Value)
         }
-        if ($content -notmatch "APPLICATION_ASSISTANT_LLM_MODEL=") {
-            $content += "`nAPPLICATION_ASSISTANT_LLM_MODEL=$Model`n"
-        } elseif ($content -match "APPLICATION_ASSISTANT_LLM_MODEL=\s*$") {
-            $content = $content -replace "APPLICATION_ASSISTANT_LLM_MODEL=\s*$", "APPLICATION_ASSISTANT_LLM_MODEL=$Model"
-        }
         if ($content -notmatch "CHRONOS_MAPPING_ENABLED=") {
-            $content += "`n# Application Assistant - local Ollama + field mapping`nCHRONOS_MAPPING_ENABLED=true`nCHRONOS_MAPPING_MODEL=$Model`nCHRONOS_MAPPING_CONFIDENCE=0.90`nCHRONOS_REVIEW_CONFIDENCE=0.70`n"
+            $content += "`n# Application Assistant - field mapping`nCHRONOS_MAPPING_ENABLED=true`nCHRONOS_MAPPING_CONFIDENCE=0.90`nCHRONOS_REVIEW_CONFIDENCE=0.70`n"
         }
         Set-Content -Path $envPath -Value $content.TrimEnd() -Encoding UTF8
-        Write-Ok "Updated root .env with Ollama defaults"
+        Write-Ok "Updated root .env defaults"
     }
 }
 
@@ -167,63 +162,6 @@ function Ensure-PythonVenv {
     Write-Ok "Playwright Chromium ready"
 }
 
-function Test-OllamaRunning {
-    try {
-        $response = Invoke-WebRequest -Uri "http://127.0.0.1:11434/api/tags" -UseBasicParsing -TimeoutSec 4
-        return $response.StatusCode -eq 200
-    } catch {
-        return $false
-    }
-}
-
-function Ensure-Ollama {
-    if ($SkipOllama) {
-        Write-Warn "Skipping Ollama setup (-SkipOllama)"
-        return
-    }
-
-    Write-Step "Ollama"
-    if (-not (Test-Command ollama)) {
-        Write-Host "  Ollama not found - installing via winget..."
-        if (-not (Test-Command winget)) {
-            throw "Install Ollama manually from https://ollama.com/download/windows then rerun setup"
-        }
-        winget install --id Ollama.Ollama -e --accept-source-agreements --accept-package-agreements
-        $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "User")
-        if (-not (Test-Command ollama)) {
-            throw "Ollama installed but not on PATH. Open a new terminal or reboot, then rerun setup"
-        }
-        Write-Ok "Ollama installed"
-    } else {
-        Write-Ok ("ollama " + (ollama --version 2>$null))
-    }
-
-    if (-not (Test-OllamaRunning)) {
-        Write-Host "  Starting Ollama service..."
-        Start-Process -FilePath "ollama" -ArgumentList "serve" -WindowStyle Hidden -ErrorAction SilentlyContinue | Out-Null
-        $deadline = (Get-Date).AddSeconds(30)
-        while ((Get-Date) -lt $deadline) {
-            if (Test-OllamaRunning) { break }
-            Start-Sleep -Seconds 2
-        }
-    }
-
-    if (-not (Test-OllamaRunning)) {
-        Write-Warn "Ollama is not responding on http://localhost:11434 - open the Ollama app, then run: ollama pull $Model"
-        return
-    }
-    Write-Ok "Ollama API reachable"
-
-    if ($SkipModels) {
-        Write-Warn "Skipping model pull (-SkipModels)"
-        return
-    }
-
-    Write-Step ("Pulling model '$Model' (this may take several minutes)")
-    ollama pull $Model
-    Write-Ok ("Model ready: " + $Model)
-}
-
 Write-Host ""
 Write-Host "CareerOS first-time setup" -ForegroundColor Green
 Write-Host ("Repo: " + $RepoRoot)
@@ -245,7 +183,6 @@ pnpm install
 Write-Ok "pnpm install complete"
 
 Ensure-PythonVenv
-Ensure-Ollama
 
 if (-not $SkipExtension) {
     Write-Step "Building Chrome extension"
@@ -271,6 +208,4 @@ Write-Host "     or foreground:       pnpm dev"
 Write-Host "  2. Open dashboard:     http://localhost:3000/application-assistant"
 Write-Host "  3. API docs:           http://localhost:8000/docs"
 Write-Host "  4. Load extension:     chrome://extensions -> Load unpacked -> apps/extension/dist"
-Write-Host ""
-Write-Host ("LLM: http://localhost:11434/v1  model: " + $Model)
 Write-Host ""

@@ -45,10 +45,6 @@ _TEST_ENV = {
     # it at a file that does not exist: a test that needs a baseline uses the
     # synthetic one in tests/resume_baseline_fixture.py, which sets its own path.
     "CAREEROS_APPROVED_RESUME_PATH": str(_TEST_STATE_DIR / "no-approved-resume.pdf"),
-    # No test may reach a local model. With the developer's Ollama configured,
-    # scraper-import tests made a real qwen call and then hung on a SQLite lock;
-    # a test that wants model behaviour fakes it, as with Gemini above.
-    "CAREEROS_LOCAL_LLM": "off",
 }
 _PREVIOUS_ENV = {key: os.environ.get(key) for key in _TEST_ENV}
 os.environ.update(_TEST_ENV)

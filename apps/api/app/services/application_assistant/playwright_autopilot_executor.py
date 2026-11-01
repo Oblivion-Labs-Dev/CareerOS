@@ -21,7 +21,7 @@ from app.services.application_assistant.ats_plugin_reference import (
     pick_best_matching_option,
 )
 from app.services.application_assistant.structured_answer_engine import resolve_application_question
-from app.services.application_assistant.qwen_form_reviewer import review_and_heal_form_state
+from app.services.application_assistant.form_reviewer import review_and_heal_form_state
 from app.services.application_assistant.question_classifier import (
     QuestionType,
     classify_question,
@@ -922,17 +922,6 @@ def _is_token_answer_in_prose_box(
     return False
 
 
-async def _load_settings_for_generation() -> dict[str, Any]:
-    """Settings for the answer generator, read off the main thread."""
-    try:
-        from app.services.application_assistant.persistence import get_settings
-
-        with session_scope() as db:
-            return get_settings(db)
-    except Exception:
-        return {}
-
-
 def _keyboard(page: Any) -> Any:
     """Return a real Keyboard for either a Page or a Frame.
 
@@ -1739,9 +1728,6 @@ FIELD_ACTION_TIMEOUT_SEC = float(os.environ.get("AUTOPILOT_FIELD_ACTION_TIMEOUT_
 # Wall-clock budget for one self-healing round. Past it, the remaining fields
 # are left for review, named in the log, instead of spending the job's budget.
 HEAL_ROUND_BUDGET_SEC = float(os.environ.get("AUTOPILOT_HEAL_ROUND_BUDGET_SEC", "90"))
-
-# Off by the owner's rule (2026-10-07): applications carry approved answers only.
-AI_WRITTEN_ESSAYS_ENABLED = os.environ.get("AUTOPILOT_AI_ESSAYS", "").lower() in ("1", "true", "yes")
 
 # How many times and how often the open check polls per attempt, and how long
 # the third attempt waits for a control that is still mounting (see the retry
@@ -4324,7 +4310,7 @@ async def _execute_live_playwright_submission_impl(
             )
 
             if review_res.get("readyToSubmit") and not validation_errors:
-                logger.info("Form Review: 100% APPROVED [OK]")
+                logger.info("Pre-submission check: 100% APPROVED [OK]")
                 if log_callback:
                     log_callback(f"Form Review: 100% APPROVED [OK] (Round {round_num})")
                 qwen_approved = True
@@ -4332,7 +4318,7 @@ async def _execute_live_playwright_submission_impl(
 
             # Self-Healing Action: Repair missing or invalid fields
             missing_fields = review_res.get("missingOrInvalidFields", [])
-            logger.warning("Qwen Review detected %d items requiring self-healing in round %d", len(missing_fields), round_num)
+            logger.warning("Pre-submission check found %d field(s) to re-answer from approved answers in round %d", len(missing_fields), round_num)
             if log_callback:
                 log_callback(f"Auto-healing {len(missing_fields)} field(s) (Round {round_num})...", lvl="warning")
 
@@ -4428,38 +4414,10 @@ async def _execute_live_playwright_submission_impl(
                     fix_val = ""
 
                 # Open-ended questions ("Why do you want to work at X?") are
-                # not AI-written: the owner's rule is approved answers only.
-                # An optional essay stays blank; a required one leaves a
-                # required field empty, which stages the application.
-                if (
-                    AI_WRITTEN_ESSAYS_ENABLED
-                    and not fix_val
-                    and _is_open_ended_question(dom_fields_by_id.get(f_id or ""), f_label)
-                ):
-                    try:
-                        from app.services.application_assistant.llm_answer_generator import (
-                            generate_theory_answer,
-                        )
-
-                        generated = await generate_theory_answer(
-                            f_label,
-                            company=company,
-                            role=title,
-                            profile=profile,
-                            settings=await _load_settings_for_generation(),
-                        )
-                        if generated.get("success") and generated.get("answer"):
-                            fix_val = str(generated["answer"]).strip()
-                            logger.info(
-                                "Generated an answer for the open question %r (%d chars)",
-                                f_label[:60], len(fix_val),
-                            )
-                            if log_callback:
-                                log_callback(
-                                    f"Wrote an answer for \"{f_label[:58]}\" from your own experience.",
-                                )
-                    except Exception:
-                        logger.exception("Could not generate an answer for %r", f_label[:60])
+                # never written by a model: the owner's rule is approved
+                # answers only, filled by deterministic code. An optional
+                # essay stays blank; a required one leaves a required field
+                # empty, which stages the application.
                 if f_id:
                     elem = await _locate_field(target_frame, f_id)
                     if await elem.count() > 0:
@@ -5281,7 +5239,7 @@ async def _execute_live_playwright_submission_impl(
         except Exception:
             pass
 
-        from app.services.application_assistant.qwen_form_reviewer import verify_submission_confirmation
+        from app.services.application_assistant.form_reviewer import verify_submission_confirmation
 
         qwen_confirmation = await verify_submission_confirmation(
             body_text=body_text,

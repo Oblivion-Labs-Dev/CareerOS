@@ -21,7 +21,7 @@ from app.services.application_assistant.persistence import (
     get_autopilot_job,
     save_autopilot_job,
 )
-from app.services.application_assistant.qwen_form_reviewer import verify_submission_confirmation
+from app.services.application_assistant.form_reviewer import verify_submission_confirmation
 from app.services.application_assistant.submission_guard import live_submission_refusal
 from app.services.application_assistant.submission_outcome import (
     post_click_rejection_is_conclusive,

@@ -90,8 +90,6 @@ from app.routers.intelligence import router as intelligence_router
 from app.routers.job_import import router as job_import_router
 from app.routers.job_search import router as job_search_router
 from app.routers.networking import router as networking_router
-from app.routers.repair_demo import router as repair_demo_router
-from app.routers.repair_manual import router as repair_manual_router
 from app.routers.resume_intelligence import router as resume_intelligence_router
 from app.routers.gemini import router as gemini_router
 from app.routers.diagnostic import router as diagnostic_router
@@ -395,7 +393,6 @@ async def lifespan(_app: FastAPI):
     init_db()
     seed_error_fix_history_if_empty()
     reconcile_error_history_on_startup()
-    _ensure_ollama_started_background()
     # Nothing is left mid-application across a restart. Autopilot never starts
     # a batch on its own - every run comes from an explicit request - so a job
     # stranded in APPLYING by a killed process would otherwise sit there until
@@ -472,8 +469,6 @@ app.include_router(auth_router)
 app.include_router(router)
 app.include_router(job_import_router)
 app.include_router(intelligence_router)
-app.include_router(repair_demo_router)
-app.include_router(repair_manual_router)
 app.include_router(application_assistant_router)
 app.include_router(resume_intelligence_router)
 app.include_router(job_search_router)
@@ -508,61 +503,3 @@ def favicon() -> Response:
     if icon_path.is_file():
         return FileResponse(icon_path, media_type="image/svg+xml")
     return Response(status_code=204)
-
-
-def _ensure_ollama_started_background() -> None:
-    """Check if Ollama is running and start it in background if not already alive."""
-    from app.services.application_assistant.llm_client import LOCAL_LLM_ENABLED
-
-    # With the local model switched off nothing may call it, so there is no
-    # reason to have its server running and holding memory either.
-    if not LOCAL_LLM_ENABLED:
-        logger.info("CAREEROS_LOCAL_LLM=off: not starting Ollama.")
-        return
-    import shutil
-    import subprocess
-    import urllib.request
-
-    base = settings.careeros_ollama_health_url.rstrip("/")
-    try:
-        req = urllib.request.Request(f"{base}/api/tags", headers={"User-Agent": "CareerOS"})
-        with urllib.request.urlopen(req, timeout=1.5) as resp:
-            if resp.status == 200:
-                logger.info("Ollama is already running and reachable at %s", base)
-                return
-    except Exception:
-        pass
-
-    # Only the machine actually hosting Ollama should try to start it. When this
-    # is pointed at another host - a container reaching the host through
-    # host.docker.internal - there is no local binary to launch and no business
-    # launching one, so report and stop.
-    if "127.0.0.1" not in base and "localhost" not in base:
-        logger.info("Ollama is configured at %s and is not reachable; not starting a local instance.", base)
-        return
-
-    ollama_path = shutil.which("ollama")
-    if not ollama_path:
-        candidate = Path(os.environ.get("LOCALAPPDATA", "")) / "Programs" / "Ollama" / "ollama.exe"
-        if candidate.is_file():
-            ollama_path = str(candidate)
-
-    if ollama_path:
-        try:
-            flags = 0
-            if sys.platform == "win32":
-                flags = subprocess.CREATE_NO_WINDOW | getattr(subprocess, "DETACHED_PROCESS", 0x00000008)
-            subprocess.Popen(
-                [ollama_path, "serve"],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                creationflags=flags,
-                close_fds=True,
-            )
-            logger.info("Automatically launched Ollama serve (%s) in background.", ollama_path)
-        except Exception as ex:
-            logger.warning("Attempted to start Ollama in background but encountered: %s", ex)
-    else:
-        logger.info("Ollama executable not detected on PATH or default location.")
-
-

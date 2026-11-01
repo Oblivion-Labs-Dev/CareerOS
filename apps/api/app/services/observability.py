@@ -24,7 +24,6 @@ import threading
 import time
 import traceback
 from typing import Any, Callable, Generator
-import urllib.request
 import uuid
 
 logger = logging.getLogger("careeros.observability")
@@ -632,16 +631,8 @@ class AlarmManager:
         active_alarms = []
         now = now_iso()
 
-        # Define 12 operational alarms
+        # Operational alarms
         checks = [
-            (
-                "alarm_ollama_qwen_down",
-                "Ollama / Qwen local model unavailable",
-                "critical",
-                "ollama",
-                "Local inference endpoint is unreachable or returning connection refused",
-                self._check_ollama_down,
-            ),
             (
                 "alarm_repeated_app_failures",
                 "Repeated application failures (last 5 runs)",
@@ -662,7 +653,7 @@ class AlarmManager:
                 "alarm_resume_tailoring_failure_spike",
                 "Resume tailoring failure rate above threshold",
                 "error",
-                "qwen",
+                "resume_tailor",
                 "More than 3 consecutive resume rewrites failed or produced zero changes",
                 self._check_resume_tailoring_failure_spike,
             ),
@@ -774,20 +765,6 @@ class AlarmManager:
         return active_alarms
 
     # ── Check Implementations ──────────────────────────────────────────────────
-
-    def _check_ollama_down(self) -> tuple[bool, str]:
-        # Fast health check to Ollama tags
-        from app.config import settings
-
-        base = settings.careeros_ollama_health_url.rstrip("/")
-        try:
-            req = urllib.request.Request(f"{base}/api/tags", headers={"User-Agent": "CareerOS-Health"})
-            with urllib.request.urlopen(req, timeout=1.0) as resp:
-                if resp.status == 200:
-                    return False, "Ollama is responding"
-        except Exception:
-            return True, f"Ollama service at {base} is unreachable or timed out."
-        return False, "OK"
 
     def _check_repeated_failures(self) -> tuple[bool, str]:
         recent_errs = [e for e in error_store.errors[-10:] if e.severity in ("error", "critical")]

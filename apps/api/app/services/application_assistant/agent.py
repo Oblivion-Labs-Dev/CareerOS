@@ -826,7 +826,7 @@ def _rule_based_prep_failure_summary(bundle: dict[str, Any], prep_result: dict[s
     if "timeout" in combined:
         return (
             "Prep timed out while Playwright or the LLM was still working. "
-            "Keep Ollama/LLM running, then click Start preparation again. "
+            "Click Start preparation again. "
             "Large forms can take several minutes."
         )
     if prep_error:

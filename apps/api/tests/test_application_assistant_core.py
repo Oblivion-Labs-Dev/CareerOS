@@ -244,17 +244,14 @@ class TestQwenJobMatch:
     def test_qwen_score_used_when_llm_available(self, monkeypatch):
         import asyncio
 
-        from app.services.application_assistant import llm_client
         from app.services.application_assistant.llm_client import LLMClient
 
-        # The suite runs with the local model off; this test is about the
-        # model being available, so it says so. FakeClient never calls out.
-        monkeypatch.setattr(llm_client, "LOCAL_LLM_ENABLED", True)
+        # A hosted model being available. FakeClient never calls out.
         from app.services.application_assistant.qwen_job_match import score_job_fit_with_qwen
 
         class FakeClient(LLMClient):
             def __init__(self):
-                super().__init__(base_url="http://localhost:11434/v1", model="qwen3:8b")
+                super().__init__(base_url="https://generativelanguage.googleapis.com/v1beta/openai", model="gemini-flash-lite-latest")
 
             async def complete(self, prompt, *, system="", response_schema=None):
                 return {
@@ -297,7 +294,7 @@ class TestQwenJobMatch:
 
         class FailingClient(LLMClient):
             def __init__(self):
-                super().__init__(base_url="http://localhost:11434/v1", model="qwen3:8b")
+                super().__init__(base_url="https://generativelanguage.googleapis.com/v1beta/openai", model="gemini-flash-lite-latest")
 
             async def complete(self, prompt, *, system="", response_schema=None):
                 return {"success": False, "error": "offline"}

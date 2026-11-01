@@ -27,7 +27,6 @@ Phase 1 focuses on profile sync, resume storage, job extraction, autofill detect
 - Node.js 20+
 - pnpm 9+ (setup enables via Corepack)
 - Python 3.11+
-- [Ollama](https://ollama.com/) with **qwen3:8b** (setup installs and pulls this)
 
 ## First-time setup
 
@@ -54,11 +53,10 @@ The setup script will:
 2. Create `.env`, `apps/api/.env`, and `apps/web/.env.local`
 3. Run `pnpm install`
 4. Create `apps/api/.venv`, install Python deps, and install Playwright Chromium
-5. Install Ollama (if missing), start it, and pull **qwen3:8b**
-6. Build the Chrome extension
-7. Run API smoke tests
+5. Build the Chrome extension
+6. Run API smoke tests
 
-Options (PowerShell): `.\scripts\setup.ps1 -SkipOllama`, `-SkipModels`, `-SkipExtension`, `-SkipTests`, `-Model qwen2.5:7b`
+Options (PowerShell): `.\scripts\setup.ps1 -SkipExtension`, `-SkipTests`
 
 Then start dev servers:
 

@@ -7,18 +7,15 @@ Live Runs with step timeline drilldown, Searchable & Filterable Errors, and Syst
 from __future__ import annotations
 
 from datetime import datetime, timezone, timedelta
-import json
 import os
 from pathlib import Path
 import time
 from typing import Any
-import urllib.request
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from app.config import settings
 from app.db.store import session_scope, list_entities
 from app.services.application_assistant.persistence import cached_autopilot_jobs
 from app.services.observability import (
@@ -136,77 +133,20 @@ def get_system_health(db: Session = Depends(db_session)) -> dict[str, Any]:
             "updatedAt": now,
         }
 
-    # 5. Ollama
-    ollama_ok = False
-    ollama_lat = 0.0
-    ollama_base = settings.careeros_ollama_health_url.rstrip("/")
-    try:
-        t0 = time.time()
-        req = urllib.request.Request(f"{ollama_base}/api/tags", headers={"User-Agent": "CareerOS-Health"})
-        with urllib.request.urlopen(req, timeout=1.2) as resp:
-            if resp.status == 200:
-                ollama_ok = True
-                ollama_lat = round((time.time() - t0) * 1000, 2)
-    except Exception:
-        ollama_ok = False
-
-    services["ollama"] = {
-        "id": "ollama",
-        "name": "Ollama Service",
-        "category": "inference",
-        "status": "Healthy" if ollama_ok else "Down",
-        "details": f"Ollama inference runtime available at {ollama_base}" if ollama_ok else f"Ollama unreachable on {ollama_base}",
-        "latencyMs": ollama_lat,
-        "updatedAt": now,
-    }
-
-    # 6. Qwen Model
-    qwen_loaded = False
-    if _simulation_state.get("model_endpoint_invalid"):
-        services["qwen"] = {
-            "id": "qwen",
-            "name": "Qwen Model (qwen3:4b-instruct)",
-            "category": "inference",
-            "status": "Down",
-            "details": "Simulated failure: model endpoint unreachable / ConnectionRefused",
-            "latencyMs": 0.0,
-            "updatedAt": now,
-        }
-    else:
-        if ollama_ok:
-            try:
-                req = urllib.request.Request(f"{ollama_base}/api/tags", headers={"User-Agent": "CareerOS-Health"})
-                with urllib.request.urlopen(req, timeout=1.0) as resp:
-                    data = json.loads(resp.read().decode())
-                    models = [m.get("name", "").lower() for m in data.get("models", [])]
-                    qwen_loaded = any("qwen" in m for m in models)
-            except Exception:
-                pass
-
-        services["qwen"] = {
-            "id": "qwen",
-            "name": "Qwen Model (qwen3:4b-instruct)",
-            "category": "inference",
-            "status": "Healthy" if qwen_loaded else ("Degraded" if ollama_ok else "Down"),
-            "details": "Qwen 4B local model pulled and ready for tailoring/form review" if qwen_loaded else "Qwen model not detected in Ollama tags",
-            "latencyMs": ollama_lat,
-            "updatedAt": now,
-        }
-
-    # 7. Gemini / Cloud Fallback
+    # 5. Gemini (the only model provider)
     from app.services.gemini.telemetry import telemetry as gemini_telem
     gemini_key = os.environ.get("GEMINI_API_KEY", "")
     services["gemini_fallback"] = {
         "id": "gemini_fallback",
         "name": "Gemini Cloud Fallback",
         "category": "inference",
-        "status": "Healthy" if gemini_key else "Degraded",
-        "details": f"Cloud fallback configured (successes: {gemini_telem.successes}, fallbacks: {gemini_telem.fallbacks})" if gemini_key else "GEMINI_API_KEY not set; cloud fallback disabled",
+        "status": "Down" if _simulation_state.get("model_endpoint_invalid") else ("Healthy" if gemini_key else "Degraded"),
+        "details": "Simulated failure: model endpoint unreachable" if _simulation_state.get("model_endpoint_invalid") else f"Cloud fallback configured (successes: {gemini_telem.successes}, fallbacks: {gemini_telem.fallbacks})" if gemini_key else "GEMINI_API_KEY not set; cloud fallback disabled",
         "latencyMs": 0,
         "updatedAt": now,
     }
 
-    # 8. LangSmith
+    # 6. LangSmith
     langsmith_key = os.environ.get("LANGSMITH_API_KEY") or os.environ.get("LANGCHAIN_API_KEY")
     agent_traces = agent_tracker.get_recent_agent_traces(5)
     services["langsmith"] = {
@@ -219,7 +159,7 @@ def get_system_health(db: Session = Depends(db_session)) -> dict[str, Any]:
         "updatedAt": now,
     }
 
-    # 9. OpenTelemetry Collector
+    # 7. OpenTelemetry Collector
     otel_spans = tracer.get_recent_spans(5)
     services["opentelemetry"] = {
         "id": "opentelemetry",
@@ -231,7 +171,7 @@ def get_system_health(db: Session = Depends(db_session)) -> dict[str, Any]:
         "updatedAt": now,
     }
 
-    # 10. Queue
+    # 8. Queue
     from app.services.application_assistant.autopilot_runner import AutopilotRunner
     runner = AutopilotRunner.get_instance()
     ap_status = runner.get_status(db)
@@ -431,8 +371,8 @@ def get_live_runs(
             "currentJob": current_job_info or "Completed batch",
             "workflowStep": "VERIFYING_SUBMISSION" if is_active else "COMPLETED",
             "durationSec": round(duration_sec, 1),
-            "provider": (r.get("settings") or {}).get("aiModel") or "qwen3:4b-instruct",
-            "model": "qwen3:4b-instruct",
+            "provider": (r.get("settings") or {}).get("aiModel") or "",
+            "model": (r.get("settings") or {}).get("aiModel") or "",
             "retries": 0,
             "startedAt": start_str,
             "completedAt": end_str,
@@ -560,11 +500,11 @@ def simulate_system_failure(failure_type: str = Query(default="model_endpoint"))
 
     err = error_store.record_error(
         error=f"Simulated failure: invalid model endpoint configured for {failure_type}",
-        service="qwen" if failure_type == "model_endpoint" else "autopilot",
+        service="gemini_fallback" if failure_type == "model_endpoint" else "autopilot",
         severity="error",
         stage="TAILOR",
         status="open",
-        model_response_error="ConnectionRefusedError: Failed to reach Ollama model endpoint at http://127.0.0.1:11434/invalid",
+        model_response_error="ConnectionRefusedError: simulated unreachable model endpoint",
         logs=["Operator triggered simulated failure check via Diagnostic suite."],
     )
 

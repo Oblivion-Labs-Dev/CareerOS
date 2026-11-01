@@ -70,8 +70,8 @@ class MatchPayload(BaseModel):
     includeRecommendations: bool = True
 
 
-@router.get("/qwen/status")
-async def qwen_status(db: Session = Depends(db_session)) -> dict[str, Any]:
+@router.get("/llm/status")
+async def llm_status(db: Session = Depends(db_session)) -> dict[str, Any]:
     settings = get_settings(db)
     client = create_llm_client(settings)
     test = await client.test_connection() if client.enabled else {"success": False, "error": "LLM disabled"}

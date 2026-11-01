@@ -1,6 +1,5 @@
 import json
 import logging
-import os
 from collections.abc import Generator
 from pathlib import Path
 from typing import Any
@@ -1749,47 +1748,18 @@ async def answer_question_route(
     return {"success": True, "accomplishment": saved}
 
 
-@router.get("/benchmarks")
-async def get_benchmarks_route() -> dict[str, Any]:
-    """Retrieve saved LLM benchmark results."""
-    bench_file = Path(__file__).resolve().parent.parent.parent / "data" / "benchmark_results.json"
-    if bench_file.exists():
-        try:
-            return json.loads(bench_file.read_text(encoding="utf-8"))
-        except Exception:
-            pass
-    return {"leaderboard": [], "recommendation": {}, "totalTestCases": 0}
-
-
-@router.post("/benchmarks/run")
-async def run_benchmarks_route() -> dict[str, Any]:
-    """Execute full sequential benchmark comparing Ollama local models and Gemini API."""
-    from app.services.application_assistant import llm_client
-    from app.services.application_assistant.benchmark_suite import run_full_sequential_benchmark
-
-    if not llm_client.LOCAL_LLM_ENABLED:
-        raise HTTPException(status_code=409, detail="Local LLMs are switched off (CAREEROS_LOCAL_LLM=off).")
-    gemini_key = os.environ.get("GEMINI_API_KEY", settings.gemini_api_key)
-    results = await run_full_sequential_benchmark(
-        gemini_api_key=gemini_key,
-        output_path="data/benchmark_results.json",
-    )
-    return results
-
-
 class TestResolveRequest(BaseModel):
     question: str
     options: list[str] = Field(default_factory=list)
     fieldId: str = "test_field"
     profile: dict[str, Any] = Field(default_factory=dict)
-    model: str = "qwen2.5:3b"
 
 
 @router.post("/benchmarks/test-resolve")
 async def test_resolve_field_route(payload: TestResolveRequest) -> dict[str, Any]:
     """Test resolution of a specific question variation with rule resolver and model resolution."""
     import time
-    from app.services.application_assistant.benchmark_dataset import BENCHMARK_PROFILE, BENCHMARK_RESUME_TEXT
+    from app.services.application_assistant.benchmark_dataset import BENCHMARK_PROFILE
     # The resolver is `resolve_answer`; this route still imported a name it had
     # before a rename, so every call returned 500 rather than a resolution.
     from app.services.application_assistant.profile_answer_resolver import resolve_answer
@@ -1889,17 +1859,6 @@ def update_portfolio_settings_route(payload: PortfolioSettingsPayload, db: Sessi
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     return {"success": True, "settings": updated}
-
-
-@router.get("/settings/job-boards")
-def list_job_boards() -> dict[str, Any]:
-    return {
-        "success": True,
-        "boards": [
-            {"id": "indeed", "name": "Indeed", "connected": False},
-            {"id": "naukri", "name": "Naukri", "connected": False},
-        ],
-    }
 
 
 @router.get("/public/portfolio/{slug}")

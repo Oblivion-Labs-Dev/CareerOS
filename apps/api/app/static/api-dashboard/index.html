@@ -97,31 +97,6 @@
         <div class="chart-wrap sm"><canvas id="chart-errors"></canvas></div>
       </article>
 
-      <section class="error-fix-panel repair-manual-panel" id="repair-manual-panel" aria-label="Manual log repair" hidden>
-        <div class="live-head">
-          <h2>Process Logs &amp; Errors</h2>
-          <span class="live-pill" id="repair-run-state">Idle</span>
-        </div>
-        <p class="repair-manual-copy">
-          Manual developer workflow only. Scans persisted local logs and error history from disk — not just the current browser session.
-          Nothing is pushed, merged, reviewed, or deployed automatically.
-        </p>
-        <p class="repair-inventory" id="repair-log-inventory">Loading persisted log inventory…</p>
-        <div class="repair-manual-actions">
-          <button type="button" class="btn btn-investigate" id="process-logs-btn">Process Logs &amp; Errors</button>
-          <button type="button" class="btn" id="trigger-demo-error-btn">Trigger demo backend error</button>
-        </div>
-        <div class="repair-run-grid" id="repair-run-summary">
-          <article class="metric-card"><p class="label">Logs scanned</p><p class="value" id="repair-logs-scanned">—</p></article>
-          <article class="metric-card error"><p class="label">Errors found</p><p class="value" id="repair-errors-found">—</p></article>
-          <article class="metric-card"><p class="label">Duplicate groups</p><p class="value" id="repair-dup-groups">—</p></article>
-          <article class="metric-card fix"><p class="label">Agent status</p><p class="value" id="repair-agent-status">—</p></article>
-        </div>
-        <div class="repair-run-details" id="repair-run-details">
-          <div class="empty">No manual repair run yet.</div>
-        </div>
-      </section>
-
       <section class="error-fix-panel" aria-label="Errors and fixes">
         <div class="live-head">
           <h2>Errors &amp; fixes</h2>

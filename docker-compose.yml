@@ -3,7 +3,7 @@
 #   docker compose up
 #
 # Runs the dashboard on :5000 and the API — with Playwright and Chromium inside
-# it — on :4000. Ollama stays on the host. The database stays where it is.
+# it — on :4000. The database stays where it is.
 #
 # ── About the database ────────────────────────────────────────────────────────
 # CareerOS does not use MySQL. `apps/api/.env` sets
@@ -47,17 +47,6 @@ services:
       # Relative to the API working directory, exactly as the local workflow
       # resolves it, so the same file is opened either way.
       CAREER_OS_DATABASE_URL: ${CAREER_OS_DATABASE_URL:-sqlite:///./data/career_os.db}
-
-      # ── Host Ollama ───────────────────────────────────────────────────────
-      # host.docker.internal resolves to the host from inside the container; the
-      # extra_hosts entry below makes that work on Linux too. Overridable, and
-      # the application code keeps its localhost defaults so nothing
-      # Docker-specific is baked into business logic.
-      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434/v1}
-      APPLICATION_ASSISTANT_LLM_BASE_URL: ${APPLICATION_ASSISTANT_LLM_BASE_URL:-http://host.docker.internal:11434/v1}
-      # Read by the health probes in main.py, diagnostic.py and observability.py,
-      # which would otherwise report the container's own empty localhost.
-      CAREEROS_OLLAMA_HEALTH_URL: ${CAREEROS_OLLAMA_HEALTH_URL:-http://host.docker.internal:11434}
 
       # ── Browser ───────────────────────────────────────────────────────────
       # Headless is already the default in autopilot_runner.py; stated here

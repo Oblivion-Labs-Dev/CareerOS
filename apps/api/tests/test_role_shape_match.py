@@ -107,10 +107,30 @@ def test_a_posting_without_text_is_scored_on_its_title_not_zeroed(ctx):
     described = rs.match_for(JOBS[0], ctx)
     bare = rs.match_for({"id": "bare", "title": "Senior Backend Engineer", "company": "X"}, ctx)
 
-    # Family and seniority both match exactly, renormalised over those two signals.
-    assert bare["matchScore"] == 100.0
+    # Family and seniority both match exactly; coverage and BM25 cannot be
+    # measured without text, so they take the no-information prior.
+    assert bare["matchScore"] == 77.5
+    assert bare["matchScore"] > 0
     assert "title alone" in bare["matchReason"]
     assert described["matchReason"].count("coverage") == 1
+
+
+def test_a_title_alone_never_reaches_the_top_band(ctx):
+    """A perfect title is not evidence the requirements are met (4b).
+
+    Renormalising over family + seniority put every well-titled bare posting at
+    100, above described postings the resume demonstrably covers.
+    """
+    titles = ["Senior Backend Engineer", "Backend Engineer", "Staff Backend Engineer",
+              "Senior Software Engineer", "Lead Platform Engineer"]
+    for title in titles:
+        bare = rs.match_for({"id": title, "title": title, "company": "X"}, ctx)
+        assert bare["matchScore"] < 80.0, (title, bare["matchScore"])
+    # The title signals still order title-only postings: a matching title beats
+    # a different role family.
+    good = rs.match_for({"id": "g", "title": "Senior Backend Engineer", "company": "X"}, ctx)
+    off = rs.match_for({"id": "o", "title": "Senior Graphic Designer", "company": "X"}, ctx)
+    assert good["matchScore"] > off["matchScore"]
 
 
 def test_scores_are_identical_across_processes():
@@ -188,7 +208,6 @@ def test_a_scoring_failure_leaves_jobs_unscored_instead_of_raising(monkeypatch):
 def llm_off(monkeypatch):
     from app.services.application_assistant import queue_preprocessor
 
-    monkeypatch.setattr(queue_preprocessor, "LOCAL_LLM_ENABLED", False)
     monkeypatch.setattr("app.services.story_index.load_corpus", lambda path=None: CORPUS)
     monkeypatch.setattr(rs, "queue_scorer", rs.QueueScorer())
     return queue_preprocessor
@@ -233,15 +252,42 @@ def test_waiting_jobs_without_a_real_score_get_a_role_shape_one(llm_off):
     rows = _rows({"apjob_rs_unscored", "apjob_rs_nomethod", "apjob_rs_heuristic",
                   "apjob_rs_model", "apjob_rs_review"})
 
-    for job_id in ("apjob_rs_unscored", "apjob_rs_nomethod", "apjob_rs_heuristic"):
+    # The removed local model's scores are no longer trusted: they are
+    # re-scored like any other non-role-shape row.
+    for job_id in ("apjob_rs_unscored", "apjob_rs_nomethod", "apjob_rs_heuristic", "apjob_rs_model"):
         assert rows[job_id]["matchMethod"] == "role-shape", job_id
         assert rows[job_id]["matchScore"] > 0
-    assert rows["apjob_rs_model"]["matchMethod"] == "ollama-local"
-    assert rows["apjob_rs_model"]["matchScore"] == 42.0
+        assert rows[job_id]["matchScoredAt"], job_id
+        assert rows[job_id]["matchResumeKey"], job_id
     # Only waiting jobs are rescored; a job already past the queue keeps its score.
     assert rows["apjob_rs_review"]["matchMethod"] == "unscored"
 
 
-def test_the_rescore_leaves_the_queue_alone_while_the_model_is_on(llm_off, monkeypatch):
-    monkeypatch.setattr(llm_off, "LOCAL_LLM_ENABLED", True)
-    assert llm_off.QueuePreprocessor.get_instance()._role_shape_rescore_queue() == 0
+def test_a_role_shape_row_scored_against_another_resume_is_rescored(llm_off):
+    """A resume change must reach rows already queued, not only new postings."""
+    from app.db.store import session_scope
+    from app.services.application_assistant.persistence import upsert_discovered_job
+
+    with session_scope() as db:
+        upsert_discovered_job(db, {"id": "rs_disc_stale", "title": "Senior Backend Engineer",
+                                   "company": "Stalco", "description": BACKEND_JD,
+                                   "applicationUrl": "https://stalco.example/jobs/1"})
+    base = {"company": "Stalco", "title": "Senior Backend Engineer", "jobId": "rs_disc_stale",
+            "applicationUrl": "https://stalco.example/jobs/1", "status": "QUEUED"}
+    _save_rows([
+        {**base, "id": "apjob_rs_stale", "matchMethod": "role-shape", "matchScore": 12.5,
+         "matchResumeKey": "an-older-resume"},
+        {**base, "id": "apjob_rs_nokey", "matchMethod": "role-shape", "matchScore": 12.5},
+    ])
+    preprocessor = llm_off.QueuePreprocessor.get_instance()
+
+    assert preprocessor._role_shape_rescore_queue() >= 2
+    rows = _rows({"apjob_rs_stale", "apjob_rs_nokey"})
+    for job_id, row in rows.items():
+        assert row["matchScore"] != 12.5, job_id
+        assert row["matchResumeKey"] not in ("", "an-older-resume"), job_id
+        assert row["matchScoredAt"], job_id
+
+    # Once every row carries the current resume key there is nothing left to do,
+    # so the loop can idle instead of rewriting the same rows every cycle.
+    assert preprocessor._role_shape_rescore_queue() == 0

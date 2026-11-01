@@ -18,7 +18,8 @@ docker compose logs -f web # follow Next.js logs
 | `web` | http://localhost:5000 | Next.js dev server, hot reload |
 | `api` | http://localhost:4000 | FastAPI **+ Playwright + Chromium** |
 
-Host-side, unchanged: **Ollama** on `:11434`, and the **SQLite database**.
+Host-side, unchanged: the **SQLite database**. There is no local model; the only
+model provider is hosted (Gemini).
 
 ---
 
@@ -74,7 +75,6 @@ Browser → web :5000
             ▼
           api :4000  ──► Playwright + Chromium (same container)
             │
-            ├──► host Ollama   http://host.docker.internal:11434
             └──► SQLite        bind-mounted ./apps/api/data
 ```
 
@@ -165,9 +165,6 @@ the repository-root `.env` to change them.
 |---|---|---|
 | `CAREEROS_DATA_DIR` | `./apps/api/data` | Host directory bind-mounted as the data dir |
 | `CAREER_OS_DATABASE_URL` | `sqlite:///./data/career_os.db` | SQLite path, relative to the API workdir |
-| `OLLAMA_BASE_URL` | `http://host.docker.internal:11434/v1` | Inference endpoint |
-| `APPLICATION_ASSISTANT_LLM_BASE_URL` | same | Inference endpoint |
-| `CAREEROS_OLLAMA_HEALTH_URL` | `http://host.docker.internal:11434` | Liveness probes (no `/v1`) |
 | `CAREEROS_DOCKER_API_URL` | `http://api:4000` | Web → API inside the compose network |
 | `AA_HEADLESS` | `true` | Headless Chromium |
 | `ALLOW_REAL_SUBMISSION_DOCKER` | `false` | See below |
@@ -200,7 +197,6 @@ Everything else in AGENTS.md still applies — live runs also need
 | **Headed / assisted fill** | **yes** | **no — no display, and `channel="chrome"` needs real Chrome** |
 | Hot reload | yes | yes (polling; slightly slower) |
 | SQLite performance | native | slower, locking less reliable over the mount |
-| Ollama | same process host | reached over `host.docker.internal` |
 | First start | seconds | minutes (multi-GB image build) |
 
 The headed limitation is the important one. <br>

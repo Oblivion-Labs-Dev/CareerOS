@@ -63,8 +63,6 @@ def trigger_start_batch(batch_size: int = 10, min_match_score: float = 60.0) -> 
         "concurrency": 1,
         "minMatchScore": min_match_score,
         "tierGuardrails": True,
-        "selfHealing": True,
-        "aiModel": "qwen3:4b-instruct",
     }
     return api_request("/application-assistant/autopilot/start", data=payload, method="POST")
 
@@ -113,7 +111,7 @@ def run_night_mode(total_batches: int = 10, batch_size: int = 10, start_batch_id
     print(f"  Starting at Batch {start_batch_idx} of {total_batches}", flush=True)
     print(f"  Target ATS: Greenhouse, Lever, Ashby", flush=True)
     print(f"  Priority: Senior SWE WA (+100) -> Senior SWE US (+70) -> Staff/Princ (+30-40)", flush=True)
-    print(f"  Model: qwen3:4b-instruct | Min Match Floor: 60%", flush=True)
+    print(f"  Min Match Floor: 60%", flush=True)
     print("=" * 70, flush=True)
 
     cumulative_submitted = 0
@@ -199,11 +197,6 @@ def run_night_mode(total_batches: int = 10, batch_size: int = 10, start_batch_id
                     msg = log.get("message", "")
                     lvl = log.get("level", "info").upper()
                     print(f"    [{lvl}] {msg}", flush=True)
-
-            # Check if self-healing is in progress
-            healing = status.get("selfHealing") or {}
-            if healing.get("status") == "healing":
-                print(f"  [Healing] Self-healing round {healing.get('currentRound')}/{healing.get('maxRounds')} in progress...", flush=True)
 
             # Allow at least 2 ticks (10s) before evaluating completion to bypass any status cache staleness
             if ticks >= 2:

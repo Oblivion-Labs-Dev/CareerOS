@@ -1,10 +1,8 @@
-"""Structured Qwen AI Answer Engine with 4-level hierarchy, plugin reference rules, and Zero-Guesswork grounding."""
+"""Structured answer engine: deterministic profile rules, then the saved answer library, then review."""
 
 from __future__ import annotations
 
-import json
 import logging
-import os
 import re
 from typing import Any
 
@@ -15,61 +13,10 @@ from app.services.application_assistant.ats_plugin_reference import (
     extract_canonical_value,
     pick_best_matching_option,
 )
-from app.services.application_assistant.llm_client import call_llm
 from app.services.application_assistant.persistence import list_answer_library
 
 logger = logging.getLogger("careeros.answers")
 
-
-SYSTEM_ANSWERING_PROMPT = """You are the application-answering component inside CareerOS.
-
-Answer the application question using ONLY the candidate information provided.
-
-Never invent:
-- experience
-- skills
-- employment dates
-- accomplishments
-- education
-- certifications
-- legal status
-- demographic information
-- salary history
-- personal preferences
-
-Some questions ask for a specific NUMBER or DATE rather than a description —
-years of experience with a named technology, GPA, exact employment start/end
-dates, specific salary figures, visa sponsorship timelines. A plausible-sounding
-number is still a fabrication if it is not explicitly present in the candidate
-profile or resume text below. If the exact number or date is not there, do not
-estimate, round, or infer one — set "supported": false and "needsUserInput": true
-instead of guessing.
-
-Write naturally and concisely.
-
-Writing style:
-- Write like a real software engineer filling out a job application.
-- Use simple, natural professional English.
-- First person ("I built...", "I worked on...", "My experience includes...").
-- Keep answers to 2 to 4 concise sentences (40 to 90 words).
-- Avoid corporate buzzwords, excessive adjectives, and AI phrasing ("passionate", "spearheaded", "seamlessly", "cutting-edge", "extensive experience").
-- Never use em dashes.
-
-When the candidate information does not clearly support an answer, return `supported: false`.
-
-For factual application questions, prefer deterministic profile information over generated text.
-
-If available options are provided, select the option that best matches the candidate's background.
-
-Return ONLY a JSON object adhering strictly to this schema:
-{
-  "answer": "...",
-  "confidence": 0.95,
-  "supported": true,
-  "source": ["resume.experience"],
-  "reason": "Grounded candidate experience match.",
-  "needsUserInput": false
-}"""
 
 
 SENSITIVE_PROMPT_PATTERNS = [
@@ -125,148 +72,6 @@ def resolve_level_2_answer_library(
     return None, ""
 
 
-#: Whether the local Ollama model may be loaded. The user keeps it off while
-#: they are using the laptop, because a resident 7B model makes the machine
-#: slow; an unattended run may turn it back on. Gemini exists precisely so that
-#: "off" does not mean "no open-ended answers at all".
-LOCAL_LLM_ENABLED = os.environ.get("CAREEROS_LOCAL_LLM", "on").strip().lower() not in ("off", "0", "false")
-
-
-async def resolve_level_3_gemini(
-    question_text: str,
-    options: list[str] | None,
-    profile: dict[str, Any],
-    company: str = "",
-    role: str = "",
-    resume_text: str = "",
-    canonical_key: str = "",
-    job_description: str = "",
-) -> dict[str, Any] | None:
-    """Level 3a: Gemini, for the open-ended questions it is genuinely better at.
-
-    Returns None whenever Gemini is not the right tool or did not deliver - a
-    deterministic field, no key configured, the circuit open, a rate limit, or
-    an answer that failed the grounding check. The caller then carries on to the
-    local model exactly as it did before this existed.
-
-    Nothing here can fabricate: `answer_application_question` refuses every
-    question type that has a right answer in the profile, and re-checks every
-    technology and figure in the reply against the candidate's own documents
-    before returning it.
-    """
-    from app.services.gemini.config import applications_enabled
-
-    if not applications_enabled():
-        # Gemini is switched off for the application path; the local model and
-        # the deterministic resolvers below answer on their own.
-        return None
-    try:
-        from app.services.gemini.enrichment import answer_application_question
-
-        enriched = await answer_application_question(
-            question_text,
-            profile=profile,
-            resume_text=resume_text,
-            company=company,
-            role=role,
-            job_description=job_description,
-            canonical_key=canonical_key,
-            options=options,
-            # Autopilot calls this with a browser sitting on a half-filled form,
-            # so it takes the top of the queue.
-            active_application=True,
-        )
-    except Exception:  # noqa: BLE001 - the optional layer must never break answering
-        logger.warning("Gemini answer enrichment raised; falling back", exc_info=True)
-        return None
-
-    if not enriched.available:
-        logger.info(
-            "Gemini did not answer %r (%s); falling back",
-            question_text[:60], enriched.outcome or "unavailable",
-        )
-        return None
-
-    return {
-        "answer": enriched.answer,
-        "confidence": enriched.confidence,
-        "supported": True,
-        "source": ["gemini.grounded", *enriched.evidence[:3]],
-        "reason": enriched.reason or "Grounded in the candidate's own documents.",
-        "needsUserInput": False,
-        "provider": "gemini",
-    }
-
-
-async def resolve_level_3_llm(
-    question_text: str,
-    options: list[str] | None,
-    profile: dict[str, Any],
-    company: str = "",
-    role: str = "",
-    resume_text: str = "",
-) -> dict[str, Any]:
-    """Level 3: Grounded Agent Answer Generator for open-ended or custom screening questions."""
-    if not LOCAL_LLM_ENABLED:
-        # No local model and no Gemini answer means there is nothing left that
-        # can answer honestly. Staging for review is the correct outcome; making
-        # something up to keep Autopilot moving is not.
-        #
-        # Counted, because "how often does an unavailable Gemini cost us an
-        # application" is the number that decides whether this layer is pulling
-        # its weight or quietly creating manual work.
-        try:
-            from app.services.gemini.telemetry import telemetry
-
-            telemetry.record_review_staging()
-        except Exception:  # noqa: BLE001
-            pass
-        return {
-            "answer": "",
-            "confidence": 0.0,
-            "supported": False,
-            "source": [],
-            "reason": "No answer source available: Gemini did not answer and the local model is switched off",
-            "needsUserInput": True,
-        }
-
-    prompt = f"""Target Company: {company or 'Target Employer'}
-Target Role: {role or 'Software Engineer / Target Role'}
-
-Question: {question_text}
-Available Options: {json.dumps(options or [])}
-
-Candidate Profile:
-{json.dumps(profile, indent=2)}
-
-Candidate Resume Summary:
-{resume_text[:2500]}"""
-
-    try:
-        raw_response = await call_llm(SYSTEM_ANSWERING_PROMPT, prompt)
-        json_match = re.search(r"\{.*\}", raw_response, re.DOTALL)
-        if json_match:
-            parsed = json.loads(json_match.group(0))
-            ans = str(parsed.get("answer") or "").strip()
-            # If options were provided and the model returned an option, verify option match
-            if options and ans and ans not in options:
-                best_opt = pick_best_matching_option(options, ans)
-                if best_opt:
-                    parsed["answer"] = best_opt
-            return parsed
-    except Exception:
-        pass
-
-    return {
-        "answer": "",
-        "confidence": 0.0,
-        "supported": False,
-        "source": [],
-        "reason": "Agent answer generation could not ground answer with high confidence",
-        "needsUserInput": True,
-    }
-
-
 async def resolve_application_question(
     db: Session | list[dict[str, Any]] | None = None,
     question_text: str = "",
@@ -278,7 +83,7 @@ async def resolve_application_question(
     resume_text: str = "",
     job_description: str = "",
 ) -> dict[str, Any]:
-    """Resolve an application question using the 4-level hierarchy with plugin reference and agent answer generation."""
+    """Resolve an application question: safety policy, profile rules, answer library, else review."""
     prof = profile or {}
 
     # Sensitive / legal signature questions require user review
@@ -319,76 +124,15 @@ async def resolve_application_question(
             "level": 2,
         }
 
-    # Level 3a: Gemini, when it is available and the question is one it may
-    # answer. Deterministic fields never reach it - they were already resolved
-    # at level 1, and `answer_application_question` refuses them again anyway.
-    l3 = await resolve_level_3_gemini(
-        question_text=question_text,
-        options=options,
-        profile=prof,
-        company=company,
-        role=role,
-        resume_text=resume_text,
-        canonical_key=canonical_key,
-        job_description=job_description,
-    )
-
-    # Level 3b: the local model, exactly as before. Reached whenever Gemini was
-    # unavailable, declined, or produced something that failed grounding.
-    if l3 is None:
-        l3 = await resolve_level_3_llm(
-            question_text=question_text,
-            options=options,
-            profile=prof,
-            company=company,
-            role=role,
-            resume_text=resume_text,
-        )
-    conf = float(l3.get("confidence", 0.0) or 0.0)
-    ans = str(l3.get("answer") or "").strip()
-
-    if l3.get("supported") and conf >= 0.90 and not l3.get("needsUserInput") and ans:
-        l3["level"] = 3
-        # Auto-Learn: Persist high-confidence answer to Answer Library so future queries are 100% deterministic (<1ms)
-        # SAFEGUARD: Never auto-learn for sensitive factual fields (work auth, demographics, clearance, etc.)
-        _sensitive_autolearn_blocked = False
-        try:
-            from app.services.application_assistant.question_classifier import (
-                classify_question,
-                is_sensitive_factual,
-            )
-            qtype = classify_question(question_text)
-            if is_sensitive_factual(qtype):
-                _sensitive_autolearn_blocked = True
-                logger.info("Auto-learn BLOCKED for sensitive field '%s' (type=%s)", question_text[:50], qtype.value)
-        except Exception:
-            pass
-
-        if not _sensitive_autolearn_blocked:
-            try:
-                from app.db.store import session_scope
-                from app.services.application_assistant.persistence import upsert_answer
-                with session_scope() as sdb:
-                    upsert_answer(sdb, {
-                        "questionVariants": [question_text],
-                        "value": ans,
-                        "canonicalKey": canonical_key or "",
-                        "source": "qwen_auto_learned",
-                        "confidence": conf,
-                        "isApplicationDerived": True,  # Tag for traceability
-                    })
-            except Exception:
-                pass
-
-        return l3
-
-    # Level 4: Stage for user review when confidence is below 90%
+    # Level 3: nothing deterministic answers this question. Autopilot makes no
+    # model calls (owner decision, 2026-11-01), so the honest outcome is to
+    # stage it for the candidate rather than invent an answer.
     return {
-        "answer": ans,
-        "confidence": conf,
+        "answer": "",
+        "confidence": 0.0,
         "supported": False,
-        "source": l3.get("source", []),
-        "reason": l3.get("reason") or f"Confidence ({conf:.2f}) below 0.90 threshold — staged for candidate input",
+        "source": [],
+        "reason": "No profile field or saved answer matches this question; staged for candidate input",
         "needsUserInput": True,
         "level": 4,
     }

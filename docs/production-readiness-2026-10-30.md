@@ -137,7 +137,7 @@ connect): firewall private ranges for the browser on a hosted box.
 
 - **KEEP:** Dashboard, Autopilot (`/applications`: queue, review, submitted), Resume & Profile with the setup wizard, Browse Jobs, Settings, Diagnostic (operator), Answer Bank.
 - **HIDDEN (flag):** Markets, HN Hiring. These were already disabled and unclickable, and are now removed from the core nav: Inbox, Pipeline, All Applications, Review Center, Analytics, Resume Intelligence, AI Answers, Networking, LLM Benchmarks, Dummy Job Test Bed, Integrations.
-- **REMOVE LATER** (still routable by URL, not in nav): the legacy `/application-assistant` dashboard. It duplicates `/applications`, and its `pending-fields/aggregate?use_ai=true` call takes 17–32 s. Also: `/benchmarks/*`, `/dev/*`, `/roadmap`, `/intelligence/signals|tasks`, `/apply/*`, `/job-search-portals`, `/u/[slug]`, the dead LLM paths (`structured_answer_engine.resolve_application_question`, `resume_diff_service._complete_batch*`), and the unused `qwen_form_reviewer` client build.
+- **REMOVE LATER** (still routable by URL, not in nav): the legacy `/application-assistant` dashboard. It duplicates `/applications`, and its `pending-fields/aggregate?use_ai=true` call takes 17–32 s. Also: `/benchmarks/*`, `/dev/*`, `/roadmap`, `/intelligence/signals|tasks`, `/apply/*`, `/job-search-portals`, `/u/[slug]`, the dead LLM paths (`structured_answer_engine.resolve_application_question`, `resume_diff_service._complete_batch*`), and the unused `form_reviewer` client build.
 
 ## Cost / hosting
 

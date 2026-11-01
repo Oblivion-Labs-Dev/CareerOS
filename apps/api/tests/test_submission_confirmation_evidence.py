@@ -2,7 +2,7 @@ import asyncio
 
 import pytest
 
-from app.services.application_assistant.qwen_form_reviewer import verify_submission_confirmation
+from app.services.application_assistant.form_reviewer import verify_submission_confirmation
 
 
 @pytest.mark.parametrize("url,body,form,expected", [

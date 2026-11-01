@@ -308,51 +308,6 @@ def get_autopilot_workers() -> dict[str, Any]:
     }
 
 
-@router.post("/autopilot/self-heal")
-async def trigger_self_heal() -> dict[str, Any]:
-    """Manually trigger a self-healing cycle for all currently failed autopilot jobs."""
-    from app.services.application_assistant.autopilot_runner import AutopilotRunner
-    from app.services.application_assistant.autopilot_self_healer import run_self_healing_cycle
-    from app.services.application_assistant.persistence import list_autopilot_jobs
-
-    runner = AutopilotRunner.get_instance()
-    failed_jobs: list[dict[str, Any]] = []
-    with session_scope() as db:
-        all_jobs = list_autopilot_jobs(db)
-        # FAILED is a dead end now; what the healer can act on is an attempt
-        # that broke before submitting, parked in review as retryable.
-        from app.services.application_assistant.submission_outcome import is_retryable_technical_failure
-
-        failed_jobs = [j for j in all_jobs if is_retryable_technical_failure(j) or j.get("status") == "ERROR"]
-
-    if not failed_jobs:
-        return {"success": True, "message": "No failed jobs to heal", "patchesApplied": 0}
-
-    result = await run_self_healing_cycle(
-        failed_jobs=failed_jobs,
-        log_event_fn=runner.log_event,
-    )
-
-    # If patches were applied, restart the autopilot to process re-queued jobs
-    if result.get("patchesApplied", 0) > 0:
-        run = await runner.start(options={"targetProcessCount": len(failed_jobs)})
-        result["autopilotRestarted"] = True
-        result["run"] = run
-
-    return {"success": True, **result}
-
-
-@router.get("/autopilot/self-healing-log")
-def get_self_healing_log() -> dict[str, Any]:
-    """Return the full patch history from self-healing cycles."""
-    from app.services.application_assistant.autopilot_self_healer import get_self_healing_state
-    state = get_self_healing_state()
-    return {
-        "success": True,
-        **state.to_dict(),
-    }
-
-
 # Per-job fields no card or side panel reads, and which dominate the response:
 # across a sample of rows, checkpointHistory and submissionEvidence alone were
 # about seven eighths of the bytes. A page of 20 jobs was 185KB, which is what
@@ -891,17 +846,16 @@ def skip_staged_application(
 
 @router.post("/autopilot/jobs/{id}/classify-questions")
 async def classify_pending_questions(id: str) -> dict[str, Any]:
-    """On-demand model classification of a NEEDS_REVIEW/STAGED job's outstanding
+    """On-demand classification (deterministic rules, no model) of a NEEDS_REVIEW/STAGED job's outstanding
     questions, for jobs that were staged before pendingQuestions existed (or whose
     original DOM field metadata wasn't captured). Re-running the whole live browser
     submission just to get cleaner question text would be wasteful — this reruns
     only the cheap classification step against whatever evidence is already on file.
     Idempotent: if the job already has pendingQuestions, they're returned as-is.
 
-    Deliberately avoids `Depends(db_session)` — classification runs several
-    45-second-class model calls, and holding a pooled connection open for that
-    whole span (per request, and worse per accidental duplicate) is what exhausted
-    the connection pool previously. See approve_preflight_submission for the same fix.
+    Deliberately avoids `Depends(db_session)`: the read and the write each take a
+    short session of their own rather than one pooled connection for the whole
+    request. See approve_preflight_submission for the same pattern.
     """
     from app.services.application_assistant.persistence import get_autopilot_job, save_autopilot_job
     from app.services.application_assistant.error_normalizer import build_pending_questions
@@ -921,7 +875,7 @@ async def classify_pending_questions(id: str) -> dict[str, Any]:
 
         if not blocking_issues:
             # No structured evidence on file (job predates the policy engine) — fall back to
-            # splitting the raw error text itself; the model still has enough to work with.
+            # splitting the raw error text itself; quoted field labels are read back out of it.
             raw = (job.get("lastError") or job.get("aiExplanation") or "")
             raw = raw.split(":", 1)[-1] if raw.lower().startswith("staged for human review:") else raw
             blocking_issues = [{"reason": part.strip()} for part in raw.split(";") if part.strip()]

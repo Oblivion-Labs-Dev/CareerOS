@@ -11,12 +11,11 @@ This module scores the tailored document instead. Two things make that honest
 rather than a way to manufacture a number:
 
 * **Evidence terms come from the original resume, never from the tailored
-  text.** ``sanitize_match_payload`` drops any skill the model claims as a match
-  unless the candidate's real documents evidence it, and re-derives the score
-  from what survives. Building the evidence set from the tailored bullets would
-  defeat exactly that check - the model could write "Kubernetes" into a bullet
-  and then match against its own output. The evidence set is therefore built
-  from the untouched profile, resume and accomplishments.
+  text.** Every word of the tailored document that the candidate's untouched
+  profile, resume and accomplishments do not contain is dropped before scoring
+  (``evidence_only_text``). Scoring the tailored text as written would let a
+  rewrite put "Kubernetes" into a bullet and then match against its own
+  invention.
 
 * **The text scored is the document that gets submitted.** The rendered PDF is
   the candidate's original resume with the Microsoft and Amazon bullet regions
@@ -80,6 +79,20 @@ def build_submitted_resume_text(original_text: str, tailored_bullets: list[str])
     return f"{head}\n\nEXPERIENCE (as submitted for this role)\n{bullets}\n\n{tail}"
 
 
+def evidence_only_text(text: str, evidence_text: str) -> str:
+    """``text`` with every token the original evidence does not contain removed.
+
+    This is the anti-gaming filter. A tailored bullet that writes "Kubernetes"
+    into the resume gains nothing unless the candidate's untouched documents
+    already say Kubernetes: the word is dropped before scoring. What survives is
+    the tailored document's own wording of experience the candidate really has.
+    """
+    from app.services.application_assistant.role_shape_match import tokenize
+
+    allowed = set(tokenize(evidence_text))
+    return " ".join(t for t in tokenize(text) if t in allowed)
+
+
 async def score_tailored_resume(
     job: dict[str, Any],
     tailored_bullets: list[str],
@@ -87,63 +100,45 @@ async def score_tailored_resume(
     profile: dict[str, Any],
     documents: dict[str, Any] | None = None,
     accomplishments: list[dict[str, Any]] | None = None,
-    timeout: int | None = None,
+    idf_documents: list[str] | None = None,
 ) -> dict[str, Any] | None:
-    """Score the tailored document. Returns None when the model is unusable.
+    """Role-shape score for the tailored document. None when it cannot be scored.
 
-    None means "could not score", never "scored zero" - the caller must not read
-    a model outage as a failed match and reject a resume over it.
+    None means "could not score", never "scored zero": the caller must not read
+    a scoring failure as a failed match and reject a resume over it.
+
+    Scored with the same deterministic role-shape scorer the queue uses, with
+    only the resume text swapped for the evidence-filtered submitted text.
+    ``idf_documents`` should be the active postings, as in the queue, for the
+    number to sit on the queue's scale; it defaults to this posting alone.
     """
     from app.services.application_assistant.candidate_match_context import (
         build_candidate_summary_for_llm,
         extract_resume_text,
     )
-    from app.services.application_assistant.mistral_resume_match import (
-        build_candidate_evidence,
-        build_mistral_match_client,
-        score_job_against_resume,
-    )
+    from app.services.application_assistant.role_shape_match import build_context, match_for
+    from app.services.story_index import load_corpus
 
     cleaned = [b for b in (tailored_bullets or []) if strip_markup(b)]
     if not cleaned:
         return None
 
-    # Evidence stays anchored to the untouched documents - this is the anti-
-    # fabrication anchor described in the module docstring.
-    _, evidence_text, evidence_terms = build_candidate_evidence(
-        profile, documents=documents, accomplishments=accomplishments
-    )
-
-    submitted_text = build_submitted_resume_text(extract_resume_text(documents), cleaned)
-
-    # Score through the same builder the queue scorer uses, with only the resume
-    # swapped. The number this produces is compared against the 80% submit bar,
-    # and that bar was calibrated on queue scores built from profile + resume +
-    # accomplishments. Scoring the resume text alone measures a different thing
-    # on a different scale: it drops the profile skills and the accomplishment
-    # corpus entirely, so a tailored resume came back *below* the untailored
-    # score it was supposed to beat, and the retry loop read that as tailoring
-    # having made things worse. Same inputs, one substitution, comparable
-    # numbers.
-    summary = build_candidate_summary_for_llm(
-        profile,
-        documents={"defaultResume": {"parsedText": submitted_text}},
-        accomplishments=accomplishments,
-    )
-
-    client = build_mistral_match_client(timeout=timeout)
-    if not client.enabled:
-        logger.info("Local match model disabled; cannot score the tailored resume.")
-        return None
-
     try:
-        return await score_job_against_resume(
-            client,
-            job,
-            candidate_summary=summary,
-            evidence_text=evidence_text,
-            evidence_terms=evidence_terms,
+        # Evidence stays anchored to the untouched documents - this is the
+        # anti-fabrication anchor described in the module docstring.
+        evidence_text = build_candidate_summary_for_llm(
+            profile, documents=documents, accomplishments=accomplishments
         )
+        submitted_text = build_submitted_resume_text(extract_resume_text(documents), cleaned)
+        scored_text = evidence_only_text(submitted_text, evidence_text)
+        description = str(job.get("description") or "")
+        ctx = build_context(
+            profile,
+            {"defaultResume": {"parsedText": scored_text}},
+            load_corpus(),
+            idf_documents if idf_documents is not None else [description],
+        )
+        return match_for(job, ctx)
     except Exception as exc:  # noqa: BLE001 - scoring must not break a submission
         logger.warning("Tailored-resume scoring failed for %s: %s", job.get("id"), exc)
         return None

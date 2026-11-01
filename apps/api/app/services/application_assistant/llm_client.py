@@ -14,11 +14,9 @@ import httpx
 
 logger = logging.getLogger("careeros.llm")
 
-# Ollama serves every model at OLLAMA_CONTEXT_LENGTH (default 4096) regardless
-# of the context length on the model card. Keep this in step with the env var
-# the dev stack sets, so prompt budgeting reflects what the server will really
-# accept rather than what the model could theoretically handle.
-DEFAULT_CONTEXT_WINDOW = int(os.environ.get("OLLAMA_CONTEXT_LENGTH", "16384"))
+# Token budget callers size large prompts against (resume tailoring). Hosted
+# providers accept far more; this is a conservative floor, not a model limit.
+DEFAULT_CONTEXT_WINDOW = 16384
 
 
 def estimate_tokens(text: str) -> int:
@@ -33,7 +31,7 @@ def estimate_tokens(text: str) -> int:
 
 class LLMCallMetrics:
     """Process-wide, in-memory counters for which model actually answered each
-    LLM call across the app (including both self-healing flows). Resets on
+    LLM call across the app. Resets on
     backend restart — good enough for a first pass; move to persistent storage
     later if trend-over-time matters more than "since last restart"."""
 
@@ -54,7 +52,7 @@ class LLMCallMetrics:
         model: str,
         succeeded: bool,
         *,
-        provider: str = "ollama",
+        provider: str = "",
         is_fallback: bool = False,
         task: str = "unspecified",
         latency_ms: float | None = None,
@@ -130,14 +128,14 @@ class LLMClient:
     def __init__(
         self,
         *,
-        base_url: str = "http://localhost:11434/v1",
-        model: str = "qwen3:8b",
+        base_url: str = "",
+        model: str = "",
         api_key: str = "",
         timeout: int = 30,
         max_retries: int = 2,
         confidence_threshold: float = 0.7,
         fallback: "LLMClient | None" = None,
-        provider: str = "ollama",
+        provider: str = "",
         context_window: int = DEFAULT_CONTEXT_WINDOW,
         max_output_tokens: int = 2000,
         temperature: float | None = None,
@@ -151,10 +149,8 @@ class LLMClient:
         # Secondary client tried when this one is unavailable or every retry fails.
         self.fallback = fallback
         self.provider = provider
-        # How many tokens this model is actually being served with. Ollama
-        # serves OLLAMA_CONTEXT_LENGTH, not the model card maximum, and a
-        # prompt that overflows it is silently truncated — callers that build
-        # large prompts (resume tailoring) size themselves against this.
+        # How many tokens callers that build large prompts (resume tailoring)
+        # size themselves against.
         self.context_window = context_window
         self.max_output_tokens = max_output_tokens
         # Sampling temperature. None keeps each call path's own default; a
@@ -167,13 +163,10 @@ class LLMClient:
 
     @property
     def enabled(self) -> bool:
-        # CAREEROS_LOCAL_LLM=off is enforced here, on every client, rather than
-        # only in the factories: several paths build a local client directly or
-        # through a factory that never consulted the flag, and one of them loaded
-        # a 24B model with the flag off. Every caller already treats a disabled
-        # client as "use the deterministic path", so this is the one place that
-        # makes the flag mean "no local model calls at all".
-        if not LOCAL_LLM_ENABLED and _is_local(self.base_url):
+        # Local models were removed: a client pointed at this machine is never
+        # enabled, so a stale setting cannot load one. Every caller already
+        # treats a disabled client as "use the deterministic path".
+        if _is_local(self.base_url):
             return False
         return bool(self.base_url and self.model)
 
@@ -253,7 +246,6 @@ class LLMClient:
             "max_tokens": 2000,
             "stream": False,
         }
-        self._apply_ollama_thinking_off(payload)
 
         for attempt in range(self.max_retries + 1):
             try:
@@ -339,7 +331,7 @@ class LLMClient:
                 # Count the rescue here. record() is called by the *fallback*
                 # client for its own call and has no way to know it was acting
                 # as a fallback, which is why this counter read 0 through a real
-                # Qwen -> Mistral rescue while fallbackEvents recorded it.
+                # rescue while fallbackEvents recorded it.
                 llm_call_metrics.fallback_rescues += 1
                 return fallback_result
         return result
@@ -384,31 +376,6 @@ class LLMClient:
             "temperature": 0.1 if self.temperature is None else self.temperature,
             "max_tokens": max_out,
         }
-        if response_schema and self._is_ollama_compat():
-            # `response_format`, not `format`. This client talks to Ollama's
-            # OpenAI-compatible endpoint (/v1/chat/completions), which accepts
-            # the OpenAI field and silently ignores Ollama's native `format`.
-            # So the previous `format: "json"` was never doing anything at all,
-            # and neither was passing the schema under that key.
-            #
-            # Measured A/B on mistral:7b-instruct, same prompt, same seed:
-            #   format: <schema>          -> prose, does not parse
-            #   response_format: schema   -> valid JSON
-            #
-            # This mattered well beyond the benchmark. A response that failed to
-            # parse was recorded as "unscored", and an unscored job never
-            # entered the Autopilot queue, so real postings were being dropped
-            # because of a request field the server was throwing away.
-            payload["response_format"] = {
-                "type": "json_schema",
-                "json_schema": {
-                    "name": "structured_response",
-                    "strict": True,
-                    "schema": response_schema,
-                },
-            }
-        self._apply_ollama_thinking_off(payload)
-
         for attempt in range(self.max_retries + 1):
             try:
                 async with httpx.AsyncClient(timeout=self.timeout) as client:
@@ -492,8 +459,7 @@ class LLMClient:
 
         Token counts come from the provider's own `usage` block when it sends
         one and fall back to an estimate otherwise, so the context-usage figure
-        is always populated — an overflowing prompt is silently truncated by
-        Ollama, and this line is what makes that visible.
+        is always populated, which makes an overflowing prompt visible.
         """
         usage = result.get("usage") or {}
         prompt_tokens = usage.get("promptTokens") or estimate_tokens(system + prompt)
@@ -566,19 +532,6 @@ class LLMClient:
             headers["Authorization"] = f"Bearer {self.api_key}"
         return headers
 
-    def _is_ollama_compat(self) -> bool:
-        lower = self.base_url.lower()
-        return "11434" in lower or "ollama" in lower
-
-    def _apply_ollama_thinking_off(self, payload: dict[str, Any]) -> None:
-        """Qwen3 thinking models hang or burn tokens unless thinking is disabled."""
-        if not self._is_ollama_compat():
-            return
-        # OpenAI-compatible Ollama endpoint ignores top-level `think`; use OpenAI fields.
-        payload["reasoning_effort"] = "none"
-        payload["think"] = False
-        payload["chat_template_kwargs"] = {"enable_thinking": False}
-
     @staticmethod
     def _payload_after_thinking(content: str) -> str:
         """Keep only model output after the final closed thinking block."""
@@ -642,12 +595,12 @@ class LLMClient:
 
     @staticmethod
     def _parse_json_response(content: str) -> dict[str, Any] | None:
-        """Parse JSON from LLM response, handling markdown fences and Qwen thinking blocks."""
+        """Parse JSON from LLM response, handling markdown fences and reasoning blocks."""
         text = LLMClient._payload_after_thinking(content)
         return LLMClient._parse_json_object(text)
 
 
-def _resolve_llm_config(llm_config: dict[str, Any], default_model: str = "qwen3:8b") -> tuple[str, str, str]:
+def _resolve_llm_config(llm_config: dict[str, Any], default_model: str = "") -> tuple[str, str, str]:
     """Resolve base_url, model, and api_key based on provider or explicit settings."""
     provider = str(llm_config.get("provider") or "").lower().strip()
     model = str(llm_config.get("model") or "").strip()
@@ -670,36 +623,15 @@ def _resolve_llm_config(llm_config: dict[str, Any], default_model: str = "qwen3:
         model = model or "openai/gpt-4o-mini"
         api_key = api_key or os.environ.get("OPENROUTER_API_KEY", "")
     else:
-        # Default Ollama / Local Mistral
-        base_url = base_url or "http://localhost:11434/v1"
-        model = model or default_model
-        api_key = api_key
+        # No hosted provider named. There is no local model any more, so this
+        # stays empty unless the caller gave an explicit endpoint.
+        model = model or (default_model if base_url else "")
 
     return base_url, model, api_key
 
 
-# CareerOS's default local model. Qwen3 4B-instruct is the non-thinking variant
-# (capabilities: completion, tools — no `thinking`), which is what makes its
-# JSON mode reliable: there is no reasoning block to strip before parsing.
-DEFAULT_LOCAL_MODEL = os.environ.get("CAREEROS_LOCAL_MODEL", "qwen3:4b-instruct")
-# Kept as the local second opinion when the primary local model fails, so a bad
-# response falls back to another local model before any cloud provider is used.
-LOCAL_FALLBACK_MODEL = os.environ.get("CAREEROS_LOCAL_FALLBACK_MODEL", "mistral:7b-instruct")
-OLLAMA_BASE_URL = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434/v1")
-
-# One switch that actually keeps the local model unloaded.
-#
-# CAREEROS_LOCAL_LLM was only consulted by the queue preprocessor and the
-# answer engine, so turning it off still left the form reviewer and the field
-# mapper building Ollama clients - and a single call is enough to pull several
-# GB back into memory. Enforcing it here, where every local client is built,
-# makes the flag mean what it says.
-LOCAL_LLM_ENABLED = os.environ.get("CAREEROS_LOCAL_LLM", "on").strip().lower() not in (
-    "off", "0", "false", "no",
-)
-
-
 def _is_local(base_url: str) -> bool:
+    """True for an endpoint on this machine (a leftover local-model setting)."""
     lowered = (base_url or "").lower()
     return "11434" in lowered or "localhost" in lowered or "127.0.0.1" in lowered
 
@@ -707,52 +639,21 @@ def _is_local(base_url: str) -> bool:
 def _local_disabled_substitute(
     *, timeout: int, max_retries: int, confidence_threshold: float
 ) -> "LLMClient":
-    """What to hand back when a local model was asked for but is switched off.
+    """What to hand back when no hosted model is configured.
 
-    Prefers Gemini when a key is configured - "skip the local model" means keep
-    it off this machine's RAM, not lose the ability to reason at all. With no
-    key, returns a client whose is_available() is False, which every caller
-    already handles by falling back to its deterministic path.
+    Local models were removed, so settings that name none (or still point at a
+    local endpoint) get Gemini when a key is configured and applications may
+    use it. With no key, returns a disabled client, which every caller already
+    handles by falling back to its deterministic path.
     """
     gemini = _build_gemini_fallback(
         timeout=timeout, max_retries=max_retries, confidence_threshold=confidence_threshold
     )
     if gemini is not None:
-        logger.info("CAREEROS_LOCAL_LLM=off: using Gemini instead of the local model.")
+        logger.info("No hosted model configured: using Gemini.")
         return gemini
-    logger.info("CAREEROS_LOCAL_LLM=off and no Gemini available for applications: running deterministic only.")
+    logger.info("No hosted model configured and no Gemini available for applications: running deterministic only.")
     return LLMClient(base_url="", model="")
-
-
-def _build_local_fallback(
-    *,
-    primary_model: str,
-    timeout: int,
-    max_retries: int,
-    confidence_threshold: float,
-    gemini_fallback: "LLMClient | None",
-    context_window: int,
-) -> "LLMClient | None":
-    """Mistral as the local backstop behind the primary local model.
-
-    Returns None when the primary already *is* the fallback model, so a client
-    never falls back to itself. The chain is deliberately
-    local-primary -> local-fallback -> cloud: a second local model is both
-    cheaper and more private than reaching for Gemini on the first failure.
-    """
-    if LOCAL_FALLBACK_MODEL.lower() in primary_model.lower():
-        return gemini_fallback
-    return LLMClient(
-        base_url=OLLAMA_BASE_URL,
-        model=LOCAL_FALLBACK_MODEL,
-        api_key="",
-        timeout=timeout,
-        max_retries=max_retries,
-        confidence_threshold=confidence_threshold,
-        fallback=gemini_fallback,
-        provider="ollama",
-        context_window=context_window,
-    )
 
 
 def _build_gemini_fallback(*, timeout: int, max_retries: int, confidence_threshold: float) -> LLMClient | None:
@@ -782,104 +683,56 @@ def _build_gemini_fallback(*, timeout: int, max_retries: int, confidence_thresho
     )
 
 
-def create_llm_client(settings: dict[str, Any] | None = None) -> LLMClient:
-    """Create default LLM client from application assistant settings.
-
-    Defaults to local Qwen3 via Ollama, falling back to local Mistral and then
-    to Gemini Flash when the primary is unreachable or every retry fails.
-    """
-    settings_dict = settings or {}
-    llm_config = settings_dict.get("llm", {})
-    provider = str(llm_config.get("provider") or "").lower().strip()
-    base_url, model, api_key = _resolve_llm_config(llm_config, default_model=DEFAULT_LOCAL_MODEL)
-    timeout = llm_config.get("timeout", 60)
-    max_retries = llm_config.get("maxRetries", 2)
-    confidence_threshold = llm_config.get("confidenceThreshold", 0.7)
-    if not LOCAL_LLM_ENABLED and _is_local(base_url):
-        return _local_disabled_substitute(
-            timeout=timeout, max_retries=max_retries, confidence_threshold=confidence_threshold
-        )
-
-    gemini_fallback = None if "gemini" in model.lower() else _build_gemini_fallback(
-        timeout=timeout, max_retries=max_retries, confidence_threshold=confidence_threshold
-    )
-    context_window = int(llm_config.get("contextWindow") or DEFAULT_CONTEXT_WINDOW)
-    local_fallback = _build_local_fallback(
-        primary_model=model,
-        timeout=timeout,
-        max_retries=max_retries,
-        confidence_threshold=confidence_threshold,
-        gemini_fallback=gemini_fallback,
-        context_window=context_window,
-    )
-    primary_max_retries = 0 if local_fallback is not None else max_retries
-
-    mistral_provider_name = "ollama" if ("11434" in base_url or "ollama" in provider) else (provider or "ollama")
-    primary_client = LLMClient(
-        base_url=base_url,
-        model=model,
-        api_key=api_key,
-        timeout=timeout,
-        max_retries=primary_max_retries,
-        confidence_threshold=confidence_threshold,
-        fallback=local_fallback,
-        provider=mistral_provider_name,
-        context_window=context_window,
-    )
-
-
-    return primary_client
-
-
-def create_mapping_client(settings: dict[str, Any]) -> LLMClient:
-    """Text mapping model (field interpretation planner). Mistral primary, Gemini fallback."""
-    llm_config = settings.get("llm", {})
-    field_mapping = settings.get("fieldMapping") or {}
-    model_override = field_mapping.get("mappingModel") or llm_config.get("mappingModel")
-
+def _hosted_client(
+    llm_config: dict[str, Any],
+    *,
+    model_override: str | None,
+    default_timeout: int,
+) -> LLMClient:
     cfg = dict(llm_config)
     if model_override:
         cfg["model"] = model_override
-
-    base_url, model, api_key = _resolve_llm_config(cfg, default_model=DEFAULT_LOCAL_MODEL)
-    timeout = llm_config.get("timeout", 90)
+    base_url, model, api_key = _resolve_llm_config(cfg)
+    timeout = llm_config.get("timeout", default_timeout)
     max_retries = llm_config.get("maxRetries", 2)
     confidence_threshold = llm_config.get("confidenceThreshold", 0.7)
-    gemini_fallback = None if "gemini" in model.lower() else _build_gemini_fallback(
-        timeout=timeout, max_retries=max_retries, confidence_threshold=confidence_threshold
-    )
-    context_window = int(llm_config.get("contextWindow") or DEFAULT_CONTEXT_WINDOW)
-    local_fallback = _build_local_fallback(
-        primary_model=model,
-        timeout=timeout,
-        max_retries=max_retries,
-        confidence_threshold=confidence_threshold,
-        gemini_fallback=gemini_fallback,
-        context_window=context_window,
-    )
-    primary_max_retries = 0 if local_fallback is not None else max_retries
-
-    if not LOCAL_LLM_ENABLED and _is_local(base_url):
+    if not base_url or not model or _is_local(base_url):
         return _local_disabled_substitute(
             timeout=timeout, max_retries=max_retries, confidence_threshold=confidence_threshold
         )
-
+    gemini_fallback = None if "gemini" in model.lower() else _build_gemini_fallback(
+        timeout=timeout, max_retries=max_retries, confidence_threshold=confidence_threshold
+    )
     provider = str(cfg.get("provider") or "").lower().strip()
-    mistral_provider_name = "ollama" if ("11434" in base_url or "ollama" in provider) else (provider or "ollama")
-    primary_client = LLMClient(
+    return LLMClient(
         base_url=base_url,
         model=model,
         api_key=api_key,
         timeout=timeout,
-        max_retries=primary_max_retries,
+        max_retries=max_retries,
         confidence_threshold=confidence_threshold,
-        fallback=local_fallback,
-        provider=mistral_provider_name,
-        context_window=context_window,
+        fallback=gemini_fallback,
+        provider=provider,
+        context_window=int(llm_config.get("contextWindow") or DEFAULT_CONTEXT_WINDOW),
     )
 
 
-    return primary_client
+def create_llm_client(settings: dict[str, Any] | None = None) -> LLMClient:
+    """Create the LLM client from application assistant settings.
+
+    Uses the hosted provider the settings name, with Gemini Flash as the
+    fallback. With none named, Gemini when available, else a disabled client.
+    """
+    llm_config = (settings or {}).get("llm", {}) or {}
+    return _hosted_client(llm_config, model_override=None, default_timeout=60)
+
+
+def create_mapping_client(settings: dict[str, Any]) -> LLMClient:
+    """Text mapping model (field interpretation planner), same chain as create_llm_client."""
+    llm_config = settings.get("llm", {}) or {}
+    field_mapping = settings.get("fieldMapping") or {}
+    model_override = field_mapping.get("mappingModel") or llm_config.get("mappingModel")
+    return _hosted_client(llm_config, model_override=model_override, default_timeout=90)
 
 
 def create_vision_client(settings: dict[str, Any]) -> LLMClient:
@@ -904,7 +757,7 @@ def create_vision_client(settings: dict[str, Any]) -> LLMClient:
 
 
 async def call_llm(system: str, prompt: str, settings: dict[str, Any] | None = None) -> str:
-    """Call LLM with system prompt and user prompt, supporting local Ollama Mistral and Gemini Flash."""
+    """Call the configured hosted LLM with a system and user prompt."""
     client = create_llm_client(settings or {})
     if client.enabled:
         res = await client.chat([{"role": "user", "content": prompt}], system=system)

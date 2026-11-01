@@ -1,10 +1,7 @@
 #!/usr/bin/env bash
-# First-time CareerOS setup: dependencies, Python venv, Playwright, Ollama, and Qwen model.
+# First-time CareerOS setup: dependencies, Python venv and Playwright.
 set -euo pipefail
 
-MODEL="mistral-small3.2:24b"
-SKIP_OLLAMA=0
-SKIP_MODELS=0
 SKIP_EXTENSION=0
 SKIP_TESTS=0
 
@@ -13,9 +10,6 @@ usage() {
 Usage: ./scripts/setup.sh [options]
 
 Options:
-  --model NAME         Ollama model to pull (default: mistral-small3.2:24b)
-  --skip-ollama        Skip Ollama install/start
-  --skip-models        Skip ollama pull
   --skip-extension     Skip extension build
   --skip-tests         Skip API smoke tests
   -h, --help           Show this help
@@ -24,9 +18,9 @@ EOF
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --model) MODEL="$2"; shift 2 ;;
-    --skip-ollama) SKIP_OLLAMA=1; shift ;;
-    --skip-models) SKIP_MODELS=1; shift ;;
+    # Accepted for old callers; local models were removed, so they do nothing.
+    --model) shift 2 ;;
+    --skip-ollama|--skip-models) shift ;;
     --skip-extension) SKIP_EXTENSION=1; shift ;;
     --skip-tests) SKIP_TESTS=1; shift ;;
     -h|--help) usage; exit 0 ;;
@@ -45,10 +39,6 @@ ok() { printf '\033[32m  OK  %s\033[0m\n' "$1"; }
 warn() { printf '\033[33m  !!  %s\033[0m\n' "$1"; }
 
 command_exists() { command -v "$1" >/dev/null 2>&1; }
-
-ollama_running() {
-  curl -fsS --max-time 4 http://127.0.0.1:11434/api/tags >/dev/null 2>&1
-}
 
 ensure_pnpm() {
   if command_exists pnpm; then
@@ -96,23 +86,18 @@ EOF
   if [[ -f "$REPO_ROOT/.env" ]]; then
     sed -i.bak \
       -e 's|http://localhost:8001|http://localhost:8000|g' \
-      -e 's|http://localhost:1234/v1|http://localhost:11434/v1|g' \
       "$REPO_ROOT/.env" || true
     rm -f "$REPO_ROOT/.env.bak"
-    if ! grep -q '^APPLICATION_ASSISTANT_LLM_MODEL=' "$REPO_ROOT/.env"; then
-      printf '\nAPPLICATION_ASSISTANT_LLM_MODEL=%s\n' "$MODEL" >>"$REPO_ROOT/.env"
-    fi
     if ! grep -q '^CHRONOS_MAPPING_ENABLED=' "$REPO_ROOT/.env"; then
       cat >>"$REPO_ROOT/.env" <<EOF
 
-# Application Assistant — local Ollama + field mapping
+# Application Assistant — field mapping
 CHRONOS_MAPPING_ENABLED=true
-CHRONOS_MAPPING_MODEL=$MODEL
 CHRONOS_MAPPING_CONFIDENCE=0.90
 CHRONOS_REVIEW_CONFIDENCE=0.70
 EOF
     fi
-    ok "Updated root .env with Ollama defaults"
+    ok "Updated root .env defaults"
   fi
 }
 
@@ -145,48 +130,6 @@ ensure_python_venv() {
   ok "Playwright Chromium ready"
 }
 
-ensure_ollama() {
-  if [[ "$SKIP_OLLAMA" -eq 1 ]]; then
-    warn "Skipping Ollama setup (--skip-ollama)"
-    return
-  fi
-
-  step "Ollama"
-  if ! command_exists ollama; then
-    echo "  Installing Ollama..."
-    if command_exists brew; then
-      brew install ollama
-    else
-      curl -fsSL https://ollama.com/install.sh | sh
-    fi
-  fi
-  ok "ollama $(ollama --version 2>/dev/null || echo installed)"
-
-  if ! ollama_running; then
-    echo "  Starting Ollama..."
-    (ollama serve >/dev/null 2>&1 &) || true
-    for _ in $(seq 1 15); do
-      ollama_running && break
-      sleep 2
-    done
-  fi
-
-  if ! ollama_running; then
-    warn "Ollama not responding — start it manually, then: ollama pull $MODEL"
-    return
-  fi
-  ok "Ollama API reachable"
-
-  if [[ "$SKIP_MODELS" -eq 1 ]]; then
-    warn "Skipping model pull (--skip-models)"
-    return
-  fi
-
-  step "Pulling model '$MODEL' (this may take several minutes)"
-  ollama pull "$MODEL"
-  ok "Model ready: $MODEL"
-}
-
 printf '\n\033[32mCareerOS first-time setup\033[0m\n'
 echo "Repo: $REPO_ROOT"
 echo ""
@@ -205,7 +148,6 @@ step "Installing JavaScript dependencies"
 ok "pnpm install complete"
 
 ensure_python_venv
-ensure_ollama
 
 if [[ "$SKIP_EXTENSION" -eq 0 ]]; then
   step "Building Chrome extension"
@@ -234,7 +176,5 @@ Next steps:
   2. Open dashboard:     http://localhost:3000/application-assistant
   3. API docs:           http://localhost:8000/docs
   4. Load extension:     chrome://extensions -> Load unpacked -> apps/extension/dist
-
-LLM: http://localhost:11434/v1  model: $MODEL
 
 EOF

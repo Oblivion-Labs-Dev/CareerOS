@@ -12,7 +12,7 @@ from app.services.application_assistant.domain import AutopilotJobStatus
 from app.services.application_assistant.persistence import list_autopilot_jobs
 
 
-DEFAULT_MIN_MATCH_SCORE = 75.0
+DEFAULT_MIN_MATCH_SCORE = 60.0
 DEFAULT_MAX_POST_AGE_DAYS = 30  # Only apply to jobs posted within the last 30 days
 DEFAULT_MAX_APPLICATIONS_PER_RUN = 25
 
@@ -1254,7 +1254,7 @@ def filter_and_rank_jobs(
     """Process a list of discovered jobs:
 
     1. Drop duplicates only (every other hard filter runs at apply time, #59)
-    2. Attach the Mistral/Ollama resume-vs-JD match (precomputed by the queue
+    2. Attach the role-shape resume-vs-JD match (precomputed by the queue
        preprocessor, or scored inline here when the caller has none)
     3. Filter by min match score threshold (with fallback so batch queue never starves)
     4. Sort by location/level tier, then match score, then date posted
@@ -1304,7 +1304,7 @@ def filter_and_rank_jobs(
         if not opts.get("allowDuplicates", False) and duplicate_block_reason(job, existing_key_index):
             continue
 
-        match = matches.get(str(job.get("id") or "")) or job.get("mistralMatch")
+        match = matches.get(str(job.get("id") or ""))
         if isinstance(match, dict) and match.get("matchScore") is not None:
             score = float(match.get("matchScore") or 0.0)
             ranked_job = {
@@ -1313,8 +1313,10 @@ def filter_and_rank_jobs(
                 "matchReason": match.get("matchReason", ""),
                 "keyMatchingSkills": match.get("keyMatchingSkills") or [],
                 "missingSkills": match.get("missingSkills") or [],
-                "matchMethod": match.get("matchMethod", "ollama-local"),
+                "matchMethod": match.get("matchMethod", ""),
                 "matchModel": match.get("matchModel", ""),
+                "matchScoredAt": match.get("matchScoredAt", ""),
+                "matchResumeKey": match.get("matchResumeKey", ""),
                 # Kept so existing UI/reporting that reads matchReasons still
                 # renders something meaningful now that the real explanation is
                 # a sentence rather than a bag of keywords.
@@ -1322,7 +1324,7 @@ def filter_and_rank_jobs(
                 "status": AutopilotJobStatus.SCORED.value,
             }
         else:
-            # No Mistral score available (Ollama down, or not preprocessed yet).
+            # No role-shape score yet (past this call's scoring budget).
             # The full heuristic fallback (per-sentence resume/requirement
             # matching in job_matching.match_job) is expensive enough, run
             # across every unscored candidate in one inline pass, to pin the
@@ -1337,7 +1339,7 @@ def filter_and_rank_jobs(
             ranked_job = {
                 **job,
                 "matchScore": score,
-                "matchReason": "Not yet scored (local model unavailable).",
+                "matchReason": "Not yet scored.",
                 "keyMatchingSkills": [],
                 "missingSkills": [],
                 "matchMethod": "unscored",

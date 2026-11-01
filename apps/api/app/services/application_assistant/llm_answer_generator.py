@@ -314,7 +314,7 @@ async def generate_theory_answer(
 ) -> dict[str, Any]:
     """
     Generates a professional, concise candidate answer to a custom open-ended application question.
-    Uses candidate's resume/profile details and Ollama Qwen model, following user's precise prompt template.
+    Uses candidate's resume/profile details and the configured model, following user's precise prompt template.
     """
     if not question or not question.strip():
         return {"success": False, "error": "Question is empty"}

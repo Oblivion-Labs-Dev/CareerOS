@@ -31,8 +31,6 @@ async def main():
         "tierGuardrails": True,
         "submittableBoardsOnly": True,
         "submittableBoardsStrict": True,
-        "selfHealing": True,
-        "aiModel": "mistral-small3.2:24b",
         "tailoringMode": "honest"
     })
     print(f"Autopilot started: {run}")

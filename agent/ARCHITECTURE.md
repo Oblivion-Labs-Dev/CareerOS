@@ -53,8 +53,6 @@ Browser ──► Next.js (:5000)
               ├── Playwright worker      (own thread + event loop, owns the browser)
               ├── read_cache             (stale-while-revalidate for dashboard reads)
               └── SQLite  data/career_os.db
-                     │
-                     └── Ollama (:11434) — local LLM, auto-started by main.py
 ```
 
 There are two supported ways to run this. The local Windows workflow
@@ -67,7 +65,8 @@ the API drives the browser in-process and the assisted-fill path's
 `launch_persistent_context(..., channel="chrome")` cannot be driven over Playwright's
 `connect()`. And there is **no database service**: the container bind-mounts the existing
 `apps/api/data`, because CareerOS is SQLite (there is no MySQL in this repo, whatever a
-task description may say). Ollama stays on the host, reached via `host.docker.internal`.
+task description may say). There is no local model: the only model provider is hosted
+(Gemini, or OpenAI/OpenRouter when the settings name one).
 
 `main.py` is the whole process contract:
 - **Refuses to start with >1 uvicorn worker** (`_warn_if_multi_worker`). All live state is
@@ -76,11 +75,6 @@ task description may say). Ollama stays on the host, reached via `host.docker.in
 - **Drains on shutdown** (`_drain_in_flight_work`): stops the runner, waits for anything in
   `APPLYING` to finish, cancels the scrape, closes the Playwright worker. A half-submitted
   application is the worst failure this system has.
-- Starts Ollama in the background if it is not already reachable — but only when
-  `careeros_ollama_health_url` still points at localhost. The liveness probes in
-  `main.py`, `routers/diagnostic.py` and `services/observability.py` read that setting
-  (`CAREEROS_OLLAMA_HEALTH_URL`, default unchanged at `http://127.0.0.1:11434`) rather
-  than hardcoding the host, so a container can point them at the real Ollama.
 - Middleware order matters: `AuthGateMiddleware` is registered *before* `CORSMiddleware` so
   CORS is the outer layer and a 401 still carries CORS headers.
 
@@ -170,16 +164,17 @@ reconcile rejections. Role, level, age, location and aggregator-URL hard filters
 applied at enqueue time — every non-duplicate posting reaches `QUEUED`; the runner (5.3)
 applies them when it reaches the job and SKIPs/INELIGIBLE's it there instead.
 
-Critically, `_application_in_flight()` makes it **back off while a submission is running** —
-scoring loads a local model and would otherwise contend with the live browser.
+Critically, `_application_in_flight()` makes it **back off while a submission is running**,
+so a scoring pass never contends with the live browser.
 
-Model scoring goes through `mistral_resume_match.py` and is gated by `CAREEROS_LOCAL_LLM`.
-Every posting the model has not scored gets a deterministic **role-shape** score instead
-(`role_shape_match.py`, #50): role family, seniority, IDF-weighted requirement coverage and
+Every posting gets a deterministic **role-shape** score (`role_shape_match.py`, #50); the
+local-model scorer was removed: role family, seniority, IDF-weighted requirement coverage and
 BM25, no model. The queue scorer caches its context (IDF over every active posting), scores
-each posting once, and does at most 500 new postings per call off the event loop; with the
-model off, `_role_shape_rescore_queue` also rescores waiting rows that are unscored or carry
-the old keyword heuristic. A model score is never overwritten. `scripts/matchlab` imports the
+each posting once, and does at most 500 new postings per call off the event loop.
+`_role_shape_rescore_queue` rescores waiting rows that are unscored, carry the old keyword
+heuristic or an old local-model score, or were scored against a different resume (each
+score stores `matchResumeKey` and `matchScoredAt`). A posting with no description is scored
+on its title with requirement coverage treated as unknown, which caps it at 77.5. `scripts/matchlab` imports the
 same module, so the benchmark measures what the queue runs. **A score only orders the queue**
 (`queue_priority_score`); nothing is dropped for a low or missing score.
 
@@ -274,16 +269,15 @@ request can never block on a download.
 - `services/tracker/` + `services/gmail_imap.py` — Gmail reading and classification.
 
 ### 5.8 The Gemini layer — deliberately fenced in
-`services/gemini/match_gate.py` states it plainly: it is **the only place a Gemini result is
-allowed to influence an application**, and it is shaped so it can only ever be *more*
-cautious than the deterministic path, never less. `gateway.py` handles transport, caching
+Autopilot's fill, check and stage path makes no model calls (owner decision, 2026-11-01):
+the Gemini match gate and Gemini question answering were removed, and an unanswered question
+stages the job for review. Gemini remains for discovery enrichment and MatchLab labelling,
+behind `CAREEROS_GEMINI_ENABLED`. `gateway.py` handles transport, caching
 and telemetry. Off in tests (`CAREEROS_GEMINI_ENABLED=0`, key blanked).
 
-### 5.9 Self-healing and repair
-- `autopilot_self_healer.py` — after a failed batch, collects diagnostics, reads executor
-  source, asks Qwen for a targeted patch. `healing_response.py` validates the model's
-  diagnosis before anything is trusted.
-- `services/repair/` + `tools/repair-orchestrator` — a separate containerised repair loop.
+### 5.9 Diagnostics
+There is no self-healing: post-batch healing, the repair agent and the repair orchestrator
+were removed. A failed batch is reported, never patched by a model.
 - `services/observability.py` (30 KB), `error_fix_tracker.py`, `diagnostic_outcomes.py` —
   error history and the `/diagnostic` UI.
 
@@ -436,9 +430,8 @@ per posting:
 - Bulk "reset to unapplied" must never sweep skipped, ineligible, manual-review or submitted
   jobs back into the queue.
 
-**Resource budget** — this runs on one laptop with a local model. Resume tailoring is off by
-default; `CAREEROS_LOCAL_LLM` is a RAM-budget dial the user owns. Do not silently flip it
-either way, and do not hard-code a match-score floor.
+**Resource budget** — this runs on one laptop. Resume tailoring is off by default. Do not
+hard-code a match-score floor.
 
 ---
 
