@@ -75,7 +75,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       suppressHydrationWarning
       className={`${inter.variable} ${outfit.variable} ${geist.variable} ${instrumentSerif.variable} ${jetbrainsMono.variable}`}
     >
-      <body className={geist.className}>
+      <body className={geist.className} suppressHydrationWarning>
         <AppProviders>{children}</AppProviders>
       </body>
     </html>

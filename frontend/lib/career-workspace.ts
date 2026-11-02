@@ -123,7 +123,7 @@ export function profileCompleteness(profile: Partial<UserProfile> | null | undef
     Boolean(profile.email?.trim()),
     Boolean(profile.targetRole?.trim() || profile.currentTitle?.trim()),
     Boolean(profile.location?.trim()),
-    Boolean((profile as { skills?: string }).skills?.trim()),
+    Boolean((() => { const s = (profile as Record<string, unknown>).skills; return Array.isArray(s) ? s.length : typeof s === "string" ? s.trim() : false; })()),
     Boolean(profile.workExperience?.length),
   ];
   const score = checks.filter(Boolean).length;
