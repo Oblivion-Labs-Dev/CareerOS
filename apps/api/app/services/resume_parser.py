@@ -26,33 +26,35 @@ def extract_text_from_attachment(attachment: dict[str, Any] | None) -> str:
         return ""
 
 
-def parse_resume_fields(text: str, profile: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+def parse_resume_fields(text: str, profile: dict[str, Any], *, force: bool = False) -> tuple[dict[str, Any], dict[str, Any]]:
     extracted: dict[str, Any] = {}
     updated = dict(profile)
 
+    def _set(key: str, value: object) -> None:
+        extracted[key] = value
+        if force or not updated.get(key):
+            updated[key] = value
+
     email = EMAIL_RE.search(text)
-    if email and not updated.get("email"):
-        updated["email"] = email.group(0)
-        extracted["email"] = updated["email"]
+    if email:
+        _set("email", email.group(0))
 
     phone = PHONE_RE.search(text)
-    if phone and not updated.get("phone"):
-        updated["phone"] = phone.group(0)
-        extracted["phone"] = updated["phone"]
+    if phone:
+        _set("phone", phone.group(0))
 
     years = YEARS_RE.search(text)
-    if years and not updated.get("yearsExperience"):
-        updated["yearsExperience"] = years.group(1)
-        extracted["yearsExperience"] = updated["yearsExperience"]
+    if years:
+        _set("yearsExperience", years.group(1))
 
     lines = [line.strip() for line in text.splitlines() if line.strip()]
-    if lines and not updated.get("fullName"):
-        updated["fullName"] = lines[0]
-        parts = lines[0].split()
+    if lines:
+        name = lines[0]
+        _set("fullName", name)
+        parts = name.split()
         if len(parts) >= 2:
-            updated["firstName"] = parts[0]
-            updated["lastName"] = " ".join(parts[1:])
-        extracted["fullName"] = updated["fullName"]
+            _set("firstName", parts[0])
+            _set("lastName", " ".join(parts[1:]))
 
     # Structure: employment history, education and skills. Until this existed
     # the four regexes above were the whole parser, so a profile built by
@@ -61,17 +63,15 @@ def parse_resume_fields(text: str, profile: dict[str, Any]) -> tuple[dict[str, A
     # by hand afterwards.
     #
     # Structured values are always reported in `extracted`, but only written
-    # into the profile when it holds nothing there already. A résumé is
-    # evidence about the candidate; the profile is the record they approved,
-    # and silently replacing an edited work history with a re-parse of an old
-    # PDF would lose their corrections.
+    # into the profile when it holds nothing there already — unless force=True,
+    # which is the user explicitly re-scanning a new resume.
     from app.services.resume_structure import parse_structure
 
     for key, value in parse_structure(text).items():
         if not value:
             continue
         extracted[key] = value
-        if not updated.get(key):
+        if force or not updated.get(key):
             updated[key] = value
 
     return updated, extracted
@@ -95,7 +95,7 @@ def parse_resume_into_profile(
     if not text.strip():
         raise ValueError("Could not extract text from resume")
 
-    updated, extracted = parse_resume_fields(text, profile)
+    updated, extracted = parse_resume_fields(text, profile, force=force)
     return {
         "profile": updated,
         "extracted": extracted,

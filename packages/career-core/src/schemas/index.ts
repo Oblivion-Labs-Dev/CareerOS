@@ -256,4 +256,4 @@ export type Project = z.infer<typeof projectSchema>;
 export type Education = z.infer<typeof educationSchema>;
 export type Experience = z.infer<typeof experienceSchema>;
 
-export const DEFAULT_API_BASE = "http://localhost:8000";
+export const DEFAULT_API_BASE = "http://localhost:4000";

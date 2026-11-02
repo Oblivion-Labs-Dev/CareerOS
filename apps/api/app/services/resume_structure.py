@@ -257,6 +257,12 @@ def parse_experience(lines: list[str]) -> list[dict[str, Any]]:
         start = _normalise_month_year(dates.group("start"))
         end = _normalise_month_year(dates.group("end"))
 
+        # Reject matches where neither side resolved to a recognisable date —
+        # bare numbers like "20-30 seconds" or "2-3 days" in bullet points
+        # match the pattern but normalise to "" on both sides.
+        if not start and not end:
+            continue
+
         # Strip the date out; what remains on the line is company and/or title.
         remainder = _DATE_RANGE.sub("", line).strip(" |,-–—\t")
         parts = [p.strip() for p in re.split(r"\s{2,}|\s*[|·•]\s*|\s+[-–—]\s+", remainder) if p.strip()]
