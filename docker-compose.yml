@@ -2,7 +2,7 @@
 #
 #   docker compose up
 #
-# Runs the dashboard on :5000 and the API — with Playwright and Chromium inside
+# Runs the dashboard on :3000 and the API — with Playwright and Chromium inside
 # it — on :4000. Ollama stays on the host. The database stays where it is.
 #
 # ── About the database ────────────────────────────────────────────────────────
@@ -127,10 +127,10 @@ services:
   web:
     build:
       context: .
-      dockerfile: apps/web/Dockerfile
+      dockerfile: frontend/Dockerfile
     image: careeros-web:dev
     ports:
-      - "5000:5000"
+      - "3000:3000"
     environment:
       # The dashboard proxies every backend call through
       # app/api/backend/[...path]/route.ts, which reads this. Inside the compose
@@ -149,9 +149,9 @@ services:
     volumes:
       # Source only. node_modules and .next are anonymous volumes so the host's
       # Windows-built node_modules never shadows the Linux install in the image.
-      - ./apps/web:/app/apps/web
-      - /app/apps/web/node_modules
-      - /app/apps/web/.next
+      - ./frontend:/app/frontend
+      - /app/frontend/node_modules
+      - /app/frontend/.next
       - /app/node_modules
     depends_on:
       api:

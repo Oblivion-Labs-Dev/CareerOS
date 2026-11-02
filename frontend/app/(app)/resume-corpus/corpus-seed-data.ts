@@ -1,4 +1,4 @@
-import initialResumeCorpus from "../../../../../data/resume-corpus-initial.json";
+import initialResumeCorpus from "../../../../data/resume-corpus-initial.json";
 import type { CorpusRecord } from "./corpus-model";
 import { emptyPhaseOneData } from "./phase1-model";
 
