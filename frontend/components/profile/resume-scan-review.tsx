@@ -85,7 +85,7 @@ export function ResumeScanReview({ extracted, profile, onSaved, onDismiss }: Pro
       if (extracted.skills) payload.skills = extracted.skills;
       if (extracted.education) payload.education = extracted.education;
       if (extracted.workExperience) payload.workExperience = extracted.workExperience;
-      await postJson("/profile", payload);
+      await postJson("/profile", { profile: payload });
       onSaved();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Save failed");
