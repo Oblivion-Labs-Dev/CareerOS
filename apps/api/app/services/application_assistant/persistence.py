@@ -77,9 +77,9 @@ def default_settings() -> dict[str, Any]:
         "allowInferredAnswers": False,
         "llm": {
             "enabled": True,
-            "baseUrl": "http://localhost:11434/v1",
-            "model": "mistral-small3.2:24b",
-            "apiKey": "",
+            "baseUrl": app_settings.application_assistant_llm_base_url,
+            "model": app_settings.application_assistant_llm_model,
+            "apiKey": app_settings.application_assistant_llm_api_key,
             "timeout": 60,
             "maxRetries": 2,
             "confidenceThreshold": 0.7,
