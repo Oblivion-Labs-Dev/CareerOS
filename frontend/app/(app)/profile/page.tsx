@@ -120,7 +120,12 @@ function ProfileDataGrid({ profile }: { profile: ApplyPilotProfile }) {
       )}
       {PROFILE_FIELDS.map((section) => (
         <article className="workflow-panel profile-data-card" key={section.group}>
-          <span className="toc-card-kicker">{section.group}</span>
+          <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: "0.5rem" }}>
+            <span className="toc-card-kicker">{section.group}</span>
+            <a href="#application-details" style={{ fontSize: "0.72rem", color: "var(--teal, #0d9488)", textDecoration: "none", whiteSpace: "nowrap" }}>
+              Edit ↓
+            </a>
+          </div>
           <div className="profile-field-list">
             {section.fields.map((field) => (
               <div
@@ -256,7 +261,9 @@ export default function ProfilePage() {
               <ResumeProfileSwitcher activeProfileId={activeResumeProfile?.id ?? null} onSelect={setActiveResumeProfile} />
             </section>
 
-            <ProfileApplicationDetailsForm profile={profile} onSaved={reloadProfile} />
+            <div id="application-details">
+              <ProfileApplicationDetailsForm profile={profile} onSaved={reloadProfile} />
+            </div>
 
             <ProfileDocumentsSection onProfileSynced={reloadProfile} />
 

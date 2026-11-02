@@ -2,6 +2,9 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { fetchDefaultResume, parseResumeIntoProfile, uploadDefaultResume, type StoredResume } from "@/lib/documents-api";
+import { ResumeScanReview } from "@/components/profile/resume-scan-review";
+
+type ScanResult = { extracted: Record<string, unknown>; profile: Record<string, unknown> };
 
 type Props = {
   onProfileSynced?: () => void;
@@ -14,6 +17,7 @@ export function ProfileDocumentsSection({ onProfileSynced }: Props) {
   const [syncing, setSyncing] = useState(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
+  const [scanResult, setScanResult] = useState<ScanResult | null>(null);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -32,40 +36,53 @@ export function ProfileDocumentsSection({ onProfileSynced }: Props) {
     void refresh();
   }, [refresh]);
 
+  const runScan = async () => {
+    setSyncing(true);
+    setError("");
+    setMessage("");
+    setScanResult(null);
+    try {
+      const result = await parseResumeIntoProfile(true);
+      if (Object.keys(result.extracted || {}).length) {
+        setScanResult({ extracted: result.extracted, profile: result.profile });
+      } else {
+        setMessage("Profile already has all fields from this resume.");
+        onProfileSynced?.();
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not scan resume");
+    } finally {
+      setSyncing(false);
+    }
+  };
+
   const handleUpload = async (file: File | null) => {
     if (!file) return;
     setUploading(true);
     setError("");
     setMessage("");
+    setScanResult(null);
     try {
       const saved = await uploadDefaultResume(file);
       setResume(saved);
-      setMessage(`Uploaded ${saved.name || file.name}. Sync to profile to fill contact fields and improve job matching.`);
+      // Auto-scan immediately after upload so user sees the review panel.
+      setSyncing(true);
+      try {
+        const result = await parseResumeIntoProfile(true);
+        if (Object.keys(result.extracted || {}).length) {
+          setScanResult({ extracted: result.extracted, profile: result.profile });
+        } else {
+          setMessage(`Uploaded ${saved.name || file.name}. Fill in your details below.`);
+        }
+      } catch {
+        setMessage(`Uploaded ${saved.name || file.name}. Click "Scan resume" to extract your profile.`);
+      } finally {
+        setSyncing(false);
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Upload failed");
     } finally {
       setUploading(false);
-    }
-  };
-
-  const handleSyncProfile = async () => {
-    if (!resume) return;
-    setSyncing(true);
-    setError("");
-    setMessage("");
-    try {
-      const result = await parseResumeIntoProfile(true);
-      const extracted = Object.keys(result.extracted || {});
-      setMessage(
-        extracted.length
-          ? `Profile updated from resume: ${extracted.join(", ")}.`
-          : "Profile already has the main fields from your resume.",
-      );
-      onProfileSynced?.();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not sync resume to profile");
-    } finally {
-      setSyncing(false);
     }
   };
 
@@ -106,8 +123,8 @@ export function ProfileDocumentsSection({ onProfileSynced }: Props) {
                     <strong>{resume.name}</strong>
                     {resume.updatedAt ? <span className="muted"> · Updated {new Date(resume.updatedAt).toLocaleString()}</span> : null}
                   </p>
-                  <button type="button" className="btn btn-sm" onClick={() => void handleSyncProfile()} disabled={syncing}>
-                    {syncing ? "Syncing…" : "Sync to profile"}
+                  <button type="button" className="btn btn-sm btn-primary" onClick={() => void runScan()} disabled={syncing || uploading}>
+                    {syncing ? "Scanning…" : "Scan resume"}
                   </button>
                 </div>
               ) : (
@@ -134,6 +151,21 @@ export function ProfileDocumentsSection({ onProfileSynced }: Props) {
             <p className="profile-documents-message profile-documents-message--ok" role="status">
               {message}
             </p>
+          ) : null}
+          {scanResult ? (
+            <ResumeScanReview
+              extracted={scanResult.extracted}
+              profile={scanResult.profile}
+              onSaved={() => {
+                setScanResult(null);
+                setMessage("Profile saved from resume scan.");
+                onProfileSynced?.();
+              }}
+              onDismiss={() => {
+                setScanResult(null);
+                onProfileSynced?.();
+              }}
+            />
           ) : null}
         </>
       )}

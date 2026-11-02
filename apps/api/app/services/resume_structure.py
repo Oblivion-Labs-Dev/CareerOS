@@ -91,6 +91,38 @@ _NOISE = re.compile(
     re.I,
 )
 
+_LINKEDIN_RE = re.compile(r"linkedin\.com/in/([A-Za-z0-9_-]+)", re.I)
+_GITHUB_RE   = re.compile(r"(?:github\.com/([A-Za-z0-9_-]+))", re.I)
+_URL_RE      = re.compile(r"https?://\S+|(?:[a-z0-9-]+\.)+[a-z]{2,}/\S*", re.I)
+
+
+def parse_header(lines: list[str]) -> dict[str, Any]:
+    """Extract contact links from the raw header lines (before _NOISE filtering).
+
+    Reads LinkedIn, GitHub, and a portfolio URL from the lines that _NOISE
+    would otherwise discard.  Called on the raw ``sections["header"]`` list
+    before any noise filtering so that the URL lines are still present.
+    """
+    result: dict[str, Any] = {}
+    for line in lines:
+        li = _LINKEDIN_RE.search(line)
+        if li and "linkedin" not in result:
+            result["linkedin"] = f"https://linkedin.com/in/{li.group(1)}"
+        gh = _GITHUB_RE.search(line)
+        if gh and "github" not in result:
+            result["github"] = f"https://github.com/{gh.group(1)}"
+        # Portfolio: any URL that isn't linkedin/github/hackerrank/publication
+        for url_match in _URL_RE.finditer(line):
+            url_lower = url_match.group(0).lower()
+            if any(k in url_lower for k in ("linkedin", "github", "hackerrank", "publication")):
+                continue
+            raw = url_match.group(0)
+            if not raw.startswith("http"):
+                raw = "https://" + raw
+            if "portfolio" not in result:
+                result["portfolio"] = raw
+    return result
+
 
 def _normalise_month_year(value: str) -> str:
     """"Sept 2016" / "09/2016" / "2016" -> "MM/YYYY" or "YYYY".
@@ -149,7 +181,7 @@ def _canonical_degree(line: str) -> str:
         return ""
     token = re.sub(r"[^a-z]", "", match.group(1).lower())
     for prefix, canonical in _DEGREE_CANONICAL:
-        if token == prefix:
+        if token == prefix or token.startswith(prefix):
             return canonical
     return ""
 
@@ -167,11 +199,14 @@ def parse_education(lines: list[str]) -> list[dict[str, Any]]:
         if _NOISE.match(line) or not _SCHOOL_HINT.search(line):
             continue
 
-        # The entry's own line, plus continuation lines beneath it — but never
-        # into the next entry. A fixed three-line window bled the following
-        # school's field of study onto this one, which is a factual error on an
-        # application rather than a cosmetic one.
-        window_lines = [line]
+        # Window: one line before (degree often appears above the school name),
+        # the school line itself, and up to two lines below. Never bleed into
+        # the next school entry.
+        prev_line = lines[index - 1].strip() if index > 0 else ""
+        window_lines = []
+        if prev_line and not _SCHOOL_HINT.search(prev_line) and not _NOISE.match(prev_line):
+            window_lines.append(prev_line)
+        window_lines.append(line)
         for following in lines[index + 1 : index + 3]:
             if _SCHOOL_HINT.search(following) or _NOISE.match(following):
                 break
@@ -257,9 +292,8 @@ def parse_experience(lines: list[str]) -> list[dict[str, Any]]:
         start = _normalise_month_year(dates.group("start"))
         end = _normalise_month_year(dates.group("end"))
 
-        # Reject matches where neither side resolved to a recognisable date —
-        # bare numbers like "20-30 seconds" or "2-3 days" in bullet points
-        # match the pattern but normalise to "" on both sides.
+        # Reject bare number ranges like "20-30 seconds" or "2-3 days" that
+        # match the pattern but resolve to nothing on both sides.
         if not start and not end:
             continue
 
@@ -335,13 +369,32 @@ def parse_structure(text: str) -> dict[str, Any]:
     sections = split_sections(text)
     result: dict[str, Any] = {}
 
+    # parse_header runs on the raw header lines before _NOISE filtering, so
+    # the LinkedIn/GitHub/portfolio URL lines are still present.
+    header = parse_header(sections.get("header", []))
+    result.update(header)
+
     education = parse_education(sections.get("education", []))
     if education:
         result["education"] = education
+        # Promote the most-recent entry's flat fields so the profile top-card
+        # shows school/degree/discipline without requiring the caller to dig
+        # into the array.
+        first_edu = education[0]
+        for key in ("school", "degree", "discipline"):
+            if first_edu.get(key) and key not in result:
+                result[key] = first_edu[key]
 
     experience = parse_experience(sections.get("experience", []))
     if experience:
         result["workExperience"] = experience
+        # Promote the most-recent (first) role so the profile card shows
+        # currentTitle / currentCompany without digging into the array.
+        first_exp = experience[0]
+        if first_exp.get("company") and "currentCompany" not in result:
+            result["currentCompany"] = first_exp["company"]
+        if first_exp.get("title") and "currentTitle" not in result:
+            result["currentTitle"] = first_exp["title"]
 
     skills = parse_skills(sections.get("skills", []))
     if skills:
