@@ -1,0 +1,222 @@
+/* Wider than the default drawer: this panel now carries the full answer
+   list and the outstanding-question form, which were cramped at 560px. */
+.panel { width:min(760px,100vw)!important; background:var(--card)!important; padding:0!important; }
+.detail { --tone:#648ac6; color:var(--text); height:100%; overflow-y:auto; background:var(--card); }
+.detail[data-status=submitted] { --tone:#249d7a; }.detail[data-status=failed] { --tone:#d45360; }.detail[data-status=review] { --tone:#d5a218; }.detail[data-status=ineligible] { --tone:#8894a8; }
+/* Completes the map so the panel matches the card palette on every status —
+   manual, skipped and applying previously fell through to the default blue. */
+.detail[data-status=manual] { --tone:#9b7bf0; }
+.detail[data-status=skipped] { --tone:#4c82d6; }
+.detail[data-status=applying] { --tone:#6873cb; }
+.detail[data-status=queued] { --tone:#648ac6; }
+.hero { position:relative; isolation:isolate; overflow:hidden; padding:24px 28px 26px; border-bottom:1px solid var(--border); background:radial-gradient(ellipse at 100% 0,color-mix(in srgb,var(--tone) 22%,transparent),transparent 70%),color-mix(in srgb,var(--tone) 4%,var(--card)); }
+.topline { display:flex; justify-content:space-between; align-items:center; font-size:var(--text-3xs); letter-spacing:.16em; color:var(--muted); margin-bottom:23px; }.topline button { display:grid; place-items:center; width:32px; height:32px; border:1px solid var(--border); background:var(--card); color:var(--text); border-radius:var(--radius-md); font-size:var(--text-xl); cursor:pointer; }
+.identity { display:flex; gap:15px; align-items:center; }.monogram { display:grid; place-items:center; width:56px; height:56px; border-radius:var(--radius-lg); border:1px solid var(--border); box-shadow:0 6px 18px #0000000a; background:var(--card); font-size:var(--text-lg); font-weight:650; }.identity h2 { margin:7px 0 0; font-family:var(--font-outfit),sans-serif; font-size:var(--text-xl); font-weight:550; letter-spacing:-.04em; }.badge { display:inline-flex; align-items:center; gap:5px; color:var(--tone); font-size:var(--text-2xs); font-weight:650; }.badge i { width:6px; height:6px; background:currentColor; border-radius:50%; }.hero>h3 { margin:20px 0 7px; font-size:var(--text-base); font-weight:550; line-height:1.5; max-width:90%; }.location { font-size:var(--text-2xs); color:var(--muted); margin:0; }.heroArt { position:absolute; right:-45px; top:50px; width:180px; height:180px; z-index:-1; color:var(--tone); opacity:.18; }.heroArt i { position:absolute; inset:0; border:1px solid currentColor; border-radius:50%; }.heroArt i+i { inset:20px; }/* 60px is a deliberate exception to the type scale: a floating decorative
+   glyph in the background art, not text in the reading hierarchy. Forcing it
+   onto the 40px display cap would visibly shrink the illustration. */
+.heroArt>span { position:absolute; top:60px; left:50px; font-size:60px; animation:float 6s ease-in-out infinite; }
+.body { padding:24px; }.fit { display:flex; align-items:center; gap:18px; background:color-mix(in srgb,var(--tone) 5%,var(--card)); border:1px solid var(--border); border-radius:var(--radius-lg); padding:18px; }.dial { position:relative; width:76px; height:76px; flex-shrink:0; }.dial svg { fill:none; stroke:var(--border); stroke-width:4; transform:rotate(-90deg); }.dial circle+circle { stroke:var(--tone); stroke-linecap:round; }.dial strong { position:absolute; inset:0; display:flex; justify-content:center; align-items:center; font-size:var(--text-xl); font-weight:600; }.dial small { font-size:var(--text-2xs); }.eyebrow { font-size:var(--text-3xs); letter-spacing:.1em; font-weight:650; color:var(--muted); }.fit h3 { margin:6px 0; font-size:var(--text-base); font-weight:550; }.fit p { margin:0; font-size:var(--text-2xs); color:var(--muted); }
+.facts { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin:13px 0 20px; }.facts>div { border:1px solid var(--border); border-radius:var(--radius-md); padding:14px; }.facts span { display:block; font-size:var(--text-3xs); letter-spacing:.06em; color:var(--muted); margin-bottom:8px; }.facts strong { font-size:var(--text-2xs); font-weight:550; }.reason { border-left:3px solid var(--tone); border-radius:0 var(--radius-md) var(--radius-md) 0; background:color-mix(in srgb,var(--tone) 8%,var(--card)); padding:15px; margin-bottom:24px; }.reason p { font-size:var(--text-xs); line-height:1.75; overflow-wrap:anywhere; }.reason small { font-size:var(--text-3xs); color:var(--muted); }
+/* Always the warning tone, unlike .section which inherits the job's
+   status color — a compliance note is about the employer's question, not
+   this application's outcome. */
+.complianceNotice { margin:26px 0; border-left:3px solid var(--warning); border-radius:0 var(--radius-md) var(--radius-md) 0; background:color-mix(in srgb,var(--warning) 8%,var(--card)); padding:15px; }.complianceNotice .sectionTitle>span { color:var(--warning); }.complianceList { list-style:none; padding:0; margin:14px 0 0; display:grid; gap:14px; }.complianceList li { border-top:1px solid var(--border); padding-top:14px; }.complianceList li:first-child { border-top:none; padding-top:0; }.complianceList p:last-child { color:var(--text); }
+.section { margin:26px 0; }.sectionTitle { display:flex; align-items:center; gap:9px; margin-bottom:14px; }.sectionTitle>span { display:grid; place-items:center; width:27px; height:27px; border:1px solid var(--border); border-radius:var(--radius-md); color:var(--tone); }.sectionTitle h3 { margin:0; font-size:var(--text-sm); font-weight:600; }.sectionTitle b { font-size:var(--text-2xs); margin-left:auto; color:var(--muted); }.document { display:flex; align-items:center; gap:12px; padding:15px; border:1px solid var(--border); border-radius:var(--radius-lg); color:var(--text); text-decoration:none; background:var(--card); transition:transform .2s,border-color .2s; }.document:hover { border-color:var(--tone); transform:translateY(-2px); }.paper { display:grid; place-items:center; flex-shrink:0; width:34px; height:42px; border:1px solid var(--border); border-radius:var(--radius-sm); font-size:var(--text-xl); color:var(--tone); }.document>span:nth-child(2) { min-width:0; }.document strong { display:block; font-size:var(--text-xs); }.document small { display:block; color:var(--muted); font-size:var(--text-2xs); overflow-wrap:anywhere; margin-top:5px; }.document b { margin-left:auto; }.posting { display:flex; justify-content:space-between; margin-top:12px; padding:10px 2px; text-decoration:none; font-size:var(--text-2xs); color:var(--accent); }.muted { color:var(--muted); font-size:var(--text-2xs); line-height:1.6; }.prose { font-size:var(--text-xs); line-height:1.8; color:var(--muted); }.skills { display:flex; flex-wrap:wrap; gap:6px; margin-bottom:18px; }.skills span { font-size:var(--text-2xs); border:1px solid color-mix(in srgb,#249d7a 25%,var(--border)); background:color-mix(in srgb,#249d7a 7%,var(--card)); padding:6px 9px; border-radius:var(--radius-sm); }.gaps span { border-color:color-mix(in srgb,#cda12d 25%,var(--border)); background:color-mix(in srgb,#cda12d 7%,var(--card)); }
+.answers { display:grid; gap:8px; }.answers details { border:1px solid var(--border); border-radius:var(--radius-md); padding:12px; }.answers summary { cursor:pointer; font-size:var(--text-2xs); line-height:1.6; }.answers p { font-size:var(--text-xs); line-height:1.75; color:var(--muted); padding-top:10px; border-top:1px solid var(--border); overflow-wrap:anywhere; }.timeline { list-style:none; padding:0 0 0 7px; }.timeline li { position:relative; border-left:1px solid var(--border); padding:0 0 22px 20px; }.timeline li:last-child { border-color:transparent; }.node { position:absolute; width:7px; height:7px; border-radius:50%; background:var(--tone); left:-4px; top:5px; box-shadow:0 0 0 4px var(--card); }.timeline strong { font-size:var(--text-2xs); text-transform:capitalize; }.timeline time { display:block; font-size:var(--text-3xs); color:var(--muted); margin-top:5px; }.timeline p { font-size:var(--text-2xs); color:var(--muted); line-height:1.7; overflow-wrap:anywhere; }.detail a:focus-visible,.detail button:focus-visible,.detail summary:focus-visible { outline:2px solid var(--accent); outline-offset:3px; }
+@keyframes float { 50% { transform:translate(4px,-7px); } } @media(prefers-reduced-motion:reduce) { .detail * { animation:none!important; transition:none!important; } } :global([data-motion=paused]) .detail * { animation:none!important; transition:none!important; }
+@media(max-width:440px) { .hero { padding:18px; }.body { padding:16px; }.fit { padding:13px; gap:12px; } }
+/* .identity h2 no longer needs a mobile override: 27px and 23px both snapped
+   to the same --text-xl step once collapsed onto the scale. */
+.detailTabs { position:sticky; top:0; z-index:2; display:flex; gap:6px; padding:12px 24px; border-bottom:1px solid var(--border); background:var(--card); }
+.detailTabs button { flex:1; padding:9px 12px; color:var(--muted); background:transparent; border:1px solid transparent; border-radius:var(--radius-md); font-size:var(--text-xs); cursor:pointer; }
+.detailTabs button[aria-pressed=true] { color:var(--text); border-color:var(--border); background:color-mix(in srgb,var(--accent) 9%,var(--card)); }
+.detail .heroArt { display:none; }
+.detail .hero { padding-bottom:18px; }.detail .topline { margin-bottom:12px; }
+
+/* ── Questions Autopilot could not answer ───────────────────────────────── */
+.pendingQuestion { margin: 0.75rem 0; }
+.pendingQuestion + .pendingQuestion { border-top: 1px solid var(--hairline, rgba(255,255,255,.08)); padding-top: 0.75rem; }
+
+.answerInput {
+  width: 100%;
+  margin-top: 0.5rem;
+  padding: 0.5rem 0.65rem;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--hairline, rgba(255,255,255,.16));
+  background: var(--surface-2, rgba(255,255,255,.04));
+  color: inherit;
+  font: inherit;
+}
+
+.pendingActions { display: flex; gap: 0.5rem; margin-top: 0.9rem; flex-wrap: wrap; }
+
+.primaryAction,
+.secondaryAction {
+  padding: 0.45rem 0.9rem;
+  border-radius: var(--radius-full);
+  font: inherit;
+  font-size:var(--text-sm);
+  cursor: pointer;
+  border: 1px solid var(--hairline, rgba(255,255,255,.16));
+}
+
+.primaryAction { background: var(--state, #b97b24); border-color: transparent; color: #fff; }
+.secondaryAction { background: transparent; color: inherit; }
+.primaryAction[disabled],
+.secondaryAction[disabled] { opacity: .55; cursor: default; }
+
+
+/* ── Recorded answers, shown open ───────────────────────────────────────── */
+/* These used to be one <details> per answer, so reading a submitted
+   application meant clicking every row. They are read far more often than they
+   are ignored, so they render expanded. */
+.answers { display: grid; gap: 0; margin: 0; }
+
+.answerRow {
+  display: grid;
+  grid-template-columns: minmax(9rem, 34%) 1fr;
+  gap: 14px;
+  padding: 11px 12px;
+  border-radius: var(--radius-md);
+  align-items: baseline;
+}
+
+.answerRow:nth-child(odd) { background: color-mix(in srgb, var(--tone) 4%, transparent); }
+
+.answerRow dt {
+  font-size:var(--text-2xs);
+  line-height: 1.6;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.answerRow dd {
+  margin: 0;
+  font-size:var(--text-xs);
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 620px) {
+  .answerRow { grid-template-columns: 1fr; gap: 4px; }
+}
+
+/* ── Top-of-panel actions ───────────────────────────────────────────────────
+   The posting link and the state picker are the two things a person reaches
+   for most while working the review lists, so they sit in the header rather
+   than inside the Documents tab where they were previously buried. Both stay
+   visible whichever tab is selected. */
+.heroPosting {
+  display: flex; align-items: center; gap: 8px;
+  margin-top: 14px; padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--border));
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--accent) 8%, var(--card));
+  color: var(--accent);
+  font-size:var(--text-xs); font-weight: 600; text-decoration: none;
+  transition: transform .18s, border-color .18s, background .18s;
+}
+.heroPosting:hover { border-color: var(--accent); transform: translateY(-1px); background: color-mix(in srgb, var(--accent) 13%, var(--card)); }
+.heroPosting > span:nth-child(2) { flex: 1; }
+.heroPosting b { font-weight: 600; }
+
+/* The job id, click to copy. Quieter than the posting link above it: it is a
+   reference you reach for when something looks wrong, not an action you take on
+   every application, so it reads as metadata rather than as a button. */
+.heroJobId {
+  display: flex; align-items: center; gap: 8px; width: 100%;
+  margin-top: 8px; padding: 7px 11px;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--muted);
+  font: inherit; font-size:var(--text-2xs);
+  cursor: pointer; text-align: left;
+  transition: border-color .18s, color .18s, background .18s;
+}
+.heroJobId:hover { border-color: var(--accent); color: var(--accent); background: color-mix(in srgb, var(--accent) 6%, transparent); }
+.heroJobId:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.heroJobId code {
+  flex: 1;
+  font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
+  font-size:var(--text-2xs);
+  letter-spacing: -.01em;
+  overflow-wrap: anywhere;
+}
+/* The confirmation, in place of an icon: the whole row is the control, so a
+   separate copy affordance was one thing too many. Reserves no space when
+   empty, and the row turns accent-coloured while it shows. */
+.heroJobId em {
+  flex-shrink: 0;
+  font-style: normal; font-weight: 650; font-size:var(--text-2xs);
+  letter-spacing: .01em;
+  color: var(--accent);
+  white-space: nowrap;
+}
+.heroJobId[data-copied="true"] {
+  border-style: solid;
+  border-color: var(--accent);
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
+.stateBar {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  padding: 12px 28px;
+  border-bottom: 1px solid var(--border);
+  background: color-mix(in srgb, var(--tone) 5%, var(--card));
+}
+.stateBar label { font-size:var(--text-2xs); font-weight: 650; color: var(--muted); letter-spacing: .02em; }
+.stateBar select {
+  flex: 1; min-width: 190px;
+  padding: 9px 11px;
+  border: 1px solid var(--border); border-radius: var(--radius-md);
+  background: var(--card); color: var(--text);
+  font-size:var(--text-xs); cursor: pointer;
+}
+.stateBar select:disabled { opacity: .6; cursor: progress; }
+
+@media (max-width: 440px) {
+  .stateBar { padding: 10px 16px; }
+  .stateBar select { min-width: 0; }
+}
+
+/* ── Status colour, shared with the application cards ───────────────────────
+   Same hex values as application-card.module.css so a card and its open panel
+   never disagree about what colour "Submitted" is. */
+.detailTabs[data-status] button[aria-pressed=true] {
+  color: var(--tone);
+  border-color: color-mix(in srgb, var(--tone) 40%, var(--border));
+  background: color-mix(in srgb, var(--tone) 12%, var(--card));
+  font-weight: 600;
+}
+.detailTabs[data-status] button[aria-pressed=true]::after {
+  content: ""; display: block; height: 2px; margin-top: 7px;
+  border-radius: var(--radius-full); background: var(--tone);
+}
+.detailTabs[data-status] button:hover:not([aria-pressed=true]) {
+  color: color-mix(in srgb, var(--tone) 70%, var(--text));
+}
+
+/* The bar is tinted by the job's CURRENT state, so the panel reads the same
+   colour as the card the user just clicked. */
+.stateBar[data-status] {
+  background: color-mix(in srgb, var(--tone) 9%, var(--card));
+  border-left: 3px solid var(--tone);
+}
+.stateBar[data-status] label { color: color-mix(in srgb, var(--tone) 65%, var(--text)); }
+
+.statePicker { border-color: color-mix(in srgb, var(--tone) 35%, var(--border)); }
+.statePicker:hover { border-color: var(--tone); }
+.statePicker:focus-visible { outline: 2px solid var(--tone); outline-offset: 2px; }
+
+/* Each option carries the colour of the bucket it would move the job into.
+   Firefox and Chrome honour option colours on Windows; where a platform
+   ignores them the labels still read correctly, so this is decoration only. */
+.statePicker option[data-state=submitted]  { color:#249d7a; }
+.statePicker option[data-state=review]     { color:#d5a218; }
+.statePicker option[data-state=manual]     { color:#9b7bf0; }
+.statePicker option[data-state=failed]     { color:#d45360; }
+.statePicker option[data-state=skipped]    { color:#4c82d6; }
+.statePicker option[data-state=ineligible] { color:#8894a8; }
+.statePicker option[data-state=queued]     { color:#648ac6; }

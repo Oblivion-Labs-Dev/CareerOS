@@ -1,0 +1,57 @@
+/** A job row as returned by /autopilot/jobs — only fields we know exist. */
+export type AutopilotJobRow = {
+  id: string;
+  company?: string;
+  title?: string;
+  location?: string;
+  status?: string;
+  matchScore?: number | null;
+  /** Mistral/Ollama resume-vs-JD comparison stored alongside the score. */
+  matchReason?: string;
+  keyMatchingSkills?: string[];
+  missingSkills?: string[];
+  matchMethod?: string;
+  matchModel?: string;
+  /** Backend's own ordering key: location/level tier bonus + match score. */
+  queuePriority?: number;
+  queuePosition?: number;
+  submittedAt?: string;
+  submissionConfirmed?: boolean;
+  /** "manual" when the user applied by hand and marked it submitted themselves. */
+  submissionSource?: string | null;
+  previousStatus?: string | null;
+  updatedAt?: string;
+  queuedAt?: string;
+  applicationUrl?: string;
+  lastError?: string;
+  skipReason?: string;
+  lastErrorType?: string;
+  resumeFileUsed?: string;
+  salary?: string;
+  pendingQuestions?: { question: string; rawLabel?: string; options?: string[] }[];
+  checkpointHistory?: { step?: string; details?: string; timestamp?: string }[];
+  answers?: Record<string, unknown>;
+  /** Set only on INELIGIBLE rows: why this posting can never be applied to. */
+  ineligibilityReason?: string;
+  ineligibilityDetail?: string;
+  /** True when this SUBMITTED row is a genuine re-submission of a posting
+   * already submitted under another row (same employer, same posting) -
+   * kept visible in history but excluded from submitted/success-rate counts. */
+  duplicateSubmission?: boolean;
+  duplicateOfJobId?: string;
+  /** Per-employer pacing. A job at its company's rate limit stays QUEUED and
+   * carries these, so it is a countdown rather than a terminal bucket.
+   * `companyCapTier` is "day" | "week" | "month" — whichever limit bound. */
+  companyCapHoldUntil?: string;
+  companyCapReason?: string;
+  companyCapTier?: string;
+  /** Set only on REJECTED rows: when and from what evidence. */
+  rejectedAt?: string;
+  rejectionEvidence?: { uid?: string; subject?: string; matchedOn?: string; source?: string };
+  /** The employer's own screening question raised a jurisdiction concern
+   * (immigration-status framing, a salary-history ask in a restricted state)
+   * — informational only, never blocks or auto-answers. Reflects the most
+   * recent attempt's form, not a standing flag to clear. */
+  complianceWarnings?: { question: string; message: string; fieldId?: string }[];
+};
+

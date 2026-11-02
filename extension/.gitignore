@@ -1,0 +1,9 @@
+node_modules/
+dist/
+db.json
+test-results/
+playwright-report/
+e2e/screenshots/
+uploads/
+logs/
+*.log

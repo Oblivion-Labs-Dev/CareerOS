@@ -1,5 +1,6 @@
 packages:
-  - "apps/*"
+  - "frontend"
+  - "extension"
   - "packages/*"
 allowBuilds:
   esbuild: true

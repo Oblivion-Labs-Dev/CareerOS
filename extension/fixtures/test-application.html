@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Mock Job Application Form</title>
+  <style>
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      max-width: 600px;
+      margin: 40px auto;
+      padding: 20px;
+      background: #f9fafb;
+      color: #111827;
+    }
+    h1 { font-size: 1.5rem; margin-bottom: 24px; }
+    h2 { font-size: 1.1rem; border-bottom: 1px solid #e5e7eb; padding-bottom: 6px; margin-top: 24px; }
+    .form-group { margin-bottom: 16px; display: flex; flex-direction: column; gap: 4px; }
+    label { font-weight: 500; font-size: 0.88rem; }
+    input[type="text"], input[type="email"], select, textarea {
+      padding: 8px 12px;
+      border: 1px solid #d1d5db;
+      border-radius: 6px;
+      font-size: 0.9rem;
+    }
+    input[type="file"] { padding: 4px 0; }
+    .radio-group, .checkbox-group { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; }
+    .radio-option, .checkbox-option { display: flex; align-items: center; gap: 8px; font-size: 0.88rem; }
+    button {
+      background: #4f46e5;
+      color: white;
+      border: none;
+      padding: 10px 16px;
+      font-weight: 600;
+      border-radius: 6px;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+  <h1>Apply for: Staff Software Artisan</h1>
+  <p style="font-size: 0.88rem; color:#6b7280;">Greenhouse Platform Simulator</p>
+
+  <form onsubmit="event.preventDefault(); alert('Form submitted! (In a real extension, AutoSubmit is blocked)');">
+    <h2>Personal Information</h2>
+    
+    <div class="form-group">
+      <label for="first_name">First Name *</label>
+      <input type="text" id="first_name" name="first_name" required placeholder="Jane">
+    </div>
+
+    <div class="form-group">
+      <label for="last_name">Last Name *</label>
+      <input type="text" id="last_name" name="last_name" required placeholder="Doe">
+    </div>
+
+    <div class="form-group">
+      <label for="email">Email *</label>
+      <input type="email" id="email" name="email" required placeholder="jane@example.com">
+    </div>
+
+    <div class="form-group">
+      <label for="phone">Phone *</label>
+      <input type="text" id="phone" name="phone" required placeholder="123-456-7890">
+    </div>
+
+    <h2>Links</h2>
+
+    <div class="form-group">
+      <label for="linkedin">LinkedIn Profile</label>
+      <input type="text" id="linkedin" name="linkedin" placeholder="https://linkedin.com/in/...">
+    </div>
+
+    <div class="form-group">
+      <label for="github">GitHub Profile</label>
+      <input type="text" id="github" name="github" placeholder="https://github.com/...">
+    </div>
+
+    <h2>Documents</h2>
+
+    <div class="form-group">
+      <label for="resume">Resume / CV *</label>
+      <input type="file" id="resume" name="resume" required>
+    </div>
+
+    <div class="form-group">
+      <label for="cover_letter">Cover Letter</label>
+      <input type="file" id="cover_letter" name="cover_letter">
+    </div>
+
+    <h2>Work Preferences</h2>
+
+    <div class="form-group">
+      <label>Are you legally authorized to work in the United States?</label>
+      <div class="radio-group">
+        <label class="radio-option">
+          <input type="radio" name="authorized" value="yes"> Yes
+        </label>
+        <label class="radio-option">
+          <input type="radio" name="authorized" value="no"> No
+        </label>
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label>Will you now or in the future require visa sponsorship?</label>
+      <div class="radio-group">
+        <label class="radio-option">
+          <input type="radio" name="sponsorship" value="yes"> Yes
+        </label>
+        <label class="radio-option">
+          <input type="radio" name="sponsorship" value="no"> No
+        </label>
+      </div>
+    </div>
+
+    <h2>Self-Learning Custom Question Test</h2>
+
+    <div class="form-group">
+      <label for="custom_favorite_editor">What is your favorite text editor?</label>
+      <input type="text" id="custom_favorite_editor" name="favorite_editor" placeholder="e.g. Vim, Emacs, VS Code">
+    </div>
+
+    <div class="form-group">
+      <label for="custom_coffee">How do you take your coffee?</label>
+      <select id="custom_coffee" name="coffee_preference">
+        <option value="">Select option</option>
+        <option value="black">Black</option>
+        <option value="milk">With Milk</option>
+        <option value="sugar">With Sugar & Milk</option>
+        <option value="tea">I prefer tea</option>
+      </select>
+    </div>
+
+    <div style="margin-top: 24px;">
+      <button type="submit">Submit Application</button>
+    </div>
+  </form>
+</body>
+</html>

@@ -1,0 +1,788 @@
+/* CareerOS design language — global adoption layer.
+   ============================================================================
+   The app has 37 pages built against global class names rather than shared
+   components, so restyling them one file at a time would drift apart again.
+   This layer instead re-expresses the handful of classes those pages actually
+   use (buttons, panels, eyebrows, inputs, empty states) in the same token
+   language as components/ui/primitives.module.css — so every page inherits the
+   refined language at once and stays consistent with anything newly built from
+   the primitives.
+
+   Loaded last so it settles the cascade over the older stylesheets, which pile
+   up hardcoded values from earlier design passes. Everything below is
+   token-driven and theme-aware; nothing here changes markup or behaviour.
+   ========================================================================= */
+
+/* ─── Scales: the substrate the rest of this file assumes ───────────────────
+   These did not exist. The app was using 12 distinct border radii, 12 distinct
+   font sizes and ad hoc rgba shadows, chosen per component — which is the
+   single loudest reason the interface reads as assembled rather than designed.
+   Ratios, not round numbers: the type scale is a 1.25 major third from a 16px
+   base, so sizes relate to each other instead of merely differing.
+   ========================================================================= */
+
+:root {
+  /* Type. --text-* are sizes; the display sizes are for Instrument Serif.
+     --text-3xs extends the ratio one step further than the original 8: the
+     Autopilot control centre is a genuinely dense operational surface —
+     timestamps, badges, avatar initials — that was reaching for 8/9/10px
+     directly rather than being forced onto --text-2xs, which would have made
+     every tiny badge visibly oversized for its container. */
+  --text-3xs: 0.5625rem;  /* 9px — timestamps, badges, avatar initials only */
+  --text-2xs: 0.6875rem;  /* 11px — micro-labels, the smallest legible size */
+  --text-xs: 0.75rem;     /* 12px */
+  --text-sm: 0.875rem;    /* 14px */
+  --text-base: 1rem;      /* 16px — body */
+  --text-lg: 1.25rem;     /* 20px */
+  --text-xl: 1.5rem;      /* 24px */
+  --text-2xl: 2rem;       /* 32px */
+  --text-3xl: 2.5rem;     /* 40px — display only */
+
+  /* Space: 4px base, doubling. Anything not on this scale is a bug. */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+  --space-12: 3rem;
+
+  /* Radius: four steps, not twelve. */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 16px;
+  --radius-full: 999px;
+
+  /* Elevation and surfaces — and the two themes do genuinely opposite things.
+     This is the correction to an earlier mistake here, which dropped borders
+     everywhere in favour of shadow: that is right for light mode and wrong for
+     dark. On a near-black canvas a soft shadow lands on black and disappears,
+     so the cards measured 1.07x against the page and read as having no edge.
+
+     DARK (the Linear / Vercel / Raycast model): separation comes from a
+     genuinely lighter surface plus a hairline edge. The inset top highlight is
+     the specular line a real lit surface would have, and is most of why a card
+     reads as an object rather than a rectangle of paint. Shadow contributes
+     little and is kept only for hover.
+
+     LIGHT (the Stripe model): the canvas is tinted and the card is pure white
+     — the card is *lighter* than the page, not darker. White-on-tint can never
+     reach a large lightness ratio, so the edge and a layered, cool-tinted
+     shadow carry it. The blue-violet cast in the shadow is deliberate: a pure
+     black shadow on white reads as grey dirt. */
+  --surface-0: #020913;
+  --surface-1: #121b27;
+  --surface-2: #18232f;
+  --card-edge: rgb(255 255 255 / 0.09);
+  /* Form controls read as recessed, so on dark they sit *below* the card
+     surface rather than above it. On light they are white like the card and
+     rely on their border. */
+  --control-bg: #0c1420;
+  --elev-1:
+    0 1px 2px rgb(0 0 0 / 0.40),
+    inset 0 1px 0 rgb(255 255 255 / 0.06);
+  --elev-2:
+    0 8px 24px rgb(0 0 0 / 0.45),
+    inset 0 1px 0 rgb(255 255 255 / 0.07);
+  --elev-3:
+    0 20px 48px rgb(0 0 0 / 0.55),
+    inset 0 1px 0 rgb(255 255 255 / 0.08);
+
+  /* Faces. */
+  --font-body: var(--font-geist), var(--font-inter), system-ui, sans-serif;
+  --font-display: var(--font-display), Georgia, "Times New Roman", serif;
+  --font-figure: var(--font-figure), ui-monospace, "SF Mono", monospace;
+}
+
+[data-theme="light"] {
+  /* Tinted canvas, white card. The page must be the darker of the two or the
+     card has nothing to sit on. */
+  --surface-0: #f2f5f9;
+  --surface-1: #ffffff;
+  --surface-2: #ffffff;
+  --card-edge: rgb(15 23 42 / 0.08);
+  --control-bg: #ffffff;
+  --elev-1:
+    0 1px 2px rgb(15 23 42 / 0.04),
+    0 2px 6px rgb(50 50 93 / 0.06);
+  --elev-2:
+    0 2px 4px rgb(15 23 42 / 0.04),
+    0 12px 28px rgb(50 50 93 / 0.10);
+  --elev-3:
+    0 4px 8px rgb(15 23 42 / 0.04),
+    0 24px 56px rgb(50 50 93 / 0.14);
+}
+
+/* ─── Colour roles ──────────────────────────────────────────────────────────
+   One colour per meaning. Previously --success resolved to --ref-teal, the
+   same value as --accent, so "this was submitted" and "click this" were drawn
+   identically and neither stood out. Splitting the roles is what lets a card's
+   state be read without reading its text.
+
+   --accent stays teal and now means ACTION ONLY: buttons, links, focus rings.
+   ========================================================================= */
+
+:root,
+[data-theme="dark"] {
+  --success: #34d399;   /* submitted, confirmed */
+  --ai: #9365f5;        /* match scores, model output */
+  --warning: #f5b544;   /* paced, blocked, needs an answer */
+  --danger: #ff5264;    /* failed */
+  /* Text drawn ON a filled role colour. Both of these are dark because every
+     role colour above is light enough to need dark text on it. */
+  --on-accent: #06131a;
+  --on-role: #0b1017;
+}
+
+[data-theme="light"] {
+  /* Darkened until each clears 4.5:1 on white — the dark-theme values are far
+     too light to sit on a light surface. */
+  --success: #047857;
+  --ai: #6d28d9;
+  --warning: #b45309;
+  --danger: #dc2626;
+  --on-accent: #ffffff;
+  --on-role: #ffffff;
+}
+
+/* ─── Scrollbars ────────────────────────────────────────────────────────────
+   Eleven components scrolled with no treatment at all and fell back to the OS
+   default, which is the single biggest reason scrolling felt unfinished. Done
+   once, globally, rather than in eleven stylesheets: a thin rail over a
+   transparent track, dim at rest and brighter on hover, reserving no layout
+   space so nothing reflows when a list becomes scrollable.
+   ========================================================================= */
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--text) 22%, transparent) transparent;
+}
+
+*::-webkit-scrollbar { width: 6px; height: 6px; }
+*::-webkit-scrollbar-track { background: transparent; }
+
+*::-webkit-scrollbar-thumb {
+  border-radius: var(--radius-full);
+  background: color-mix(in srgb, var(--text) 22%, transparent);
+  transition: background 160ms ease;
+}
+
+*:hover::-webkit-scrollbar-thumb { background: color-mix(in srgb, var(--text) 42%, transparent); }
+*::-webkit-scrollbar-thumb:hover { background: color-mix(in srgb, var(--text) 60%, transparent); }
+*::-webkit-scrollbar-corner { background: transparent; }
+
+/* Keep a scroll gesture inside the panel it started in, so flicking a long
+   list does not then scroll the page behind it. */
+[data-scroll],
+.scroll-rail { overscroll-behavior: contain; }
+
+/* ─── Editorial display ─────────────────────────────────────────────────────
+   Instrument Serif on page and section headings only. The restraint is the
+   point: a serif everywhere is a costume, a serif on the one line that names
+   the page is a voice. Optical sizing wants tighter tracking as it grows.
+   ========================================================================= */
+
+h1, .page-title, .display {
+  font-family: var(--font-display);
+  font-weight: 400;
+  letter-spacing: -0.015em;
+  line-height: 1.12;
+}
+
+/* ─── Figures ───────────────────────────────────────────────────────────────
+   Every number the user reads. Tabular numerals are the whole reason: without
+   them a count animating 1,067 -> 1,068 visibly reflows, because proportional
+   digits have different widths. `.metric-value` and friends are the existing
+   class names these pages already use.
+   ========================================================================= */
+
+.metric-value,
+.metric-number,
+.stat-value,
+.figure,
+[data-figure] {
+  font-family: var(--font-figure);
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1, "zero" 1;
+  letter-spacing: -0.02em;
+}
+
+/* Any element holding digits that should not jitter, without changing face. */
+.tabular,
+table td,
+time {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ─── Buttons (≈207 usages across the app) ─── */
+
+.btn,
+.btn-primary,
+.btn-secondary,
+.btn-ghost {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  min-height: 2.25rem;
+  padding: 0 var(--space-4);
+  font-family: inherit;
+  font-size: var(--font-secondary);
+  font-weight: var(--weight-semibold);
+  line-height: 1;
+  white-space: nowrap;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition:
+    background var(--motion-micro) var(--ease-standard),
+    border-color var(--motion-micro) var(--ease-standard),
+    color var(--motion-micro) var(--ease-standard),
+    box-shadow var(--motion-micro) var(--ease-standard),
+    transform var(--motion-micro) var(--ease-standard);
+}
+
+.btn:focus-visible,
+.btn-primary:focus-visible,
+.btn-secondary:focus-visible,
+.btn-ghost:focus-visible {
+  outline: none;
+  box-shadow: var(--control-ring);
+}
+
+.btn:not(:disabled):active,
+.btn-primary:not(:disabled):active,
+.btn-secondary:not(:disabled):active {
+  transform: translateY(0.5px) scale(0.985);
+  transition-duration: 60ms;
+}
+
+.btn-primary {
+  color: var(--btn-primary-text);
+  background: var(--btn-primary-bg);
+  border-color: transparent;
+  box-shadow: var(--elevation-1), inset 0 1px 0 rgba(255, 255, 255, 0.14);
+}
+
+.btn-primary:not(:disabled):hover {
+  transform: translateY(-1px);
+  box-shadow: var(--elevation-2), 0 0 16px var(--accent-glow), inset 0 1px 0 rgba(255, 255, 255, 0.2);
+}
+
+.btn,
+.btn-secondary {
+  color: var(--text-secondary);
+  background: var(--card);
+  border-color: var(--border-strong);
+}
+
+.btn:not(:disabled):hover,
+.btn-secondary:not(:disabled):hover {
+  color: var(--text);
+  background: var(--card-hover);
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--border-strong));
+}
+
+.btn-ghost {
+  color: var(--muted);
+  background: transparent;
+  border-color: transparent;
+}
+
+.btn-ghost:not(:disabled):hover {
+  color: var(--text);
+  background: var(--bg-elevated);
+}
+
+.btn-sm {
+  min-height: 1.85rem;
+  padding: 0 var(--space-3);
+  font-size: var(--font-meta);
+}
+
+.btn:disabled,
+.btn-primary:disabled,
+.btn-secondary:disabled,
+.btn-ghost:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
+
+/* ─── Surfaces: panels, cards, stat tiles ─── */
+
+.workflow-panel,
+.dashboard-panel,
+.data-panel,
+.stat-card,
+.cos-surface {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--card);
+  box-shadow: var(--elevation-1);
+  transition:
+    border-color var(--motion-interactive) var(--ease-standard),
+    box-shadow var(--motion-interactive) var(--ease-standard),
+    transform var(--motion-interactive) var(--ease-standard);
+}
+
+/* Only surfaces that actually do something get hover feedback. */
+a.stat-card:hover,
+button.stat-card:hover,
+.stat-card[role="button"]:hover,
+.dashboard-panel[role="button"]:hover {
+  transform: translateY(-2px);
+  border-color: color-mix(in srgb, var(--accent) 32%, var(--border));
+  box-shadow: var(--elevation-3);
+}
+
+.dashboard-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+}
+
+.dashboard-panel-header h2,
+.dashboard-panel-header h3 {
+  font-size: var(--font-section);
+  font-weight: var(--weight-semibold);
+  letter-spacing: var(--tracking-tight);
+  color: var(--text);
+}
+
+.dashboard-panel-copy {
+  font-size: var(--font-secondary);
+  line-height: 1.6;
+  color: var(--muted);
+}
+
+/* ─── Eyebrows and labels ─── */
+
+.toc-card-kicker,
+.toc-eyebrow,
+.stat-label,
+.cos-label {
+  display: block;
+  font-size: var(--font-label);
+  font-weight: var(--weight-bold);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+/* ─── Secondary text (the single most-used class in the app) ─── */
+
+.muted {
+  color: var(--muted);
+  font-size: var(--font-secondary);
+  line-height: 1.6;
+}
+
+/* ─── Inputs ─── */
+
+.input,
+input[type="text"],
+input[type="email"],
+input[type="url"],
+input[type="search"],
+input[type="number"],
+input[type="password"],
+select,
+textarea {
+  font-family: inherit;
+  font-size: var(--font-body);
+  color: var(--text);
+  background: var(--control-bg);
+  border: 1px solid var(--control-border);
+  border-radius: var(--radius-sm);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.08);
+  transition:
+    border-color var(--motion-micro) var(--ease-standard),
+    box-shadow var(--motion-micro) var(--ease-standard),
+    background var(--motion-micro) var(--ease-standard);
+}
+
+.input:hover:not(:disabled),
+input:hover:not(:disabled),
+select:hover:not(:disabled),
+textarea:hover:not(:disabled) {
+  border-color: var(--control-border-hover);
+}
+
+.input:focus,
+input:focus,
+select:focus,
+textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+  background: var(--card);
+  box-shadow: var(--control-ring);
+}
+
+::placeholder { color: var(--muted-dim); }
+
+/* ─── Empty states ─── */
+
+.dashboard-empty,
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+  padding: var(--space-12) var(--space-6);
+  text-align: center;
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-md);
+  background:
+    radial-gradient(80% 60% at 50% 0%, color-mix(in srgb, var(--accent) 4%, transparent), transparent 70%),
+    var(--card);
+  font-size: var(--font-secondary);
+  color: var(--muted);
+}
+
+/* ─── Page headers: one rhythm everywhere ─── */
+
+.cos-page-header h1,
+.aa-page-header h1,
+.workflow-hero h1,
+.toc-hero h1 {
+  font-size: var(--font-title);
+  font-weight: var(--weight-bold);
+  letter-spacing: var(--tracking-tight);
+  color: var(--text);
+}
+
+/* ─── Focus visibility (accessibility floor for the whole app) ─── */
+
+a:focus-visible,
+button:focus-visible,
+[role="button"]:focus-visible,
+[tabindex]:not([tabindex="-1"]):focus-visible {
+  outline: none;
+  box-shadow: var(--control-ring);
+  border-radius: var(--radius-sm);
+}
+
+/* ─── Sidebar nav: labels must never collide with their trailing badge ───
+   `.nav-link-label` was `flex: 1` with `white-space: nowrap` and no
+   `min-width: 0`, so a flex item cannot shrink below its content width. Long
+   labels ("All Applications", "Review Center") therefore pushed the "Disabled"
+   tag out of the 236px sidebar and the two rendered on top of each other. */
+
+.nav-link-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.nav-coming-soon-tag,
+.nav-link-count {
+  flex: 0 0 auto;
+}
+
+/* The nav scrolls under the pinned footer card; fade the cut edge so a
+   half-visible row reads as "more below" rather than as a clipping bug. */
+.sidebar-nav {
+  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent 100%);
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent 100%);
+}
+
+/* ─── Light theme: surfaces that were still hardcoded dark ───
+   These three were authored with literal dark values and never picked up a
+   light override, so in light mode they kept a dark background while their
+   text switched to near-black — dark-on-dark, effectively invisible. Measured
+   before the fix: chip text rgb(15,23,42) on rgba(15,64,68,.68). */
+
+[data-theme="light"] .nav-link {
+  color: #475569;
+}
+
+[data-theme="light"] .nav-link:hover {
+  color: #0f172a;
+  background: rgba(15, 23, 42, 0.05);
+}
+
+[data-theme="light"] .nav-link.active {
+  color: #0a7f6c;
+  border-color: rgba(10, 148, 126, 0.38);
+  background: rgba(10, 148, 126, 0.09);
+  box-shadow: none;
+}
+
+[data-theme="light"] .nav-link.active .nav-icon {
+  color: #0a7f6c;
+}
+
+[data-theme="light"] .nav-link--disabled,
+[data-theme="light"] .nav-group-label {
+  color: #64748b; /* was #8fa1bd — ~2.3:1 on the white sidebar */
+}
+
+[data-theme="light"] .brand,
+[data-theme="light"] .sidebar-profile-copy strong,
+[data-theme="light"] .sidebar-night-card strong {
+  color: #0f172a;
+}
+
+[data-theme="light"] .sidebar-profile-copy small {
+  color: #64748b;
+}
+
+[data-theme="light"] .sidebar-profile-card {
+  border-color: rgba(15, 23, 42, 0.12);
+  background: #f8fafc;
+  box-shadow: none;
+}
+
+[data-theme="light"] .sidebar-avatar {
+  color: #ffffff;
+  background: linear-gradient(145deg, #0a947e, #0f766e);
+  box-shadow: none;
+}
+
+[data-theme="light"] .main .career-workspace-chip {
+  border-color: rgba(15, 23, 42, 0.12);
+  color: #0f172a;
+  background: #ffffff;
+}
+
+[data-theme="light"] .main .career-workspace-chip:hover,
+[data-theme="light"] .main .career-workspace-chip:focus-visible {
+  border-color: rgba(10, 148, 126, 0.3);
+  background: #f1f5f9;
+}
+
+/* The tint below is translucent, so it needs an opaque layer beneath it —
+   otherwise the strip's dark background shows straight through the chip. */
+[data-theme="light"] .main .career-workspace-chip--active {
+  border-color: rgba(10, 148, 126, 0.42);
+  color: #0f172a;
+  background:
+    linear-gradient(180deg, rgba(10, 148, 126, 0.08), rgba(10, 148, 126, 0.03)),
+    #ffffff;
+  box-shadow: none;
+}
+
+[data-theme="light"] .main .career-workspace-strip {
+  border-color: rgba(15, 23, 42, 0.1);
+  background: #f8fafc;
+  box-shadow: none;
+}
+
+/* Compact console actions ("Open Job Scraper") kept a dark pill on white. */
+[data-theme="light"] .main :is(
+  [class*="minimal-dashboard_todayAction"],
+  [class*="minimal-dashboard_linkAction"],
+  .dashboard-panel-action,
+  .data-row-action
+) {
+  border-color: rgba(15, 23, 42, 0.14);
+  color: #0f766e !important;
+  background: #ffffff;
+}
+
+[data-theme="light"] .main :is(
+  [class*="minimal-dashboard_todayAction"],
+  [class*="minimal-dashboard_linkAction"],
+  .dashboard-panel-action,
+  .data-row-action
+):hover {
+  border-color: rgba(10, 148, 126, 0.45);
+  color: #0f766e !important;
+  background: #f0fdfa;
+}
+
+[data-theme="light"] .main .career-workspace-chip-label {
+  color: #64748b;
+}
+
+/* The shared metric/card surface in reference-match.css paints six card
+   families with a literal dark gradient and had no light counterpart, so in
+   light mode these kept a near-black background under near-black text. Mirrors
+   that selector exactly so the whole group flips together. */
+[data-theme="light"] .main :is(
+  .stat-card,
+  .dashboard-metric-card,
+  .aa-stat-card,
+  .qwen-metric-card,
+  [class*="minimal-dashboard_todayCard"],
+  [class*="minimal-dashboard_matchCard"]
+) {
+  border: 1px solid rgba(15, 23, 42, 0.1);
+  background:
+    radial-gradient(circle at 82% 0%, rgba(10, 148, 126, 0.05), transparent 50%),
+    #ffffff;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.05);
+}
+
+/* Eyebrow glow reads as a smudge on white. */
+[data-theme="light"] .main :is(.toc-card-kicker, .stat-label, [class*="todayEyebrow"]) {
+  text-shadow: none;
+  color: #397269;
+}
+
+.main .profile-data-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+}
+.main .profile-field-row {
+  display: grid;
+  grid-template-columns: minmax(90px, .7fr) minmax(0, 1.3fr);
+  gap: 1rem;
+  align-items: start;
+}
+.main .profile-field-row strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+@media (max-width: 650px) {
+  .main .profile-data-grid { grid-template-columns: minmax(0, 1fr); }
+  .main .profile-connected-panel .dashboard-panel-header { flex-direction: column; align-items: stretch; gap: 1rem; }
+  .main .profile-connected-panel .target-jobs-actions { display: flex; flex-wrap: wrap; gap: .5rem; }
+  .main .profile-connected-panel .target-jobs-actions a { flex: 1 1 auto; white-space: nowrap; }
+  .main .career-workspace-strip-inner { display: grid; grid-template-columns: minmax(0, 1fr); }
+  .main .career-workspace-chip { min-width: 0; }
+}
+
+/* Shared atmosphere: lightweight gradients and finite entrance motion. */
+.workspace-transition { min-width: 0; width: 100%; }
+.main .career-workspace-chip { position: relative; padding-left: 56px; min-height: 68px; justify-content: center; }
+.career-workspace-chip-icon { position: absolute; left: 15px; top: 50%; transform: translateY(-50%); display: grid; place-items: center; width: 29px; height: 29px; border-radius: 10px; font-size: 22px; color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, transparent); }
+.main .career-workspace-chip--active .career-workspace-chip-icon { background: var(--accent); color: var(--bg); }
+@media (prefers-reduced-motion: no-preference) {
+  .career-workspace-chip-icon { transition: transform .25s ease, background .25s ease; }
+  .career-workspace-chip:hover .career-workspace-chip-icon { transform: translateY(-50%) rotate(-8deg); }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .workspace-transition { animation: workspace-arrive .4s cubic-bezier(.2,.75,.3,1) both; }
+  .main :is(.cos-job-card, .profile-data-card) { transition: transform .24s ease, box-shadow .24s ease, border-color .24s ease; }
+  .main :is(.cos-job-card, .profile-data-card):hover { transform: translateY(-4px); box-shadow: 0 12px 26px color-mix(in srgb, var(--accent) 9%, transparent); border-color: color-mix(in srgb, var(--accent) 40%, var(--border)); }
+  .main .cos-job-card { animation: workspace-arrive .45s ease backwards; }
+  .main .cos-job-card:nth-child(3n + 2) { animation-delay: .06s; }
+  .main .cos-job-card:nth-child(3n + 3) { animation-delay: .12s; }
+}
+[data-motion="paused"] :is(.main, .app-topbar, .sidebar) * { animation: none !important; }
+[data-motion="paused"] .workspace-transition,
+[data-motion="paused"] .main .cos-job-card { animation: none !important; }
+[data-motion="paused"] .main :is(.cos-job-card, .profile-data-card):hover { transform: none; }
+.main .profile-data-card { position: relative; overflow: hidden; }
+.main .profile-data-card::before { content: ''; position: absolute; left: 0; top: 20px; height: 23px; width: 3px; border-radius: 0 4px 4px 0; background: #a586cf; }
+.main .cos-job-card { border-radius: 20px; }
+[data-theme="light"] .app-mobile-header {
+  background: #f8fbfa;
+  border-color: #dce7e3;
+}
+[data-theme="light"] .app-mobile-header .brand {
+  color: #18332e;
+}
+[data-theme="light"] .app-mobile-menu-button {
+  background: #fff;
+  border-color: #dce7e3;
+  color: #18332e;
+}
+[data-theme="light"] .main :is(
+  [class*="minimal-dashboard_pageHeader"],
+  [class*="application-analytics_statTile"]
+) p {
+  color: #526176;
+}
+[data-theme="light"] .main [class*="minimal-dashboard_heroEyebrow"] {
+  color: #087b70;
+}
+[data-theme="light"] .sidebar-profile-card button {
+  color: #475569;
+}
+.main {
+  background-image: radial-gradient(ellipse at 100% 0%, color-mix(in srgb, var(--accent) 5%, transparent), transparent 48%);
+}
+.main :is(.page-header, .dashboard-header, .section-header) h1 {
+  font-family: var(--font-outfit), var(--font-sans);
+  letter-spacing: -0.035em;
+  text-wrap: balance;
+}
+.main :is(.workflow-panel, .dashboard-panel, .data-panel, .cos-surface) {
+  border-radius: 16px;
+  background-image: linear-gradient(135deg, color-mix(in srgb, var(--accent) 3%, transparent), transparent 55%);
+}
+.main :is(.eyebrow, .page-eyebrow, .section-eyebrow) {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.main :is(.eyebrow, .page-eyebrow, .section-eyebrow)::before {
+  content: "";
+  width: 0.4rem;
+  height: 0.4rem;
+  border-radius: 50%;
+  background: var(--accent);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .main > :is(.page, .dashboard-page, .career-page) {
+    animation: workspace-arrive 380ms ease-out both;
+  }
+}
+@keyframes workspace-arrive {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* ─── Motion discipline ─── */
+
+@media (prefers-reduced-motion: reduce) {
+  .btn,
+  .btn-primary,
+  .btn-secondary,
+  .btn-ghost,
+  .workflow-panel,
+  .dashboard-panel,
+  .data-panel,
+  .stat-card {
+    transition: none !important;
+    transform: none !important;
+  }
+}
+
+/* Shared identity travels into the dossier; the page itself stays still. */
+::view-transition-old(root),::view-transition-new(root){animation:none}
+::view-transition-group(*){animation-duration:220ms;animation-timing-function:ease-out}
+[data-motion="paused"] article[data-job-id]{transform:none!important}
+@media(prefers-reduced-motion:reduce){::view-transition-group(*){animation:none!important}}
+
+/* ─── Skeleton bars ─────────────────────────────────────────────────────────
+   The shimmer for loading placeholders. Lives here rather than in
+   workspace-loading.module.css because it is a token-level treatment shared by
+   every shape that component renders, and because this file is where the
+   reduced-motion conventions for the app already are.
+
+   Animation is opt-in via prefers-reduced-motion: no-preference, matching the
+   rest of this file. With motion reduced the bar still renders, just still —
+   the information a placeholder carries is its shape and position, not its
+   movement. */
+
+.skeleton {
+  background: color-mix(in srgb, var(--text) 8%, transparent);
+  border-radius: var(--radius-sm, 0.4rem);
+  display: block;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .skeleton {
+    background: linear-gradient(
+      90deg,
+      color-mix(in srgb, var(--text) 6%, transparent) 25%,
+      color-mix(in srgb, var(--text) 12%, transparent) 37%,
+      color-mix(in srgb, var(--text) 6%, transparent) 63%
+    );
+    background-size: 400% 100%;
+    animation: skeleton-sheen 1.4s ease-in-out infinite;
+  }
+}
+
+@keyframes skeleton-sheen {
+  0% { background-position: 100% 50%; }
+  100% { background-position: 0 50%; }
+}

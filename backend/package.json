@@ -1,0 +1,15 @@
+{
+  "name": "@career-os/backend",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": ".venv/bin/python -m uvicorn backend.main:app --host 127.0.0.1 --port 4000",
+    "dev:reload": ".venv/bin/python -m uvicorn backend.main:app --reload --host 127.0.0.1 --port 4000",
+    "start": ".venv/bin/python -m uvicorn backend.main:app --host 127.0.0.1 --port 4000",
+    "typecheck": ".venv/bin/python -m compileall .",
+    "test": ".venv/bin/python -m pytest tests -q",
+    "email:send": ".venv/bin/python scripts/email/send_email.py",
+    "email:threads": ".venv/bin/python scripts/email/fetch_recruiter_threads.py",
+    "email:sync": ".venv/bin/python scripts/email/sync_recruiter_conversations.py"
+  }
+}

@@ -1,0 +1,40 @@
+.scene { --scene-color: #269a89; --scene-sheet: #fff; --scene-tint: #c5e9df; width: 340px; max-width: 100%; color: var(--scene-color); flex-shrink: 0; }
+.scene[data-kind="profile"] { --scene-color: #9570cf; --scene-tint: #e2d5f2; }
+.scene[data-kind="settings"] { --scene-color: #dc8962; --scene-tint: #f8deca; }
+.scene[data-kind="autopilot"] { --scene-color: #319fa3; --scene-tint: #bbebe5; }
+.scene svg { display: block; width: 100%; overflow: visible; }
+.compact { width: 200px; }
+.sheet { fill: var(--scene-sheet); stroke: color-mix(in srgb, currentColor 35%, transparent); stroke-width: 1.5; }
+.sheetTint { fill: var(--scene-tint); stroke: currentColor; stroke-opacity: .2; }
+.block { fill: currentColor; }
+.halo { fill: currentColor; opacity: .10; }
+.shadow { fill: currentColor; opacity: .07; }
+.path { stroke: currentColor; stroke-width: 1.5; stroke-dasharray: 3 8; opacity: .3; }
+.ink { stroke: currentColor; stroke-width: 4; stroke-linecap: round; opacity: .35; }
+.track { stroke: currentColor; stroke-width: 7; stroke-linecap: round; opacity: .13; }
+.glass { fill: var(--scene-sheet); fill-opacity: .88; stroke: currentColor; stroke-width: 4; }
+.orbit { stroke: currentColor; stroke-opacity: .3; stroke-dasharray: 3 8; }
+.dot { fill: currentColor; opacity: .5; }
+:global([data-theme="dark"]) .scene { --scene-sheet: #152738; --scene-tint: #1c4948; }
+:global([data-theme="dark"]) .scene[data-kind="profile"] { --scene-color: #b397e6; --scene-tint: #36304f; }
+:global([data-theme="dark"]) .scene[data-kind="settings"] { --scene-color: #e9aa88; --scene-tint: #4b3833; }
+@media (prefers-reduced-motion: no-preference) {
+  .float { animation: bob 6s ease-in-out infinite; }
+  .back { animation: bob 7s ease-in-out -2s infinite reverse; }
+  .lens { animation: bob 5s ease-in-out -1.5s infinite; }
+  .plane { animation: soar 7s ease-in-out infinite; transform-origin: 180px 110px; }
+  .spark { animation: twinkle 5s ease-in-out infinite; transform-origin: 305px 58px; }
+  .slider { animation: slide 6s ease-in-out infinite; }
+  .sliderReverse { animation: slide 6s ease-in-out infinite reverse; }
+  .path { animation: travel 12s linear infinite; }
+}
+@keyframes bob { 50% { transform: translateY(-9px); } }
+@keyframes soar { 50% { transform: translate(7px,-9px) rotate(-4deg); } }
+@keyframes twinkle { 50% { transform: scale(.65) rotate(20deg); opacity: .45; } }
+@keyframes slide { 50% { transform: translateX(20px); } }
+@keyframes travel { to { stroke-dashoffset: -110; } }
+:global([data-motion="paused"]) .scene * { animation-play-state: paused !important; }
+@media (max-width: 650px) { .scene { width: 180px; } .compact { width: 135px; } }
+
+/* Decorative scenes stay still; work-in-progress indicators own continuous motion. */
+.scene * { animation:none; }

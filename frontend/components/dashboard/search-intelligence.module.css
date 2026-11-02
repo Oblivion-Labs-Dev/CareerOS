@@ -1,0 +1,27 @@
+.section { margin:20px 0 28px; }
+.heading { display:flex; justify-content:space-between; align-items:center; gap:12px; }
+.heading h2 { font-size:15px; font-weight:600; color:var(--text); }
+.heading button { border:1px solid var(--border); background:var(--card); border-radius:8px; color:var(--text); padding:8px 12px; cursor:pointer; }
+.note { font-size:10px; line-height:1.6; color:var(--muted); }
+.grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:14px; margin-top:16px; }
+.metric { --tone:#158878; display:flex; flex-direction:column; gap:14px; padding:22px; border:1px solid var(--border); border-top:3px solid var(--tone); border-radius:15px; text-decoration:none; background:radial-gradient(ellipse at 100% 0,color-mix(in srgb,var(--tone) 13%,transparent),transparent 80%),var(--card); transition:transform .2s; }
+.metric:hover { transform:translateY(-3px); }
+.metric[data-tone=gold] { --tone:#c69826; }.metric[data-tone=blue] { --tone:#5589d0; }.metric[data-tone=rose] { --tone:#ce687a; }
+.label { display:flex; justify-content:space-between; gap:8px; font-size:11px; color:var(--text); }
+.metric>strong { font-family:var(--font-outfit),sans-serif; font-size:42px; font-weight:500; letter-spacing:-.04em; color:var(--text); }
+.readiness { display:grid; grid-template-columns:1.5fr 1fr auto; gap:24px; align-items:center; padding:20px 24px; margin-top:14px; border:1px solid var(--border); border-radius:15px; background:var(--card); }
+.readiness h3 { font-size:13px; color:var(--text); margin:0 0 6px; }.readiness p { font-size:11px; color:var(--muted); margin:0; line-height:1.6; }.readiness a { font-size:11px; color:var(--accent); text-decoration:none; }
+.track { height:9px; border-radius:9px; overflow:hidden; background:var(--border); }.track span { display:block; height:100%; background:var(--accent); border-radius:inherit; transition:width .4s; }
+@media(max-width:1000px) { .grid { grid-template-columns:repeat(2,minmax(0,1fr)); }.readiness { grid-template-columns:1fr; gap:12px; } }
+@media(max-width:420px) { .metric { padding:15px; }.metric>strong { font-size:34px; } }
+@media(prefers-reduced-motion:reduce) { .metric,.track span { transition:none; }.metric:hover { transform:none; } }
+
+/* The fill used to appear already at its final width — the transition only
+   covered later changes, never the first paint. Scale it out from the left so
+   the bar reads as filling up, in step with the figures counting above it. */
+.trackFill { transform-origin: left; animation: track-sweep .9s ease-out both; }
+
+@keyframes track-sweep { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+
+@media (prefers-reduced-motion: reduce) { .trackFill { animation: none; } }
+:global([data-motion=paused]) .trackFill { animation: none; }

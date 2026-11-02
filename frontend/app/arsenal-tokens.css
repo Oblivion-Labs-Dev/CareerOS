@@ -1,0 +1,33 @@
+/* Maps CareerOS design tokens to Arsenal component variables (no theme body overrides). */
+:root,
+[data-theme="dark"] {
+  --arsenal-background: var(--bg);
+  --arsenal-surface: var(--card);
+  --arsenal-elevated: var(--bg-elevated);
+  --arsenal-border: var(--border);
+  --arsenal-text-primary: var(--text);
+  --arsenal-text-secondary: var(--text-secondary);
+  --arsenal-muted: var(--muted);
+  --arsenal-accent: var(--accent);
+  --arsenal-danger: var(--danger);
+  --arsenal-success: var(--success);
+  --arsenal-radius: var(--radius-md);
+  --arsenal-radius-sm: var(--radius-sm);
+  --arsenal-radius-lg: var(--radius-lg);
+}
+
+[data-theme="light"] {
+  --arsenal-background: var(--bg);
+  --arsenal-surface: var(--card);
+  --arsenal-elevated: var(--bg-elevated);
+  --arsenal-border: var(--border);
+  --arsenal-text-primary: var(--text);
+  --arsenal-text-secondary: var(--text-secondary);
+  --arsenal-muted: var(--muted);
+  --arsenal-accent: var(--accent);
+  --arsenal-danger: var(--danger);
+  --arsenal-success: var(--success);
+  --arsenal-radius: var(--radius-md);
+  --arsenal-radius-sm: var(--radius-sm);
+  --arsenal-radius-lg: var(--radius-lg);
+}

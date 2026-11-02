@@ -1,0 +1,275 @@
+/* ─── Company Filter Dropdown (Dark Theme Glassmorphic) ─── */
+
+.container {
+  position: relative;
+  display: inline-block;
+}
+
+.triggerBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.42rem 0.8rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text, #f0f0f2);
+  background: color-mix(in srgb, var(--card, #16181f) 90%, transparent);
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.1));
+  border-radius: var(--radius-sm, 8px);
+  cursor: pointer;
+  transition: all 0.16s cubic-bezier(0.16, 1, 0.3, 1);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
+  user-select: none;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+.triggerBtn:hover {
+  background: var(--card-hover, rgba(255, 255, 255, 0.06));
+  border-color: var(--border-strong, rgba(255, 255, 255, 0.2));
+  color: var(--text, #ffffff);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+.triggerBtnActive {
+  background: color-mix(in srgb, var(--accent, #6366f1) 12%, var(--card, #16181f));
+  border-color: var(--accent, #6366f1);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent, #6366f1) 25%, transparent), 0 4px 12px rgba(0, 0, 0, 0.25);
+}
+
+.icon {
+  width: 0.95rem;
+  height: 0.95rem;
+  color: var(--muted, #9496a1);
+  flex-shrink: 0;
+  transition: color 0.16s ease;
+}
+
+.triggerBtn:hover .icon,
+.triggerBtnActive .icon {
+  color: var(--accent, #6366f1);
+}
+
+.label {
+  max-width: 11rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  letter-spacing: -0.01em;
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 0.1rem 0.45rem;
+  border-radius: 9999px;
+  background: color-mix(in srgb, var(--accent, #6366f1) 15%, transparent);
+  color: var(--accent, #a5b4fc);
+  border: 1px solid color-mix(in srgb, var(--accent, #6366f1) 25%, transparent);
+  line-height: 1.2;
+}
+
+.chevron {
+  width: 0.85rem;
+  height: 0.85rem;
+  color: var(--muted, #9496a1);
+  margin-left: 0.15rem;
+  transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), color 0.16s ease;
+  flex-shrink: 0;
+}
+
+.chevronOpen {
+  transform: rotate(180deg);
+  color: var(--accent, #6366f1);
+}
+
+.clearBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1rem;
+  height: 1rem;
+  border-radius: 50%;
+  color: var(--muted, #9496a1);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  margin-left: -0.15rem;
+  transition: all 0.12s ease;
+}
+
+.clearBtn:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: var(--text, #ffffff);
+}
+
+/* ─── Dropdown Popover ─── */
+
+.menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  min-width: 18rem;
+  max-width: 22rem;
+  background: color-mix(in srgb, var(--bg-elevated, #161822) 96%, black);
+  border: 1px solid var(--border-strong, rgba(255, 255, 255, 0.16));
+  border-radius: var(--radius-md, 10px);
+  box-shadow: 0 16px 36px -4px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.05);
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  animation: dropIn 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+  overflow: hidden;
+}
+
+@keyframes dropIn {
+  from {
+    opacity: 0;
+    transform: translateY(-8px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.menuHeader {
+  padding: 0.6rem 0.65rem 0.45rem;
+  border-bottom: 1px solid var(--border, rgba(255, 255, 255, 0.08));
+}
+
+.filterInputWrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.searchIcon {
+  position: absolute;
+  left: 0.6rem;
+  width: 0.85rem;
+  height: 0.85rem;
+  color: var(--muted, #9496a1);
+  pointer-events: none;
+}
+
+.filterInput {
+  width: 100%;
+  padding: 0.38rem 0.6rem 0.38rem 1.85rem;
+  font-size: 0.78rem;
+  color: var(--text, #f0f0f2);
+  background: color-mix(in srgb, var(--card, #1c1e28) 80%, black);
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.1));
+  border-radius: var(--radius-sm, 6px);
+  outline: none;
+  transition: border-color 0.15s ease;
+}
+
+.filterInput:focus {
+  border-color: var(--accent, #6366f1);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent, #6366f1) 20%, transparent);
+}
+
+.filterInput::placeholder {
+  color: var(--muted, #6f717d);
+}
+
+.list {
+  max-height: 18.5rem;
+  overflow-y: auto;
+  padding: 0.3rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.12rem;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.15) transparent;
+}
+
+.list::-webkit-scrollbar {
+  width: 5px;
+}
+
+.list::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 4px;
+}
+
+.item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 0.45rem 0.65rem;
+  font-size: 0.79rem;
+  font-weight: 500;
+  color: var(--text-secondary, #d1d3db);
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm, 6px);
+  cursor: pointer;
+  text-align: left;
+  transition: all 0.12s ease;
+  user-select: none;
+}
+
+.item:hover {
+  background: var(--card-hover, rgba(255, 255, 255, 0.08));
+  color: var(--text, #ffffff);
+}
+
+.itemActive {
+  background: color-mix(in srgb, var(--accent, #6366f1) 16%, transparent);
+  color: var(--accent, #818cf8);
+  font-weight: 700;
+}
+
+.itemName {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.checkIcon {
+  width: 0.85rem;
+  height: 0.85rem;
+  color: var(--accent, #818cf8);
+  flex-shrink: 0;
+}
+
+.emptyCheck {
+  width: 0.85rem;
+  height: 0.85rem;
+  flex-shrink: 0;
+}
+
+.itemCount {
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 0.1rem 0.42rem;
+  border-radius: 9999px;
+  background: rgba(255, 255, 255, 0.07);
+  color: var(--muted, #9496a1);
+  flex-shrink: 0;
+  transition: all 0.12s ease;
+}
+
+.itemActive .itemCount {
+  background: color-mix(in srgb, var(--accent, #6366f1) 25%, transparent);
+  color: var(--accent, #c7d2fe);
+}
+
+.emptyState {
+  padding: 1.2rem 0.8rem;
+  text-align: center;
+  font-size: 0.78rem;
+  color: var(--muted, #8b8e9c);
+}

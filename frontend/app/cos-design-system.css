@@ -1,0 +1,752 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   CareerOS Design System — tokens, primitives, patterns
+   Visual layer only. Loaded after career-system.css, before cos-refine.css
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+:root,
+[data-theme="dark"] {
+  /* Spacing scale */
+  --cos-space-1: 0.25rem;
+  --cos-space-2: 0.5rem;
+  --cos-space-3: 0.75rem;
+  --cos-space-4: 1rem;
+  --cos-space-5: 1.25rem;
+  --cos-space-6: 1.5rem;
+  --cos-space-8: 2rem;
+  --cos-space-10: 2.5rem;
+
+  /* Typography scale */
+  --cos-text-xs: 0.72rem;
+  --cos-text-sm: 0.82rem;
+  --cos-text-base: 0.92rem;
+  --cos-text-lg: 1.05rem;
+  --cos-text-xl: 1.35rem;
+  --cos-text-2xl: clamp(1.55rem, 2.8vw, 2rem);
+  --cos-text-3xl: clamp(1.75rem, 3.2vw, 2.5rem);
+
+  /* Elevation */
+  --cos-elev-0: none;
+  --cos-elev-1: 0 1px 0 rgba(255, 255, 255, 0.04) inset, 0 4px 14px rgba(0, 0, 0, 0.18);
+  --cos-elev-2: 0 1px 0 rgba(255, 255, 255, 0.05) inset, 0 10px 32px rgba(0, 0, 0, 0.24);
+  --cos-elev-3: 0 1px 0 rgba(255, 255, 255, 0.06) inset, 0 18px 48px rgba(0, 0, 0, 0.32);
+
+  /* Semantic accents (restrained) */
+  --cos-info: #868480;
+  --cos-info-soft: rgba(134, 132, 128, 0.12);
+  --cos-focus-ring: 0 0 0 2px var(--bg), 0 0 0 4px color-mix(in srgb, var(--accent) 45%, transparent);
+
+  /* Motion */
+  --cos-motion-enter: 0.48s var(--ease-out);
+  --cos-motion-micro: 0.14s var(--ease-out);
+  --cos-motion-panel: 0.32s var(--ease-out);
+}
+
+[data-theme="light"] {
+  --cos-elev-1: 0 1px 2px rgba(18, 18, 20, 0.04), 0 4px 14px rgba(18, 18, 20, 0.05);
+  --cos-elev-2: 0 1px 0 rgba(255, 255, 255, 0.9) inset, 0 10px 28px rgba(18, 18, 20, 0.07);
+  --cos-elev-3: 0 12px 40px rgba(18, 18, 20, 0.1);
+  --cos-info: #6f6c66;
+  --cos-info-soft: rgba(111, 108, 102, 0.08);
+  --cos-focus-ring: 0 0 0 2px var(--bg), 0 0 0 4px color-mix(in srgb, var(--accent) 25%, transparent);
+}
+
+/* ─── Surfaces ─── */
+
+.cos-surface,
+.workflow-panel,
+.intelligence-panel .workflow-panel {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--cos-elev-1);
+}
+
+.cos-surface--raised {
+  background: var(--bg-elevated);
+  box-shadow: var(--cos-elev-2);
+}
+
+/* ─── Page headers ─── */
+
+.cos-page-header {
+  margin-bottom: var(--cos-space-5);
+  padding-bottom: var(--cos-space-3);
+}
+
+.cos-page-header h1 {
+  margin: 0.3rem 0 0.4rem;
+  font-size: var(--cos-text-2xl);
+  font-weight: 650;
+  letter-spacing: -0.025em;
+  line-height: 1.15;
+}
+
+.cos-page-header p,
+.cos-page-header .muted {
+  margin: 0;
+  max-width: 52ch;
+  font-size: var(--cos-text-base);
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.cos-page-header .toc-eyebrow {
+  color: var(--muted);
+  font-size: var(--cos-text-xs);
+  font-weight: 650;
+  letter-spacing: 0.1em;
+}
+
+/* ─── Forms ─── */
+
+.cos-label,
+.referral-form label,
+.job-discover-filters label,
+.target-jobs-filters label,
+.aa-wizard-field label,
+.personBar label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  font-size: var(--cos-text-xs);
+  font-weight: 600;
+  color: var(--muted);
+  letter-spacing: 0.02em;
+}
+
+.cos-input,
+.cos-select,
+.cos-textarea,
+.referral-form input,
+.referral-form select,
+.referral-form textarea,
+.target-jobs-filters input,
+.target-jobs-filters select,
+.job-discover-filters input,
+.job-discover-filters select,
+.email-sender-form input,
+.email-sender-form textarea,
+.email-sender-form select,
+.aa-wizard-field input,
+.aa-wizard-field select,
+.aa-wizard-field textarea {
+  min-height: 2.5rem;
+  padding: 0.55rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-elevated);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--cos-text-sm);
+  transition: border-color var(--cos-motion-micro), box-shadow var(--cos-motion-micro), background var(--cos-motion-micro);
+}
+
+.cos-textarea,
+.referral-form textarea,
+.referral-message-textarea,
+.email-sender-form textarea,
+.aa-wizard-field textarea {
+  min-height: 6rem;
+  resize: vertical;
+  line-height: 1.5;
+}
+
+.cos-input::placeholder,
+.referral-form input::placeholder,
+.job-discover-filters input::placeholder {
+  color: var(--muted-dim);
+}
+
+.cos-input:hover,
+.cos-select:hover,
+.cos-textarea:hover,
+.referral-form input:hover,
+.referral-form select:hover,
+.job-discover-filters input:hover,
+.job-discover-filters select:hover {
+  border-color: var(--border-strong);
+}
+
+.cos-input:focus,
+.cos-select:focus,
+.cos-textarea:focus,
+.referral-form input:focus,
+.referral-form select:focus,
+.referral-form textarea:focus,
+.target-jobs-filters input:focus,
+.target-jobs-filters select:focus,
+.job-discover-filters input:focus,
+.job-discover-filters select:focus,
+.email-sender-form input:focus,
+.email-sender-form textarea:focus,
+.aa-wizard-field input:focus,
+.aa-wizard-field select:focus,
+.aa-wizard-field textarea:focus {
+  outline: none;
+  border-color: var(--border-strong);
+  box-shadow: var(--cos-focus-ring);
+  background: var(--card);
+}
+
+.cos-input:disabled,
+.cos-select:disabled,
+.cos-textarea:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+/* ─── Buttons (state completeness) ─── */
+
+.btn-primary:focus-visible,
+.btn-secondary:focus-visible,
+.btn-ghost:focus-visible,
+.btn:focus-visible {
+  outline: none;
+  box-shadow: var(--cos-focus-ring);
+}
+
+.btn-primary:active:not(:disabled),
+.btn.btn-primary:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.btn-primary:disabled,
+.btn-secondary:disabled,
+.btn:disabled {
+  opacity: 0.48;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+.btn-sm {
+  min-height: 2.15rem;
+  padding: 0.42rem 0.85rem;
+  font-size: var(--cos-text-sm);
+}
+
+/* ─── Badges & status ─── */
+
+.cos-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.15rem 0.5rem;
+  border-radius: var(--radius-full);
+  font-size: var(--cos-text-xs);
+  font-weight: 650;
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+}
+
+.cos-badge--success {
+  border-color: color-mix(in srgb, var(--success) 35%, var(--border));
+  color: var(--success);
+  background: color-mix(in srgb, var(--success) 8%, var(--bg-elevated));
+}
+
+.cos-badge--warning {
+  border-color: color-mix(in srgb, var(--warning) 35%, var(--border));
+  color: var(--warning);
+  background: color-mix(in srgb, var(--warning) 8%, var(--bg-elevated));
+}
+
+.cos-badge--danger {
+  border-color: color-mix(in srgb, var(--danger) 35%, var(--border));
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 8%, var(--bg-elevated));
+}
+
+/* ─── Alerts ─── */
+
+.cos-alert {
+  padding: 0.7rem 0.9rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  font-size: var(--cos-text-sm);
+  line-height: 1.45;
+}
+
+.cos-alert--warn,
+.email-sender-status--warn,
+.referral-error {
+  border-color: color-mix(in srgb, var(--warning) 30%, var(--border));
+  background: color-mix(in srgb, var(--warning) 7%, var(--card));
+  color: var(--warning);
+}
+
+.cos-alert--ok,
+.email-sender-status--ok {
+  border-color: color-mix(in srgb, var(--success) 30%, var(--border));
+  background: color-mix(in srgb, var(--success) 7%, var(--card));
+  color: var(--success);
+}
+
+.cos-alert--error {
+  border-color: color-mix(in srgb, var(--danger) 30%, var(--border));
+  background: color-mix(in srgb, var(--danger) 7%, var(--card));
+  color: var(--danger);
+}
+
+/* ─── Empty & loading ─── */
+
+.cos-empty {
+  margin: 0;
+  padding: var(--cos-space-8) var(--cos-space-4);
+  text-align: center;
+  color: var(--muted);
+  font-size: var(--cos-text-base);
+  line-height: 1.55;
+}
+
+.cos-empty strong {
+  display: block;
+  margin-bottom: 0.35rem;
+  color: var(--text-secondary);
+  font-size: var(--cos-text-lg);
+  font-weight: 650;
+}
+
+.page-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.65rem;
+  padding: var(--cos-space-6) 0;
+}
+
+.page-loading--route {
+  min-height: 12rem;
+  justify-content: center;
+  align-items: center;
+}
+
+.page-loading-label {
+  margin: 0;
+  font-size: var(--cos-text-sm);
+  color: var(--muted);
+}
+
+/* ─── Tables ─── */
+
+.cos-table-wrap,
+.aa-table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--card);
+}
+
+.cos-table,
+.aa-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--cos-text-sm);
+}
+
+.cos-table th,
+.cos-table td,
+.aa-table th,
+.aa-table td {
+  padding: 0.65rem 0.85rem;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+}
+
+.cos-table th,
+.aa-table th {
+  font-size: var(--cos-text-xs);
+  font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+  background: var(--bg-elevated);
+}
+
+.cos-table tbody tr:hover,
+.aa-table tbody tr:hover {
+  background: color-mix(in srgb, var(--bg-elevated) 65%, transparent);
+}
+
+.cos-table tbody tr:last-child td,
+.aa-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+/* ─── Intelligence panels ─── */
+
+.intelligence-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--cos-space-4);
+}
+
+.intelligence-checklist {
+  list-style: none;
+  margin: 0.75rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.intelligence-checklist label {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  padding: 0.55rem 0.65rem;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-size: var(--cos-text-sm);
+  color: var(--text-secondary);
+  transition: background var(--cos-motion-micro);
+}
+
+.intelligence-checklist label:hover {
+  background: var(--bg-elevated);
+}
+
+.intelligence-checklist input[type="checkbox"] {
+  width: 1rem;
+  height: 1rem;
+  margin-top: 0.12rem;
+  accent-color: var(--text);
+  flex-shrink: 0;
+}
+
+.intelligence-checklist input[type="checkbox"]:focus-visible {
+  outline: none;
+  box-shadow: var(--cos-focus-ring);
+}
+
+/* ─── Workflow overview (collapsible scaffold) ─── */
+
+.workflow-overview {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-elevated);
+  overflow: hidden;
+}
+
+.workflow-overview summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+  font-size: var(--cos-text-sm);
+  font-weight: 650;
+  color: var(--muted);
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+  transition: color var(--cos-motion-micro), background var(--cos-motion-micro);
+}
+
+.workflow-overview summary::-webkit-details-marker {
+  display: none;
+}
+
+.workflow-overview summary::after {
+  content: "+";
+  font-size: 1rem;
+  font-weight: 400;
+  color: var(--muted-dim);
+  transition: transform var(--cos-motion-micro);
+}
+
+.workflow-overview[open] summary::after {
+  content: "−";
+}
+
+.workflow-overview summary:hover,
+.workflow-overview summary:focus-visible {
+  color: var(--text-secondary);
+  background: var(--card);
+  outline: none;
+}
+
+.workflow-overview .workflow-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.85rem;
+  padding: 0 1rem 1rem;
+  border-top: 1px solid var(--border);
+}
+
+@media (min-width: 720px) {
+  .workflow-overview .workflow-grid {
+    grid-template-columns: minmax(0, 1fr) minmax(240px, 0.75fr);
+  }
+}
+
+.workflow-overview .workflow-panel {
+  padding: 1rem;
+}
+
+/* ─── Discover / job lists ─── */
+
+.discover-score {
+  display: inline-grid;
+  place-items: center;
+  min-width: 2.35rem;
+  height: 2.35rem;
+  padding: 0 0.35rem;
+  border-radius: var(--radius-sm);
+  font-size: var(--cos-text-xs);
+  font-weight: 700;
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+}
+
+.discover-score--green {
+  border-color: color-mix(in srgb, var(--success) 35%, var(--border));
+  color: var(--success);
+  background: color-mix(in srgb, var(--success) 8%, var(--bg-elevated));
+}
+
+.discover-score--yellow {
+  border-color: color-mix(in srgb, var(--warning) 35%, var(--border));
+  color: var(--warning);
+  background: color-mix(in srgb, var(--warning) 8%, var(--bg-elevated));
+}
+
+.discover-score--orange {
+  border-color: color-mix(in srgb, var(--danger) 30%, var(--border));
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 7%, var(--bg-elevated));
+}
+
+.job-discover-row {
+  transition: background var(--cos-motion-micro);
+}
+
+.job-discover-row:hover {
+  background: color-mix(in srgb, var(--bg-elevated) 50%, transparent);
+}
+
+.target-jobs-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 0.65rem;
+}
+
+/* ─── Application Assistant: neutralize legacy neon ─── */
+
+.aa-page::before {
+  display: none !important;
+}
+
+.aac-status--cyan { color: #a8a296; }
+.aac-status--violet { color: #b8b6b0; }
+.aac-status--teal { color: var(--success); }
+
+/* ─── Backend banners ─── */
+
+.backend-required-banner,
+.backend-offline-alert {
+  border-radius: var(--radius-sm);
+  font-size: var(--cos-text-sm);
+  background: var(--card);
+  box-shadow: var(--cos-elev-1);
+}
+
+.backend-required-banner--offline,
+.backend-offline-alert {
+  border-left-color: var(--warning);
+  background: color-mix(in srgb, var(--warning) 6%, var(--card));
+}
+
+.backend-required-banner--online {
+  border-left-color: var(--success);
+  background: color-mix(in srgb, var(--success) 6%, var(--card));
+}
+
+.backend-required-banner--offline .backend-required-banner-icon {
+  color: var(--warning);
+  background: color-mix(in srgb, var(--warning) 12%, transparent);
+}
+
+.backend-required-banner--online .backend-required-banner-icon {
+  color: var(--success);
+  background: color-mix(in srgb, var(--success) 12%, transparent);
+}
+
+.backend-required-banner-pill--online {
+  background: color-mix(in srgb, var(--success) 12%, transparent);
+  color: var(--success);
+}
+
+.backend-required-banner-pill {
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+  color: var(--danger);
+}
+
+.backend-offline-alert-pill {
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+  color: var(--danger);
+}
+
+/* ─── Command palette polish ─── */
+
+.command-dialog {
+  animation: cos-panel-rise var(--cos-motion-panel) var(--ease-out) both;
+}
+
+@keyframes cos-panel-rise {
+  from {
+    opacity: 0;
+    transform: translateY(-8px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.command-results > button:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--accent) 35%, transparent);
+}
+
+/* ─── Qwen panels ─── */
+
+.qwen-agent-panel,
+.qwen-activity-feed {
+  border-radius: var(--radius-md);
+}
+
+/* ─── Landing: calmer hero ─── */
+
+.gradient-text {
+  background: var(--gradient-hero);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  color: transparent;
+}
+
+.landing-eyebrow {
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--border));
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.landing-eyebrow-pulse {
+  background: var(--accent);
+}
+
+.landing-module-card,
+.landing-feature-card {
+  transition: transform var(--cos-motion-micro), box-shadow var(--cos-motion-micro), border-color var(--cos-motion-micro);
+}
+
+.landing-module-card:hover,
+.landing-feature-card:hover {
+  transform: translateY(-2px);
+}
+
+/* ─── Skip link ─── */
+
+.skip-link {
+  background: var(--btn-primary-bg);
+  color: var(--btn-primary-text);
+  font-weight: 700;
+}
+
+/* ─── Responsive touch targets ─── */
+
+@media (max-width: 900px) {
+  .nav-link {
+    min-height: 44px;
+  }
+
+  .btn-primary,
+  .btn-secondary,
+  .btn {
+    min-height: 44px;
+  }
+
+  .app-topbar-search {
+    min-height: 44px;
+  }
+
+  .cos-page-header h1 {
+    font-size: 1.45rem;
+  }
+}
+
+.apply-dashboard-hero {
+  display: block;
+  margin-bottom: var(--cos-space-5);
+}
+
+.apply-dashboard-hero h1 {
+  margin: 0.3rem 0 0.4rem;
+  font-size: var(--cos-text-2xl);
+  letter-spacing: -0.025em;
+  line-height: 1.15;
+}
+
+.apply-dashboard-hero p {
+  max-width: 52ch;
+  font-size: var(--cos-text-base);
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.dashboard-metric-grid {
+  gap: 0.65rem;
+}
+
+.dashboard-metric-card,
+.dashboard-panel {
+  background: var(--card);
+  box-shadow: var(--cos-elev-1);
+}
+
+.dashboard-metric-card strong {
+  font-family: var(--font-display);
+  letter-spacing: -0.02em;
+}
+
+.dashboard-panel h2 {
+  font-size: var(--cos-text-lg);
+  font-weight: 650;
+  letter-spacing: -0.015em;
+}
+
+.application-widget-card {
+  background: var(--bg-elevated);
+  border-color: var(--border);
+  transition: transform var(--cos-motion-micro), box-shadow var(--cos-motion-micro), border-color var(--cos-motion-micro);
+}
+
+.application-widget-card:hover {
+  transform: translateY(-1px);
+  border-color: var(--border-strong);
+  box-shadow: var(--cos-elev-1);
+}
+
+.application-widget-link {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.phase-pill {
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+}
+
+.pipeline-track span {
+  background: linear-gradient(90deg, var(--accent), var(--accent-tertiary)) !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .command-dialog {
+    animation: none;
+  }
+}

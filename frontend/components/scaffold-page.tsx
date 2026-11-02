@@ -1,0 +1,134 @@
+import Link from "next/link";
+import { PageTitleWithStatus } from "@/components/page-title-with-status";
+import styles from "./workspace-header.module.css";
+
+
+interface WorkflowPageProps {
+  title: string;
+  eyebrow: string;
+  subtitle: string;
+  primaryAction?: {
+    href: string;
+    label: string;
+  };
+  secondaryAction?: {
+    href: string;
+    label: string;
+  };
+  outcomes: string[];
+  focusAreas: Array<{
+    title: string;
+    description: string;
+  }>;
+  children?: React.ReactNode;
+}
+
+function WorkflowOverviewGrid({
+  title,
+  outcomes,
+  focusAreas,
+}: {
+  title: string;
+  outcomes: string[];
+  focusAreas: Array<{ title: string; description: string }>;
+}) {
+  return (
+    <section className="workflow-grid" aria-label={`${title} overview`}>
+      <article className="workflow-panel workflow-panel--main">
+        <span className="toc-card-kicker">What this clarifies</span>
+        <div className="workflow-checklist">
+          {outcomes.map((outcome) => (
+            <div className="workflow-check" key={outcome}>
+              <span aria-hidden>✓</span>
+              <p>{outcome}</p>
+            </div>
+          ))}
+        </div>
+      </article>
+
+      <article className="workflow-panel">
+        <span className="toc-card-kicker">Coming into focus</span>
+        <div className="workflow-focus-list">
+          {focusAreas.map((area) => (
+            <div className="workflow-focus" key={area.title}>
+              <h2>{area.title}</h2>
+              <p>{area.description}</p>
+            </div>
+          ))}
+        </div>
+      </article>
+    </section>
+  );
+}
+
+export function WorkflowPage({
+  title,
+  subtitle,
+  primaryAction,
+  secondaryAction,
+  outcomes,
+  focusAreas,
+  children,
+}: WorkflowPageProps) {
+  const embedded = Boolean(children);
+
+
+  return (
+    <div className={`page-content workflow-page${embedded ? " workflow-page--embedded" : ""}`}>
+      <header className={styles.compactHeader}>
+        <div className={styles.copy}>
+          <PageTitleWithStatus>{title}</PageTitleWithStatus>
+          {!embedded && <p>{subtitle}</p>}
+        </div>
+        {(primaryAction || secondaryAction) && (
+          <div className={styles.actions}>
+            {primaryAction && (
+              <Link href={primaryAction.href} className="btn-primary">
+                {primaryAction.label} <span aria-hidden="true">↗</span>
+              </Link>
+            )}
+            {secondaryAction && (
+              <Link href={secondaryAction.href} className="btn-secondary">
+                {secondaryAction.label}
+              </Link>
+            )}
+          </div>
+        )}
+
+      </header>
+
+      {!embedded ? (
+        <details className="workflow-overview">
+          <summary>About this workspace</summary>
+          <WorkflowOverviewGrid title={title} outcomes={outcomes} focusAreas={focusAreas} />
+        </details>
+      ) : null}
+
+      {children}
+    </div>
+  );
+}
+
+interface ScaffoldPageProps {
+  title: string;
+  subtitle: string;
+  focus?: string;
+}
+
+export function ScaffoldPage({ title, subtitle, focus }: ScaffoldPageProps) {
+  return (
+    <WorkflowPage
+      title={title}
+      eyebrow="Workspace"
+      subtitle={subtitle}
+      primaryAction={{ href: "/roadmap", label: "View roadmap" }}
+      outcomes={[focus ?? "This workspace is reserved for the next complete CareerOS workflow."]}
+      focusAreas={[
+        {
+          title: "Next layer",
+          description: "The page is ready for product-specific controls, saved data, and review states.",
+        },
+      ]}
+    />
+  );
+}
