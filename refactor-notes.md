@@ -36,8 +36,48 @@ full pytest suite (1300+ tests) rather than hitting the worktree's own server.
 - **`/` root dashboard and `/health` left in `routers/api.py`.** `/` renders the
   API dashboard (uses `analytics.dashboard`) but is not in any service's route
   list; `/health` must stay trivially available. Both unchanged.
+- **File merges are NOT performed; sources are moved 1:1.** The plan marks
+  several moves "(merge)" — e.g. `minimal_tailoring.py`, `deterministic_tailor.py`
+  → `resume/tailoring.py`; `local_document.py`, `baseline_document.py` →
+  `resume/composer.py`; `resume_profiles.py` + `persistence.py` →
+  `resume/repository.py`; greenhouse_schema + greenhouse_verification →
+  `autopilot/forms/adapters/greenhouse.py`. Merging independent modules into one
+  file is a logic-level refactor (rename/relocate of top-level symbols, risk of
+  name collisions) that conflicts with the "structural move, not a behaviour
+  change" rule. Each source is instead `git mv`-d to a distinct, clearly-named
+  file inside the correct target package/sub-folder, preserving history and
+  behaviour. The package layout and import contracts are still achieved.
 - **`/settings/job-boards` left in `routers/api.py`** (Step 2). It is a static
   stub unrelated to the profile service.
+
+## Step 5 (resume) scope note
+
+- All resume modules were relocated 1:1 into `resume/` (`parsers/`, `scoring/`,
+  and flat files) with every import site rewritten; `resume/interfaces.py` and
+  `resume/service.py` provide the package's public contract (`IResumeService`).
+- `app/db/resume_corpus_seed.py` is intentionally NOT moved to `resume/seed.py`.
+  It is imported by the shared DB layer (`app/db/store.py` / `shared.db` seeding
+  in `init_db`); moving it would invert the dependency (DB core → resume). Kept
+  in `app/db/`.
+- The `resume_intelligence` ROUTER (`app/routers/resume_intelligence.py`) owns
+  `/people`, `/scans`, `/match`, `/graph`, … which are NOT in the plan's resume
+  route list. It is left in place (its moved-module imports were rewritten and
+  still work). The 14 plan-listed resume routes currently remain registered in
+  `routers/api.py` (and `/resume/ats-score` in the resume_intelligence router)
+  and continue to serve unchanged; relocating those route *handlers* into
+  `resume/router.py` is the outstanding part of Step 5. The module layer — the
+  pervasive, high-blast-radius part — is complete and fully green.
+
+## Remaining work (Steps 5-router .. 12)
+
+Not yet done (module relocations for Steps 1-5 are complete and validated):
+- Step 5 routers: move the 14 resume route handlers into `resume/router.py`.
+- Step 6 `intelligence/`, Step 7 (done as Step 4 `notifications/`), Step 6
+  `jobs/`… see plan ordering.
+- Steps 6-8: `jobs/`, `intelligence/`, `autopilot/` module relocations + routers.
+- Step 11: frontend API client path updates.
+- Step 12: delete `apps/`, update docker, flip startup to `main:app` from root,
+  remove the transition bridges.
 
 ## Path fixes after moves (data/static locations unchanged)
 

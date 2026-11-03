@@ -593,8 +593,8 @@ async def generate_role_tailoring_diff(
             company, title,
         )
 
-    from app.services.resume_intelligence.minimal_tailoring import tailor, mode_config
-    from app.services.resume_intelligence.local_document import document_text
+    from resume.minimal_tailoring import tailor, mode_config
+    from resume.local_document import document_text
 
     if accomplishments is None:
         from app.db.store import session_scope, list_entities
@@ -602,8 +602,8 @@ async def generate_role_tailoring_diff(
             accomplishments = list_entities(db, "accomplishment")
     config = mode_config(valid_mode, profile.get("resumeTailoringConfig"))
     result = tailor(accomplishments, description, title, config=config, mode=valid_mode)
-    from app.services.resume_intelligence.evidence_match import compare_pdfs
-    from app.services.resume_intelligence.baseline_document import approved_path, render_baseline
+    from resume.scoring.evidence_match import compare_pdfs
+    from resume.baseline_document import approved_path, render_baseline
     document_comparison = compare_pdfs(approved_path().read_bytes(), render_baseline(result), description,
         use_semantic=config.use_semantic, bm25_k1=config.bm25_k1, bm25_b=config.bm25_b, rrf_k=config.rrf_k)
     originals = [b["original"] for b in result["resumeBullets"]]
@@ -642,13 +642,13 @@ def render_tailored_resume_pdf(diff_data: dict[str, Any], candidate_info: dict[s
 
     mode = diff_data.get("mode", "honest").lower()
     if mode != "off":
-        from app.services.resume_intelligence.local_document import render
+        from resume.local_document import render
         document = diff_data.get("resumeDocument")
         if not document or diff_data.get("tailoringFailed") or not (diff_data.get("quality") or {}).get("ok"):
             raise ValueError("Resume is not ready to export; review the source evidence first.")
         if document.get("method") == "minimal-change-v1":
             from app.db.store import session_scope, list_entities
-            from app.services.resume_intelligence.minimal_tailoring import validate
+            from resume.minimal_tailoring import validate
             with session_scope() as db:
                 problems = validate(document, list_entities(db, "accomplishment"))
             if problems:
@@ -656,7 +656,7 @@ def render_tailored_resume_pdf(diff_data: dict[str, Any], candidate_info: dict[s
         return render(document, candidate_info)
 
 
-    from app.services.resume_intelligence.baseline_document import approved_path
+    from resume.baseline_document import approved_path
     path = approved_path()
     if not path.is_file():
         raise FileNotFoundError("Approved baseline PDF is not configured.")

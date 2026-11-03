@@ -6,7 +6,7 @@ import re
 import hashlib
 from typing import Any
 
-from app.services.resume_parser import extract_text_from_attachment
+from resume.parsers.pdf_parser import extract_text_from_attachment
 
 # extract_text_from_attachment base64-decodes and re-parses the whole PDF with
 # pypdf on every call. The stored defaultResume has no pre-parsed text field,

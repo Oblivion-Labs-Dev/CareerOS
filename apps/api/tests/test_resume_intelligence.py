@@ -1,4 +1,4 @@
-from app.services.resume_intelligence.match_engine import build_ats_keyword_sets, match_corpus_to_job
+from resume.scoring.match_engine import build_ats_keyword_sets, match_corpus_to_job
 
 
 def test_match_corpus_explicit_and_missing_keywords() -> None:

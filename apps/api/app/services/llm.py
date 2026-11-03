@@ -1055,6 +1055,6 @@ async def generate_resume_bullets_for_job(
     approved typography or chasing coverage. Existing ranking settings remain
     configurable through the profile's resumeTailoringConfig.
     """
-    from app.services.resume_intelligence.minimal_tailoring import tailor, mode_config
+    from resume.minimal_tailoring import tailor, mode_config
     result = tailor(accomplishments, job_description, target_role, config=mode_config(mode, tailoring_config), mode=mode)
     return result if result["resumeBullets"] else None

@@ -1,6 +1,7 @@
 import pymupdf
 import pytest
-from app.services.resume_intelligence import baseline_document as bd, semantic
+from resume import baseline_document as bd
+from resume.scoring import semantic
 
 @pytest.fixture
 def baseline(tmp_path, monkeypatch):

@@ -108,7 +108,7 @@ def test_resume_route_surfaces_provider_failure(monkeypatch: pytest.MonkeyPatch)
 
 
 def test_missing_approved_baseline_returns_actionable_error(monkeypatch,baseline):
-    from app.services.resume_intelligence.baseline_document import approved_path
+    from resume.baseline_document import approved_path
     approved_path().unlink()
     monkeypatch.setattr(api,"get_kv",lambda *args:{})
     monkeypatch.setattr(api,"list_entities",lambda *args:[])
@@ -119,7 +119,7 @@ def test_missing_approved_baseline_returns_actionable_error(monkeypatch,baseline
 
 
 def test_generate_then_export_preserves_baseline_and_rejects_tampering(monkeypatch,baseline):
-    from app.services.resume_intelligence.baseline_document import approved_path
+    from resume.baseline_document import approved_path
     monkeypatch.setattr(api,"get_kv",lambda *args:{})
     monkeypatch.setattr(api,"list_entities",lambda *args:[])
     result=asyncio.run(api.generate_resume_route(payload([]),db=object()))["result"]

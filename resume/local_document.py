@@ -5,12 +5,12 @@ from collections import OrderedDict
 from html import escape
 from io import BytesIO
 
-from app.services.resume_intelligence.local_composer import plain
+from resume.composer import plain
 
 
 def document_text(result: dict, profile: dict) -> str:
     if result.get("method") == "minimal-change-v1":
-        from app.services.resume_intelligence.baseline_document import render_baseline
+        from resume.baseline_document import render_baseline
         import pymupdf
         with pymupdf.open(stream=render_baseline(result), filetype="pdf") as doc:
             return doc[0].get_text(sort=True)
@@ -57,7 +57,7 @@ def sections(result: dict, profile: dict) -> list[tuple[str, list[str]]]:
 
 def render(result: dict, profile: dict, *, draft: bool = False) -> bytes:
     if result.get("method") == "minimal-change-v1":
-        from app.services.resume_intelligence.baseline_document import render_baseline
+        from resume.baseline_document import render_baseline
         if not draft and not result.get("exportReady"):
             raise ValueError("Review evidence warnings before exporting this resume.")
         return render_baseline(result)

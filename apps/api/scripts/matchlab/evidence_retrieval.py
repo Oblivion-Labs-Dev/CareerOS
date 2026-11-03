@@ -106,7 +106,7 @@ def load_bullets() -> list[Bullet]:
     problem than the one the builder faces.
     """
     from app.db.store import list_entities, session_scope
-    from app.services.resume_intelligence.local_composer import _candidates
+    from resume.composer import _candidates
     from app.services.story_index import load_corpus, normalize_tag
 
     def authored(record: dict[str, Any]) -> frozenset[str]:
@@ -164,7 +164,7 @@ def load_postings(limit: int) -> list[tuple[str, str]]:
 
 
 def build_queries(bullets: list[Bullet], postings: list[tuple[str, str]]) -> list[Query]:
-    from app.services.resume_intelligence.evidence_match import extract_requirements
+    from resume.scoring.evidence_match import extract_requirements
     from app.services.story_index import flat_tags
 
     queries: list[Query] = []
@@ -191,8 +191,8 @@ Ranker = Callable[[Query, list[Bullet]], list[int]]
 
 def bm25_ranker(bullets: list[Bullet]) -> Ranker:
     """The product's lexical half, with the product's own index."""
-    from app.services.resume_intelligence.bm25 import BM25Index
-    from app.services.resume_intelligence.local_composer import tokenize
+    from resume.scoring.bm25 import BM25Index
+    from resume.composer import tokenize
 
     index = BM25Index.build([tokenize(b.text) for b in bullets])
 
@@ -212,7 +212,7 @@ def embedding_ranker(bullets: list[Bullet], *, instructed: bool = True) -> Ranke
     sentences, which is closer to symmetric. Whether the instruction helps here
     is an empirical question, so it is measured rather than assumed.
     """
-    from app.services.resume_intelligence import semantic
+    from resume.scoring import semantic
 
     passages = semantic.embed_many([(f"b{i}", b.text) for i, b in enumerate(bullets)])
     if passages is None:
@@ -238,7 +238,7 @@ def fused_ranker(bullets: list[Bullet], *, instructed: bool = True) -> Ranker:
     on incompatible scales and mixing them directly is how a retriever ends up
     silently dominated by whichever one has the larger numbers.
     """
-    from app.services.resume_intelligence.fusion import reciprocal_rank_fusion
+    from resume.scoring.fusion import reciprocal_rank_fusion
 
     lexical = bm25_ranker(bullets)
     dense = embedding_ranker(bullets, instructed=instructed)
@@ -265,7 +265,7 @@ def measure(name: str, ranker: Ranker, queries: list[Query], bullets: list[Bulle
 
 
 def release_models() -> None:
-    from app.services.resume_intelligence import semantic
+    from resume.scoring import semantic
 
     semantic._load.cache_clear()
     semantic._cache.clear()
@@ -297,7 +297,7 @@ def main() -> int:
     summaries.append(measure("bm25", bm25_ranker(bullets), queries, bullets).summary())
 
     for key in [m.strip() for m in args.models.split(",") if m.strip()]:
-        from app.services.resume_intelligence import semantic
+        from resume.scoring import semantic
 
         release_models()
         os.environ["CAREEROS_EMBEDDING_MODEL"] = key

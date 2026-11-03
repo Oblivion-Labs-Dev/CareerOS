@@ -6,9 +6,9 @@ import re
 import time
 from dataclasses import replace
 
-from app.services.resume_intelligence.minimal_tailoring import tailor, mode_config
-from app.services.resume_intelligence.baseline_document import render_baseline, approved_path
-from app.services.resume_intelligence.evidence_match import compare_pdfs
+from resume.minimal_tailoring import tailor, mode_config
+from resume.baseline_document import render_baseline, approved_path
+from resume.scoring.evidence_match import compare_pdfs
 
 
 def generate_studio(records: list[dict], profile: dict, description: str, title: str = "", company: str = "", mode: str = "honest", use_semantic: bool | None = None) -> dict:

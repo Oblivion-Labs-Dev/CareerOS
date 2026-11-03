@@ -10,7 +10,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from app.services.resume_intelligence.scanner import extract_text_from_upload
+from resume.scanner import extract_text_from_upload
 
 _SECTION_HEADERS = {
     "experience": re.compile(r"\b(experience|employment history|work history)\b", re.I),
@@ -110,7 +110,7 @@ def compute_ats_score(
         job_title = str(job.get("title") or job.get("roleTitle") or "")
 
     if job_description:
-        from app.services.resume_intelligence.match_engine import build_ats_keyword_sets
+        from resume.scoring.match_engine import build_ats_keyword_sets
 
         keyword_sets = build_ats_keyword_sets(job_description, job_title)
         all_keywords = [kw for group in keyword_sets.values() for kw in group]

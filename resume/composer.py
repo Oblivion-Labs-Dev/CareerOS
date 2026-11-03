@@ -14,9 +14,10 @@ from dataclasses import dataclass
 from functools import lru_cache
 from typing import Any
 
-from app.services.resume_intelligence import quality, semantic
-from app.services.resume_intelligence.bm25 import BM25Index
-from app.services.resume_intelligence.fusion import reciprocal_rank_fusion
+from resume import quality
+from resume.scoring import semantic
+from resume.scoring.bm25 import BM25Index
+from resume.scoring.fusion import reciprocal_rank_fusion
 from app.services.story_index import flat_tags as _flat_tags
 from app.services.story_index import has_unverified_metrics, resume_approved
 
@@ -510,7 +511,7 @@ def compose(records: list[dict], description: str, title: str = "", max_pages: i
 
 def validate_sources(result: dict, records: list[dict]) -> list[str]:
     if result.get("method") == "minimal-change-v1":
-        from app.services.resume_intelligence.minimal_tailoring import validate
+        from resume.minimal_tailoring import validate
         return validate(result, records)
     sources = {str(r.get("id")): r for r in records}
     problems = []

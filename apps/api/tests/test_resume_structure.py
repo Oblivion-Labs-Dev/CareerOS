@@ -13,8 +13,8 @@ from __future__ import annotations
 
 import pytest
 
-from app.services.resume_parser import parse_resume_fields
-from app.services.resume_structure import (
+from resume.parsers.pdf_parser import parse_resume_fields
+from resume.parsers.structure_parser import (
     parse_education,
     parse_experience,
     parse_skills,

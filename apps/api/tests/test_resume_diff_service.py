@@ -97,7 +97,7 @@ async def test_generate_role_tailoring_diff():
 @pytest.mark.anyio
 async def test_off_mode_keeps_approved_pdf_even_with_full_jd(baseline):
     from app.services.application_assistant.resume_diff_service import render_tailored_resume_pdf
-    from app.services.resume_intelligence.baseline_document import approved_path
+    from resume.baseline_document import approved_path
     result=await generate_role_tailoring_diff({"title":"Engineer","description":"Required: Kubernetes infrastructure and production recovery automation."}, {}, mode="off", accomplishments=[])
     assert result["totalChanges"]==0
     assert all(b["decision"]=="KEEP" for b in result["resumeDocument"]["resumeBullets"])

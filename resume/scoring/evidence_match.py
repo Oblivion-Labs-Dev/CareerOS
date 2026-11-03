@@ -12,9 +12,9 @@ import hashlib
 from html import unescape
 import re
 
-from app.services.resume_intelligence import semantic
-from app.services.resume_intelligence.bm25 import BM25Index
-from app.services.resume_intelligence.fusion import reciprocal_rank_fusion
+from resume.scoring import semantic
+from resume.scoring.bm25 import BM25Index
+from resume.scoring.fusion import reciprocal_rank_fusion
 
 VERSION = "document-support-v1"
 SKILLS = {

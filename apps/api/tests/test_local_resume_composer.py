@@ -5,8 +5,8 @@ from io import BytesIO
 import pytest
 from pypdf import PdfReader
 
-from app.services.resume_intelligence.local_composer import compose, requirements, validate_sources
-from app.services.resume_intelligence.local_document import render
+from resume.composer import compose, requirements, validate_sources
+from resume.local_document import render
 from tests.resume_baseline_fixture import baseline  # noqa: F401  (pytest fixture)
 
 

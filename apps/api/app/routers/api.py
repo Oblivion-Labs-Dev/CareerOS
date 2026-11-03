@@ -35,14 +35,14 @@ from app.services.job_discover import store as job_discover
 from app.services.job_discover.url_import import autoextract_job_from_url
 from app.services.application_assistant.persistence import get_settings as get_aa_settings
 from app.services.llm import analyze_accomplishment, generate_resume_bullets_for_job
-from app.services.resume_intelligence.ats_score import compute_ats_score
-from app.services.resume_intelligence import resume_profiles as resume_profiles_service
-from app.services.resume_intelligence.tailoring import (
+from resume.ats_score import compute_ats_score
+from resume import resume_profiles as resume_profiles_service
+from resume.tailoring import (
     TAILORING_TONE_BY_MODE,
     build_tailoring_diff,
     passthrough_diff,
 )
-from app.services.resume_parser import parse_resume_into_profile
+from resume.parsers.pdf_parser import parse_resume_into_profile
 from notifications.tracker import pipeline as tracker_pipeline
 from app.services.target_company_jobs import (
     filter_jobs,
@@ -1110,7 +1110,7 @@ async def ai_generate_accomplishment_route(payload: AiGeneratePayload) -> dict[s
 async def generate_resume_route(payload: ResumeGeneratePayload, db: Session = Depends(db_session)) -> dict[str, Any]:
     requested_ids = list(dict.fromkeys(payload.accomplishmentIds))
 
-    from app.services.resume_intelligence.local_composer import with_profile
+    from resume.composer import with_profile
     all_accs = with_profile(list_entities(db, "accomplishment"), get_kv(db, "profile") or {})
     selected_accs = [a for a in all_accs if not requested_ids or a.get("id") in requested_ids]
     selected_ids = {str(accomplishment.get("id")) for accomplishment in selected_accs}
@@ -1144,7 +1144,7 @@ async def generate_resume_route(payload: ResumeGeneratePayload, db: Session = De
             status_code=503,
             detail="Resume generation is temporarily unavailable. No synthetic fallback content was returned.",
         )
-    from app.services.resume_intelligence.local_document import document_text
+    from resume.local_document import document_text
     result["content"] = document_text(result, get_kv(db, "profile") or {})
     return {"success": True, "result": result}
 
@@ -1152,8 +1152,8 @@ async def generate_resume_route(payload: ResumeGeneratePayload, db: Session = De
 @router.post("/resume/export-pdf")
 def export_local_resume(payload: dict[str, Any] = Body(...), db: Session = Depends(db_session)):
     from fastapi.responses import Response
-    from app.services.resume_intelligence.local_composer import validate_sources, with_profile
-    from app.services.resume_intelligence.local_document import render
+    from resume.composer import validate_sources, with_profile
+    from resume.local_document import render
     result = payload.get("result") or {}
     records = with_profile(list_entities(db, "accomplishment"), get_kv(db, "profile") or {})
     problems = validate_sources(result, records)
@@ -1177,7 +1177,7 @@ class ResumeStudioPayload(BaseModel):
 
 @router.post("/resume/studio")
 def generate_resume_studio(payload: ResumeStudioPayload, db: Session = Depends(db_session)):
-    from app.services.resume_intelligence.resume_studio import generate_studio
+    from resume.studio import generate_studio
     try:
         return {"success": True, **generate_studio(list_entities(db, "accomplishment"), get_kv(db, "profile") or {},
                     payload.jobDescription, payload.targetRole, payload.targetCompany, payload.mode, payload.useSemantic)}
@@ -1196,7 +1196,7 @@ async def tailor_resume_route(payload: ResumeTailorPayload, db: Session = Depend
     if mode not in TAILORING_TONE_BY_MODE:
         mode = "honest"
 
-    from app.services.resume_intelligence.local_composer import with_profile
+    from resume.composer import with_profile
     all_accs = with_profile(list_entities(db, "accomplishment"), get_kv(db, "profile") or {})
     if payload.accomplishmentIds:
         requested_ids = set(payload.accomplishmentIds)
@@ -1205,7 +1205,7 @@ async def tailor_resume_route(payload: ResumeTailorPayload, db: Session = Depend
         selected_accs = all_accs
 
     if mode == "off":
-        from app.services.resume_intelligence.minimal_tailoring import tailor, TailoringConfig
+        from resume.minimal_tailoring import tailor, TailoringConfig
         try:
             baseline_result = tailor([], "", mode="off", config=TailoringConfig(use_semantic=False, weak_relevance=0, max_replacement_fraction=0, reorder_threshold=1))
         except ValueError as exc:

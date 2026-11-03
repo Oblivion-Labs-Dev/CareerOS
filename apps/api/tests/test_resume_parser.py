@@ -5,7 +5,7 @@ from fastapi.testclient import TestClient
 
 from app.db.store import session_scope, set_kv
 from app.main import app
-from app.services.resume_parser import extract_text_from_attachment, parse_resume_into_profile
+from resume.parsers.pdf_parser import extract_text_from_attachment, parse_resume_into_profile
 
 client = TestClient(app)
 

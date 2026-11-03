@@ -65,7 +65,7 @@ def parse_resume_fields(text: str, profile: dict[str, Any], *, force: bool = Fal
     # Structured values are always reported in `extracted`, but only written
     # into the profile when it holds nothing there already — unless force=True,
     # which is the user explicitly re-scanning a new resume.
-    from app.services.resume_structure import parse_structure
+    from resume.parsers.structure_parser import parse_structure
 
     for key, value in parse_structure(text).items():
         if not value:

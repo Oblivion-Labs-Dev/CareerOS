@@ -11,9 +11,9 @@ from sqlalchemy.orm import Session
 from app.db.store import get_kv, session_scope
 from app.services.application_assistant.llm_client import create_llm_client
 from app.services.application_assistant.persistence import get_settings
-from app.services.resume_intelligence.graph_builder import build_knowledge_graph
-from app.services.resume_intelligence.match_engine import match_corpus_to_job
-from app.services.resume_intelligence.persistence import (
+from resume.scoring.graph_builder import build_knowledge_graph
+from resume.scoring.match_engine import match_corpus_to_job
+from resume.persistence import (
     delete_person,
     get_person,
     get_scan,
@@ -23,11 +23,11 @@ from app.services.resume_intelligence.persistence import (
     save_match,
     save_person,
 )
-from app.services.resume_intelligence.qwen_services import (
+from resume.qwen_services import (
     enrich_ats_keywords_with_qwen,
     generate_match_recommendations,
 )
-from app.services.resume_intelligence.scanner import (
+from resume.scanner import (
     commit_scan_accomplishments,
     load_accomplishments_for_person,
     run_resume_scan,

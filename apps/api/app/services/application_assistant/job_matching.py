@@ -122,7 +122,7 @@ def match_job(
 
     required_matches = []
     required_missing = []
-    from app.services.resume_intelligence.evidence_match import support
+    from resume.scoring.evidence_match import support
     from app.services.application_assistant.candidate_match_context import extract_resume_text, work_experience_text, accomplishment_text, normalize_profile_skills
     evidence = "\n".join([extract_resume_text(documents),work_experience_text(profile),accomplishment_text(accomplishments)," ".join(normalize_profile_skills(profile))])
     quotes = re.split(r"\n+|(?<=[.!?])\s+|;", evidence)

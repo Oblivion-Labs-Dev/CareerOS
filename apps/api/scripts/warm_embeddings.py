@@ -20,7 +20,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from app.services.resume_intelligence.semantic import MODELS, model_name  # noqa: E402
+from resume.scoring.semantic import MODELS, model_name  # noqa: E402
 
 
 def fetch(name: str) -> bool:

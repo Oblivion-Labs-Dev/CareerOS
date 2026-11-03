@@ -1,0 +1,19 @@
+"""Public contract for the resume service.
+
+Other services import ONLY from this module. Extraction to a microservice
+means writing one HTTP client that implements this Protocol and swapping the
+injection; nothing else changes.
+"""
+
+from typing import Any, Protocol
+
+from sqlalchemy.orm import Session
+
+
+class IResumeService(Protocol):
+    async def get_profile(self) -> dict: ...
+    async def update_profile(self, patch: dict) -> dict: ...
+    async def parse_resume(self, force: bool) -> dict: ...
+    async def get_default_resume(self) -> dict | None: ...
+    async def save_default_resume(self, payload: dict) -> dict: ...
+    def list_resume_profiles(self, db: Session) -> list[dict[str, Any]]: ...

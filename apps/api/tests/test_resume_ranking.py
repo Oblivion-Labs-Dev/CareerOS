@@ -4,10 +4,10 @@ from io import BytesIO
 import pytest
 from pypdf import PdfReader
 
-from app.services.resume_intelligence import semantic
-from app.services.resume_intelligence.bm25 import BM25Index
-from app.services.resume_intelligence.fusion import reciprocal_rank_fusion
-from app.services.resume_intelligence.local_composer import compose, requirements, validate_sources
+from resume.scoring import semantic
+from resume.scoring.bm25 import BM25Index
+from resume.scoring.fusion import reciprocal_rank_fusion
+from resume.composer import compose, requirements, validate_sources
 from tests.resume_baseline_fixture import baseline  # noqa: F401  (pytest fixture)
 
 
@@ -91,7 +91,7 @@ def test_compose_exposes_ranking_explainability():
 # --- Fallback (embeddings unavailable) --------------------------------------
 
 def test_semantic_unavailable_falls_back_to_bm25_and_taxonomy(monkeypatch):
-    monkeypatch.setattr("app.services.resume_intelligence.local_composer.semantic.embed_many", lambda items: None)
+    monkeypatch.setattr("resume.composer.semantic.embed_many", lambda items: None)
     result = compose([evidence()], "Required: Kubernetes infrastructure.", "Platform Engineer")
     assert result["resumeBullets"]
     assert result["rankingDebug"]["semanticAvailable"] is False
@@ -153,7 +153,7 @@ def test_validate_sources_ignores_new_debug_fields():
 # --- One-page fitting (resume_studio, real ReportLab render) ---------------
 
 def test_resume_studio_generates_a_single_page_pdf(baseline):
-    from app.services.resume_intelligence.resume_studio import generate_studio
+    from resume.studio import generate_studio
     records = [evidence(id=f"acc-{i}", company="Example",
         currentBullet=f"Delivered feature {i} that improved Kubernetes deployment reliability and reduced production outages by automating rollout checks.")
         for i in range(10)]

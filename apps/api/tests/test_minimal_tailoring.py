@@ -3,7 +3,8 @@ from dataclasses import replace
 import pymupdf
 import pytest
 
-from app.services.resume_intelligence import baseline_document as bd, minimal_tailoring as mt, semantic
+from resume import baseline_document as bd, minimal_tailoring as mt
+from resume.scoring import semantic
 
 JD = "Required: Kubernetes infrastructure and production recovery. Build reliable Kubernetes deployments and production automation."
 

@@ -6,9 +6,9 @@ import re
 from typing import Any, Literal
 
 from app.services.application_assistant.job_matching import _parse_qualifications, match_job
-from app.services.resume_intelligence.corpus_adapter import accomplishment_to_record
-from app.services.resume_intelligence.text_utils import extract_keywords, text_blob
-from app.services.resume_intelligence.evidence_match import match_text, contains
+from resume.scoring.corpus_adapter import accomplishment_to_record
+from resume.parsers.text_utils import extract_keywords, text_blob
+from resume.scoring.evidence_match import match_text, contains
 
 CoverageKind = Literal["explicit", "inferred", "unsupported", "missing"]
 

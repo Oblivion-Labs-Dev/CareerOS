@@ -172,7 +172,7 @@ def _is_evidenced(skill: str, evidence_text: str, evidence_terms: set[str]) -> b
     normalized = skill.lower().strip()
     if not normalized:
         return False
-    from app.services.resume_intelligence.evidence_match import contains, NEGATIVE, terms
+    from resume.scoring.evidence_match import contains, NEGATIVE, terms
     tokens = terms(normalized)
     for quote in re.split(r"\n+|(?<=[.!?])\s+|;", evidence_text):
         if NEGATIVE.search(quote):
@@ -297,7 +297,7 @@ async def score_job_against_resume(
     if not client.enabled or not candidate_summary.strip():
         return None
 
-    from app.services.resume_intelligence.evidence_match import extract_requirements
+    from resume.scoring.evidence_match import extract_requirements
     description = str(job.get("description") or "")
     extracted = extract_requirements(description)
     if extracted:

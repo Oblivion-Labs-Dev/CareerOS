@@ -8,16 +8,17 @@ from dataclasses import asdict, dataclass, replace
 import math
 import re
 
-from app.services.resume_intelligence import quality, semantic
-from app.services.resume_intelligence.baseline_document import (
+from resume import quality
+from resume.scoring import semantic
+from resume.baseline_document import (
     fits,
     load_baseline,
     reflow_fits,
     replacement_runs,
 )
-from app.services.resume_intelligence.bm25 import BM25Index
-from app.services.resume_intelligence.fusion import reciprocal_rank_fusion
-from app.services.resume_intelligence.local_composer import (
+from resume.scoring.bm25 import BM25Index
+from resume.scoring.fusion import reciprocal_rank_fusion
+from resume.composer import (
     GENERIC_OVERLAP_WORDS,
     _candidates,
     flat_tags,
@@ -186,7 +187,7 @@ def _credited(req: dict, candidate_text: str) -> tuple[bool, set[str], set[str]]
 
 
 def _rank(candidates, reqs, config):
-    from app.services.resume_intelligence.evidence_match import support
+    from resume.scoring.evidence_match import support
     index = BM25Index.build([tokenize(c["optimizedBullet"]) for c in candidates], k1=config.bm25_k1, b=config.bm25_b)
     try:
         # Bullets are passages, requirements are queries. BGE is trained with an
@@ -361,7 +362,7 @@ def skills_order(baseline: dict, description: str, title: str = "", *, fit_check
     A re-ordered line is only accepted if it still fits the approved
     typography; item widths differ, so a permutation can wrap differently.
     """
-    from app.services.resume_intelligence.baseline_document import fits, pack_to_fit, skills_runs
+    from resume.baseline_document import fits, pack_to_fit, skills_runs
 
     fit_check = fit_check or fits
     posting = f"{title}\n{description}"
@@ -452,7 +453,7 @@ def tailor(records, description, title="", *, baseline=None, config=None, fit_ch
         config = replace(config,use_semantic=False,weak_relevance=0,max_replacement_fraction=0,reorder_threshold=1)
     fit_check = fit_check or fits
     reorder_skills = mode != "off"
-    from app.services.resume_intelligence.evidence_match import extract_requirements
+    from resume.scoring.evidence_match import extract_requirements
     reqs = extract_requirements(description)
     for req in reqs:
         req["tags"] = sorted(flat_tags(req["text"]))

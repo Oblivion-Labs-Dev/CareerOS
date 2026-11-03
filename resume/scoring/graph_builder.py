@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 from typing import Any
 
-from app.services.resume_intelligence.corpus_adapter import accomplishment_to_record
+from resume.scoring.corpus_adapter import accomplishment_to_record
 
 MAX_NODES = 80
 MAX_EDGES = 120

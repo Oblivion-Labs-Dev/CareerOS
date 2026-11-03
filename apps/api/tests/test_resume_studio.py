@@ -4,7 +4,7 @@ import pymupdf
 import pytest
 from pypdf import PdfReader
 from tests.resume_baseline_fixture import baseline
-from app.services.resume_intelligence import resume_studio as studio, baseline_document as bd
+from resume import studio as studio, baseline_document as bd
 
 JD = "Required: Kubernetes deployment automation and reliable production services. Own production recovery and infrastructure."
 
@@ -48,8 +48,8 @@ def test_current_profile_does_not_overwrite_approved_identity(baseline):
     assert "Approved Candidate" in text and "Unapproved" not in text
     assert "Original university and degree" in text
 def test_fast_local_override_preserves_saved_config(baseline, monkeypatch):
-    from app.services.resume_intelligence.resume_studio import generate_studio
-    from app.services.resume_intelligence import semantic
+    from resume.studio import generate_studio
+    from resume.scoring import semantic
     calls = []
     def forbidden(*_):
         calls.append(True)

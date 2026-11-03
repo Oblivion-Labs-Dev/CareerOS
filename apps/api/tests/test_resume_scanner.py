@@ -1,4 +1,4 @@
-from app.services.resume_intelligence.scanner import deterministic_scan_fields, extract_text_from_upload
+from resume.scanner import deterministic_scan_fields, extract_text_from_upload
 
 
 def test_deterministic_scan_extracts_bullets() -> None:
