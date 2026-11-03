@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
-import app.services.error_fix_tracker as tracker_module
+import analytics.error_tracker as tracker_module
 from app.main import app
 
 client = TestClient(app)
@@ -16,8 +16,8 @@ def tracker(tmp_path, monkeypatch):
     fresh = tracker_module.ErrorFixTracker()
     fresh._loaded = True
     monkeypatch.setattr(tracker_module, "error_fix_tracker", fresh)
-    monkeypatch.setattr("app.services.error_investigation.error_fix_tracker", fresh)
-    monkeypatch.setattr("app.services.runtime_metrics.error_fix_tracker", fresh)
+    monkeypatch.setattr("analytics.error_investigation.error_fix_tracker", fresh)
+    monkeypatch.setattr("analytics.metrics.error_fix_tracker", fresh)
     return fresh
 
 

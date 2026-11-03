@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import uuid
 
-from app.services.error_fix_tracker import error_fix_tracker
-from app.services.log_store import read_client_logs
+from analytics.error_tracker import error_fix_tracker
+from analytics.log_store import read_client_logs
 from app.services.repair.types import LogEntry, LogSource, ReadLogOptions
 
 
@@ -70,7 +70,7 @@ class CareerOSLogSource:
 
 
 def log_inventory() -> dict[str, int]:
-    from app.services.log_store import LOG_FILE
+    from analytics.log_store import LOG_FILE
 
     client_lines = 0
     if LOG_FILE.is_file():

@@ -200,7 +200,7 @@ def analytics_market_trends(country: str = "US") -> dict[str, Any]:
 def analytics_model_usage() -> dict[str, Any]:
     """Ollama (local/Mistral) vs OpenRouter (Gemini) call volume, success rate,
     and latency — real aggregation over logged `model_usage_event` records."""
-    from app.services.model_usage_tracker import summarize_model_usage
+    from analytics.model_usage import summarize_model_usage
 
     return {"success": True, **summarize_model_usage()}
 

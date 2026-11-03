@@ -15,7 +15,7 @@ def client(tmp_path, monkeypatch):
     store_file = tmp_path / "repair-tasks.json"
     log_file = tmp_path / "client.jsonl"
     monkeypatch.setattr(store_module, "STORE_FILE", store_file)
-    monkeypatch.setattr("app.services.log_store.LOG_FILE", log_file)
+    monkeypatch.setattr("analytics.log_store.LOG_FILE", log_file)
     monkeypatch.setattr("app.services.repair.processor.repair_task_store", store_module.RepairTaskStore())
     monkeypatch.setattr("app.services.repair.processor.REPO_ROOT", tmp_path)
     return TestClient(app)
@@ -23,8 +23,8 @@ def client(tmp_path, monkeypatch):
 
 @pytest.fixture()
 def tracker(tmp_path, monkeypatch):
-    import app.services.error_fix_tracker as tracker_module
-    import app.services.log_store as log_store_module
+    import analytics.error_tracker as tracker_module
+    import analytics.log_store as log_store_module
 
     history_file = tmp_path / "error-fix-history.jsonl"
     monkeypatch.setattr(tracker_module, "HISTORY_FILE", history_file)
@@ -37,7 +37,7 @@ def tracker(tmp_path, monkeypatch):
 
 
 def test_demo_endpoint_records_error_without_auto_processing(client, tracker, monkeypatch, tmp_path):
-    import app.services.log_store as log_store_module
+    import analytics.log_store as log_store_module
 
     log_file = tmp_path / "client.jsonl"
     monkeypatch.setattr(log_store_module, "LOG_FILE", log_file)

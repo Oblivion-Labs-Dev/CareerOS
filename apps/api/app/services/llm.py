@@ -6,7 +6,7 @@ from typing import Any
 import httpx
 
 from app.config import settings
-from app.services.model_usage_tracker import log_model_usage
+from analytics.model_usage import log_model_usage
 
 DEFAULT_MODEL = "google/gemini-2.5-flash"
 

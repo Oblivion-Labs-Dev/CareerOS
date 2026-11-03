@@ -1,5 +1,5 @@
 from app.services.job_discover.browse_filters import filter_options, filter_facets
-from app.services.diagnostic_series import build_series
+from analytics.series import build_series
 from datetime import datetime, timezone
 
 JOBS = [
@@ -69,7 +69,7 @@ def test_options_exclude_queued_and_dismissed(monkeypatch):
 
 
 def test_diagnostics_do_not_invent_timings_or_unrelated_run_jobs(monkeypatch):
-    from app.routers import diagnostic
+    from analytics import router as diagnostic
     monkeypatch.setattr(diagnostic,"list_entities",lambda db,kind:[])
     metrics=diagnostic.get_autopilot_metrics(period="24h",db=None)
     assert metrics["avgApplicationDurationSec"] is None

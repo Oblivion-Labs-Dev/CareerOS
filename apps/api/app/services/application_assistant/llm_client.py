@@ -72,7 +72,7 @@ class LLMCallMetrics:
 
         # Durable copy (this in-memory tracker resets on restart) — records
         # actual provider and model for later performance comparison.
-        from app.services.model_usage_tracker import log_model_usage
+        from analytics.model_usage import log_model_usage
 
         log_model_usage(
             provider=provider,

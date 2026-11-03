@@ -6,7 +6,7 @@ import pytest
 
 from app.db.store import session_scope
 from app.routers.application_assistant.autopilot import get_autopilot_jobs_list
-from app.services.diagnostic_outcomes import OTHER_REASON, reason_category
+from analytics.outcomes import OTHER_REASON, reason_category
 from app.services.application_assistant.persistence import (
     AUTOPILOT_JOBS_CACHE_KEY,
     delete_autopilot_job,
@@ -102,7 +102,7 @@ def test_no_reason_filter_leaves_the_list_unchanged(seeded_jobs):
 def test_diagnostic_report_still_keeps_unrecognised_text_as_its_own_bucket():
     # The Diagnostic page shows a new failure mode as a new row; only the
     # filter collapses it into "Other".
-    from app.services.diagnostic_outcomes import _categorize
+    from analytics.outcomes import _categorize
 
     assert _categorize("An unrecognised failure") == "An unrecognised failure"
     assert _categorize("x" * 80) == "x" * 70 + "…"

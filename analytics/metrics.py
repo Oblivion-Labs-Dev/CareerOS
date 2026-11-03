@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 
-from app.services.error_fix_tracker import error_fix_tracker
+from analytics.error_tracker import error_fix_tracker
 
 MAX_LATENCY_SAMPLES = 500
 MAX_RECENT_REQUESTS = 30

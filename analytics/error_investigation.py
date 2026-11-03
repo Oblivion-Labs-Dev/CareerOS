@@ -4,11 +4,15 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from app.services.error_fix_tracker import TrackedEvent, error_fix_tracker
-from app.services.log_store import read_client_logs
-from app.services.runtime_metrics import metrics_store
+from analytics.error_tracker import TrackedEvent, error_fix_tracker
+from analytics.log_store import read_client_logs
+from analytics.metrics import metrics_store
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
+# This module moved from apps/api/app/services/error_investigation.py, where
+# parents[3] resolved to the apps/ directory. Resolve to the same location from
+# the new path (analytics/ at the repo root) so the value embedded in the
+# investigation prompts is unchanged.
+REPO_ROOT = Path(__file__).resolve().parents[1] / "apps"
 
 
 def _source_hints(source: str, signature: str) -> list[str]:

@@ -4,10 +4,13 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from app.services.error_fix_tracker import error_fix_tracker
+from analytics.error_tracker import error_fix_tracker
 
 MAX_LOG_LINES = 500
-LOG_DIR = Path(__file__).resolve().parents[2] / "data" / "logs"
+# Data lives under apps/api/data (unchanged by the refactor). This module moved
+# from apps/api/app/services/log_store.py to analytics/log_store.py, so the
+# path is resolved from the repo root rather than relative to this file.
+LOG_DIR = Path(__file__).resolve().parents[1] / "apps" / "api" / "data" / "logs"
 LOG_FILE = LOG_DIR / "client.jsonl"
 _memory_logs: deque[dict[str, Any]] = deque(maxlen=MAX_LOG_LINES)
 

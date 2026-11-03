@@ -450,7 +450,7 @@ def get_autopilot_jobs_list(
     # Why each job is in its bucket, grouped by the Diagnostic page's classifier,
     # so the Failed/Ineligible/Review/Manual Review tabs can show "Blocked by
     # reCAPTCHA (12)".
-    from app.services.diagnostic_outcomes import reason_category
+    from analytics.outcomes import reason_category
 
     job_reason = {id(job): reason_category(job) for job in jobs}
     reason_counts: dict[str, int] = {}

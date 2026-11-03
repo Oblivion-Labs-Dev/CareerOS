@@ -6,7 +6,7 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import JSONResponse
 
 from app.config import settings
-from app.services.log_store import append_client_log
+from analytics.log_store import append_client_log
 
 router = APIRouter(prefix="/dev/demo", tags=["dev-demo"])
 

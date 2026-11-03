@@ -10,6 +10,15 @@ from pathlib import Path
 
 import pytest
 
+# During the modular-monolith refactor the new top-level service packages
+# (shared/, profile/, analytics/, …) live at the repo root. Tests run from
+# apps/api with that dir as rootdir, so the repo root is not otherwise on the
+# path. Put it there — the same bridge app/__init__.py installs for the running
+# app — so tests can import those packages regardless of collection order.
+_REPO_ROOT = Path(__file__).resolve().parents[3]
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+
 _TEST_STATE_DIR = Path(tempfile.mkdtemp(prefix="careeros-tests-"))
 _TEST_DISCOVER_DIR = _TEST_STATE_DIR / "job_discover"
 _TEST_DISCOVER_DIR.mkdir(parents=True, exist_ok=True)

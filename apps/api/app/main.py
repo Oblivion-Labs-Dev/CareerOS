@@ -91,11 +91,12 @@ from app.routers.repair_demo import router as repair_demo_router
 from app.routers.repair_manual import router as repair_manual_router
 from app.routers.resume_intelligence import router as resume_intelligence_router
 from app.routers.gemini import router as gemini_router
-from app.routers.diagnostic import router as diagnostic_router
+from analytics.router import router as diagnostic_router
+from analytics.router import top_level_router as analytics_top_level_router
 from app.routers.gmail_archive import router as gmail_archive_router
 from app.routers.matcher_benchmark import router as matcher_benchmark_router
 from app.routers.story_map import router as story_map_router
-from app.services.error_fix_tracker import error_fix_tracker, reconcile_error_history_on_startup, seed_error_fix_history_if_empty
+from analytics.error_tracker import error_fix_tracker, reconcile_error_history_on_startup, seed_error_fix_history_if_empty
 
 # New modular-monolith service routers. These live at the repo root and are
 # included alongside the legacy routers during the transition (Steps 2+). Each
@@ -244,7 +245,7 @@ async def _retention_loop() -> None:
     while True:
         try:
             await asyncio.sleep(interval)
-            from app.services.retention import sweep
+            from analytics.retention import sweep
 
             report = await asyncio.to_thread(sweep)
             if report.total:
@@ -268,7 +269,7 @@ def _restore_diagnostic_errors() -> None:
     api.log": the structured store existed but never survived a restart.
     """
     try:
-        from app.services.observability import error_store
+        from analytics.observability import error_store
 
         count = error_store.load_from_db()
         if count:
@@ -403,6 +404,7 @@ app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 app.include_router(auth_router)
 app.include_router(router)
 app.include_router(profile_router)
+app.include_router(analytics_top_level_router)
 app.include_router(job_import_router)
 app.include_router(intelligence_router)
 app.include_router(repair_demo_router)

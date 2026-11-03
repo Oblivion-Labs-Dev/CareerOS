@@ -16,7 +16,12 @@ EventSource = Literal["api", "client", "system"]
 MAX_HISTORY = 120
 MAX_OPEN_ERRORS = 80
 FIX_WINDOW_SECONDS = 30 * 60
-HISTORY_FILE = Path(__file__).resolve().parents[2] / "data" / "logs" / "error-fix-history.jsonl"
+# Data lives under apps/api/data (unchanged by the refactor); resolved from the
+# repo root because this module moved to analytics/ at the root.
+HISTORY_FILE = (
+    Path(__file__).resolve().parents[1]
+    / "apps" / "api" / "data" / "logs" / "error-fix-history.jsonl"
+)
 
 FIX_KEYWORDS = ("fixed", "resolved", "recovered", "patch applied", "no longer")
 
@@ -304,7 +309,7 @@ class ErrorFixTracker:
         return event
 
     def record_api_response(self, method: str, path: str, status_code: int) -> None:
-        from app.services.noise_routes import should_track_api_error
+        from analytics.signal_noise import should_track_api_error
 
         if not should_track_api_error(method, path):
             return

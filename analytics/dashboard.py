@@ -10,12 +10,20 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.db.store import get_kv, tracker_summary
-from app.services.error_fix_tracker import error_fix_tracker
+from analytics.error_tracker import error_fix_tracker
 from app.services.extension_packager import extension_info
-from app.services.log_store import read_client_logs
+from analytics.log_store import read_client_logs
 from app.services.repair.log_source import log_inventory
 
-_TEMPLATE_PATH = Path(__file__).resolve().parent.parent / "static" / "api-dashboard" / "index.html"
+# The API-dashboard static assets stay under apps/api/app/static during the
+# refactor (the plan does not relocate static files). This module moved from
+# apps/api/app/services/api_dashboard.py to analytics/dashboard.py at the repo
+# root, so the template path is resolved explicitly rather than relative to
+# this file's new location.
+_TEMPLATE_PATH = (
+    Path(__file__).resolve().parents[1]
+    / "apps" / "api" / "app" / "static" / "api-dashboard" / "index.html"
+)
 
 
 def _web_dashboard_url() -> str:

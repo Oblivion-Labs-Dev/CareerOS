@@ -20,7 +20,7 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.db.store import session_scope, list_entities
-from app.services.observability import (
+from analytics.observability import (
     tracer,
     agent_tracker,
     error_store,
@@ -29,9 +29,16 @@ from app.services.observability import (
     get_correlation_context,
     redact_sensitive_data,
 )
-from app.services.runtime_metrics import runtime_metrics
+from analytics.metrics import runtime_metrics
 
 router = APIRouter(prefix="/diagnostic", tags=["diagnostic"])
+
+# Unprefixed analytics endpoints moved out of routers/api.py (Step 3 of the
+# modular-monolith refactor): /metrics, /errors/* and /api/logs. Kept on a
+# separate router so they do NOT inherit the /diagnostic prefix; their paths
+# and behaviour are unchanged. main.py includes this router alongside the
+# prefixed diagnostic one.
+top_level_router = APIRouter(tags=["analytics"])
 
 
 def now_iso() -> str:
@@ -41,6 +48,76 @@ def now_iso() -> str:
 def db_session():
     with session_scope() as db:
         yield db
+
+
+@top_level_router.get("/metrics")
+def metrics() -> dict[str, Any]:
+    from analytics.log_store import read_client_logs
+    from analytics.metrics import metrics_snapshot_with_logs
+
+    client_errors = sum(
+        1 for entry in read_client_logs(limit=200) if str(entry.get("level") or "").lower() == "error"
+    )
+    return metrics_snapshot_with_logs(client_log_errors=client_errors)
+
+
+@top_level_router.get("/errors/{error_id}/investigate")
+def get_error_investigation(error_id: str) -> dict[str, Any]:
+    from analytics.error_investigation import investigation_for_error_id
+
+    try:
+        payload = investigation_for_error_id(error_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return {"success": True, **payload}
+
+
+@top_level_router.post("/errors/{error_id}/investigate")
+def request_error_investigation(error_id: str) -> dict[str, Any]:
+    from analytics.error_investigation import investigation_for_error_id
+
+    try:
+        payload = investigation_for_error_id(error_id, mark_requested=True)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return {"success": True, **payload}
+
+
+@top_level_router.post("/errors/investigate-open")
+def request_open_errors_investigation() -> dict[str, Any]:
+    from analytics.error_investigation import investigation_for_open_errors
+
+    try:
+        payload = investigation_for_open_errors()
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return {"success": True, **payload}
+
+
+@top_level_router.get("/api/logs")
+def legacy_get_logs(limit: int = 100) -> dict[str, Any]:
+    from analytics.log_store import read_client_logs
+
+    logs = read_client_logs(limit)
+    return {"success": True, "logs": logs}
+
+
+@top_level_router.post("/api/logs")
+def legacy_post_log(payload: dict[str, Any]) -> dict[str, Any]:
+    from analytics.log_store import append_client_log
+
+    if not payload.get("message"):
+        raise HTTPException(status_code=400, detail="message is required")
+    append_client_log(payload)
+    return {"success": True}
+
+
+@top_level_router.delete("/api/logs")
+def legacy_delete_logs() -> dict[str, Any]:
+    from analytics.log_store import clear_client_logs
+
+    clear_client_logs()
+    return {"success": True}
 
 
 # ── System Health ─────────────────────────────────────────────────────────────
@@ -271,7 +348,7 @@ def get_autopilot_metrics(
     now = datetime.now(timezone.utc)
     delta = timedelta(hours=1) if period == "1h" else (timedelta(hours=24) if period == "24h" else timedelta(days=7))
     cutoff = now - delta
-    from app.services.diagnostic_series import timestamp
+    from analytics.series import timestamp
 
     all_jobs = list_entities(db, "aa_autopilot_job")
     discovered_jobs = list_entities(db, "aa_discovered_job")
@@ -347,7 +424,7 @@ def get_autopilot_metrics(
 
 @router.get("/series")
 def get_metric_series(period: str = Query(default="24h", pattern="^(1h|24h|7d)$"), db: Session = Depends(db_session)):
-    from app.services.diagnostic_series import build_series
+    from analytics.series import build_series
     return build_series(list_entities(db, "aa_autopilot_job"), period)
 
 
@@ -363,7 +440,7 @@ def get_outcomes_report(
     table, matching the Applications page; everything else is scoped to the
     window.
     """
-    from app.services.diagnostic_outcomes import build_outcomes_report, parse_period_hours
+    from analytics.outcomes import build_outcomes_report, parse_period_hours
 
     try:
         hours = parse_period_hours(period)

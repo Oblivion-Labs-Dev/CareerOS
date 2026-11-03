@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException
 
 from app.config import settings
-from app.services.error_fix_tracker import error_fix_tracker
+from analytics.error_tracker import error_fix_tracker
 from app.services.repair.processor import latest_manual_run, process_logs_and_errors
 
 router = APIRouter(prefix="/dev/repair", tags=["dev-repair"])

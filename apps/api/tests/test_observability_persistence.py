@@ -14,7 +14,7 @@ instance recorded, not just count on itself never restarting.
 from __future__ import annotations
 
 from app.db.store import session_scope
-from app.services.observability import DiagnosticErrorStore
+from analytics.observability import DiagnosticErrorStore
 
 
 def test_a_recorded_error_survives_a_fresh_store_instance():
@@ -88,7 +88,7 @@ def test_most_recent_errors_load_first_when_over_the_cap():
     from dataclasses import asdict
 
     from app.db.store import upsert_entity
-    from app.services.observability import DiagnosticError
+    from analytics.observability import DiagnosticError
 
     run = uuid.uuid4().hex[:8]
     ids = [f"err_order_{run}_{i}" for i in range(3)]

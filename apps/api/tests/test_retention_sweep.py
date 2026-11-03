@@ -7,7 +7,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from app.db.store import EntityStore, session_scope, upsert_entity
-from app.services import retention
+from analytics import retention
 
 
 def _iso(days_ago: int) -> str:

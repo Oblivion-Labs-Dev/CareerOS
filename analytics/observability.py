@@ -29,7 +29,9 @@ import uuid
 
 logger = logging.getLogger("careeros.observability")
 
-DATA_DIR = Path(__file__).resolve().parents[2] / "data" / "observability"
+# Data lives under apps/api/data (unchanged by the refactor); resolved from the
+# repo root because this module moved to analytics/ at the root.
+DATA_DIR = Path(__file__).resolve().parents[1] / "apps" / "api" / "data" / "observability"
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 ALARMS_FILE = DATA_DIR / "alarms_state.json"
 TRACES_FILE = DATA_DIR / "traces.jsonl"
@@ -836,7 +838,7 @@ class AlarmManager:
         return False, "Queue running smoothly"
 
     def _check_api_error_rate(self) -> tuple[bool, str]:
-        from app.services.runtime_metrics import runtime_metrics
+        from analytics.metrics import runtime_metrics
         snapshot = runtime_metrics.snapshot()
         total = snapshot.get("totalRequests", 0)
         errors = snapshot.get("serverErrors", 0)
@@ -845,7 +847,7 @@ class AlarmManager:
         return False, "OK"
 
     def _check_excessive_latency(self) -> tuple[bool, str]:
-        from app.services.runtime_metrics import runtime_metrics
+        from analytics.metrics import runtime_metrics
         p95 = runtime_metrics.snapshot().get("latencyP95Ms", 0)
         if p95 > 45000:
             return True, f"API p95 latency is {round(p95 / 1000, 1)}s"

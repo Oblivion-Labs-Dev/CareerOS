@@ -58,7 +58,7 @@ from app.services.application_assistant.submission_outcome import (
     submit_was_attempted,
 )
 from app.services.application_assistant.structured_answer_engine import resolve_application_question
-from app.services.observability import (
+from analytics.observability import (
     tracer,
     agent_tracker,
     error_store,

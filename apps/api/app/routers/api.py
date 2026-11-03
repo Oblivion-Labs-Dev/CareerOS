@@ -28,8 +28,7 @@ from app.db.store import (
     upsert_entity,
 )
 from app.services.answer_engine import generate_answer, load_custom_answers
-from app.services.api_dashboard import render_api_dashboard
-from app.services.error_investigation import investigation_for_error_id, investigation_for_open_errors
+from analytics.dashboard import render_api_dashboard
 from app.services.extension_packager import build_extension_zip, extension_info
 from app.services.gmail_imap import GmailImapClient
 from app.services.gmail_sender import SendEmailPayload, build_gmail_sender
@@ -38,7 +37,6 @@ from app.services.job_discover import store as job_discover
 from app.services.job_discover.url_import import autoextract_job_from_url
 from app.services.application_assistant.persistence import get_settings as get_aa_settings
 from app.services.llm import analyze_accomplishment, generate_resume_bullets_for_job
-from app.services.log_store import append_client_log, clear_client_logs, read_client_logs
 from app.services.outreach_campaign_store import load_campaigns
 from app.services.resume_intelligence.ats_score import compute_ats_score
 from app.services.resume_intelligence import resume_profiles as resume_profiles_service
@@ -48,7 +46,6 @@ from app.services.resume_intelligence.tailoring import (
     passthrough_diff,
 )
 from app.services.resume_parser import parse_resume_into_profile
-from app.services.runtime_metrics import metrics_snapshot_with_logs
 from app.services.tracker import inbox as tracker_inbox
 from app.services.tracker import pipeline as tracker_pipeline
 from app.services.target_company_jobs import (
@@ -189,39 +186,8 @@ def root(db: Session = Depends(db_session)) -> HTMLResponse:
     return HTMLResponse(render_api_dashboard(db))
 
 
-@router.get("/metrics")
-def metrics() -> dict[str, Any]:
-    client_errors = sum(
-        1 for entry in read_client_logs(limit=200) if str(entry.get("level") or "").lower() == "error"
-    )
-    return metrics_snapshot_with_logs(client_log_errors=client_errors)
-
-
-@router.get("/errors/{error_id}/investigate")
-def get_error_investigation(error_id: str) -> dict[str, Any]:
-    try:
-        payload = investigation_for_error_id(error_id)
-    except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
-    return {"success": True, **payload}
-
-
-@router.post("/errors/{error_id}/investigate")
-def request_error_investigation(error_id: str) -> dict[str, Any]:
-    try:
-        payload = investigation_for_error_id(error_id, mark_requested=True)
-    except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
-    return {"success": True, **payload}
-
-
-@router.post("/errors/investigate-open")
-def request_open_errors_investigation() -> dict[str, Any]:
-    try:
-        payload = investigation_for_open_errors()
-    except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
-    return {"success": True, **payload}
+# /metrics and /errors/* moved to analytics/router.py (top_level_router) in
+# Step 3 of the modular-monolith refactor, unchanged in path and behaviour.
 
 
 @router.get("/health")
@@ -1262,24 +1228,8 @@ async def parse_resume_route(payload: ParseResumePayload | None = None, db: Sess
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
-@router.get("/api/logs")
-def legacy_get_logs(limit: int = 100) -> dict[str, Any]:
-    logs = read_client_logs(limit)
-    return {"success": True, "logs": logs}
-
-
-@router.post("/api/logs")
-def legacy_post_log(payload: dict[str, Any]) -> dict[str, Any]:
-    if not payload.get("message"):
-        raise HTTPException(status_code=400, detail="message is required")
-    append_client_log(payload)
-    return {"success": True}
-
-
-@router.delete("/api/logs")
-def legacy_delete_logs() -> dict[str, Any]:
-    clear_client_logs()
-    return {"success": True}
+# /api/logs (GET/POST/DELETE) moved to analytics/router.py (top_level_router)
+# in Step 3 of the modular-monolith refactor, unchanged in path and behaviour.
 
 
 @router.get("/extension/info")

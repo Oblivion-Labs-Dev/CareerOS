@@ -4,9 +4,9 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
 
-from app.services.error_fix_tracker import error_fix_tracker
-from app.services.runtime_metrics import metrics_store, should_skip_metrics
-from app.services.observability import (
+from analytics.error_tracker import error_fix_tracker
+from analytics.metrics import metrics_store, should_skip_metrics
+from analytics.observability import (
     tracer,
     set_correlation_context,
     get_correlation_context,
@@ -58,7 +58,7 @@ class MetricsMiddleware(BaseHTTPMiddleware):
                 response.headers["traceparent"] = f"00-{trace_id}-{span_id}-01"
                 return response
         except Exception as exc:
-            from app.services.observability import error_store
+            from analytics.observability import error_store
             error_store.record_error(
                 error=f"Unhandled exception on {request.method} {path}: {exc}",
                 service="careeros_api",
