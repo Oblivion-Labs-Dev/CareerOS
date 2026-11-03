@@ -5,6 +5,7 @@
     "**/__pycache__": true,
     "**/.next": true,
     "**/.venv": true,
+    "**/.pytest_cache": true,
     "**/dist": false,
     "data": true
   },
