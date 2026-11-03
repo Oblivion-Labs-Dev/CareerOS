@@ -7,7 +7,7 @@ import re
 from typing import Any
 
 from jobs.methodology import COVER_LETTER_STRUCTURE, WRITING_STYLE_RULES
-from app.services.llm import call_openrouter_json
+from intelligence.llm.client import call_openrouter_json
 
 CLICHE_PATTERNS = [
     r"\bpassionate about\b",

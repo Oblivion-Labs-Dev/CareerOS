@@ -16,7 +16,7 @@ from typing import Any, Literal
 from sqlalchemy.orm import Session
 
 from app.db.store import get_kv, session_scope, set_kv, upsert_entity
-from app.services.application_assistant.candidate_match_context import (
+from autopilot.candidate_match_context import (
     accomplishment_text,
     extract_resume_text,
     normalize_profile_skills,
@@ -269,7 +269,7 @@ def _attach_heuristic_gaps(
     accomplishments: list[dict[str, Any]] | None = None,
     lightweight: bool = True,
 ) -> list[dict[str, Any]]:
-    from app.services.application_assistant.candidate_match_context import match_sources_used
+    from autopilot.candidate_match_context import match_sources_used
     from jobs.discovery.gap_analysis import attach_gap_to_job
 
     effective_profile = profile or {}
@@ -965,7 +965,7 @@ async def start_qwen_rescore_background(*, limit: int = 50, job_ids: list[str] |
         try:
             with session_scope() as db:
                 from app.db.store import list_entities
-                from app.services.application_assistant.qwen_job_match import score_jobs_batch_with_qwen
+                from autopilot.qwen_job_match import score_jobs_batch_with_qwen
 
                 snapshot = _load_snapshot(db)
                 profile = get_kv(db, "profile") or {}

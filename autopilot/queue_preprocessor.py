@@ -36,23 +36,23 @@ from datetime import datetime, timezone
 from typing import Any
 
 from app.db.store import get_kv, new_id, now_iso, session_scope, set_kv
-from app.services.application_assistant.candidate_match_context import load_match_context
-from app.services.application_assistant.domain import AutopilotJobStatus
-from app.services.application_assistant.job_filter_ranker import (
+from autopilot.candidate_match_context import load_match_context
+from autopilot.domain import AutopilotJobStatus
+from autopilot.job_filter_ranker import (
     evaluate_hard_filters,
     filter_and_rank_jobs,
     queue_priority_score,
 )
-from app.services.application_assistant.mistral_resume_match import (
+from autopilot.mistral_resume_match import (
     build_mistral_match_client,
     score_jobs_against_resume,
 )
-from app.services.application_assistant.role_shape_match import (
+from autopilot.role_shape_match import (
     MATCH_METHOD as ROLE_SHAPE_METHOD,
     MODEL_MATCH_METHODS,
     role_shape_matches,
 )
-from app.services.application_assistant.persistence import (
+from autopilot.persistence import (
     _canonical_url_key,
     _composite_job_key,
     list_autopilot_jobs,
@@ -60,7 +60,7 @@ from app.services.application_assistant.persistence import (
     save_autopilot_job,
     upsert_discovered_job,
 )
-from app.services.intelligence.night_batch_config import (
+from intelligence.signals.night_batch_config import (
     HIGH_QUEUE_WATERMARK,
     LOW_QUEUE_WATERMARK,
 )
@@ -284,7 +284,7 @@ class QueuePreprocessor:
         # change between cycles that are seconds apart.
         if self.stats["cycles"] % RECONCILE_EVERY_N_CYCLES == 0:
             try:
-                from app.services.application_assistant.manual_submission_reconciler import (
+                from autopilot.manual_submission_reconciler import (
                     reconcile_manual_submissions,
                 )
 
@@ -310,7 +310,7 @@ class QueuePreprocessor:
             last_rejection_run = get_kv(_kv_db, REJECTION_RECONCILE_LAST_RUN_KV_KEY)
         if _due_for_scheduled_rejection_reconcile(last_rejection_run, datetime.now(timezone.utc)):
             try:
-                from app.services.application_assistant.rejection_reconciler import (
+                from autopilot.rejection_reconciler import (
                     reconcile_rejections,
                 )
 
@@ -371,7 +371,7 @@ class QueuePreprocessor:
         from sqlalchemy import func
 
         from app.db.store import EntityStore, json_field
-        from app.services.application_assistant.persistence import ENTITY_AUTOPILOT_JOB
+        from autopilot.persistence import ENTITY_AUTOPILOT_JOB
 
         with session_scope() as db:
             return int(
@@ -416,7 +416,7 @@ class QueuePreprocessor:
         own discovered-job table: the aa id is derived from the scraper id, so
         re-ingesting the same posting updates one row instead of adding another.
         """
-        from app.services.application_assistant.scraper_import import scraper_job_to_aa_job
+        from autopilot.scraper_import import scraper_job_to_aa_job
         from jobs.discovery import store as jd_store
 
         added = 0
