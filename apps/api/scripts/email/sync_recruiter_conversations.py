@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
 from app.config import settings  # noqa: E402
-from app.services.gmail_imap import GmailImapClient  # noqa: E402
+from notifications.gmail.imap import GmailImapClient  # noqa: E402
 
 OUTPUT_PATH = ROOT / "data" / "recruiter_conversations.json"
 

@@ -230,7 +230,7 @@ def _parse_date(value: Any) -> datetime | None:
 def _fetch_confirmations(limit: int) -> list[dict[str, Any]]:
     """Recent confirmation emails as {company-ish subject, from, date}."""
     from app.config import settings
-    from app.services.gmail_imap import GmailImapClient
+    from notifications.gmail.imap import GmailImapClient
 
     if not getattr(settings, "gmail_user", "") or not getattr(settings, "gmail_app_password", ""):
         return []

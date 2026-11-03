@@ -22,7 +22,7 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.db.store import list_entities, new_id, now_iso, upsert_entity
-from app.services.gmail_imap import GmailImapClient
+from notifications.gmail.imap import GmailImapClient
 
 ENTITY_TYPE = "application"
 SOURCE_TAG = "gmail_manual"

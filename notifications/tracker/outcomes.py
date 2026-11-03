@@ -4,7 +4,7 @@ from statistics import median
 
 from app.db.store import get_kv, list_entities
 from app.services.application_assistant.application_journey import assess_receipt
-from app.services.tracker.pipeline import _parse_dt
+from notifications.tracker.pipeline import _parse_dt
 
 
 def summarize_outcomes(jobs, applications, receipts, now=None):

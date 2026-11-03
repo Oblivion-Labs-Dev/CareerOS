@@ -45,7 +45,7 @@ from app.services.application_assistant.form_field_persistence import (
 )
 from app.services.application_assistant.browser_verifier import verify_browser_dom_state
 from app.services.application_assistant.submission_policy import SubmissionPolicy, SubmissionDecision
-from app.services.tracking_email import derive_contact_email
+from notifications.tracking import derive_contact_email
 
 logger = logging.getLogger("career_os.playwright_autopilot")
 

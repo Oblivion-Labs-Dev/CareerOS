@@ -508,7 +508,7 @@ def check_submission_confirmed_route(app_id: str, db: Session = Depends(db_sessi
     """Real success check: has a confirmation email actually arrived for this
     application's tracking address? A submit that returns 'ok' but never gets
     a real ATS confirmation shouldn't be reported as a successful application."""
-    from app.services.tracker.confirmation import check_submission_confirmed
+    from notifications.tracker.confirmation import check_submission_confirmed
 
     return check_submission_confirmed(db, app_id)
 

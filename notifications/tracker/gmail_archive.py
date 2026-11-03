@@ -35,7 +35,7 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from app.db.store import get_kv, list_entities, set_kv, upsert_entity
-from app.services.gmail_imap import GmailImapClient
+from notifications.gmail.imap import GmailImapClient
 
 logger = logging.getLogger("career_os.gmail_archive")
 

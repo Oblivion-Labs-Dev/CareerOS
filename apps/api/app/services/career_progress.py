@@ -11,7 +11,7 @@ from sqlalchemy.exc import IntegrityError
 
 from app.db.store import get_entity, get_kv, list_entities, set_kv, upsert_entity
 from app.services.application_assistant.application_journey import assess_receipt
-from app.services.tracker.pipeline import _parse_dt
+from notifications.tracker.pipeline import _parse_dt
 
 QUESTS = [
     {"id": "resume", "title": "Polish your story", "detail": "Review your resume and refine one achievement with a concrete example.", "href": "/profile", "action": "Open resume & profile", "symbol": "✦"},

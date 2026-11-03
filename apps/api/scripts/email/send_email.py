@@ -12,7 +12,7 @@ DEFAULT_RESUME_PATH = Path(r"D:\3 - Resources\Docs\Interview\Resume\Akshay_Borse
 sys.path.insert(0, str(ROOT))
 
 from app.config import settings  # noqa: E402
-from app.services.gmail_sender import EmailAttachment, SendEmailPayload, build_gmail_sender  # noqa: E402
+from notifications.gmail.sender import EmailAttachment, SendEmailPayload, build_gmail_sender  # noqa: E402
 
 
 def main() -> int:

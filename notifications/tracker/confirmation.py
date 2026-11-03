@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.db.store import now_iso
 from app.services.application_assistant.persistence import get_application_draft, update_application_draft
-from app.services.gmail_imap import GmailImapClient
+from notifications.gmail.imap import GmailImapClient
 
 
 def check_submission_confirmed(db: Session, application_id: str) -> dict[str, Any]:

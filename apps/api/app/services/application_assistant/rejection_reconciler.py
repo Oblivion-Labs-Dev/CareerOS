@@ -138,7 +138,7 @@ def _spent_rejections(jobs: list[dict[str, Any]]) -> set[str]:
 def _rejection_phrases() -> tuple[str, ...]:
     """The same phrase list `classify_text` itself uses for the rejection
     category — one source of truth for what wording counts as a rejection."""
-    from app.services.tracker.classification import CATEGORY_RULES
+    from notifications.tracker.classification import CATEGORY_RULES
 
     for key, _label, tokens in CATEGORY_RULES:
         if key == "rejection":
@@ -227,7 +227,7 @@ def _fetch_rejection_threads(limit: int, window_days: int) -> list[dict[str, Any
     mailbox-wide.
     """
     from app.config import settings
-    from app.services.gmail_imap import GmailImapClient, _decode_header_value, _parse_address_list
+    from notifications.gmail.imap import GmailImapClient, _decode_header_value, _parse_address_list
 
     if not getattr(settings, "gmail_user", "") or not getattr(settings, "gmail_app_password", ""):
         return []

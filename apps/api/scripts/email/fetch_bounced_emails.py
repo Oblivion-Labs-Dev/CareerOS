@@ -390,7 +390,7 @@ def main() -> int:
     }
 
     try:
-        from app.services.bounce_classifier import (  # noqa: WPS433
+        from notifications.bounce import (  # noqa: WPS433
             classify_bounce_message,
             enrich_invalid_email_records,
         )

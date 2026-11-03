@@ -18,7 +18,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from app.db.store import now_iso
-from app.services.tracking_email import derive_contact_email
+from notifications.tracking import derive_contact_email
 from app.services.application_assistant.ats_plugin_reference import (
     pick_best_matching_option,
     APPLICATION_FIELD_DEFAULTS,

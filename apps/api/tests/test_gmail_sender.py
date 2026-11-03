@@ -4,7 +4,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app
-from app.services.gmail_sender import GmailSender, SendEmailPayload, build_gmail_sender
+from notifications.gmail.sender import GmailSender, SendEmailPayload, build_gmail_sender
 
 client = TestClient(app)
 
@@ -20,7 +20,7 @@ def test_send_email_payload_requires_body() -> None:
         sender.send(SendEmailPayload(to="friend@example.com", subject="Hi"))
 
 
-@patch("app.services.gmail_sender.smtplib.SMTP_SSL")
+@patch("notifications.gmail.sender.smtplib.SMTP_SSL")
 def test_gmail_sender_send_success(mock_smtp_cls: MagicMock) -> None:
     smtp = MagicMock()
     smtp.__enter__.return_value = smtp

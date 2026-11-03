@@ -1,6 +1,6 @@
 from datetime import UTC, datetime
-from app.services.tracker.outcomes import summarize_outcomes
-from app.services.tracker.pipeline import pipeline_column
+from notifications.tracker.outcomes import summarize_outcomes
+from notifications.tracker.pipeline import pipeline_column
 
 NOW = datetime(2026, 9, 10, tzinfo=UTC)
 

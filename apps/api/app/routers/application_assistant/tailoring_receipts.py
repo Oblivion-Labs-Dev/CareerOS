@@ -261,7 +261,7 @@ def email_sync_webhook(
     payload: dict[str, Any] = Body(...),
 ) -> dict[str, Any]:
     """Inbound email sync webhook to parse recruiter responses and update job status."""
-    from app.services.application_assistant.inbound_email_tracker import process_inbound_email
+    from notifications.tracker.inbound import process_inbound_email
 
     sender = payload.get("sender") or payload.get("from") or "recruiter@company.com"
     subject = payload.get("subject") or "Application Update"

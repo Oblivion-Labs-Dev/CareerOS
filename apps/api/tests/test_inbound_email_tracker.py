@@ -1,5 +1,5 @@
 import pytest
-from app.services.application_assistant.inbound_email_tracker import (
+from notifications.tracker.inbound import (
     classify_inbound_email,
     process_inbound_email,
 )

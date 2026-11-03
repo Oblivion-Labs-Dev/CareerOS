@@ -29,7 +29,7 @@ from app.services.application_assistant.domain import (
     ApplicationStatus,
     DiscoveryRunStatus,
 )
-from app.services.tracking_email import build_tracking_email
+from notifications.tracking import build_tracking_email
 
 ENTITY_DISCOVERY_RUN = "aa_discovery_run"
 ENTITY_DISCOVERED_JOB = "aa_discovered_job"

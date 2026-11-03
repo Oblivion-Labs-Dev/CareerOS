@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from app.services.outreach_campaign_store import load_campaigns, repair_campaign_file, save_campaigns
+from notifications.outreach import load_campaigns, repair_campaign_file, save_campaigns
 
 
 def _campaign(campaign_id: str, count: int = 2) -> dict[str, object]:

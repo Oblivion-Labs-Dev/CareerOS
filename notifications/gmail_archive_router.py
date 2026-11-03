@@ -13,9 +13,9 @@ from typing import Any
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
-from app.db.store import session_scope
-from app.routers.api import db_session
-from app.services.tracker import gmail_archive
+from shared.db import session_scope
+from shared.deps import db_session
+from notifications.tracker import gmail_archive
 
 router = APIRouter(prefix="/email/archive", tags=["email-archive"])
 

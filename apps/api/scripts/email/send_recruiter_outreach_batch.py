@@ -17,14 +17,14 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
 from app.config import settings  # noqa: E402
-from app.services.gmail_sender import EmailAttachment, SendEmailPayload, build_gmail_sender  # noqa: E402
-from app.services.outreach_campaign_store import (  # noqa: E402
+from notifications.gmail.sender import EmailAttachment, SendEmailPayload, build_gmail_sender  # noqa: E402
+from notifications.outreach import (  # noqa: E402
     load_campaigns as load_campaign_history,
 )
-from app.services.outreach_campaign_store import (
+from notifications.outreach import (
     repair_campaign_file,
 )
-from app.services.outreach_campaign_store import (
+from notifications.outreach import (
     save_campaigns as save_campaign_history,
 )
 

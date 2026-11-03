@@ -8,8 +8,8 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from app.db.store import list_entities, upsert_entity
-from app.services.gmail_imap import GmailImapClient
-from app.services.tracker.classification import classify_thread_async
+from notifications.gmail.imap import GmailImapClient
+from notifications.tracker.classification import classify_thread_async
 
 ENTITY_TYPE = "email_classification"
 

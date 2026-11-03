@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from app.services.application_assistant.profile_answer_resolver import AnswerResolution
-from app.services.tracking_email import derive_contact_email
+from notifications.tracking import derive_contact_email
 
 logger = logging.getLogger("career_os.browser_verifier")
 
