@@ -68,16 +68,39 @@ full pytest suite (1300+ tests) rather than hitting the worktree's own server.
   `resume/router.py` is the outstanding part of Step 5. The module layer — the
   pervasive, high-blast-radius part — is complete and fully green.
 
-## Remaining work (Steps 5-router .. 12)
+## Status by step
 
-Not yet done (module relocations for Steps 1-5 are complete and validated):
-- Step 5 routers: move the 14 resume route handlers into `resume/router.py`.
-- Step 6 `intelligence/`, Step 7 (done as Step 4 `notifications/`), Step 6
-  `jobs/`… see plan ordering.
-- Steps 6-8: `jobs/`, `intelligence/`, `autopilot/` module relocations + routers.
-- Step 11: frontend API client path updates.
-- Step 12: delete `apps/`, update docker, flip startup to `main:app` from root,
-  remove the transition bridges.
+- Steps 1-10: DONE and validated (full pytest suite 1305 passed / 18 skipped
+  after each; `uvicorn main:app` boots end-to-end from the repo root).
+- All 8 domain packages exist at the repo root: `shared/`, `profile/`,
+  `analytics/`, `notifications/`, `resume/`, `jobs/`, `intelligence/`,
+  `autopilot/`. `apps/api/app/services/` is now empty.
+- Step 11 (frontend API clients): **no changes required.** The migration kept
+  every route path byte-for-byte (the transition strategy: routers include at
+  their original paths, no service prefix added), so the frontend/extension
+  contract is unchanged. Verified the frontend-referenced paths (`/profile`,
+  `/resume/tailor`, `/settings/memory`, `/email/verify`, `/metrics`,
+  `/api/logs`, `/documents/resume`, …) all still resolve in the assembled app.
+  The plan's Step 11 path table assumed routes gained service prefixes; they did
+  not, by design, so applying that table would BREAK the frontend.
+
+## Not done (intentionally, to keep the tree working)
+
+- **Per-service `router.py` for resume/jobs/intelligence/autopilot.** Their
+  route *handlers* still live in `apps/api/app/routers/*` (imports rewritten to
+  the relocated modules) and serve unchanged. profile/, notifications/ and
+  analytics/ do have their own `router.py`. Relocating the remaining route
+  handlers is cosmetic given the modules are already extracted.
+- **Step 12 (delete `apps/`, flip docker/startup, remove bridges).** NOT done.
+  `apps/api/app/` still holds the live app core that everything depends on:
+  `main.py` (the actual FastAPI assembly), `config.py`, `db/` (store + seeds),
+  `routers/`, `static/` (dashboard assets) — and `apps/api/data/` is the DB and
+  data location. Deleting `apps/` now would break the build and lose data.
+  Removing it requires first relocating that app core + data to the root, which
+  is a further migration beyond the service extraction and is left as the final
+  destructive step. The transition bridges (`app/__init__.py` sys.path insert,
+  `tests/conftest.py` insert, `app/db/store.py` re-export, the dual sys.path in
+  root `main.py`) stay until then.
 
 ## Path fixes after moves (data/static locations unchanged)
 
