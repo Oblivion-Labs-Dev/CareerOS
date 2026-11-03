@@ -1,0 +1,17 @@
+{
+  "files.exclude": {
+    "**/node_modules": true,
+    "**/.claude": true,
+    "**/__pycache__": true,
+    "**/.next": true,
+    "**/.venv": true,
+    "**/dist": false,
+    "data": true
+  },
+  "search.exclude": {
+    "**/node_modules": true,
+    "**/.claude": true,
+    "**/__pycache__": true,
+    "data/**": true
+  }
+}
