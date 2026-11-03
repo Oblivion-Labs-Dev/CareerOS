@@ -1,7 +1,7 @@
 import asyncio
 from contextlib import contextmanager
 
-from app.services.application_assistant import autopilot_runner as module
+from autopilot import autopilot_runner as module
 
 
 def test_completed_run_hands_off_to_new_active_run(monkeypatch):

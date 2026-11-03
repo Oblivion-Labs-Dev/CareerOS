@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-from app.services.application_assistant.answer_classification import classify_answer, match_screening_answer
-from app.services.application_assistant.field_answers import (
+from autopilot.answer_classification import classify_answer, match_screening_answer
+from autopilot.field_answers import (
     list_pending_fields,
     save_field_answers,
     split_pending_fields,
 )
-from app.services.application_assistant.field_options import normalize_field_options
+from autopilot.field_options import normalize_field_options
 
 
 def test_match_screening_answer_by_pattern() -> None:
@@ -44,7 +44,7 @@ def test_normalize_field_options_drops_placeholders() -> None:
 
 
 def test_sanitize_options_drops_leaked_phone_country_list() -> None:
-    from app.services.application_assistant.field_options import sanitize_options_for_field
+    from autopilot.field_options import sanitize_options_for_field
 
     leaked = ["United States +1", "Afghanistan +93", "Albania +355", "Algeria +213", "Andorra +376"]
     field = {
@@ -56,7 +56,7 @@ def test_sanitize_options_drops_leaked_phone_country_list() -> None:
 
 
 def test_filter_wizard_pending_rewrites_privacy_policy_to_checkbox() -> None:
-    from app.services.application_assistant.field_answers import filter_wizard_pending
+    from autopilot.field_answers import filter_wizard_pending
 
     pending = [
         {
@@ -127,7 +127,7 @@ def test_list_pending_fields_excludes_browser_only_labels() -> None:
 
 
 def test_filter_wizard_pending_excludes_search_even_when_ai_marks_eligible() -> None:
-    from app.services.application_assistant.field_answers import filter_wizard_pending
+    from autopilot.field_answers import filter_wizard_pending
 
     pending = [
         {"fieldId": "1", "label": "Gender", "wizardEligible": True},
@@ -139,7 +139,7 @@ def test_filter_wizard_pending_excludes_search_even_when_ai_marks_eligible() -> 
 
 
 def test_filter_wizard_pending_respects_ai_flag() -> None:
-    from app.services.application_assistant.field_answers import filter_wizard_pending
+    from autopilot.field_answers import filter_wizard_pending
 
     pending = [
         {"fieldId": "1", "label": "Gender", "wizardEligible": True},
@@ -152,7 +152,7 @@ def test_filter_wizard_pending_respects_ai_flag() -> None:
 
 
 def test_fallback_enrich_marks_vague_fields_browser_only() -> None:
-    from app.services.application_assistant.field_answers import _fallback_enrich_field
+    from autopilot.field_answers import _fallback_enrich_field
 
     field = _fallback_enrich_field({"label": "Attach", "fieldType": "file", "fieldId": "f1"})
     assert field["wizardEligible"] is False
@@ -163,7 +163,7 @@ def test_fallback_enrich_marks_vague_fields_browser_only() -> None:
 
 
 def test_heuristic_dedupe_merges_similar_profile_questions() -> None:
-    from app.services.application_assistant.field_answers import _heuristic_dedupe_pending
+    from autopilot.field_answers import _heuristic_dedupe_pending
 
     occurrences = [
         {
@@ -200,7 +200,7 @@ def test_heuristic_dedupe_merges_similar_profile_questions() -> None:
 
 
 def test_sanitize_clears_placeholder_on_vague_fields() -> None:
-    from app.services.application_assistant.field_answers import _sanitize_misleading_user_answers
+    from autopilot.field_answers import _sanitize_misleading_user_answers
 
     fields = [
         {
@@ -256,7 +256,7 @@ def test_list_pending_fields_excludes_verified_and_captcha() -> None:
 
 def test_save_field_answers_updates_profile_and_draft() -> None:
     from app.db.store import get_kv, session_scope, set_kv
-    from app.services.application_assistant.persistence import create_application_draft, get_application_draft
+    from autopilot.persistence import create_application_draft, get_application_draft
 
     with session_scope() as db:
         set_kv(db, "profile", {"fullName": "Test User"})
@@ -298,13 +298,13 @@ def test_save_field_answers_updates_profile_and_draft() -> None:
         assert field["classification"] == "verified"
         assert field["proposedValue"] == "No"
 
-        from app.services.application_assistant.persistence import delete_application_draft
+        from autopilot.persistence import delete_application_draft
 
         delete_application_draft(db, app_id)
 
 
 def test_refresh_wizard_cache_from_readiness_filters_answered_fields() -> None:
-    from app.services.application_assistant.field_answers import refresh_wizard_cache_from_readiness
+    from autopilot.field_answers import refresh_wizard_cache_from_readiness
 
     draft = {
         "aiAnalyzed": True,
@@ -328,14 +328,14 @@ def test_refresh_wizard_cache_from_readiness_filters_answered_fields() -> None:
 
 
 def test_refresh_wizard_cache_returns_none_without_analysis() -> None:
-    from app.services.application_assistant.field_answers import refresh_wizard_cache_from_readiness
+    from autopilot.field_answers import refresh_wizard_cache_from_readiness
 
     draft = {"aiAnalyzed": False, "wizardPendingCache": {"pending": []}}
     assert refresh_wizard_cache_from_readiness(draft, {"pending": []}) is None
 
 
 def test_normalize_submitted_value_checkbox() -> None:
-    from app.services.application_assistant.field_answers import _normalize_submitted_value
+    from autopilot.field_answers import _normalize_submitted_value
 
     field = {"fieldType": "checkbox"}
     assert _normalize_submitted_value(field, "checked") == "yes"
@@ -343,7 +343,7 @@ def test_normalize_submitted_value_checkbox() -> None:
 
 
 def test_fallback_enrich_checkbox_consent() -> None:
-    from app.services.application_assistant.field_answers import _fallback_enrich_field
+    from autopilot.field_answers import _fallback_enrich_field
 
     field = _fallback_enrich_field(
         {
@@ -356,7 +356,7 @@ def test_fallback_enrich_checkbox_consent() -> None:
 
 
 def test_fallback_enrich_search_not_wizard() -> None:
-    from app.services.application_assistant.field_answers import _fallback_enrich_field
+    from autopilot.field_answers import _fallback_enrich_field
 
     field = _fallback_enrich_field({"label": "Search", "fieldType": "search", "fieldId": "s1"})
     assert field["wizardEligible"] is False

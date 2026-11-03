@@ -17,7 +17,7 @@ Never claim to submit applications or bypass submission guards."""
 
 @router.post("/qwen/agent/prepare")
 async def qwen_agent_prepare(payload: QwenAgentPreparePayload, db: Session = Depends(db_session)) -> dict[str, Any]:
-    from app.services.application_assistant.agent import (
+    from autopilot.agent import (
         start_autonomous_prepare,
         start_autonomous_prepare_for_job,
     )
@@ -36,14 +36,14 @@ async def qwen_agent_prepare(payload: QwenAgentPreparePayload, db: Session = Dep
 
 @router.get("/qwen/agent/prep-queue")
 def qwen_agent_prep_queue() -> dict[str, Any]:
-    from app.services.application_assistant.worker import prep_queue_status
+    from autopilot.worker import prep_queue_status
 
     return {"success": True, **prep_queue_status()}
 
 
 @router.get("/qwen/agent/status/{app_id}")
 def qwen_agent_status(app_id: str, db: Session = Depends(db_session)) -> dict[str, Any]:
-    from app.services.application_assistant.agent import get_agent_run
+    from autopilot.agent import get_agent_run
 
     run = get_agent_run(db, app_id)
     draft = get_application_draft(db, app_id)
@@ -52,7 +52,7 @@ def qwen_agent_status(app_id: str, db: Session = Depends(db_session)) -> dict[st
 
 @router.get("/qwen/status")
 async def qwen_status(db: Session = Depends(db_session)) -> dict[str, Any]:
-    from app.services.application_assistant.qwen_activity import update_connection_status
+    from autopilot.qwen_activity import update_connection_status
 
     settings = get_settings(db)
     llm = settings.get("llm", {})
@@ -74,7 +74,7 @@ async def qwen_status(db: Session = Depends(db_session)) -> dict[str, Any]:
 
 @router.get("/qwen/metrics")
 def qwen_metrics(db: Session = Depends(db_session)) -> dict[str, Any]:
-    from app.services.application_assistant.qwen_activity import get_metrics
+    from autopilot.qwen_activity import get_metrics
 
     settings = get_settings(db)
     return {
@@ -89,7 +89,7 @@ def qwen_logs(
     db: Session = Depends(db_session),
     limit: int = Query(default=50, ge=1, le=200),
 ) -> dict[str, Any]:
-    from app.services.application_assistant.qwen_activity import (
+    from autopilot.qwen_activity import (
         get_active_analyze_from_logs,
         get_active_prep_from_logs,
         get_logs,
@@ -105,13 +105,13 @@ def qwen_logs(
 
 @router.get("/qwen/live")
 def qwen_live_status(db: Session = Depends(db_session)) -> dict[str, Any]:
-    from app.services.application_assistant.qwen_activity import (
+    from autopilot.qwen_activity import (
         get_active_analyze_from_logs,
         get_active_prep_from_logs,
         get_logs,
         get_metrics,
     )
-    from app.services.application_assistant.agent import get_agent_run
+    from autopilot.agent import get_agent_run
 
     active_prep = get_active_prep_from_logs(db)
     active_analyze = get_active_analyze_from_logs(db)
@@ -131,7 +131,7 @@ def qwen_live_status(db: Session = Depends(db_session)) -> dict[str, Any]:
 
 @router.post("/qwen/chat")
 async def qwen_chat(payload: QwenChatPayload, db: Session = Depends(db_session)) -> dict[str, Any]:
-    from app.services.application_assistant.qwen_activity import ActivityTimer, append_log
+    from autopilot.qwen_activity import ActivityTimer, append_log
 
     settings = get_settings(db)
     client = create_llm_client(settings)
@@ -144,7 +144,7 @@ async def qwen_chat(payload: QwenChatPayload, db: Session = Depends(db_session))
     ]
 
     context_note = ""
-    from app.services.application_assistant.agent import build_chat_context
+    from autopilot.agent import build_chat_context
 
     context_note = build_chat_context(db, payload.context)
     if context_note:

@@ -3,8 +3,8 @@ sys.stdout.reconfigure(encoding='utf-8')
 sys.path.insert(0, 'd:/1 - Projects/Projects/CareerOS/CareerOS/apps/api')
 import asyncio
 from app.db.store import session_scope, get_kv
-from app.services.application_assistant.persistence import list_answer_library
-from app.services.application_assistant.structured_answer_engine import resolve_application_question
+from autopilot.persistence import list_answer_library
+from autopilot.structured_answer_engine import resolve_application_question
 
 async def main():
     with session_scope() as db:

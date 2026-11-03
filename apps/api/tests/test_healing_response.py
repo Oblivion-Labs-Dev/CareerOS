@@ -2,8 +2,8 @@ import asyncio
 
 import pytest
 
-from app.services.application_assistant import autopilot_self_healer as healer
-from app.services.application_assistant.healing_response import parse_healing_response
+from autopilot import autopilot_self_healer as healer
+from autopilot.healing_response import parse_healing_response
 
 
 @pytest.mark.parametrize("raw", [
@@ -62,7 +62,7 @@ def test_diagnosis_does_not_write_live_source_by_default(monkeypatch):
 def test_post_batch_healing_excludes_failures_from_other_runs(monkeypatch):
     from contextlib import contextmanager
 
-    from app.services.application_assistant import autopilot_runner as runner_module
+    from autopilot import autopilot_runner as runner_module
 
     @contextmanager
     def session():

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import random
 
-from app.services.application_assistant.browser_fingerprint import (
+from autopilot.browser_fingerprint import (
     FingerprintPool,
     build_evasion_script,
     generate_fingerprint,

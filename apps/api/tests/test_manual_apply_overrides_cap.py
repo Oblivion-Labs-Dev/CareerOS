@@ -16,8 +16,8 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-from app.services.application_assistant import autopilot_runner as module
-from app.services.application_assistant import company_cap
+from autopilot import autopilot_runner as module
+from autopilot import company_cap
 
 NOW = datetime(2026, 9, 19, 12, 0, tzinfo=timezone.utc)
 

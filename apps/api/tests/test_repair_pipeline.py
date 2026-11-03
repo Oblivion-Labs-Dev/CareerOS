@@ -5,7 +5,7 @@ from unittest.mock import patch
 import pytest
 from fastapi.testclient import TestClient
 
-import app.services.repair.store as store_module
+import autopilot.repair.store as store_module
 from app.config import settings
 from app.main import app
 
@@ -16,8 +16,8 @@ def client(tmp_path, monkeypatch):
     log_file = tmp_path / "client.jsonl"
     monkeypatch.setattr(store_module, "STORE_FILE", store_file)
     monkeypatch.setattr("analytics.log_store.LOG_FILE", log_file)
-    monkeypatch.setattr("app.services.repair.processor.repair_task_store", store_module.RepairTaskStore())
-    monkeypatch.setattr("app.services.repair.processor.REPO_ROOT", tmp_path)
+    monkeypatch.setattr("autopilot.repair.processor.repair_task_store", store_module.RepairTaskStore())
+    monkeypatch.setattr("autopilot.repair.processor.REPO_ROOT", tmp_path)
     return TestClient(app)
 
 
@@ -32,7 +32,7 @@ def tracker(tmp_path, monkeypatch):
     fresh._loaded = True
     monkeypatch.setattr(tracker_module, "error_fix_tracker", fresh)
     monkeypatch.setattr(log_store_module, "error_fix_tracker", fresh)
-    monkeypatch.setattr("app.services.repair.log_source.error_fix_tracker", fresh)
+    monkeypatch.setattr("autopilot.repair.log_source.error_fix_tracker", fresh)
     return fresh
 
 
@@ -76,7 +76,7 @@ def test_manual_process_poc_flow(client, tracker, monkeypatch):
 
     class FakeAdapter:
         def start(self, task, workspace):
-            from app.services.repair.types import AgentRun
+            from autopilot.repair.types import AgentRun
 
             return AgentRun(
                 run_id="run-1",
@@ -95,9 +95,9 @@ def test_manual_process_poc_flow(client, tracker, monkeypatch):
         def cancel(self, run_id):
             return None
 
-    with patch("app.services.repair.processor.get_agent_adapter", return_value=FakeAdapter()):
+    with patch("autopilot.repair.processor.get_agent_adapter", return_value=FakeAdapter()):
         with patch(
-            "app.services.repair.processor._run_validation",
+            "autopilot.repair.processor._run_validation",
             return_value={"passed": True, "commands": [{"command": "mock", "passed": True, "exitCode": 0}]},
         ):
             response = client.post("/dev/repair/process-logs")
@@ -115,9 +115,9 @@ def test_manual_process_poc_flow(client, tracker, monkeypatch):
 
 
 def test_duplicate_active_run_blocked(client, tracker, monkeypatch):
-    monkeypatch.setattr("app.services.repair.processor._active_run", True)
+    monkeypatch.setattr("autopilot.repair.processor._active_run", True)
     try:
         response = client.post("/dev/repair/process-logs")
         assert response.status_code == 409
     finally:
-        monkeypatch.setattr("app.services.repair.processor._active_run", False)
+        monkeypatch.setattr("autopilot.repair.processor._active_run", False)

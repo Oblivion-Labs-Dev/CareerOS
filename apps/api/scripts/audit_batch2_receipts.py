@@ -2,7 +2,7 @@ import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from app.db.store import get_kv, session_scope
-from app.services.application_assistant.persistence import list_autopilot_jobs
+from autopilot.persistence import list_autopilot_jobs
 
 with session_scope() as db:
     receipts_store = get_kv(db, "autopilot_submission_receipts") or {}

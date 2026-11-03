@@ -11,7 +11,7 @@ import math
 from collections import Counter
 from typing import Callable
 
-from app.services.application_assistant.role_shape_match import (  # noqa: F401
+from autopilot.role_shape_match import (  # noqa: F401
     ROLE_SHAPE_WEIGHTS,
     Context,
     Corpus,
@@ -102,7 +102,7 @@ def score_tfidf(pair: Pair, ctx: Context) -> float:
 
 # ---------------------------------------------------------------------------
 # C. Role shape - the fix for the measured coverage failure. Implemented in
-#    app.services.application_assistant.role_shape_match and imported above,
+#    autopilot.role_shape_match and imported above,
 #    so the benchmark measures exactly what the queue runs.
 # ---------------------------------------------------------------------------
 

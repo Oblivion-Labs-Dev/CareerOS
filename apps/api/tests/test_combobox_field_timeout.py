@@ -16,7 +16,7 @@ import time
 
 import pytest
 
-from app.services.application_assistant.playwright_autopilot_executor import (
+from autopilot.playwright_autopilot_executor import (
     _fill_all_greenhouse_comboboxes,
 )
 
@@ -44,7 +44,7 @@ class _FakePage:
 def test_hung_combobox_field_does_not_hang_the_whole_function(monkeypatch) -> None:
     # The production ceiling is 15 s per field. What this proves is that the
     # ceiling fires at all, so a short one does it without a 15 s wait.
-    from app.services.application_assistant import playwright_autopilot_executor as executor
+    from autopilot import playwright_autopilot_executor as executor
 
     monkeypatch.setattr(executor, "COMBOBOX_FIELD_TIMEOUT_SEC", 0.5)
 

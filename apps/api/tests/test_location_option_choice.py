@@ -6,7 +6,7 @@ in Auburn, Washington offers Auburn, Alabama first, and a match on the city name
 alone took that — putting the wrong state on a real application.
 """
 
-from app.services.application_assistant.playwright_autopilot_executor import (
+from autopilot.playwright_autopilot_executor import (
     _pick_location_option,
 )
 

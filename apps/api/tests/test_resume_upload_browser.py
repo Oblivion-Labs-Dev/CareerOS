@@ -4,7 +4,7 @@ import os
 
 import pytest
 
-from app.services.application_assistant.playwright_autopilot_executor import _fill_standard_and_react_fields
+from autopilot.playwright_autopilot_executor import _fill_standard_and_react_fields
 
 
 @pytest.mark.skipif(os.getenv("CAREEROS_BROWSER_TESTS") != "1", reason="Requires local Chromium")

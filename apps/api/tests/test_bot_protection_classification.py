@@ -13,8 +13,8 @@ Two regressions are covered here:
 
 import re
 
-from app.services.application_assistant.domain import IneligibilityReason
-from app.services.application_assistant.ineligibility import _ERROR_TEXT_RULES
+from autopilot.domain import IneligibilityReason
+from autopilot.ineligibility import _ERROR_TEXT_RULES
 
 ASHBY_SPAM_ERROR = (
     "Page contains active validation errors: We couldn't submit your application\n\n"

@@ -2,7 +2,7 @@ import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from app.db.store import session_scope
-from app.services.application_assistant.persistence import list_autopilot_jobs, get_active_autopilot_run
+from autopilot.persistence import list_autopilot_jobs, get_active_autopilot_run
 
 with session_scope() as db:
     run = get_active_autopilot_run(db)

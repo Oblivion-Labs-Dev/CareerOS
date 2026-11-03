@@ -1,6 +1,6 @@
 import asyncio
-from app.services.application_assistant.question_classifier import classify_question, QuestionType
-from app.services.application_assistant.profile_answer_resolver import resolve_answer
+from autopilot.question_classifier import classify_question, QuestionType
+from autopilot.profile_answer_resolver import resolve_answer
 
 questions = [
     ("Have you previously applied to a role at EarnIn?*", ["Yes", "No"]),

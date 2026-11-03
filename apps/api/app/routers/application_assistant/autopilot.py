@@ -21,7 +21,7 @@ async def start_autopilot(
     # exhausted the connection pool. See approve_preflight_submission for the
     # same fix applied to the single-job apply path.
     logger.info("start_autopilot called with options: %s", options)
-    from app.services.application_assistant.autopilot_runner import AutopilotRunner
+    from autopilot.autopilot_runner import AutopilotRunner
     runner = AutopilotRunner.get_instance()
     run = await runner.start(options=options)
 
@@ -53,12 +53,12 @@ def autopilot_readiness() -> dict[str, Any]:
     tells the user a run will do nothing while they can still change it.
     """
     from app.db.store import get_kv, session_scope
-    from app.services.application_assistant.pending_question_groups import (
+    from autopilot.pending_question_groups import (
         group_pending_questions,
         summarise,
     )
-    from app.services.application_assistant.persistence import list_autopilot_jobs
-    from app.services.application_assistant.profile_readiness import (
+    from autopilot.persistence import list_autopilot_jobs
+    from autopilot.profile_readiness import (
         evaluate_profile_readiness,
     )
 
@@ -88,7 +88,7 @@ def answer_question_group_route(
     holding the most work, this clears one of them everywhere at once instead of
     asking the candidate the same thing fifty times.
     """
-    from app.services.application_assistant.pending_question_groups import (
+    from autopilot.pending_question_groups import (
         answer_question_group,
     )
 
@@ -108,7 +108,7 @@ def answer_question_group_route(
 
 @router.post("/autopilot/pause")
 async def pause_autopilot() -> dict[str, Any]:
-    from app.services.application_assistant.autopilot_runner import AutopilotRunner
+    from autopilot.autopilot_runner import AutopilotRunner
     runner = AutopilotRunner.get_instance()
     run = await runner.pause()
     return {"success": True, "run": run}
@@ -116,7 +116,7 @@ async def pause_autopilot() -> dict[str, Any]:
 
 @router.post("/autopilot/stop")
 async def stop_autopilot() -> dict[str, Any]:
-    from app.services.application_assistant.autopilot_runner import AutopilotRunner
+    from autopilot.autopilot_runner import AutopilotRunner
     runner = AutopilotRunner.get_instance()
     run = await runner.stop()
     return {"success": True, "run": run}
@@ -130,7 +130,7 @@ def get_queue_preparation_status() -> dict[str, Any]:
     -> queue preparation has actually done, so the operational view never has to
     infer progress from the size of the queue alone.
     """
-    from app.services.application_assistant.queue_preprocessor import get_preprocessor, get_stats
+    from autopilot.queue_preprocessor import get_preprocessor, get_stats
 
     preprocessor = get_preprocessor()
     stats = get_stats()
@@ -140,14 +140,14 @@ def get_queue_preparation_status() -> dict[str, Any]:
 
 @router.post("/autopilot/queue-preparation/start")
 async def start_queue_preparation() -> dict[str, Any]:
-    from app.services.application_assistant.queue_preprocessor import get_preprocessor
+    from autopilot.queue_preprocessor import get_preprocessor
 
     return await get_preprocessor().start()
 
 
 @router.post("/autopilot/queue-preparation/stop")
 async def stop_queue_preparation() -> dict[str, Any]:
-    from app.services.application_assistant.queue_preprocessor import get_preprocessor
+    from autopilot.queue_preprocessor import get_preprocessor
 
     return await get_preprocessor().stop()
 
@@ -187,7 +187,7 @@ def _cached_autopilot_status() -> dict[str, Any]:
     allowed to be a beat behind. A short TTL keeps a live run's progress visibly moving
     while taking the recompute off every poll.
     """
-    from app.services.application_assistant.autopilot_runner import AutopilotRunner
+    from autopilot.autopilot_runner import AutopilotRunner
     from app.db.store import session_scope
     from app.services.read_cache import read_cache
 
@@ -210,7 +210,7 @@ async def autopilot_events_sse(
 ) -> StreamingResponse:
     """Server-Sent Events (SSE) push stream for live dashboard logs and worker updates."""
     import asyncio
-    from app.services.application_assistant.autopilot_runner import AutopilotRunner
+    from autopilot.autopilot_runner import AutopilotRunner
     from app.db.store import session_scope
 
     runner = AutopilotRunner.get_instance()
@@ -268,7 +268,7 @@ async def autopilot_events_sse(
 @router.get("/autopilot/workers")
 def get_autopilot_workers() -> dict[str, Any]:
     """Return live per-worker status for each concurrency slot."""
-    from app.services.application_assistant.autopilot_runner import AutopilotRunner
+    from autopilot.autopilot_runner import AutopilotRunner
     runner = AutopilotRunner.get_instance()
     workers = [ws.to_dict() for ws in runner.worker_states.values()]
     active_count = sum(1 for ws in runner.worker_states.values() if ws.status not in ("idle", "done"))
@@ -284,9 +284,9 @@ def get_autopilot_workers() -> dict[str, Any]:
 @router.post("/autopilot/self-heal")
 async def trigger_self_heal() -> dict[str, Any]:
     """Manually trigger a self-healing cycle for all currently failed autopilot jobs."""
-    from app.services.application_assistant.autopilot_runner import AutopilotRunner
-    from app.services.application_assistant.autopilot_self_healer import run_self_healing_cycle
-    from app.services.application_assistant.persistence import list_autopilot_jobs
+    from autopilot.autopilot_runner import AutopilotRunner
+    from autopilot.autopilot_self_healer import run_self_healing_cycle
+    from autopilot.persistence import list_autopilot_jobs
 
     runner = AutopilotRunner.get_instance()
     failed_jobs: list[dict[str, Any]] = []
@@ -294,7 +294,7 @@ async def trigger_self_heal() -> dict[str, Any]:
         all_jobs = list_autopilot_jobs(db)
         # FAILED is a dead end now; what the healer can act on is an attempt
         # that broke before submitting, parked in review as retryable.
-        from app.services.application_assistant.submission_outcome import is_retryable_technical_failure
+        from autopilot.submission_outcome import is_retryable_technical_failure
 
         failed_jobs = [j for j in all_jobs if is_retryable_technical_failure(j) or j.get("status") == "ERROR"]
 
@@ -318,7 +318,7 @@ async def trigger_self_heal() -> dict[str, Any]:
 @router.get("/autopilot/self-healing-log")
 def get_self_healing_log() -> dict[str, Any]:
     """Return the full patch history from self-healing cycles."""
-    from app.services.application_assistant.autopilot_self_healer import get_self_healing_state
+    from autopilot.autopilot_self_healer import get_self_healing_state
     state = get_self_healing_state()
     return {
         "success": True,
@@ -350,7 +350,7 @@ def _lean_job(job: dict[str, Any]) -> dict[str, Any]:
 @router.get("/autopilot/stats")
 def get_autopilot_stats() -> dict[str, Any]:
     """Precomputed aggregated counts by status and company, served instantly from cache."""
-    from app.services.application_assistant.persistence import (
+    from autopilot.persistence import (
         AUTOPILOT_STATS_CACHE_KEY,
         get_autopilot_status_company_stats,
     )
@@ -381,7 +381,7 @@ def get_autopilot_jobs_list(
     offset: int = Query(default=0, ge=0),
 ) -> dict[str, Any]:
     """List autopilot jobs, filtered and paginated server-side."""
-    from app.services.application_assistant.persistence import (
+    from autopilot.persistence import (
         AUTOPILOT_JOBS_CACHE_KEY,
         AUTOPILOT_STATS_CACHE_KEY,
         get_autopilot_status_company_stats,
@@ -440,7 +440,7 @@ def get_autopilot_jobs_list(
 
     # Which ATS each job applies through, counted over the status selection the
     # same way company and title counts are, so the filter can show "Workday (37)".
-    from app.services.application_assistant.ats_plugin_reference import ATS_CONFIGS, ats_from_url
+    from autopilot.ats_plugin_reference import ATS_CONFIGS, ats_from_url
 
     job_ats = {id(job): ats_from_url(job.get("applicationUrl") or job.get("url")) for job in jobs}
     ats_counts: dict[str, int] = {}
@@ -507,7 +507,7 @@ def get_autopilot_jobs_list(
     if sortBy_str == "company":
         jobs.sort(key=lambda j: str(j.get("company") or "").lower(), reverse=reverse)
     elif sortBy_str == "priority":
-        from app.services.application_assistant.application_list_priority import application_list_priority
+        from autopilot.application_list_priority import application_list_priority
         jobs.sort(key=application_list_priority, reverse=reverse)
     elif sortBy_str in ("submittedAt", "updatedAt"):
         jobs.sort(key=lambda j: str(j.get(sortBy_str) or j.get("updatedAt") or ""), reverse=reverse)
@@ -517,7 +517,7 @@ def get_autopilot_jobs_list(
     total = len(jobs)
     page = [_lean_job(job) for job in jobs[offset_int:offset_int + limit_int]]
     if any(job.get("status") == "SUBMITTED" for job in page):
-        from app.services.application_assistant.application_journey import assess_receipt
+        from autopilot.application_journey import assess_receipt
         with session_scope() as db:
             receipts = get_kv(db, "autopilot_submission_receipts") or {}
         for job in page:
@@ -544,7 +544,7 @@ def get_autopilot_jobs_list(
 
 @router.get("/autopilot/jobs/{job_id}")
 def get_autopilot_job_detail(job_id: str, db: Session = Depends(db_session)) -> dict[str, Any]:
-    from app.services.application_assistant.persistence import get_autopilot_job
+    from autopilot.persistence import get_autopilot_job
     job = get_autopilot_job(db, job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Application not found")
@@ -557,7 +557,7 @@ def delete_autopilot_job_endpoint(
     db: Session = Depends(db_session),
 ) -> dict[str, Any]:
     """Delete a specific application job from processing/queue."""
-    from app.services.application_assistant.persistence import delete_autopilot_job, get_autopilot_job
+    from autopilot.persistence import delete_autopilot_job, get_autopilot_job
     existing = get_autopilot_job(db, job_id)
     if not existing:
         raise HTTPException(status_code=404, detail="Job application not found")
@@ -575,7 +575,7 @@ def get_autopilot_job_resume(
     only showing the filename as inert text."""
     from pathlib import Path
     from fastapi.responses import FileResponse
-    from app.services.application_assistant.persistence import get_autopilot_job
+    from autopilot.persistence import get_autopilot_job
 
     job = get_autopilot_job(db, job_id)
     if not job:
@@ -604,7 +604,7 @@ def get_staged_applications() -> dict[str, Any]:
     # Shares the cached job list with /autopilot/jobs rather than re-reading the
     # table: the dashboard polls both together, so this was parsing every row a
     # second time for a filter it can do in memory.
-    from app.services.application_assistant.persistence import (
+    from autopilot.persistence import (
         AUTOPILOT_JOBS_CACHE_KEY,
         list_autopilot_jobs,
     )
@@ -626,7 +626,7 @@ def approve_staged_answer(
     payload: dict[str, Any] = Body(default_factory=dict),
     db: Session = Depends(db_session),
 ) -> dict[str, Any]:
-    from app.services.application_assistant.persistence import get_autopilot_job, save_autopilot_job, upsert_answer
+    from autopilot.persistence import get_autopilot_job, save_autopilot_job, upsert_answer
     from app.db.store import new_id, now_iso
 
     job = get_autopilot_job(db, id)
@@ -650,7 +650,7 @@ def approve_staged_answer(
         }
         upsert_answer(db, entry)
 
-        from app.services.application_assistant.pending_question_groups import remember_answer_on_profile
+        from autopilot.pending_question_groups import remember_answer_on_profile
 
         remember_answer_on_profile(db, question=question, answer=answer)
 
@@ -675,7 +675,7 @@ def skip_staged_application(
     payload: dict[str, Any] = Body(default_factory=dict),
     db: Session = Depends(db_session),
 ) -> dict[str, Any]:
-    from app.services.application_assistant.persistence import get_autopilot_job, save_autopilot_job
+    from autopilot.persistence import get_autopilot_job, save_autopilot_job
 
     job = get_autopilot_job(db, id)
     if not job:
@@ -701,8 +701,8 @@ async def classify_pending_questions(id: str) -> dict[str, Any]:
     whole span (per request, and worse per accidental duplicate) is what exhausted
     the connection pool previously. See approve_preflight_submission for the same fix.
     """
-    from app.services.application_assistant.persistence import get_autopilot_job, save_autopilot_job
-    from app.services.application_assistant.error_normalizer import build_pending_questions
+    from autopilot.persistence import get_autopilot_job, save_autopilot_job
+    from autopilot.error_normalizer import build_pending_questions
     from app.db.store import session_scope
 
     with session_scope() as db:
@@ -803,7 +803,7 @@ def enqueue_job_for_autopilot(
     payload: dict[str, Any] = Body(default_factory=dict),
     db: Session = Depends(db_session),
 ) -> dict[str, Any]:
-    from app.services.application_assistant.persistence import save_autopilot_job, is_duplicate_application
+    from autopilot.persistence import save_autopilot_job, is_duplicate_application
     from app.db.store import new_id, now_iso
 
     payload = _resolve_job_fields(payload)
@@ -822,7 +822,7 @@ def enqueue_job_for_autopilot(
         }
 
     # ── Hard filter pre-check (US citizenship & sponsorship / SWE role / location) ──
-    from app.services.application_assistant.job_filter_ranker import evaluate_hard_filters
+    from autopilot.job_filter_ranker import evaluate_hard_filters
     from app.db.store import get_kv
     profile = get_kv(db, "profile") or {}
     passed, skip_reason = evaluate_hard_filters(payload, profile, [])
@@ -961,9 +961,9 @@ def resolve_aggregator_urls(
     """
     from concurrent.futures import ThreadPoolExecutor
 
-    from app.services.application_assistant.domain import IneligibilityReason
-    from app.services.application_assistant.ineligibility import apply_ineligibility
-    from app.services.application_assistant.persistence import (
+    from autopilot.domain import IneligibilityReason
+    from autopilot.ineligibility import apply_ineligibility
+    from autopilot.persistence import (
         list_autopilot_jobs,
         save_autopilot_job,
     )
@@ -1083,9 +1083,9 @@ def dedupe_applications(
     discovery is kept. Everything else is retired as a duplicate, which is a
     terminal bucket, so the lists the user works through stop repeating.
     """
-    from app.services.application_assistant.domain import IneligibilityReason
-    from app.services.application_assistant.ineligibility import apply_ineligibility
-    from app.services.application_assistant.persistence import (
+    from autopilot.domain import IneligibilityReason
+    from autopilot.ineligibility import apply_ineligibility
+    from autopilot.persistence import (
         canonical_application_url,
         list_autopilot_jobs,
         save_autopilot_job,
@@ -1194,7 +1194,7 @@ def requeue_bucket(
     that broke the attempt - is cleared so the runner will pick it up again, and
     that record is not recoverable.
     """
-    from app.services.application_assistant.persistence import (
+    from autopilot.persistence import (
         is_strict_duplicate_processed,
         list_autopilot_jobs,
         save_autopilot_job,
@@ -1282,7 +1282,7 @@ def reset_submitted_autopilot_jobs(
     db: Session = Depends(db_session),
 ) -> dict[str, Any]:
     """Reset submitted/processed autopilot jobs back to UNAPPLIED so they can be re-applied."""
-    from app.services.application_assistant.persistence import delete_autopilot_job, list_autopilot_jobs
+    from autopilot.persistence import delete_autopilot_job, list_autopilot_jobs
     status_filter = payload.get("status")  # Optional: "SUBMITTED", "ALL", etc.
     all_jobs = list_autopilot_jobs(db)
 
@@ -1314,7 +1314,7 @@ def reset_submitted_autopilot_jobs(
 def _requeue_autopilot_jobs_by_status(
     statuses: tuple[str, ...], *, retryable_failures: bool = False
 ) -> dict[str, Any]:
-    from app.services.application_assistant.persistence import (
+    from autopilot.persistence import (
         is_strict_duplicate_processed,
         list_autopilot_jobs,
         save_autopilot_job,
@@ -1338,7 +1338,7 @@ def _requeue_autopilot_jobs_by_status(
             if j.get("status") in ("SUBMITTED", "SUBMISSION_UNKNOWN", "FAILED"):
                 continue
             if retryable_failures:
-                from app.services.application_assistant.submission_outcome import is_retryable_technical_failure
+                from autopilot.submission_outcome import is_retryable_technical_failure
 
                 wanted = j.get("status") in statuses or is_retryable_technical_failure(j)
             else:
@@ -1382,11 +1382,11 @@ def reclassify_ineligible_jobs(dry_run: bool = Query(default=False)) -> dict[str
     they are moved to INELIGIBLE with the exact reason recorded. Everything else
     is left exactly where it is.
     """
-    from app.services.application_assistant.ineligibility import (
+    from autopilot.ineligibility import (
         apply_ineligibility,
         classify_ineligibility,
     )
-    from app.services.application_assistant.persistence import (
+    from autopilot.persistence import (
         list_autopilot_jobs,
         save_autopilot_job,
     )
@@ -1454,7 +1454,7 @@ async def reprocess_skipped_autopilot_jobs() -> dict[str, Any]:
 @router.post("/autopilot/jobs/{id}/reprocess")
 async def reprocess_single_autopilot_job(id: str) -> dict[str, Any]:
     """Return one failed job to the queue without starting Autopilot."""
-    from app.services.application_assistant.persistence import (
+    from autopilot.persistence import (
         get_autopilot_job,
         is_strict_duplicate_processed,
         save_autopilot_job,
@@ -1526,7 +1526,7 @@ def reconcile_manual_submissions_route() -> dict[str, Any]:
     CareerOS already reads that inbox — so the confirmation is the signal that a
     manually-finished application actually went out.
     """
-    from app.services.application_assistant.manual_submission_reconciler import (
+    from autopilot.manual_submission_reconciler import (
         reconcile_manual_submissions,
     )
 
@@ -1542,7 +1542,7 @@ def reconcile_rejections_route() -> dict[str, Any]:
     be pinned to (by company, timing, and role when named) is ever touched —
     never every open application at that employer.
     """
-    from app.services.application_assistant.rejection_reconciler import reconcile_rejections
+    from autopilot.rejection_reconciler import reconcile_rejections
 
     return reconcile_rejections()
 
@@ -1563,8 +1563,8 @@ async def _run_assisted_fill(job_id: str, job: dict[str, Any], profile: dict[str
     about how long a person needs to finish a form belongs to an HTTP request.
     """
     from app.db.store import now_iso, session_scope
-    from app.services.application_assistant.persistence import get_autopilot_job, save_autopilot_job
-    from app.services.application_assistant.playwright_autopilot_executor import (
+    from autopilot.persistence import get_autopilot_job, save_autopilot_job
+    from autopilot.playwright_autopilot_executor import (
         execute_live_playwright_submission,
     )
 
@@ -1652,7 +1652,7 @@ async def assisted_fill(id: str) -> dict[str, Any]:
     submitted on its own.
     """
     from app.db.store import get_kv, session_scope
-    from app.services.application_assistant.persistence import (
+    from autopilot.persistence import (
         get_autopilot_job,
         get_settings,
         list_answer_library,
@@ -1769,7 +1769,7 @@ def set_autopilot_job_state(
     automation still intends to try is not theirs to relabel.
     """
     from app.db.store import now_iso, session_scope
-    from app.services.application_assistant.persistence import get_autopilot_job, save_autopilot_job
+    from autopilot.persistence import get_autopilot_job, save_autopilot_job
 
     requested = str(payload.get("status") or "").strip().upper()
     if requested not in USER_SETTABLE_STATES:
@@ -1872,7 +1872,7 @@ def mark_autopilot_job_submitted(
     the job off that list. Marking is reversible — the prior status is kept so
     the card can be restored if it was pressed by mistake.
     """
-    from app.services.application_assistant.persistence import get_autopilot_job, save_autopilot_job
+    from autopilot.persistence import get_autopilot_job, save_autopilot_job
     from app.db.store import session_scope, now_iso
 
     with session_scope() as db:
@@ -1902,7 +1902,7 @@ def mark_autopilot_job_submitted(
 @router.post("/autopilot/jobs/{id}/reset")
 def reset_single_autopilot_job_endpoint(id: str) -> dict[str, Any]:
     """Reset a single autopilot job back to unapplied state by removing it from the autopilot entity list."""
-    from app.services.application_assistant.persistence import get_autopilot_job, delete_autopilot_job
+    from autopilot.persistence import get_autopilot_job, delete_autopilot_job
     from app.db.store import session_scope
 
     with session_scope() as db:

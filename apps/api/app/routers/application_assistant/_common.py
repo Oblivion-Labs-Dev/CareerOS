@@ -12,14 +12,14 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.db.store import get_kv, now_iso, session_scope
-from app.services.application_assistant.browser_runner import close_session
-from app.services.application_assistant.job_discovery import (
+from autopilot.browser_runner import close_session
+from autopilot.job_discovery import (
     cancel_discovery,
     filter_jobs,
     run_discovery,
 )
-from app.services.application_assistant.llm_client import create_llm_client
-from app.services.application_assistant.persistence import (
+from autopilot.llm_client import create_llm_client
+from autopilot.persistence import (
     create_application_draft,
     create_discovery_run,
     delete_answer,
@@ -41,9 +41,9 @@ from app.services.application_assistant.persistence import (
     upsert_answer,
     upsert_discovered_job,
 )
-from app.services.application_assistant.providers import list_providers
-from app.services.application_assistant.url_validation import validate_url
-from app.services.application_assistant.worker import (
+from autopilot.providers import list_providers
+from autopilot.url_validation import validate_url
+from autopilot.worker import (
     is_app_locked,
     run_in_background,
     task_status,

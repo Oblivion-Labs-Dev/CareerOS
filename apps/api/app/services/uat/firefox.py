@@ -214,8 +214,8 @@ class FirefoxUAT:
 
     async def execute_form_fill(self, profile: dict, document: Path | None = None):
         from playwright.async_api import Error as BrowserError, TimeoutError as BrowserTimeout
-        from app.services.application_assistant.profile_answer_resolver import resolve_answer
-        from app.services.application_assistant.field_fill_engine import fill_field
+        from autopilot.profile_answer_resolver import resolve_answer
+        from autopilot.field_fill_engine import fill_field
         await self._ready()
         results = []
         truncated = False

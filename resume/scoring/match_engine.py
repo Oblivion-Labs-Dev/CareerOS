@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from typing import Any, Literal
 
-from app.services.application_assistant.job_matching import _parse_qualifications, match_job
+from autopilot.job_matching import _parse_qualifications, match_job
 from resume.scoring.corpus_adapter import accomplishment_to_record
 from resume.parsers.text_utils import extract_keywords, text_blob
 from resume.scoring.evidence_match import match_text, contains

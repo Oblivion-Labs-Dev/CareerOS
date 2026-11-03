@@ -7,9 +7,9 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from app.services.application_assistant import qwen_activity
-from app.services.application_assistant.llm_client import LLMClient, create_llm_client
-from app.services.application_assistant.persistence import get_settings
+from autopilot import qwen_activity
+from autopilot.llm_client import LLMClient, create_llm_client
+from autopilot.persistence import get_settings
 
 SCAN_SCHEMA: dict[str, Any] = {
     "type": "object",

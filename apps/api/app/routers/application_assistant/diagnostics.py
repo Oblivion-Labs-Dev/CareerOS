@@ -9,7 +9,7 @@ router = APIRouter(prefix="/application-assistant", tags=["application-assistant
 
 @router.get("/applications/{app_id}/diagnostics")
 def export_diagnostics(app_id: str, db: Session = Depends(db_session)) -> dict[str, Any]:
-    from app.services.application_assistant.log_redaction import redact_dict
+    from autopilot.log_redaction import redact_dict
 
     draft = get_application_draft(db, app_id)
     if not draft:
@@ -57,7 +57,7 @@ async def generate_answer_route(
     db: Session = Depends(db_session),
 ) -> dict[str, Any]:
     """Generate answer for a freeform screening/textarea question using Ollama Qwen + user profile."""
-    from app.services.application_assistant.llm_answer_generator import generate_theory_answer
+    from autopilot.llm_answer_generator import generate_theory_answer
 
     profile = get_kv(db, "profile") or {}
     docs = get_kv(db, "documents") or {}

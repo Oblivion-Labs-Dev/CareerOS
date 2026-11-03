@@ -9,8 +9,8 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.db.store import get_kv, session_scope
-from app.services.application_assistant.llm_client import create_llm_client
-from app.services.application_assistant.persistence import get_settings
+from autopilot.llm_client import create_llm_client
+from autopilot.persistence import get_settings
 from resume.scoring.graph_builder import build_knowledge_graph
 from resume.scoring.match_engine import match_corpus_to_job
 from resume.persistence import (

@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 
 import pytest
 
-from app.services.application_assistant import llm_answer_generator as gen
+from autopilot import llm_answer_generator as gen
 
 
 @dataclass

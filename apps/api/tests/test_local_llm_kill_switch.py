@@ -14,8 +14,8 @@ import asyncio
 import httpx
 import pytest
 
-from app.services.application_assistant import llm_client
-from app.services.application_assistant.llm_client import (
+from autopilot import llm_client
+from autopilot.llm_client import (
     LLMClient,
     create_llm_client,
     create_mapping_client,
@@ -44,8 +44,8 @@ def no_network(monkeypatch):
 
 
 def _local_clients():
-    from app.services.application_assistant.mistral_resume_match import build_mistral_match_client
-    from app.services.repair.qwen_adapter import QwenCodingAgentAdapter
+    from autopilot.mistral_resume_match import build_mistral_match_client
+    from autopilot.repair.qwen_adapter import QwenCodingAgentAdapter
 
     return {
         # Built directly, never through a factory that checked the flag.

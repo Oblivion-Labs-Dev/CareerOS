@@ -5,18 +5,18 @@ import time
 from playwright.async_api import async_playwright
 
 from app.db.store import get_kv, session_scope
-from app.services.application_assistant.browser_replay import (
+from autopilot.browser_replay import (
     ensure_document_upload_actions,
     merge_plan_actions_with_fields,
 )
-from app.services.application_assistant.field_fill_engine import fill_page_fast_replay
-from app.services.application_assistant.persistence import get_application_draft
+from autopilot.field_fill_engine import fill_page_fast_replay
+from autopilot.persistence import get_application_draft
 
 APP_ID = "app_241292ce-ea40-4dac-afcd-8bd2ee355dd9"
 URL = "https://careers.datadoghq.com/detail/8088589/?gh_jid=8088589#app"
 
 
-from app.services.application_assistant.css_selectors import normalize_css_selector
+from autopilot.css_selectors import normalize_css_selector
 
 
 async def probe_field_types(frame) -> None:

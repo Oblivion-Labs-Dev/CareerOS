@@ -86,7 +86,7 @@ def install_scorer(model: str) -> None:
     never silently run against a vendor's API, and that property is worth more
     than the convenience of a benchmark flag.
     """
-    from app.services.application_assistant import mistral_resume_match as mrm
+    from autopilot import mistral_resume_match as mrm
 
     if model not in CLOUD_MODELS:
         os.environ["CAREEROS_MATCH_MODEL"] = model
@@ -99,7 +99,7 @@ def install_scorer(model: str) -> None:
     if not api_key:
         raise RuntimeError(f"{key_env} is not set; cannot benchmark {model}")
 
-    from app.services.application_assistant.llm_client import LLMClient
+    from autopilot.llm_client import LLMClient
 
     if not hasattr(mrm, "_bench_original_factory"):
         mrm._bench_original_factory = mrm.build_mistral_match_client
@@ -266,7 +266,7 @@ def build_tailoring_set(n: int) -> list[dict]:
     for (payload,) in rows:
         job = json.loads(payload)
         from app.db.store import get_entity, session_scope
-        from app.services.application_assistant.persistence import ENTITY_DISCOVERED_JOB
+        from autopilot.persistence import ENTITY_DISCOVERED_JOB
 
         with session_scope() as db:
             src = get_entity(db, ENTITY_DISCOVERED_JOB, job["jobId"]) if job.get("jobId") else None
@@ -285,8 +285,8 @@ def build_tailoring_set(n: int) -> list[dict]:
 
 async def bench_scoring(model: str, cases: list[dict], ctx: dict) -> dict[str, Any]:
     install_scorer(model)
-    from app.services.application_assistant.resume_diff_service import CANONICAL_MASTER_BULLETS
-    from app.services.application_assistant.tailored_match import score_tailored_resume
+    from autopilot.resume_diff_service import CANONICAL_MASTER_BULLETS
+    from autopilot.tailored_match import score_tailored_resume
 
     masters = [b["fullText"] for b in CANONICAL_MASTER_BULLETS]
     results: list[dict] = []
@@ -363,7 +363,7 @@ async def bench_scoring(model: str, cases: list[dict], ctx: dict) -> dict[str, A
 async def bench_tailoring(model: str, jobs: list[dict], ctx: dict) -> dict[str, Any]:
     """Produce bullets with this model. Scored later, by the reference scorer."""
     os.environ["CAREEROS_TAILORING_MODEL"] = model
-    from app.services.application_assistant.resume_diff_service import (
+    from autopilot.resume_diff_service import (
         generate_role_tailoring_diff,
     )
 
@@ -406,9 +406,9 @@ async def bench_tailoring(model: str, jobs: list[dict], ctx: dict) -> dict[str, 
 async def score_tailoring_outputs(tailoring: list[dict], jobs: list[dict], ctx: dict) -> None:
     """One scorer, one pass, over every model's output plus the untailored control."""
     install_scorer(REFERENCE_SCORER)
-    from app.services.application_assistant.resume_diff_service import CANONICAL_MASTER_BULLETS
-    from app.services.application_assistant.resume_quality import assess
-    from app.services.application_assistant.tailored_match import score_tailored_resume
+    from autopilot.resume_diff_service import CANONICAL_MASTER_BULLETS
+    from autopilot.resume_quality import assess
+    from autopilot.tailored_match import score_tailored_resume
 
     masters = [b["fullText"] for b in CANONICAL_MASTER_BULLETS]
     by_id = {j["id"]: j for j in jobs}
@@ -524,8 +524,8 @@ async def bench_variants(
     model: str, variants: list[str], jobs: list[dict], ctx: dict
 ) -> list[dict[str, Any]]:
     os.environ["CAREEROS_TAILORING_MODEL"] = model
-    import app.services.application_assistant.resume_diff_service as rds
-    from app.services.application_assistant.resume_diff_service import (
+    import autopilot.resume_diff_service as rds
+    from autopilot.resume_diff_service import (
         generate_role_tailoring_diff,
     )
 

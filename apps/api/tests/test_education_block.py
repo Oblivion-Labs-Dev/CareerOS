@@ -7,11 +7,11 @@ job), and "End date year" had no resolver at all, leaving a required field
 empty and staging the application for review.
 """
 
-from app.services.application_assistant.profile_answer_resolver import (
+from autopilot.profile_answer_resolver import (
     _education_field,
     resolve_answer,
 )
-from app.services.application_assistant.question_classifier import (
+from autopilot.question_classifier import (
     QuestionType,
     classify_question,
 )

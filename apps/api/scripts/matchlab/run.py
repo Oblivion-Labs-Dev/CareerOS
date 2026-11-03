@@ -32,7 +32,7 @@ from matchlab.metrics import Report, determinism_check  # noqa: E402
 
 def build_context(pairs) -> A.Context:
     from app.db.store import get_kv, session_scope
-    from app.services.application_assistant.role_shape_match import build_context as build
+    from autopilot.role_shape_match import build_context as build
     from intelligence.corpus.story_index import load_corpus
 
     with session_scope() as db:

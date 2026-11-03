@@ -15,7 +15,7 @@ same set as the old fetch-everything-then-filter-in-Python approach.
 from __future__ import annotations
 
 from app.db.store import session_scope, upsert_entity
-from app.services.application_assistant.persistence import ENTITY_AUTOPILOT_JOB, list_autopilot_jobs
+from autopilot.persistence import ENTITY_AUTOPILOT_JOB, list_autopilot_jobs
 
 
 def test_status_filtered_query_matches_manual_python_filter() -> None:

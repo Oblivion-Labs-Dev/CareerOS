@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import pytest
 
-from app.services.application_assistant.autopilot_runner import (
+from autopilot.autopilot_runner import (
     MIN_MATCH_SCORE_TO_SUBMIT,
     TAILORING_HONEST_FLOOR,
     _tailoring_mode_for_score,
 )
-from app.services.application_assistant.persistence import TAILORING_MODE_PRESETS
+from autopilot.persistence import TAILORING_MODE_PRESETS
 
 
 @pytest.mark.parametrize("score", [80.0, 85.0, 95.0, 100.0])

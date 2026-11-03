@@ -22,7 +22,7 @@ def _no_local_llm(monkeypatch):
     suite in conftest), the client reports itself unavailable and the fill runs
     its deterministic path.
     """
-    from app.services.application_assistant import llm_client
+    from autopilot import llm_client
 
     monkeypatch.setattr(llm_client, "LOCAL_LLM_ENABLED", False)
 
@@ -67,9 +67,9 @@ def filled(fixture_site):
     import base64
 
     pytest.importorskip("playwright")
-    from app.services.application_assistant import llm_client
-    from app.services.application_assistant.browser_runner import prepare_application
-    from app.services.application_assistant.providers.greenhouse import GreenhouseAdapter
+    from autopilot import llm_client
+    from autopilot.browser_runner import prepare_application
+    from autopilot.providers.greenhouse import GreenhouseAdapter
 
     # See _no_local_llm: that fixture is function-scoped, so this class-scoped
     # run switches the model off itself.
@@ -139,7 +139,7 @@ class TestApplicationAssistantIntegration:
     def test_persistence_roundtrip(self):
         """Test application draft persistence survives save/load."""
         from app.db.store import session_scope
-        from app.services.application_assistant.persistence import (
+        from autopilot.persistence import (
             create_application_draft,
             get_application_draft,
             save_application_fields,
@@ -173,6 +173,6 @@ class TestApplicationAssistantIntegration:
             assert len(loaded["fields"]) == 1
             assert loaded["fields"][0]["proposedValue"] == "test@test.com"
 
-            from app.services.application_assistant.persistence import delete_application_draft
+            from autopilot.persistence import delete_application_draft
 
             delete_application_draft(db, app_id)

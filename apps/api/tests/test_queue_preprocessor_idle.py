@@ -5,12 +5,12 @@ second."""
 from __future__ import annotations
 
 from app.db.store import session_scope
-from app.services.application_assistant.persistence import (
+from autopilot.persistence import (
     delete_autopilot_job,
     save_autopilot_job,
     upsert_discovered_job,
 )
-from app.services.application_assistant.queue_preprocessor import QueuePreprocessor
+from autopilot.queue_preprocessor import QueuePreprocessor
 
 MATCH = {
     "matchScore": 81.0,
@@ -44,8 +44,8 @@ def test_no_background_scrape_while_the_queue_is_over_its_cap(monkeypatch):
     """#78: a scrape slows the API for its whole duration; skip it at capacity."""
     import asyncio
 
-    from app.services.application_assistant import queue_preprocessor as qp
-    from app.services.job_discover import store as jd_store
+    from autopilot import queue_preprocessor as qp
+    from jobs.discovery import store as jd_store
 
     started = []
 

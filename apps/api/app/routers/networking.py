@@ -19,7 +19,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.db.store import get_kv, new_id, now_iso, session_scope, upsert_entity
-from app.services.application_assistant.persistence import (
+from autopilot.persistence import (
     get_discovered_job,
     list_application_drafts,
     list_discovered_jobs,

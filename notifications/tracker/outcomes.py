@@ -3,7 +3,7 @@ from datetime import UTC, datetime, timedelta
 from statistics import median
 
 from app.db.store import get_kv, list_entities
-from app.services.application_assistant.application_journey import assess_receipt
+from autopilot.application_journey import assess_receipt
 from notifications.tracker.pipeline import _parse_dt
 
 

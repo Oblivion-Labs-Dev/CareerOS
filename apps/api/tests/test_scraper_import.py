@@ -5,8 +5,8 @@ from __future__ import annotations
 import pytest
 
 from app.db.store import session_scope, set_kv
-from app.services.application_assistant.persistence import list_discovered_jobs
-from app.services.application_assistant.scraper_import import (
+from autopilot.persistence import list_discovered_jobs
+from autopilot.scraper_import import (
     aa_job_id_for_scraper,
     import_scraper_job_by_id,
     import_scraper_job_record,

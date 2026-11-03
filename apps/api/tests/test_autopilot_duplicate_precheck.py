@@ -15,9 +15,9 @@ import asyncio
 import pytest
 
 from app.db.store import session_scope
-from app.services.application_assistant import autopilot_runner as module
-from app.services.application_assistant.domain import AutopilotJobStatus
-from app.services.application_assistant.persistence import (
+from autopilot import autopilot_runner as module
+from autopilot.domain import AutopilotJobStatus
+from autopilot.persistence import (
     delete_autopilot_job,
     get_autopilot_job,
     save_autopilot_job,

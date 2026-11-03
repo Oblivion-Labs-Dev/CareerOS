@@ -10,8 +10,8 @@ different titles - slipped past all of them.
 from __future__ import annotations
 
 from app.db.store import session_scope
-from app.services.application_assistant.ineligibility import find_duplicate_submission
-from app.services.application_assistant.persistence import (
+from autopilot.ineligibility import find_duplicate_submission
+from autopilot.persistence import (
     delete_autopilot_job,
     get_autopilot_job,
     list_submitted_duplicate_candidates,

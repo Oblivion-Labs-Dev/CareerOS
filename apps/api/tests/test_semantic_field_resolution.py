@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from app.services.application_assistant.canonical_registry import registry_context_for_prompt
-from app.services.application_assistant.semantic_field_resolution import _field_needs_semantic_resolution
+from autopilot.canonical_registry import registry_context_for_prompt
+from autopilot.semantic_field_resolution import _field_needs_semantic_resolution
 
 
 def test_registry_context_includes_saved_question_wording() -> None:
@@ -37,8 +37,8 @@ def test_field_needs_semantic_resolution_for_unknown_only() -> None:
 
 
 def test_preferred_name_resolves_first_name_only():
-    from app.services.application_assistant.profile_answer_resolver import resolve_answer
-    from app.services.application_assistant.question_classifier import QuestionType, classify_question
+    from autopilot.profile_answer_resolver import resolve_answer
+    from autopilot.question_classifier import QuestionType, classify_question
 
     profile = {
         "firstName": "Akshay",
@@ -56,8 +56,8 @@ def test_preferred_name_resolves_first_name_only():
 
 
 def test_other_links_resolves_empty_when_no_link_instead_of_essay():
-    from app.services.application_assistant.profile_answer_resolver import resolve_answer
-    from app.services.application_assistant.question_classifier import QuestionType, classify_question
+    from autopilot.profile_answer_resolver import resolve_answer
+    from autopilot.question_classifier import QuestionType, classify_question
 
     profile = {
         "firstName": "Akshay",

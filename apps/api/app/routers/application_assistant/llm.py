@@ -9,7 +9,7 @@ router = APIRouter(prefix="/application-assistant", tags=["application-assistant
 
 @router.post("/llm/test")
 async def test_llm(db: Session = Depends(db_session)) -> dict[str, Any]:
-    from app.services.application_assistant.qwen_activity import update_connection_status
+    from autopilot.qwen_activity import update_connection_status
 
     settings = get_settings(db)
     client = create_llm_client(settings)

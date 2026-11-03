@@ -1,22 +1,22 @@
 """Unit tests for Application Assistant core modules."""
 
 
-from app.services.application_assistant.answer_classification import (
+from autopilot.answer_classification import (
     classify_answer,
     is_manual_only_field,
     match_profile_key,
     normalize_field_key,
 )
-from app.services.application_assistant.domain import AnswerClassification, SensitivityCategory
-from app.services.application_assistant.job_matching import match_job
-from app.services.application_assistant.log_redaction import redact_dict, redact_string, sanitize_url
-from app.services.application_assistant.submission_guard import (
+from autopilot.domain import AnswerClassification, SensitivityCategory
+from autopilot.job_matching import match_job
+from autopilot.log_redaction import redact_dict, redact_string, sanitize_url
+from autopilot.submission_guard import (
     classify_button,
     is_prohibited_action,
     is_safe_navigation,
     validate_action_allowed,
 )
-from app.services.application_assistant.url_validation import (
+from autopilot.url_validation import (
     detect_provider_from_url,
     is_prohibited_platform,
     validate_url,
@@ -156,7 +156,7 @@ class TestSubmissionGuard:
         assert is_safe_navigation("Next") is True
 
     def test_manual_only_agree(self):
-        from app.services.application_assistant.domain import ButtonClassification
+        from autopilot.domain import ButtonClassification
         assert classify_button("I Agree") == ButtonClassification.MANUAL_ONLY
 
     def test_validate_fill_text_allowed(self):
@@ -244,13 +244,13 @@ class TestQwenJobMatch:
     def test_qwen_score_used_when_llm_available(self, monkeypatch):
         import asyncio
 
-        from app.services.application_assistant import llm_client
-        from app.services.application_assistant.llm_client import LLMClient
+        from autopilot import llm_client
+        from autopilot.llm_client import LLMClient
 
         # The suite runs with the local model off; this test is about the
         # model being available, so it says so. FakeClient never calls out.
         monkeypatch.setattr(llm_client, "LOCAL_LLM_ENABLED", True)
-        from app.services.application_assistant.qwen_job_match import score_job_fit_with_qwen
+        from autopilot.qwen_job_match import score_job_fit_with_qwen
 
         class FakeClient(LLMClient):
             def __init__(self):
@@ -292,8 +292,8 @@ class TestQwenJobMatch:
         import asyncio
         from unittest.mock import patch
 
-        from app.services.application_assistant.llm_client import LLMClient
-        from app.services.application_assistant.qwen_job_match import match_job_with_qwen_fallback
+        from autopilot.llm_client import LLMClient
+        from autopilot.qwen_job_match import match_job_with_qwen_fallback
 
         class FailingClient(LLMClient):
             def __init__(self):
@@ -316,16 +316,16 @@ class TestQwenJobMatch:
         db = FakeDb()
 
         with patch(
-            "app.services.application_assistant.qwen_job_match.create_llm_client",
+            "autopilot.qwen_job_match.create_llm_client",
             return_value=FailingClient(),
         ), patch(
-            "app.services.application_assistant.qwen_job_match.load_match_context",
+            "autopilot.qwen_job_match.load_match_context",
             return_value=(profile, {}, []),
         ), patch(
-            "app.services.application_assistant.qwen_job_match.get_settings",
+            "autopilot.qwen_job_match.get_settings",
             return_value={"llm": {}},
         ), patch(
-            "app.services.application_assistant.qwen_job_match.qwen_activity.append_log",
+            "autopilot.qwen_job_match.qwen_activity.append_log",
             return_value={},
         ):
             result = asyncio.run(match_job_with_qwen_fallback(db, job, profile, use_qwen=True))
@@ -358,7 +358,7 @@ class TestApplicationDraftIdentity:
         import uuid
 
         from app.db.store import session_scope
-        from app.services.application_assistant.persistence import (
+        from autopilot.persistence import (
             application_id_for_job,
             create_application_draft,
             delete_application_draft,
@@ -390,7 +390,7 @@ class TestApplicationDraftIdentity:
         import uuid
 
         from app.db.store import session_scope
-        from app.services.application_assistant.persistence import (
+        from autopilot.persistence import (
             create_application_draft,
             delete_application_draft,
             update_application_draft,
@@ -426,7 +426,7 @@ class TestApplicationDraftIdentity:
         import uuid
 
         from app.db.store import new_id, now_iso, session_scope, upsert_entity
-        from app.services.application_assistant.persistence import (
+        from autopilot.persistence import (
             ENTITY_APPLICATION_DRAFT,
             cleanup_duplicate_application_drafts,
             delete_application_draft,
@@ -472,7 +472,7 @@ class TestApplicationDraftIdentity:
 
 class TestRuleBasedPrepFailureSummary:
     def test_ready_to_prepare_after_failed_prep(self):
-        from app.services.application_assistant.qwen_agent import _rule_based_prep_failure_summary
+        from autopilot.qwen_agent import _rule_based_prep_failure_summary
 
         bundle = {"status": "ready_to_prepare", "agentRun": {"status": "failed"}}
         prep_result = {"success": False}
@@ -482,7 +482,7 @@ class TestRuleBasedPrepFailureSummary:
         assert "no fix needed" not in summary.lower()
 
     def test_timeout_message(self):
-        from app.services.application_assistant.qwen_agent import _rule_based_prep_failure_summary
+        from autopilot.qwen_agent import _rule_based_prep_failure_summary
 
         bundle = {"status": "ready_to_prepare", "stoppedReason": "Prep timeout after 600s"}
         prep_result = {"success": False, "error": "timeout"}

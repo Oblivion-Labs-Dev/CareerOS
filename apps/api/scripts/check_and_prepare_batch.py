@@ -2,13 +2,13 @@ import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from app.db.store import session_scope
-from app.services.application_assistant.persistence import (
+from autopilot.persistence import (
     list_autopilot_jobs,
     list_discovered_jobs,
     save_autopilot_job,
     get_active_autopilot_run,
 )
-from app.services.application_assistant.job_filter_ranker import role_location_priority_bonus
+from autopilot.job_filter_ranker import role_location_priority_bonus
 
 with session_scope() as db:
     run = get_active_autopilot_run(db)

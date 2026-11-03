@@ -13,7 +13,7 @@ from app.db.store import get_kv, tracker_summary
 from analytics.error_tracker import error_fix_tracker
 from app.services.extension_packager import extension_info
 from analytics.log_store import read_client_logs
-from app.services.repair.log_source import log_inventory
+from autopilot.repair.log_source import log_inventory
 
 # The API-dashboard static assets stay under apps/api/app/static during the
 # refactor (the plan does not relocate static files). This module moved from
@@ -145,7 +145,7 @@ def _chart_seed_from_history() -> dict[str, Any]:
 
 def _latest_repair_run() -> dict[str, Any] | None:
     try:
-        from app.services.repair.processor import latest_manual_run
+        from autopilot.repair.processor import latest_manual_run
 
         return latest_manual_run()
     except Exception:

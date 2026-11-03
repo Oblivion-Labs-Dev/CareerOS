@@ -6,18 +6,18 @@ from __future__ import annotations
 import pytest
 
 from app.db.store import get_kv, session_scope, set_kv
-from app.services.application_assistant.bucket_migration import (
+from autopilot.bucket_migration import (
     KV_BUCKET_MODEL,
     migrate_bucket_model,
 )
-from app.services.application_assistant.domain import IneligibilityReason
-from app.services.application_assistant.ineligibility import apply_ineligibility
-from app.services.application_assistant.persistence import (
+from autopilot.domain import IneligibilityReason
+from autopilot.ineligibility import apply_ineligibility
+from autopilot.persistence import (
     delete_autopilot_job,
     get_autopilot_job,
     save_autopilot_job,
 )
-from app.services.application_assistant.submission_outcome import (
+from autopilot.submission_outcome import (
     classify_unproven_outcome,
     is_retryable_technical_failure,
 )

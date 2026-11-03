@@ -9,7 +9,7 @@ number in the question or which direction it pointed.
 
 import pytest
 
-from app.services.application_assistant.profile_answer_resolver import resolve_answer
+from autopilot.profile_answer_resolver import resolve_answer
 
 NINE_YEARS = {"yearsExperience": "9"}
 YES_NO = ["Yes", "No"]

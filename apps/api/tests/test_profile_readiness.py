@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import pytest
 
-from app.services.application_assistant.profile_readiness import (
+from autopilot.profile_readiness import (
     ReadinessGap,
     evaluate_profile_readiness,
 )
@@ -113,7 +113,7 @@ def test_race_prefers_the_specific_option_when_the_form_offers_it():
     inferred — inferring a narrower ancestry is the failure this codebase
     already refuses.
     """
-    from app.services.application_assistant.profile_answer_resolver import (
+    from autopilot.profile_answer_resolver import (
         AnswerResolution,
         _resolve_race,
     )
@@ -130,7 +130,7 @@ def test_race_prefers_the_specific_option_when_the_form_offers_it():
 
 
 def test_race_without_a_recorded_specific_value_does_not_guess_one():
-    from app.services.application_assistant.profile_answer_resolver import (
+    from autopilot.profile_answer_resolver import (
         AnswerResolution,
         _resolve_race,
     )
@@ -200,7 +200,7 @@ def _start(options: dict, profile: dict) -> dict:
     import asyncio
     from unittest.mock import patch
 
-    from app.services.application_assistant.autopilot_runner import AutopilotRunner
+    from autopilot.autopilot_runner import AutopilotRunner
 
     runner = AutopilotRunner.get_instance()
     with patch("app.db.store.get_kv", return_value=profile), patch.object(

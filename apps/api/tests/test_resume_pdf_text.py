@@ -3,7 +3,7 @@ import io
 from pypdf import PdfReader
 from reportlab.pdfgen import canvas
 
-from app.services.application_assistant.resume_pdf_text import remove_replaced_bullets
+from autopilot.resume_pdf_text import remove_replaced_bullets
 
 
 def test_replaced_text_is_removed_from_ats_layer_and_other_sections_survive():
@@ -29,7 +29,7 @@ def test_long_bullet_fits_without_overlapping_next_slot():
     import pytest
     from reportlab.lib.styles import ParagraphStyle
 
-    from app.services.application_assistant.resume_pdf_text import fit_bullet_paragraph
+    from autopilot.resume_pdf_text import fit_bullet_paragraph
 
     style = ParagraphStyle("bullet", fontName="Helvetica", fontSize=8.04, leading=9.24)
     paragraph, height = fit_bullet_paragraph("Preserve all words. " * 10, style, 19)

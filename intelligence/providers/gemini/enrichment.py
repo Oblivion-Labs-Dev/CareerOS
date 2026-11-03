@@ -122,7 +122,7 @@ def question_is_eligible(
         return False, "empty question"
 
     try:
-        from app.services.application_assistant.question_classifier import (
+        from autopilot.question_classifier import (
             classify_question,
             is_sensitive_factual,
         )
@@ -298,7 +298,7 @@ async def tailor_bullets(
         telemetry.record_fallback(TASK_TAILORING)
         return TailoringEnrichment(available=False, outcome=result.outcome.value, reason=result.detail)
 
-    from app.services.application_assistant.resume_diff_service import _reject_fabrication
+    from autopilot.resume_diff_service import _reject_fabrication
 
     accepted: dict[int, str] = {}
     rejected: list[int] = []

@@ -99,9 +99,9 @@ def _queue_imported_jobs(scraper_ids: set[str]) -> dict[str, dict[str, Any]]:
     where each one landed. Starts no Autopilot run.
     """
     from app.db.store import session_scope
-    from app.services.application_assistant.scraper_import import aa_job_id_for_scraper
-    from app.services.application_assistant.persistence import list_autopilot_jobs
-    from app.services.application_assistant.queue_preprocessor import QueuePreprocessor
+    from autopilot.scraper_import import aa_job_id_for_scraper
+    from autopilot.persistence import list_autopilot_jobs
+    from autopilot.queue_preprocessor import QueuePreprocessor
 
     preprocessor = QueuePreprocessor.get_instance()
     preprocessor._ingest_scraper_snapshot()

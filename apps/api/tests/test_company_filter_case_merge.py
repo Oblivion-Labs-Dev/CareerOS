@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from app.db.store import session_scope
-from app.services.application_assistant.persistence import (
+from autopilot.persistence import (
     delete_autopilot_job,
     get_autopilot_status_company_stats,
     save_autopilot_job,

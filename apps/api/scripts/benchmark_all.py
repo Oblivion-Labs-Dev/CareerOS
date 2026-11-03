@@ -44,7 +44,7 @@ MODELS = [
 
 
 async def run_question_suite(models: list[str], out: Path) -> None:
-    from app.services.application_assistant.benchmark_suite import (
+    from autopilot.benchmark_suite import (
         run_full_sequential_benchmark,
     )
 

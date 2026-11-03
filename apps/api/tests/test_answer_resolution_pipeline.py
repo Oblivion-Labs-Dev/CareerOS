@@ -5,17 +5,17 @@ Tests the question classifier, profile answer resolver, and cross-field validato
 """
 
 import pytest
-from app.services.application_assistant.question_classifier import (
+from autopilot.question_classifier import (
     QuestionType,
     classify_question,
     classify_free_text_intent,
     is_sensitive_factual,
 )
-from app.services.application_assistant.profile_answer_resolver import (
+from autopilot.profile_answer_resolver import (
     resolve_answer,
     AnswerResolution,
 )
-from app.services.application_assistant.cross_field_validator import (
+from autopilot.cross_field_validator import (
     validate_answers,
     ValidationReport,
 )
@@ -479,11 +479,11 @@ class TestCrossFieldValidator:
 
 # ── Submission Policy Tests (Verified Autonomy) ──────────────────────────────
 
-from app.services.application_assistant.submission_policy import (
+from autopilot.submission_policy import (
     SubmissionPolicy,
     SubmissionDecision,
 )
-from app.services.application_assistant.browser_verifier import (
+from autopilot.browser_verifier import (
     DOMVerificationResult,
     DOMVerificationIssue,
 )

@@ -82,7 +82,7 @@ def initialize_database() -> None:
     yield
 
     try:
-        from app.services.application_assistant.browser_runner import shutdown_playwright_worker
+        from autopilot.browser_runner import shutdown_playwright_worker
 
         shutdown_playwright_worker()
     except ImportError:

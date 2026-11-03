@@ -43,8 +43,8 @@ from app.db.store import (
     set_kv,
     upsert_entity,
 )
-from app.services.application_assistant.job_discovery import filter_jobs as filter_discovered_jobs
-from app.services.application_assistant.persistence import (
+from autopilot.job_discovery import filter_jobs as filter_discovered_jobs
+from autopilot.persistence import (
     create_application_draft,
     get_job_match,
     list_application_drafts,
@@ -356,7 +356,7 @@ async def evaluate_lanes(db: Session, *, dry_run: bool = False) -> dict[str, Any
 
     prepare_results: list[dict[str, Any]] = []
     if not dry_run and staged_draft_ids_for_prepare:
-        from app.services.application_assistant.agent import execute_application_prepare
+        from autopilot.agent import execute_application_prepare
 
         for draft_id in staged_draft_ids_for_prepare:
             try:

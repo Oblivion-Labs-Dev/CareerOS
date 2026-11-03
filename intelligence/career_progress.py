@@ -10,7 +10,7 @@ from zoneinfo import ZoneInfo
 from sqlalchemy.exc import IntegrityError
 
 from app.db.store import get_entity, get_kv, list_entities, set_kv, upsert_entity
-from app.services.application_assistant.application_journey import assess_receipt
+from autopilot.application_journey import assess_receipt
 from notifications.tracker.pipeline import _parse_dt
 
 QUESTS = [

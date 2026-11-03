@@ -1,4 +1,4 @@
-from app.services.application_assistant.llm_client import LLMClient
+from autopilot.llm_client import LLMClient
 
 
 def test_ollama_payload_disables_thinking() -> None:

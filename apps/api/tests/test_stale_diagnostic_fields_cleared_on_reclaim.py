@@ -13,8 +13,8 @@ from contextlib import contextmanager
 
 import pytest
 
-from app.services.application_assistant import autopilot_runner as module
-from app.services.application_assistant import company_cap, persistence
+from autopilot import autopilot_runner as module
+from autopilot import company_cap, persistence
 
 
 def test_stale_diagnostic_fields_are_cleared_before_a_new_attempt(monkeypatch):

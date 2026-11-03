@@ -308,7 +308,7 @@ def get_system_health(db: Session = Depends(db_session)) -> dict[str, Any]:
     }
 
     # 10. Queue
-    from app.services.application_assistant.autopilot_runner import AutopilotRunner
+    from autopilot.autopilot_runner import AutopilotRunner
     runner = AutopilotRunner.get_instance()
     ap_status = runner.get_status(db)
     q_size = ap_status.get("queueSize", 0)
@@ -462,7 +462,7 @@ def get_live_runs(
     db: Session = Depends(db_session),
 ) -> dict[str, Any]:
     """Retrieve current and recent Autopilot runs."""
-    from app.services.application_assistant.autopilot_runner import AutopilotRunner
+    from autopilot.autopilot_runner import AutopilotRunner
     runner = AutopilotRunner.get_instance()
     active_status = runner.get_status(db)
 

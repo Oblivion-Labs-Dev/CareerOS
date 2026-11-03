@@ -27,7 +27,7 @@ def list_jobs(
     page: int = Query(default=1, ge=1),
     per_page: int = Query(default=30, ge=1, le=100),
 ) -> dict[str, Any]:
-    from app.services.application_assistant.scraper_import import SCRAPER_DISCOVERY_RUN_ID
+    from autopilot.scraper_import import SCRAPER_DISCOVERY_RUN_ID
 
     jobs = list_discovered_jobs(db, discovery_run_id=run_id)
     matches = {}
@@ -105,8 +105,8 @@ def list_jobs(
 @router.post("/jobs/import-scraper")
 async def import_scraper_job(payload: ScraperImportPayload, db: Session = Depends(db_session)) -> dict[str, Any]:
     """Import a scraper job into Application Assistant, add to queue, and start Qwen prep."""
-    from app.services.application_assistant.agent import start_autonomous_prepare
-    from app.services.application_assistant.scraper_import import import_scraper_job_by_id
+    from autopilot.agent import start_autonomous_prepare
+    from autopilot.scraper_import import import_scraper_job_by_id
 
     try:
         result = import_scraper_job_by_id(db, payload.scraperJobId)
@@ -136,14 +136,14 @@ def sync_scraper_jobs_route(
     rescore: bool = Query(default=False),
 ) -> dict[str, Any]:
     """Bulk-import scraped jobs from Job Scraper into Application Assistant."""
-    from app.services.application_assistant.scraper_import import sync_scraper_jobs
+    from autopilot.scraper_import import sync_scraper_jobs
 
     return sync_scraper_jobs(db, min_relevancy_score=min_score, limit=limit, rescore=rescore)
 
 
 @router.get("/jobs/scraper-status")
 def scraper_jobs_status(db: Session = Depends(db_session)) -> dict[str, Any]:
-    from app.services.application_assistant.scraper_import import scraper_sync_status
+    from autopilot.scraper_import import scraper_sync_status
 
     return {"success": True, **scraper_sync_status(db)}
 
@@ -160,9 +160,9 @@ def dashboard_stats() -> dict[str, Any]:
 
 
 def _compute_dashboard_stats() -> dict[str, Any]:
-    from app.services.application_assistant.qwen_activity import get_active_prep_from_logs, get_logs, get_metrics
-    from app.services.application_assistant.agent import get_agent_run
-    from app.services.application_assistant.scraper_import import scraper_sync_status
+    from autopilot.qwen_activity import get_active_prep_from_logs, get_logs, get_metrics
+    from autopilot.agent import get_agent_run
+    from autopilot.scraper_import import scraper_sync_status
 
     # Opens its own session: this runs on a background thread, and a SQLAlchemy
     # Session belongs to the thread that created it.
@@ -171,9 +171,9 @@ def _compute_dashboard_stats() -> dict[str, Any]:
 
 
 def _dashboard_stats_payload(db: Session) -> dict[str, Any]:
-    from app.services.application_assistant.qwen_activity import get_active_prep_from_logs, get_logs, get_metrics
-    from app.services.application_assistant.agent import get_agent_run
-    from app.services.application_assistant.scraper_import import scraper_sync_status
+    from autopilot.qwen_activity import get_active_prep_from_logs, get_logs, get_metrics
+    from autopilot.agent import get_agent_run
+    from autopilot.scraper_import import scraper_sync_status
 
     drafts = list_application_drafts(db)
     status_counts: dict[str, int] = {}
@@ -224,7 +224,7 @@ async def refresh_match(job_id: str, db: Session = Depends(db_session)) -> dict[
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
     profile = get_kv(db, "profile") or {}
-    from app.services.application_assistant.candidate_match_context import match_job_with_context_async
+    from autopilot.candidate_match_context import match_job_with_context_async
 
     match = await match_job_with_context_async(db, job, profile)
     saved = save_job_match(db, match)

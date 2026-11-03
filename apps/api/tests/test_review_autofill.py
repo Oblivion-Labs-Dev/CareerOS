@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from app.services.application_assistant.browser_runner import _merge_saved_fields
-from app.services.application_assistant.mapping_validation import validate_mapping_for_fill
+from autopilot.browser_runner import _merge_saved_fields
+from autopilot.mapping_validation import validate_mapping_for_fill
 
 
 class TestReviewAutofill:
@@ -75,7 +75,7 @@ class TestReviewAutofill:
     def test_review_mode_skips_locator_uniqueness(self):
         import asyncio
 
-        from app.services.application_assistant.mapping_validation import validate_mapping_on_page
+        from autopilot.mapping_validation import validate_mapping_on_page
 
         class FakePage:
             pass

@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from app.services.application_assistant.canonical_registry import (
+from autopilot.canonical_registry import (
     canonical_to_value_ref,
     is_valid_canonical_key,
     resolve_value_ref,
 )
-from app.services.application_assistant.mapping_pipeline import apply_mapping_plan, default_field_mapping_settings
+from autopilot.mapping_pipeline import apply_mapping_plan, default_field_mapping_settings
 
 
 def test_valid_canonical_keys() -> None:
@@ -91,13 +91,13 @@ def test_apply_mapping_plan_rejects_invalid_key() -> None:
 
 
 def test_infer_canonical_from_field_country() -> None:
-    from app.services.application_assistant.canonical_registry import infer_canonical_from_field
+    from autopilot.canonical_registry import infer_canonical_from_field
 
     assert infer_canonical_from_field({"label": "Country", "fieldType": "select-one"}) == "location.city"
 
 
 def test_apply_rules_fallback_company() -> None:
-    from app.services.application_assistant.mapping_pipeline import apply_rules_fallback
+    from autopilot.mapping_pipeline import apply_rules_fallback
 
     mapped = [
         {
@@ -118,7 +118,7 @@ def test_apply_rules_fallback_company() -> None:
 
 
 def test_parse_json_response_strips_think_blocks() -> None:
-    from app.services.application_assistant.llm_client import LLMClient
+    from autopilot.llm_client import LLMClient
 
     think_open, think_close = "<" + "think" + ">", "<" + "/" + "think" + ">"
     raw = (
@@ -131,7 +131,7 @@ def test_parse_json_response_strips_think_blocks() -> None:
 
 
 def test_parse_json_response_uses_last_think_block_only() -> None:
-    from app.services.application_assistant.llm_client import LLMClient
+    from autopilot.llm_client import LLMClient
 
     think_open, think_close = "<" + "think" + ">", "<" + "/" + "think" + ">"
     raw = (
@@ -146,7 +146,7 @@ def test_parse_json_response_uses_last_think_block_only() -> None:
 
 
 def test_parse_json_response_ignores_braces_inside_thinking() -> None:
-    from app.services.application_assistant.llm_client import LLMClient
+    from autopilot.llm_client import LLMClient
 
     think_open, think_close = "<" + "think" + ">", "<" + "/" + "think" + ">"
     raw = (
@@ -159,7 +159,7 @@ def test_parse_json_response_ignores_braces_inside_thinking() -> None:
 
 
 def test_parse_json_response_after_prose_following_think() -> None:
-    from app.services.application_assistant.llm_client import LLMClient
+    from autopilot.llm_client import LLMClient
 
     think_open, think_close = "<" + "think" + ">", "<" + "/" + "think" + ">"
     raw = (

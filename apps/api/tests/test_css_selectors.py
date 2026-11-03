@@ -1,6 +1,6 @@
 """Tests for CSS selector normalization."""
 
-from app.services.application_assistant.css_selectors import normalize_css_selector
+from autopilot.css_selectors import normalize_css_selector
 
 
 def test_numeric_id_selector() -> None:

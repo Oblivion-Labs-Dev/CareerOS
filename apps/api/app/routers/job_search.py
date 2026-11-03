@@ -19,7 +19,7 @@ from app.db.store import (
     session_scope,
     upsert_entity,
 )
-from app.services.application_assistant.greenhouse_schema import fetch_greenhouse_schema, parse_greenhouse_url
+from autopilot.greenhouse_schema import fetch_greenhouse_schema, parse_greenhouse_url
 from jobs.discovery import store as job_discover_store
 from jobs.cover_letter_pipeline import generate_cover_letter_with_review
 from jobs.report import build_analytics_summary, render_html_report

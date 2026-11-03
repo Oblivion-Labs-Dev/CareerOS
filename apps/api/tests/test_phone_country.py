@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from app.services.application_assistant.answer_classification import (
+from autopilot.answer_classification import (
     classify_answer,
     infer_phone_country,
     is_phone_country_field,

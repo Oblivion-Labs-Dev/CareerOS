@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from app.services.application_assistant.jurisdiction_compliance import (
+from autopilot.jurisdiction_compliance import (
     check_immigration_status_screening,
     check_salary_history_request,
     collect_job_compliance_warnings,

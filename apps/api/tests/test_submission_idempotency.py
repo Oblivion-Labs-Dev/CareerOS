@@ -22,8 +22,8 @@ import concurrent.futures
 import pytest
 
 from app.db.store import now_iso, session_scope
-from app.services.application_assistant.domain import AutopilotJobStatus
-from app.services.application_assistant.persistence import (
+from autopilot.domain import AutopilotJobStatus
+from autopilot.persistence import (
     application_identity,
     claim_application_identity,
     delete_autopilot_job,
@@ -32,7 +32,7 @@ from app.services.application_assistant.persistence import (
     release_application_identity,
     save_autopilot_job,
 )
-from app.services.application_assistant.submission_outcome import (
+from autopilot.submission_outcome import (
     classify_unproven_outcome,
     outcome_is_proven_unsubmitted,
     submit_was_attempted,
@@ -142,7 +142,7 @@ def test_a_second_record_for_the_same_posting_is_blocked(attempted_job):
 
 
 def test_late_email_resolves_the_existing_record_forward(attempted_job):
-    from app.services.application_assistant.manual_submission_reconciler import (
+    from autopilot.manual_submission_reconciler import (
         RECONCILABLE_STATUSES,
     )
 
@@ -266,7 +266,7 @@ def test_interrupted_submit_is_parked_not_requeued():
     that no code path ever recorded, so the guard never fired and every
     interrupted submit was swept back onto the queue.
     """
-    from app.services.application_assistant.autopilot_runner import AutopilotRunner
+    from autopilot.autopilot_runner import AutopilotRunner
 
     job = {
         "id": "apjob_idem_crash",
@@ -294,7 +294,7 @@ def test_interrupted_submit_is_parked_not_requeued():
 
 def test_interrupted_job_that_never_clicked_submit_is_requeued():
     """The complement: nothing was sent, so retrying is correct and free."""
-    from app.services.application_assistant.autopilot_runner import AutopilotRunner
+    from autopilot.autopilot_runner import AutopilotRunner
 
     job = {
         "id": "apjob_idem_early_crash",

@@ -741,7 +741,7 @@ def test_the_job_title_is_removed_from_the_body_before_labelling():
 @pytest.mark.anyio
 async def test_no_answer_source_stages_for_review_rather_than_inventing(monkeypatch):
     """The rule that matters most: never fabricate to keep Autopilot moving."""
-    from app.services.application_assistant import structured_answer_engine as engine
+    from autopilot import structured_answer_engine as engine
 
     monkeypatch.setattr(engine, "LOCAL_LLM_ENABLED", False)
 
@@ -758,7 +758,7 @@ async def test_no_answer_source_stages_for_review_rather_than_inventing(monkeypa
 async def test_gemini_level_returns_none_when_the_layer_is_off():
     """The suite runs with Gemini disabled, so this is the real production shape
     of "no key configured": the hierarchy simply moves on to the next level."""
-    from app.services.application_assistant import structured_answer_engine as engine
+    from autopilot import structured_answer_engine as engine
 
     assert await engine.resolve_level_3_gemini(
         "Describe your relevant experience.", None, {}, resume_text=RESUME,
@@ -768,7 +768,7 @@ async def test_gemini_level_returns_none_when_the_layer_is_off():
 @pytest.mark.anyio
 async def test_the_question_hierarchy_still_answers_deterministic_fields(monkeypatch):
     """Level 1 must still win outright, with or without Gemini in the picture."""
-    from app.services.application_assistant import structured_answer_engine as engine
+    from autopilot import structured_answer_engine as engine
 
     result = await engine.resolve_application_question(
         db=[], question_text="Email address", canonical_key="email",
@@ -811,7 +811,7 @@ def test_the_gateway_survives_repeated_private_event_loops(gateway):
 async def test_gemini_tailoring_returns_bullets_in_the_local_models_shape(gateway, monkeypatch):
     import json as _json
 
-    from app.services.application_assistant import resume_diff_service as tailoring
+    from autopilot import resume_diff_service as tailoring
 
     monkeypatch.setattr("intelligence.providers.gemini.gateway.get_gateway", lambda: gateway)
     monkeypatch.setattr(tailoring, "_GEMINI_TAILORING", True)
@@ -843,7 +843,7 @@ async def test_a_wrong_bullet_count_falls_back_instead_of_misaligning(gateway, m
     ended up in slot 1. Treat it as no answer, not a partial one."""
     import json as _json
 
-    from app.services.application_assistant import resume_diff_service as tailoring
+    from autopilot import resume_diff_service as tailoring
 
     monkeypatch.setattr("intelligence.providers.gemini.gateway.get_gateway", lambda: gateway)
     monkeypatch.setattr(tailoring, "_GEMINI_TAILORING", True)
@@ -861,7 +861,7 @@ async def test_a_wrong_bullet_count_falls_back_instead_of_misaligning(gateway, m
 
 @pytest.mark.anyio
 async def test_tailoring_can_be_switched_off_independently(gateway, monkeypatch):
-    from app.services.application_assistant import resume_diff_service as tailoring
+    from autopilot import resume_diff_service as tailoring
 
     monkeypatch.setattr(tailoring, "_GEMINI_TAILORING", False)
     transport = Recorder(reply_ok())

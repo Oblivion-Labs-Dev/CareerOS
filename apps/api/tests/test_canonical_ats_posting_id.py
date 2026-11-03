@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import pytest
 
-from app.services.application_assistant.job_filter_ranker import (
+from autopilot.job_filter_ranker import (
     canonical_ats_posting_id,
     generate_composite_job_key,
 )
@@ -111,7 +111,7 @@ def test_aggregator_listing_urls_are_rejected_as_unapplyable():
     the job in MANUAL_REVIEW. 326 autopilot jobs reached the pipeline this way —
     241 already parked — before the hard filter enforced it.
     """
-    from app.services.application_assistant.job_filter_ranker import _is_unapplyable_listing_url
+    from autopilot.job_filter_ranker import _is_unapplyable_listing_url
 
     for url in (
         "https://www.indeed.com/viewjob?jk=abc123",
@@ -123,7 +123,7 @@ def test_aggregator_listing_urls_are_rejected_as_unapplyable():
 
 
 def test_real_employer_and_ats_urls_are_still_allowed():
-    from app.services.application_assistant.job_filter_ranker import _is_unapplyable_listing_url
+    from autopilot.job_filter_ranker import _is_unapplyable_listing_url
 
     for url in (
         "https://job-boards.greenhouse.io/acme/jobs/123",

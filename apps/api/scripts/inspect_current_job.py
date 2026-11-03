@@ -2,7 +2,7 @@ import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from app.db.store import session_scope
-from app.services.application_assistant.persistence import get_autopilot_job
+from autopilot.persistence import get_autopilot_job
 
 import json
 with session_scope() as db:

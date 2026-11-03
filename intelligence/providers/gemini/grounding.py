@@ -125,7 +125,7 @@ def build_corpus(
 
     if documents is not None:
         try:
-            from app.services.application_assistant.candidate_match_context import (
+            from autopilot.candidate_match_context import (
                 extract_resume_text,
             )
 
@@ -207,7 +207,7 @@ def load_default_corpus(*, refresh: bool = False) -> Corpus:
 
     try:
         from app.db.store import session_scope
-        from app.services.application_assistant.candidate_match_context import (
+        from autopilot.candidate_match_context import (
             load_match_context,
         )
 

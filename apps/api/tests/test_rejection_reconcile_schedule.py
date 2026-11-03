@@ -6,7 +6,7 @@ confirmation check and does not need same-minute detection.
 
 from datetime import datetime, timezone
 
-from app.services.application_assistant.queue_preprocessor import (
+from autopilot.queue_preprocessor import (
     _due_for_scheduled_rejection_reconcile,
     _parse_reconcile_hours,
 )

@@ -6,11 +6,11 @@ import re
 from datetime import UTC, datetime
 from typing import Any
 
-from app.services.application_assistant.candidate_match_context import (
+from autopilot.candidate_match_context import (
     build_candidate_skill_terms,
     extract_keywords,
 )
-from app.services.application_assistant.job_matching import parse_job_qualifications
+from autopilot.job_matching import parse_job_qualifications
 
 
 def _utc_now() -> str:

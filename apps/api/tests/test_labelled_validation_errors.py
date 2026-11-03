@@ -11,7 +11,7 @@ import asyncio
 
 import pytest
 
-from app.services.application_assistant.playwright_autopilot_executor import (
+from autopilot.playwright_autopilot_executor import (
     _labelled_validation_errors,
 )
 

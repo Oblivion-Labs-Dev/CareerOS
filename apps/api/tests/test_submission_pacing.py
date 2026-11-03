@@ -10,11 +10,11 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 
 from app.db.store import session_scope
-from app.services.application_assistant.persistence import (
+from autopilot.persistence import (
     most_recent_submit_attempt,
     save_autopilot_job,
 )
-from app.services.application_assistant.submission_pacing import (
+from autopilot.submission_pacing import (
     MIN_SUBMISSION_GAP_SECONDS,
     seconds_until_next_submission,
 )

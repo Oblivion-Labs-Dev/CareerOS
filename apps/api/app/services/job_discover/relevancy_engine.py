@@ -191,7 +191,7 @@ def score_job(job: dict, profile: dict) -> dict:
             score += round(35 * skills_ratio)
 
     if expanded_text:
-        from app.services.application_assistant.candidate_match_context import extract_keywords
+        from autopilot.candidate_match_context import extract_keywords
 
         resume_terms = extract_keywords(expanded_text)
         resume_hits = [term for term in resume_terms if term in full_text]

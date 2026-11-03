@@ -3,7 +3,7 @@ import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from app.db.store import session_scope
-from app.services.application_assistant.persistence import list_discovered_jobs, list_autopilot_jobs
+from autopilot.persistence import list_discovered_jobs, list_autopilot_jobs
 
 with session_scope() as db:
     discovered = list_discovered_jobs(db)

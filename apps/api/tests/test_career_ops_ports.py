@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from app.services.application_assistant.greenhouse_schema import (
+from autopilot.greenhouse_schema import (
     enrich_field_from_schema,
     parse_greenhouse_url,
 )

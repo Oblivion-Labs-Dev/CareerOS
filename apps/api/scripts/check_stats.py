@@ -48,7 +48,7 @@ conn.close()
 import sys, time
 sys.path.insert(0, '.')
 from app.db.store import session_scope
-from app.services.application_assistant.autopilot_runner import AutopilotRunner
+from autopilot.autopilot_runner import AutopilotRunner
 
 t0 = time.time()
 with session_scope() as db:

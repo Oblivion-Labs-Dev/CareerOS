@@ -1,7 +1,7 @@
 import sys
 sys.path.insert(0, '.')
-from app.services.application_assistant.question_classifier import classify_question
-from app.services.application_assistant.profile_answer_resolver import resolve_answer
+from autopilot.question_classifier import classify_question
+from autopilot.profile_answer_resolver import resolve_answer
 
 questions = [
     ("Are you currently authorized to work in the country outlined for this job (e.g. H-1B status)?*", ["Yes", "No"]),

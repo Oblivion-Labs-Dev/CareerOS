@@ -1,6 +1,6 @@
 """Tests for Playwright submission auto-detection helpers."""
 
-from app.services.application_assistant.submission_watcher import (
+from autopilot.submission_watcher import (
     is_submission_confirmation_url,
     record_application_submission,
 )
@@ -29,7 +29,7 @@ class TestSubmissionConfirmationUrl:
         assert not is_submission_confirmation_url("https://careers.datadoghq.com/detail/8088589/?gh_jid=8088589#app")
 
     def test_embedded_careers_thank_you_text(self):
-        from app.services.application_assistant.submission_watcher import _is_embedded_careers_confirmation
+        from autopilot.submission_watcher import _is_embedded_careers_confirmation
 
         url = "https://careers.datadoghq.com/detail/8088589/?gh_jid=8088589"
         body = "Thank you for applying to Datadog! We have received your application."
@@ -41,7 +41,7 @@ class TestRecordApplicationSubmission:
         import uuid
 
         from app.db.store import session_scope
-        from app.services.application_assistant.persistence import (
+        from autopilot.persistence import (
             create_application_draft,
             delete_application_draft,
             get_application_draft,

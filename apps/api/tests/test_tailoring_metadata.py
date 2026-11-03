@@ -1,4 +1,4 @@
-from app.services.application_assistant.tailoring_metadata import authorization_summary, job_match_score
+from autopilot.tailoring_metadata import authorization_summary, job_match_score
 
 
 def test_missing_or_zero_score_is_not_inflated():

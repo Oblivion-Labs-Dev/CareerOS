@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from app.services.application_assistant.demo_data import is_demo_application, is_demo_company_name, is_demo_job
+from autopilot.demo_data import is_demo_application, is_demo_company_name, is_demo_job
 
 
 def test_is_demo_company_name() -> None:

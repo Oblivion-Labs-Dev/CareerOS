@@ -6,7 +6,7 @@ browser run. Observed live on Affirm: a posting applied to two days earlier was
 retried, failed opaquely, and burned an attempt.
 """
 
-from app.services.application_assistant.ineligibility import find_duplicate_submission
+from autopilot.ineligibility import find_duplicate_submission
 
 JOB = {
     "id": "apjob_new",
@@ -58,8 +58,8 @@ def test_captcha_blocked_boards_go_to_manual_review_not_a_terminal_bucket():
     MANUAL_REVIEW: visible as a real opportunity, out of the answer-a-question
     review list, and never retried by the runner.
     """
-    from app.services.application_assistant.domain import AutopilotJobStatus
-    from app.services.application_assistant.ineligibility import (
+    from autopilot.domain import AutopilotJobStatus
+    from autopilot.ineligibility import (
         MANUAL_REASONS,
         TERMINAL_REASONS,
         IneligibilityReason,
@@ -84,8 +84,8 @@ def test_captcha_blocked_boards_go_to_manual_review_not_a_terminal_bucket():
 
 def test_an_expired_posting_is_still_terminal():
     """The manual bucket must not swallow genuine dead ends."""
-    from app.services.application_assistant.domain import AutopilotJobStatus
-    from app.services.application_assistant.ineligibility import (
+    from autopilot.domain import AutopilotJobStatus
+    from autopilot.ineligibility import (
         IneligibilityReason,
         apply_ineligibility,
     )
@@ -98,7 +98,7 @@ def test_an_expired_posting_is_still_terminal():
 
 
 def test_recaptcha_wording_also_classifies_as_bot_protected():
-    from app.services.application_assistant.ineligibility import (
+    from autopilot.ineligibility import (
         IneligibilityReason,
         classify_ineligibility,
     )

@@ -7,9 +7,9 @@ import json
 import sys
 
 from app.db.store import get_kv, session_scope
-from app.services.application_assistant.job_matching import match_job
-from app.services.application_assistant.persistence import save_job_match, upsert_discovered_job
-from app.services.job_discover import store as jd_store
+from autopilot.job_matching import match_job
+from autopilot.persistence import save_job_match, upsert_discovered_job
+from jobs.discovery import store as jd_store
 
 JOB_ID = sys.argv[1] if len(sys.argv) > 1 else "reddit:8082867"
 

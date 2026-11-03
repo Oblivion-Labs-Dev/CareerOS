@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import pytest
 
-from app.services.application_assistant.tailored_match import (
+from autopilot.tailored_match import (
     build_submitted_resume_text,
     describe_gaps,
     score_tailored_resume,
@@ -124,7 +124,7 @@ async def test_evidence_terms_come_from_the_original_not_the_tailored_text(monke
         seen["evidence_terms"] = evidence_terms
         return {"matchScore": 88.0, "missingSkills": ["Rust"]}
 
-    import app.services.application_assistant.mistral_resume_match as mrm
+    import autopilot.mistral_resume_match as mrm
 
     monkeypatch.setattr(mrm, "build_mistral_match_client", lambda timeout=None: FakeClient())
     monkeypatch.setattr(mrm, "score_job_against_resume", fake_score)
@@ -162,7 +162,7 @@ async def test_no_bullets_returns_none_not_zero():
 
 @pytest.mark.anyio
 async def test_disabled_model_returns_none(monkeypatch):
-    import app.services.application_assistant.mistral_resume_match as mrm
+    import autopilot.mistral_resume_match as mrm
 
     class Disabled:
         enabled = False

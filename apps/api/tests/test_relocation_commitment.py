@@ -7,7 +7,7 @@ everything as a schedule preference the candidate is flexible about, and
 answered "Yes" with nothing on the profile to back it up.
 """
 
-from app.services.application_assistant.profile_answer_resolver import resolve_answer
+from autopilot.profile_answer_resolver import resolve_answer
 
 SEATTLE = {"city": "Seattle", "state": "Washington", "location": "Seattle, WA"}
 WILLING = {**SEATTLE, "relocate": "Yes"}

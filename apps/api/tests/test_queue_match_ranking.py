@@ -13,12 +13,12 @@ from __future__ import annotations
 
 import pytest
 
-from app.services.application_assistant.job_filter_ranker import (
+from autopilot.job_filter_ranker import (
     evaluate_hard_filters,
     queue_priority_score,
     role_location_priority_bonus,
 )
-from app.services.application_assistant.mistral_resume_match import (
+from autopilot.mistral_resume_match import (
     is_empty_payload,
     sanitize_match_payload,
 )

@@ -7,7 +7,7 @@ router = APIRouter(prefix="/application-assistant", tags=["application-assistant
 
 @router.get("/jobs/{job_id}/journey")
 def application_journey_endpoint(job_id: str) -> dict[str, Any]:
-    from app.services.application_assistant.application_journey import get_application_journey
+    from autopilot.application_journey import get_application_journey
     journey = get_application_journey(job_id)
     if journey is None:
         raise HTTPException(status_code=404, detail="Application not found")
@@ -17,8 +17,8 @@ def application_journey_endpoint(job_id: str) -> dict[str, Any]:
 @router.get("/jobs/{job_id}/journey/evidence/{kind}")
 def application_journey_evidence(job_id: str, kind: str):
     from fastapi.responses import FileResponse
-    from app.services.application_assistant.application_journey import evidence_path
-    from app.services.application_assistant.submission_receipt_service import get_submission_receipt
+    from autopilot.application_journey import evidence_path
+    from autopilot.submission_receipt_service import get_submission_receipt
     if kind not in {"presubmitScreenshot", "confirmationScreenshot"}:
         raise HTTPException(status_code=404, detail="Evidence not found")
     receipt = get_submission_receipt(job_id)
@@ -38,8 +38,8 @@ async def get_job_tailor_diff(id: str, mode: str | None = None) -> dict[str, Any
     tens of seconds, and holding a pooled connection for that span is unnecessary
     (see approve_preflight_submission for the pool-exhaustion this pattern caused).
     """
-    from app.services.application_assistant.persistence import get_autopilot_job, get_settings
-    from app.services.application_assistant.resume_diff_service import generate_role_tailoring_diff
+    from autopilot.persistence import get_autopilot_job, get_settings
+    from autopilot.resume_diff_service import generate_role_tailoring_diff
     from app.db.store import get_kv, list_entities, session_scope
 
     with session_scope() as db:
@@ -85,8 +85,8 @@ async def get_job_tailor_resume_pdf(id: str, mode: str | None = None) -> Respons
 
     No Depends(db_session) — see get_job_tailor_diff just above.
     """
-    from app.services.application_assistant.persistence import get_autopilot_job, get_settings
-    from app.services.application_assistant.resume_diff_service import (
+    from autopilot.persistence import get_autopilot_job, get_settings
+    from autopilot.resume_diff_service import (
         generate_role_tailoring_diff,
         render_tailored_resume_pdf,
     )
@@ -154,12 +154,12 @@ async def approve_preflight_submission(
     pool and took the whole API down. The DB is only touched for the two quick
     reads/writes below, each in its own short-lived session.
     """
-    from app.services.application_assistant.persistence import (
+    from autopilot.persistence import (
         claim_job_lock,
         get_autopilot_job,
         save_autopilot_job,
     )
-    from app.services.application_assistant.autopilot_runner import AutopilotRunner
+    from autopilot.autopilot_runner import AutopilotRunner
     from app.db.store import now_iso, session_scope
 
     with session_scope() as db:
@@ -197,7 +197,7 @@ async def approve_preflight_submission(
     # the response can say which of those two things actually happened; reporting
     # "submission initiated" unconditionally previously made a job that never left
     # QUEUED look like it had been submitted.
-    from app.services.application_assistant.persistence import get_active_autopilot_run
+    from autopilot.persistence import get_active_autopilot_run
 
     with session_scope() as db:
         active_run = get_active_autopilot_run(db)
@@ -239,7 +239,7 @@ async def approve_preflight_submission(
 @router.get("/receipts/{id}")
 def get_receipt_endpoint(id: str) -> dict[str, Any]:
     """Fetch an archived submission receipt by jobId or receiptId."""
-    from app.services.application_assistant.submission_receipt_service import get_submission_receipt
+    from autopilot.submission_receipt_service import get_submission_receipt
 
     receipt = get_submission_receipt(id)
     if not receipt:
@@ -250,7 +250,7 @@ def get_receipt_endpoint(id: str) -> dict[str, Any]:
 @router.get("/receipts")
 def list_receipts_endpoint() -> dict[str, Any]:
     """List all archived submission receipts."""
-    from app.services.application_assistant.submission_receipt_service import list_all_submission_receipts
+    from autopilot.submission_receipt_service import list_all_submission_receipts
 
     receipts = list_all_submission_receipts()
     return {"success": True, "receipts": receipts, "total": len(receipts)}
@@ -277,8 +277,8 @@ def audit_sponsorship_endpoint(
     db: Session = Depends(db_session),
 ) -> dict[str, Any]:
     """Audit all queued and staged applications against US citizenship & sponsorship criteria."""
-    from app.services.application_assistant.persistence import list_autopilot_jobs, save_autopilot_job, delete_autopilot_job
-    from app.services.application_assistant.job_filter_ranker import evaluate_hard_filters
+    from autopilot.persistence import list_autopilot_jobs, save_autopilot_job, delete_autopilot_job
+    from autopilot.job_filter_ranker import evaluate_hard_filters
     from app.db.store import get_kv
 
     profile = get_kv(db, "profile") or {}

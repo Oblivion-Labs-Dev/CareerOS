@@ -3,12 +3,12 @@ import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from app.db.store import session_scope, get_kv
-from app.services.application_assistant.persistence import (
+from autopilot.persistence import (
     list_autopilot_jobs,
     list_discovered_jobs,
     save_autopilot_job,
 )
-from app.services.application_assistant.job_filter_ranker import role_location_priority_bonus, evaluate_hard_filters
+from autopilot.job_filter_ranker import role_location_priority_bonus, evaluate_hard_filters
 
 with session_scope() as db:
     profile = get_kv(db, "profile") or {}

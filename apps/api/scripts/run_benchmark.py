@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from app.config import settings
-from app.services.application_assistant.benchmark_suite import run_full_sequential_benchmark
+from autopilot.benchmark_suite import run_full_sequential_benchmark
 
 async def main():
     gemini_key = os.environ.get("GEMINI_API_KEY") or settings.gemini_api_key

@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from app.services.application_assistant.field_fill_engine import fill_page_fast_replay
+from autopilot.field_fill_engine import fill_page_fast_replay
 
 FIXTURE = Path(__file__).parent / "fixtures" / "greenhouse" / "application_form.html"
 

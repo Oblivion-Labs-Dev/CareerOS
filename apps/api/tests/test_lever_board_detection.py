@@ -6,7 +6,7 @@ risks that on a Lever posting.
 
 from __future__ import annotations
 
-from app.services.application_assistant.playwright_autopilot_executor import _is_lever_board
+from autopilot.playwright_autopilot_executor import _is_lever_board
 
 
 class _FakePage:

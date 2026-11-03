@@ -4,10 +4,10 @@ import os
 import tempfile
 import pytest
 
-from app.services.application_assistant.failure_taxonomy import FailureContext, FailureType, create_failure_signature
-from app.services.application_assistant.submission_guard import SubmissionBlockedError, assert_submission_permitted, validate_action_allowed
-from app.services.application_assistant.worktree_manager import WorktreeManager
-from app.services.application_assistant.validation_runner import ValidationRunner
+from autopilot.failure_taxonomy import FailureContext, FailureType, create_failure_signature
+from autopilot.submission_guard import SubmissionBlockedError, assert_submission_permitted, validate_action_allowed
+from autopilot.worktree_manager import WorktreeManager
+from autopilot.validation_runner import ValidationRunner
 
 
 def test_failure_taxonomy_and_signature():

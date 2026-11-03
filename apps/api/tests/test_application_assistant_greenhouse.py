@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from app.services.application_assistant.providers.greenhouse import GreenhouseAdapter
-from app.services.application_assistant.submission_guard import is_prohibited_action
+from autopilot.providers.greenhouse import GreenhouseAdapter
+from autopilot.submission_guard import is_prohibited_action
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures" / "greenhouse"
 
@@ -29,7 +29,7 @@ class TestGreenhouseAdapterDetection:
 
 class TestGreenhouseUrlResolution:
     def test_resolves_datadog_careers_page_to_canonical_greenhouse_url(self):
-        from app.services.application_assistant.providers.greenhouse import resolve_greenhouse_apply_url
+        from autopilot.providers.greenhouse import resolve_greenhouse_apply_url
 
         # A custom-branded wrapper around a real Greenhouse posting (confirmed
         # live, see resolve_greenhouse_apply_url's own comment): its markup
@@ -43,13 +43,13 @@ class TestGreenhouseUrlResolution:
         assert resolved == "https://job-boards.greenhouse.io/datadog/jobs/8088589?gh_jid=8088589"
 
     def test_keeps_direct_greenhouse_url(self):
-        from app.services.application_assistant.providers.greenhouse import resolve_greenhouse_apply_url
+        from autopilot.providers.greenhouse import resolve_greenhouse_apply_url
 
         url = "https://job-boards.greenhouse.io/reddit/jobs/8082867"
         assert resolve_greenhouse_apply_url(url) == url
 
     def test_resolves_job_boards_form_nav_url(self):
-        from app.services.application_assistant.providers.greenhouse import resolve_greenhouse_form_nav_url
+        from autopilot.providers.greenhouse import resolve_greenhouse_form_nav_url
 
         url = "https://job-boards.greenhouse.io/datadog/jobs/8088589?gh_jid=8088589"
         source = "https://careers.datadoghq.com/detail/8088589/?gh_jid=8088589"
@@ -58,7 +58,7 @@ class TestGreenhouseUrlResolution:
         )
 
     def test_upgrades_embed_nav_to_careers_page(self):
-        from app.services.application_assistant.providers.greenhouse import resolve_greenhouse_form_nav_url
+        from autopilot.providers.greenhouse import resolve_greenhouse_form_nav_url
 
         embed = "https://boards.greenhouse.io/embed/job_app?for=datadog&token=8088589"
         source = "https://careers.datadoghq.com/detail/8088589/?gh_jid=8088589"
@@ -67,7 +67,7 @@ class TestGreenhouseUrlResolution:
         )
 
     def test_keeps_job_boards_form_nav_without_careers_wrapper(self):
-        from app.services.application_assistant.providers.greenhouse import resolve_greenhouse_form_nav_url
+        from autopilot.providers.greenhouse import resolve_greenhouse_form_nav_url
 
         url = "https://job-boards.greenhouse.io/reddit/jobs/8082867?gh_jid=8082867"
         assert resolve_greenhouse_form_nav_url(url) == (
@@ -80,7 +80,7 @@ class TestGreenhouseAdapterMapping:
         self.adapter = GreenhouseAdapter()
 
     def test_maps_contact_fields(self):
-        from app.services.application_assistant.providers.base import FormField
+        from autopilot.providers.base import FormField
 
         fields = [
             FormField(label="First Name", normalized_key="first_name", field_type="text", required=True),
@@ -101,7 +101,7 @@ class TestGreenhouseAdapterMapping:
         assert mapped[1]["proposedValue"] == "jane+career@example.com"
 
     def test_sensitive_fields_not_inferred(self):
-        from app.services.application_assistant.providers.base import FormField
+        from autopilot.providers.base import FormField
 
         fields = [
             FormField(label="Salary Expectations", normalized_key="salary", field_type="text"),
@@ -112,7 +112,7 @@ class TestGreenhouseAdapterMapping:
         assert mapped[1]["classification"] == "unknown"
 
     def test_manual_only_declaration(self):
-        from app.services.application_assistant.providers.base import FormField
+        from autopilot.providers.base import FormField
 
         fields = [
             FormField(label="I certify that the information is accurate", normalized_key="cert", field_type="checkbox"),
@@ -127,7 +127,7 @@ class TestGreenhouseSubmitDetection:
         assert is_prohibited_action("Submit Application", provider="greenhouse") is True
 
     def test_save_and_continue_is_safe(self):
-        from app.services.application_assistant.submission_guard import is_safe_navigation
+        from autopilot.submission_guard import is_safe_navigation
         assert is_safe_navigation("Save and Continue") is True
 
 

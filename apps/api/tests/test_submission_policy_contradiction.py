@@ -1,14 +1,14 @@
 """Unit tests verifying that persistent high-risk contradictions permanently block submission."""
 
 import pytest
-from app.services.application_assistant.submission_policy import (
+from autopilot.submission_policy import (
     SubmissionPolicy,
     RiskTier,
     SubmissionDecision,
     HIGH_RISK_CONTRADICTION_DOMAINS,
 )
-from app.services.application_assistant.cross_field_validator import ValidationReport
-from app.services.application_assistant.profile_answer_resolver import AnswerResolution
+from autopilot.cross_field_validator import ValidationReport
+from autopilot.profile_answer_resolver import AnswerResolution
 
 
 def test_no_contradictions_allows_submission_when_valid():

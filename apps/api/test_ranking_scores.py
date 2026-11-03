@@ -2,9 +2,9 @@ import sys
 sys.stdout.reconfigure(encoding='utf-8')
 sys.path.insert(0, 'd:/1 - Projects/Projects/CareerOS/CareerOS/apps/api')
 from app.db.store import session_scope, list_entities, get_kv
-from app.services.application_assistant.persistence import list_discovered_jobs, list_autopilot_jobs
-from app.services.application_assistant.job_filter_ranker import filter_and_rank_jobs, evaluate_hard_filters
-from app.services.application_assistant.qwen_job_match import evaluate_job_match
+from autopilot.persistence import list_discovered_jobs, list_autopilot_jobs
+from autopilot.job_filter_ranker import filter_and_rank_jobs, evaluate_hard_filters
+from autopilot.qwen_job_match import evaluate_job_match
 
 with session_scope() as db:
     profile = get_kv(db, "profile") or {}

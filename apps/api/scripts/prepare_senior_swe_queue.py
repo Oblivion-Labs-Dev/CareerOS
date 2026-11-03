@@ -3,10 +3,10 @@ import sys, io, uuid
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
 sys.path.insert(0, r"d:\1 - Projects\Projects\CareerOS\CareerOS\apps\api")
 from app.db.store import session_scope, get_kv
-from app.services.application_assistant.persistence import (
+from autopilot.persistence import (
     list_autopilot_jobs, list_discovered_jobs, save_autopilot_job,
 )
-from app.services.application_assistant.job_filter_ranker import (
+from autopilot.job_filter_ranker import (
     role_location_priority_bonus, evaluate_hard_filters,
 )
 

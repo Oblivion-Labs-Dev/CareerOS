@@ -5,7 +5,7 @@ from __future__ import annotations
 import base64
 from pathlib import Path
 
-from app.services.application_assistant.document_files import (
+from autopilot.document_files import (
     apply_document_fields,
     is_resume_field,
     materialize_attachment,
@@ -21,7 +21,7 @@ def test_is_resume_field_detects_common_labels() -> None:
 
 
 def test_materialize_attachment_writes_cache_file(tmp_path, monkeypatch) -> None:
-    import app.services.application_assistant.document_files as mod
+    import autopilot.document_files as mod
 
     monkeypatch.setattr(mod, "DOCUMENT_CACHE_DIR", tmp_path)
     attachment = {
@@ -37,7 +37,7 @@ def test_materialize_attachment_writes_cache_file(tmp_path, monkeypatch) -> None
 
 
 def test_apply_document_fields_maps_resume_file_input(tmp_path, monkeypatch) -> None:
-    import app.services.application_assistant.document_files as mod
+    import autopilot.document_files as mod
 
     monkeypatch.setattr(mod, "DOCUMENT_CACHE_DIR", tmp_path)
     resume_path = tmp_path / "resume.pdf"

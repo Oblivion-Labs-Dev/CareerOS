@@ -36,11 +36,11 @@ async def main() -> None:
     os.environ["CAREEROS_MATCH_MODEL"] = args.model
 
     from app.db.store import get_entity, get_kv, list_entities, session_scope
-    from app.services.application_assistant.persistence import ENTITY_DISCOVERED_JOB
-    from app.services.application_assistant.resume_diff_service import (
+    from autopilot.persistence import ENTITY_DISCOVERED_JOB
+    from autopilot.resume_diff_service import (
         CANONICAL_MASTER_BULLETS,
     )
-    from app.services.application_assistant.tailored_match import score_tailored_resume
+    from autopilot.tailored_match import score_tailored_resume
 
     with session_scope() as db:
         profile = get_kv(db, "profile") or {}

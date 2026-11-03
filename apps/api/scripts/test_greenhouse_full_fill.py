@@ -6,9 +6,9 @@ from playwright.async_api import async_playwright
 
 sys.path.insert(0, "d:/1 - Projects/Projects/CareerOS/CareerOS/apps/api")
 from app.db.store import session_scope, get_kv
-from app.services.application_assistant.persistence import list_answer_library
-from app.services.application_assistant.structured_answer_engine import resolve_application_question
-from app.services.application_assistant.ats_plugin_reference import classify_canonical_key
+from autopilot.persistence import list_answer_library
+from autopilot.structured_answer_engine import resolve_application_question
+from autopilot.ats_plugin_reference import classify_canonical_key
 
 async def test_fill():
     with session_scope() as db:

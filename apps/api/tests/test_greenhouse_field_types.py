@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from app.services.application_assistant.providers.greenhouse import resolve_greenhouse_field_type
+from autopilot.providers.greenhouse import resolve_greenhouse_field_type
 
 
 class TestGreenhouseFieldTypes:

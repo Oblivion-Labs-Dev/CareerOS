@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import pytest
 
-from app.services.application_assistant.job_filter_ranker import (
+from autopilot.job_filter_ranker import (
     INTERNATIONAL_QUEUE_PENALTY,
     is_international_location,
     queue_priority_score,

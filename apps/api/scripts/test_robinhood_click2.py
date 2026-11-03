@@ -5,8 +5,8 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from app.services.application_assistant.profile_answer_resolver import resolve_answer
-from app.services.application_assistant.question_classifier import QuestionType
+from autopilot.profile_answer_resolver import resolve_answer
+from autopilot.question_classifier import QuestionType
 
 async def main():
     async with async_playwright() as p:

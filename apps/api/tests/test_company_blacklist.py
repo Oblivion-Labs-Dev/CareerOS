@@ -8,11 +8,11 @@ from Settings.
 
 from __future__ import annotations
 
-from app.services.application_assistant.company_blacklist import (
+from autopilot.company_blacklist import (
     is_blacklisted,
     partition_by_blacklist,
 )
-from app.services.application_assistant.domain import AutopilotJobStatus, IneligibilityReason
+from autopilot.domain import AutopilotJobStatus, IneligibilityReason
 
 
 def _job(job_id: str, company: str) -> dict:

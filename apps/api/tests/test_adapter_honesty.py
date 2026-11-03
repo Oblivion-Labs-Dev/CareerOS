@@ -9,12 +9,12 @@ invented confirmation evidence for applications that were never sent.
 
 import pytest
 
-from app.services.application_assistant.adapters import ADAPTERS, resolve_adapter
-from app.services.application_assistant.adapters.base_adapter import (
+from autopilot.adapters import ADAPTERS, resolve_adapter
+from autopilot.adapters.base_adapter import (
     AdapterNotImplementedError,
 )
-from app.services.application_assistant.adapters.generic_adapter import GenericAdapter
-from app.services.application_assistant.adapters.workday_adapter import WorkdayAdapter
+from autopilot.adapters.generic_adapter import GenericAdapter
+from autopilot.adapters.workday_adapter import WorkdayAdapter
 
 UNIMPLEMENTED = [WorkdayAdapter(), GenericAdapter()]
 

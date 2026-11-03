@@ -1,7 +1,7 @@
 """Unit tests for Greenhouse custom field label resolution, aria-live exclusion, and healing."""
 
 import pytest
-from app.services.application_assistant.playwright_autopilot_executor import _extract_dom_form_state
+from autopilot.playwright_autopilot_executor import _extract_dom_form_state
 
 
 def test_aria_live_polite_exclusion_pattern():

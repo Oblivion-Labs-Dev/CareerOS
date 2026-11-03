@@ -197,7 +197,7 @@ def judge(
 def build_resume_summary() -> str:
     """A compact, title-free description of the candidate for the teacher."""
     from app.db.store import get_kv, session_scope
-    from app.services.application_assistant.candidate_match_context import (
+    from autopilot.candidate_match_context import (
         extract_resume_text,
     )
 

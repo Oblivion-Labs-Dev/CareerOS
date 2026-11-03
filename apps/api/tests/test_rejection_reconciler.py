@@ -9,7 +9,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from app.services.application_assistant import rejection_reconciler as reconciler
+from autopilot import rejection_reconciler as reconciler
 
 
 def _iso(offset_minutes: int) -> str:

@@ -155,7 +155,7 @@ async def _drain_in_flight_work(grace_seconds: float) -> None:
     expires on its own, which is the same recovery path as a hard crash - the
     point is to make that the rare case rather than every restart.
     """
-    from app.services.application_assistant.autopilot_runner import AutopilotRunner
+    from autopilot.autopilot_runner import AutopilotRunner
 
     deadline = asyncio.get_running_loop().time() + grace_seconds
 
@@ -175,7 +175,7 @@ async def _drain_in_flight_work(grace_seconds: float) -> None:
     while asyncio.get_running_loop().time() < deadline:
         try:
             from app.db.store import session_scope
-            from app.services.application_assistant.persistence import list_autopilot_jobs
+            from autopilot.persistence import list_autopilot_jobs
 
             with session_scope() as db:
                 in_flight = list_autopilot_jobs(db, "APPLYING")
@@ -198,7 +198,7 @@ async def _drain_in_flight_work(grace_seconds: float) -> None:
 
     # Close the dedicated Playwright loop and any browser it still owns.
     try:
-        from app.services.application_assistant.browser_runner import shutdown_playwright_worker
+        from autopilot.browser_runner import shutdown_playwright_worker
 
         await asyncio.to_thread(shutdown_playwright_worker)
     except Exception:
@@ -286,7 +286,7 @@ def _recover_stranded_applications() -> None:
     dashboard is how the user would diagnose it.
     """
     try:
-        from app.services.application_assistant.autopilot_runner import (
+        from autopilot.autopilot_runner import (
             recover_stranded_applying_jobs,
         )
 
@@ -304,7 +304,7 @@ def _warm_autopilot_caches() -> None:
     """
     try:
         from app.db.store import session_scope
-        from app.services.application_assistant.persistence import (
+        from autopilot.persistence import (
             AUTOPILOT_JOBS_CACHE_KEY,
             AUTOPILOT_STATS_CACHE_KEY,
             get_autopilot_status_company_stats,
@@ -332,7 +332,7 @@ def _apply_bucket_model() -> None:
     """Move jobs written under the old bucket model onto the current one (runs once)."""
     try:
         from app.db.store import session_scope
-        from app.services.application_assistant.bucket_migration import migrate_bucket_model
+        from autopilot.bucket_migration import migrate_bucket_model
 
         with session_scope() as db:
             migrate_bucket_model(db)
@@ -443,7 +443,7 @@ def favicon() -> Response:
 
 def _ensure_ollama_started_background() -> None:
     """Check if Ollama is running and start it in background if not already alive."""
-    from app.services.application_assistant.llm_client import LOCAL_LLM_ENABLED
+    from autopilot.llm_client import LOCAL_LLM_ENABLED
 
     # With the local model switched off nothing may call it, so there is no
     # reason to have its server running and holding memory either.

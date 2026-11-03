@@ -131,7 +131,7 @@ def _hard_constraint(pair: Pair) -> str | None:
     """
     try:
         from app.db.store import get_kv, session_scope
-        from app.services.application_assistant.job_filter_ranker import (
+        from autopilot.job_filter_ranker import (
             evaluate_hard_filters,
         )
 

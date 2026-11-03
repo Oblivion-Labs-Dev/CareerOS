@@ -1,7 +1,7 @@
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path("CareerOS/apps/api").resolve()))
-from app.services.application_assistant.job_filter_ranker import role_location_priority_bonus
+from autopilot.job_filter_ranker import role_location_priority_bonus
 
 sample_jobs = [
     {"title": "Senior Software Engineer", "location": "Seattle, WA"},

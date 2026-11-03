@@ -4,7 +4,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from app.services.application_assistant.resume_diff_service import generate_role_tailoring_diff
+from autopilot.resume_diff_service import generate_role_tailoring_diff
 from app.db.store import session_scope, get_kv
 
 async def main():

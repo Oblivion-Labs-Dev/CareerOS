@@ -4,7 +4,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from app.services.application_assistant.browser_verifier import verify_browser_dom_state
+from autopilot.browser_verifier import verify_browser_dom_state
 
 async def main():
     async with async_playwright() as p:

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import pytest
 
-from app.services.application_assistant.question_classifier import QuestionType, classify_question
+from autopilot.question_classifier import QuestionType, classify_question
 
 
 def _t(question: str) -> QuestionType:

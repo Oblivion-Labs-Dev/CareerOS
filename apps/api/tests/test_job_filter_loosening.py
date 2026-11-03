@@ -7,7 +7,7 @@ was rejecting in the live discovered-job table.
 
 import pytest
 
-from app.services.application_assistant.job_filter_ranker import evaluate_hard_filters
+from autopilot.job_filter_ranker import evaluate_hard_filters
 
 
 def _job(title="Senior Software Engineer", location="Seattle, WA", company="Acme"):

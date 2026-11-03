@@ -12,9 +12,9 @@ def list_applications(
     db: Session = Depends(db_session),
     status: str | None = Query(default=None),
 ) -> dict[str, Any]:
-    from app.services.application_assistant.browser_replay import summarize_application_list_item
-    from app.services.application_assistant.persistence import index_active_browser_runs
-    from app.services.application_assistant.agent import _get_agent_runs, reconcile_stale_prep_state
+    from autopilot.browser_replay import summarize_application_list_item
+    from autopilot.persistence import index_active_browser_runs
+    from autopilot.agent import _get_agent_runs, reconcile_stale_prep_state
 
     drafts = list_application_drafts(db, status=status, cleanup_duplicates=False)
     agent_runs = _get_agent_runs(db)
@@ -47,8 +47,8 @@ def list_autofill_state(
     db: Session = Depends(db_session),
 ) -> dict[str, Any]:
     """Per-job saved Playwright autofill state (applicationId + jobId + hasSavedAutofillState)."""
-    from app.services.application_assistant.browser_replay import list_autofill_states
-    from app.services.application_assistant.agent import reconcile_stale_prep_state
+    from autopilot.browser_replay import list_autofill_states
+    from autopilot.agent import reconcile_stale_prep_state
 
     drafts = list_application_drafts(db)
     reconciled = [reconcile_stale_prep_state(db, d) for d in drafts]
@@ -126,7 +126,7 @@ def quick_add_application(payload: QuickAddApplicationPayload, db: Session = Dep
 
 @router.get("/applications/{app_id}")
 def get_application(app_id: str, db: Session = Depends(db_session)) -> dict[str, Any]:
-    from app.services.application_assistant.browser_replay import enrich_draft_replay_state, reconcile_stale_browser_run
+    from autopilot.browser_replay import enrich_draft_replay_state, reconcile_stale_browser_run
 
     draft = get_application_draft(db, app_id)
     if not draft:
@@ -144,7 +144,7 @@ def get_application(app_id: str, db: Session = Depends(db_session)) -> dict[str,
 
 @router.post("/applications/{app_id}/prepare")
 async def start_preparation(app_id: str, db: Session = Depends(db_session)) -> dict[str, Any]:
-    from app.services.application_assistant.agent import execute_application_prepare
+    from autopilot.agent import execute_application_prepare
 
     prep = await execute_application_prepare(app_id, allow_retry=True)
     if prep.get("error") == "Application not found":
@@ -196,7 +196,7 @@ def approve_field(app_id: str, field_id: str, db: Session = Depends(db_session))
 @router.get("/applications/{app_id}/readiness")
 def get_application_readiness(app_id: str, db: Session = Depends(db_session)) -> dict[str, Any]:
     """Fast check: are all profile questions answered so the browser can open?"""
-    from app.services.application_assistant.field_answers import sync_application_readiness
+    from autopilot.field_answers import sync_application_readiness
 
     draft = get_application_draft(db, app_id)
     if not draft:
@@ -214,7 +214,7 @@ async def get_pending_fields(
 ) -> dict[str, Any]:
     """List fields that need user answers, with optional Qwen storage hints."""
     from app.db.store import get_kv
-    from app.services.application_assistant.field_answers import (
+    from autopilot.field_answers import (
         _fallback_enrich_field,
         enrich_pending_with_qwen,
         filter_wizard_pending,
@@ -233,7 +233,7 @@ async def get_pending_fields(
     analyze_ctx = {"applicationId": app_id, "companyName": company}
 
     if use_ai:
-        from app.services.application_assistant.field_answers import _log_analyze
+        from autopilot.field_answers import _log_analyze
 
         _log_analyze(
             f"Starting Qwen analysis for {company} — {draft.get('roleTitle', '')}",
@@ -319,7 +319,7 @@ async def get_aggregate_pending_fields(
     db: Session = Depends(db_session),
 ) -> dict[str, Any]:
     """Collect pending questions across applications; AI normalization is opt-in."""
-    from app.services.application_assistant.field_answers import aggregate_pending_across_apps
+    from autopilot.field_answers import aggregate_pending_across_apps
 
     ids = [part.strip() for part in app_ids.split(",") if part.strip()] or None
     result = await aggregate_pending_across_apps(db, ids, use_ai=use_ai)
@@ -332,8 +332,8 @@ async def submit_unified_field_answers(
     db: Session = Depends(db_session),
 ) -> dict[str, Any]:
     """Save normalized answers once and apply them to every matching application field."""
-    from app.services.application_assistant.field_answers import save_unified_field_answers
-    from app.services.application_assistant.agent import schedule_autonomous_prepare
+    from autopilot.field_answers import save_unified_field_answers
+    from autopilot.agent import schedule_autonomous_prepare
 
     if not payload.answers:
         raise HTTPException(status_code=400, detail="No answers provided")
@@ -361,8 +361,8 @@ async def submit_field_answers(
     db: Session = Depends(db_session),
 ) -> dict[str, Any]:
     """Save user-provided answers to profile + answer library and update the draft."""
-    from app.services.application_assistant.field_answers import save_field_answers
-    from app.services.application_assistant.agent import schedule_autonomous_prepare
+    from autopilot.field_answers import save_field_answers
+    from autopilot.agent import schedule_autonomous_prepare
 
     if not payload.answers:
         raise HTTPException(status_code=400, detail="No answers provided")
@@ -445,7 +445,7 @@ def record_submission(
     url: str = Query(default=""),
 ) -> dict[str, Any]:
     """Record submission detected from the review browser or an external hook."""
-    from app.services.application_assistant.submission_watcher import record_application_submission
+    from autopilot.submission_watcher import record_application_submission
 
     draft = get_application_draft(db, app_id)
     if not draft:
@@ -490,7 +490,7 @@ def unarchive_application(app_id: str, db: Session = Depends(db_session)) -> dic
 
 @router.post("/applications/{app_id}/stop-browser")
 async def stop_browser(app_id: str, db: Session = Depends(db_session)) -> dict[str, Any]:
-    from app.services.application_assistant.browser_runner import cleanup_stale_session
+    from autopilot.browser_runner import cleanup_stale_session
 
     await close_session(app_id)
     await cleanup_stale_session(app_id, db)
@@ -515,7 +515,7 @@ def check_submission_confirmed_route(app_id: str, db: Session = Depends(db_sessi
 
 @router.get("/applications/{app_id}/review-status")
 def review_session_status(app_id: str, db: Session = Depends(db_session)) -> dict[str, Any]:
-    from app.services.application_assistant.agent import get_review_session_status
+    from autopilot.agent import get_review_session_status
 
     status = get_review_session_status(db, app_id)
     if status.get("status") == "not_found":
@@ -530,8 +530,8 @@ async def open_application_review(
     db: Session = Depends(db_session),
 ) -> dict[str, Any]:
     """Open employer application page in visible browser and fill from saved draft."""
-    from app.services.application_assistant.agent import execute_application_open_review
-    from app.services.application_assistant.persistence import (
+    from autopilot.agent import execute_application_open_review
+    from autopilot.persistence import (
         get_application_draft,
         create_application_draft,
         get_autopilot_job,

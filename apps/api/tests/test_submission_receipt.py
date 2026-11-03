@@ -1,5 +1,5 @@
 import pytest
-from app.services.application_assistant.submission_receipt_service import (
+from autopilot.submission_receipt_service import (
     create_submission_receipt,
     get_submission_receipt,
     list_all_submission_receipts,

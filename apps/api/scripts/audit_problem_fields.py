@@ -4,7 +4,7 @@ from pathlib import Path
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from app.db.store import session_scope
-from app.services.application_assistant.persistence import list_autopilot_jobs
+from autopilot.persistence import list_autopilot_jobs
 
 # Fields to specifically check
 PROBLEM_FIELDS = [

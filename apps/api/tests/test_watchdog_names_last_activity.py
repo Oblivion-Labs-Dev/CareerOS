@@ -6,9 +6,9 @@ import asyncio
 from contextlib import contextmanager
 
 from app.db import store
-from app.services.application_assistant import autopilot_runner as module
-from app.services.application_assistant import job_filter_ranker, persistence, resume_diff_service
-from app.services.application_assistant import playwright_autopilot_executor as executor
+from autopilot import autopilot_runner as module
+from autopilot import job_filter_ranker, persistence, resume_diff_service
+from autopilot import playwright_autopilot_executor as executor
 
 
 def test_watchdog_timeout_reports_the_last_activity(monkeypatch, tmp_path):

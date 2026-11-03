@@ -30,10 +30,10 @@ from app.db.store import (
 from intelligence.answer_engine import generate_answer, load_custom_answers
 from analytics.dashboard import render_api_dashboard
 from app.services.extension_packager import build_extension_zip, extension_info
-from app.services.job_discover import relevancy_engine
-from app.services.job_discover import store as job_discover
-from app.services.job_discover.url_import import autoextract_job_from_url
-from app.services.application_assistant.persistence import get_settings as get_aa_settings
+from jobs.discovery import relevancy_engine
+from jobs.discovery import store as job_discover
+from jobs.discovery.url_import import autoextract_job_from_url
+from autopilot.persistence import get_settings as get_aa_settings
 from intelligence.llm.client import analyze_accomplishment, generate_resume_bullets_for_job
 from resume.ats_score import compute_ats_score
 from resume import resume_profiles as resume_profiles_service
@@ -507,11 +507,11 @@ def _processed_autopilot_identity(db: Session) -> tuple[set[str], set[str]]:
     different posting ids at one employer are two different openings, and
     collapsing them would hide real jobs.
     """
-    from app.services.application_assistant.job_filter_ranker import (
+    from autopilot.job_filter_ranker import (
         generate_composite_job_key,
         normalize_application_url,
     )
-    from app.services.application_assistant.persistence import AUTOPILOT_JOBS_CACHE_KEY, list_autopilot_jobs
+    from autopilot.persistence import AUTOPILOT_JOBS_CACHE_KEY, list_autopilot_jobs
     from app.services.read_cache import read_cache
 
     def _load_all_autopilot_jobs() -> list[dict[str, Any]]:
@@ -536,7 +536,7 @@ def _processed_autopilot_identity(db: Session) -> tuple[set[str], set[str]]:
 
 def _is_unprocessed(job: dict[str, Any], processed_keys: set[str], processed_urls: set[str]) -> bool:
     """Whether this discovered posting is absent from the Autopilot pipeline."""
-    from app.services.application_assistant.job_filter_ranker import (
+    from autopilot.job_filter_ranker import (
         generate_composite_job_key,
         normalize_application_url,
     )
@@ -575,7 +575,7 @@ def list_discovered_jobs(
     snapshot = job_discover.get_snapshot(db)
     freshness_filter = freshness if freshness in {"12", "24", "48", "72", "168", "336", "720", "all"} else "all"
     sort_option = sort if sort in {"relevancy", "date", "company", "recent", "most_recent"} else "relevancy"
-    from app.services.application_assistant.scraper_import import get_synced_scraper_job_ids
+    from autopilot.scraper_import import get_synced_scraper_job_ids
 
     synced_ids = get_synced_scraper_job_ids(db)
     dismissed_ids = set(snapshot.get("dismissedIds") or [])
@@ -624,8 +624,8 @@ def list_discovered_jobs(
 
 @router.get("/jobs/discover/filter-options")
 def browse_filter_options(db: Session = Depends(db_session)):
-    from app.services.job_discover.browse_filters import filter_options
-    from app.services.application_assistant.scraper_import import get_synced_scraper_job_ids
+    from jobs.discovery.browse_filters import filter_options
+    from autopilot.scraper_import import get_synced_scraper_job_ids
     snapshot = job_discover.get_snapshot(db)
     excluded = get_synced_scraper_job_ids(db) | set(snapshot.get("dismissedIds") or [])
     processed_keys, processed_urls = _processed_autopilot_identity(db)
@@ -656,7 +656,7 @@ def job_discover_stats(db: Session = Depends(db_session)) -> dict[str, Any]:
 
 @router.get("/jobs/discover/locations")
 def job_discover_locations(db: Session = Depends(db_session)) -> dict[str, Any]:
-    from app.services.application_assistant.scraper_import import get_synced_scraper_job_ids
+    from autopilot.scraper_import import get_synced_scraper_job_ids
 
     snapshot = job_discover.get_snapshot(db)
     synced_ids = get_synced_scraper_job_ids(db)
@@ -1381,8 +1381,8 @@ async def get_benchmarks_route() -> dict[str, Any]:
 @router.post("/benchmarks/run")
 async def run_benchmarks_route() -> dict[str, Any]:
     """Execute full sequential benchmark comparing Ollama local models and Gemini API."""
-    from app.services.application_assistant import llm_client
-    from app.services.application_assistant.benchmark_suite import run_full_sequential_benchmark
+    from autopilot import llm_client
+    from autopilot.benchmark_suite import run_full_sequential_benchmark
 
     if not llm_client.LOCAL_LLM_ENABLED:
         raise HTTPException(status_code=409, detail="Local LLMs are switched off (CAREEROS_LOCAL_LLM=off).")
@@ -1406,13 +1406,13 @@ class TestResolveRequest(BaseModel):
 async def test_resolve_field_route(payload: TestResolveRequest) -> dict[str, Any]:
     """Test resolution of a specific question variation with rule resolver and model resolution."""
     import time
-    from app.services.application_assistant.benchmark_dataset import BENCHMARK_PROFILE, BENCHMARK_RESUME_TEXT
+    from autopilot.benchmark_dataset import BENCHMARK_PROFILE, BENCHMARK_RESUME_TEXT
     # The resolver is `resolve_answer`; this route still imported a name it had
     # before a rename, so every call returned 500 rather than a resolution.
-    from app.services.application_assistant.profile_answer_resolver import resolve_answer
-    from app.services.application_assistant.question_classifier import classify_question, QuestionType
-    from app.services.application_assistant.cross_field_validator import validate_answers
-    from app.services.application_assistant.submission_policy import SubmissionPolicy
+    from autopilot.profile_answer_resolver import resolve_answer
+    from autopilot.question_classifier import classify_question, QuestionType
+    from autopilot.cross_field_validator import validate_answers
+    from autopilot.submission_policy import SubmissionPolicy
 
     active_profile = payload.profile if payload.profile else BENCHMARK_PROFILE
     start_t = time.perf_counter()

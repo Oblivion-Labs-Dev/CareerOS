@@ -1,6 +1,6 @@
 """Tests for saved browser replay plans."""
 
-from app.services.application_assistant.browser_replay import (
+from autopilot.browser_replay import (
     autofill_state_metadata,
     build_browser_plan,
     build_replay_actions_from_fields,
@@ -121,7 +121,7 @@ class TestBrowserReplay:
     def test_ensure_document_upload_actions_injects_missing_resume(self, tmp_path, monkeypatch):
         import base64
 
-        import app.services.application_assistant.document_files as doc_mod
+        import autopilot.document_files as doc_mod
 
         monkeypatch.setattr(doc_mod, "DOCUMENT_CACHE_DIR", tmp_path)
         pdf = tmp_path / "resume.pdf"
@@ -215,7 +215,7 @@ class TestBrowserReplay:
     def test_reconcile_clears_stale_browser_run_when_browser_closed(self, monkeypatch):
         from unittest.mock import MagicMock
 
-        from app.services.application_assistant.browser_replay import reconcile_stale_browser_run
+        from autopilot.browser_replay import reconcile_stale_browser_run
 
         db = MagicMock()
         draft = {
@@ -230,11 +230,11 @@ class TestBrowserReplay:
         }
         active_run = {"id": "run_1", "status": "running", "startedAt": "2020-01-01T00:00:00+00:00"}
         monkeypatch.setattr(
-            "app.services.application_assistant.browser_runner.get_active_session",
+            "autopilot.browser_runner.get_active_session",
             lambda _app_id: None,
         )
         monkeypatch.setattr(
-            "app.services.application_assistant.worker.task_status",
+            "autopilot.worker.task_status",
             lambda _task_id: "not_found",
         )
 
@@ -245,22 +245,22 @@ class TestBrowserReplay:
     def test_reconcile_clears_orphan_in_progress(self, monkeypatch):
         from unittest.mock import MagicMock
 
-        from app.services.application_assistant.qwen_agent import reconcile_stale_prep_state
+        from autopilot.qwen_agent import reconcile_stale_prep_state
 
         db = MagicMock()
         draft = {"id": "app_orphan", "status": "in_progress"}
         monkeypatch.setattr(
-            "app.services.application_assistant.qwen_agent.task_status",
+            "autopilot.qwen_agent.task_status",
             lambda _task_id: "not_found",
         )
-        monkeypatch.setattr("app.services.application_assistant.qwen_agent.is_app_locked", lambda _app_id: False)
-        monkeypatch.setattr("app.services.application_assistant.qwen_agent.get_agent_run", lambda _db, _app_id: None)
+        monkeypatch.setattr("autopilot.qwen_agent.is_app_locked", lambda _app_id: False)
+        monkeypatch.setattr("autopilot.qwen_agent.get_agent_run", lambda _db, _app_id: None)
         monkeypatch.setattr(
-            "app.services.application_assistant.qwen_agent.get_active_browser_run_for_app",
+            "autopilot.qwen_agent.get_active_browser_run_for_app",
             lambda _db, _app_id: None,
         )
         monkeypatch.setattr(
-            "app.services.application_assistant.browser_replay.reconcile_stale_browser_run",
+            "autopilot.browser_replay.reconcile_stale_browser_run",
             lambda _db, d, **kwargs: d,
         )
 

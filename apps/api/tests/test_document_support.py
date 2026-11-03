@@ -6,9 +6,9 @@ import pytest
 from resume.scoring import evidence_match as em
 from resume import minimal_tailoring as mt
 from resume.baseline_document import approved_path, render_baseline
-from app.services.application_assistant import candidate_match_context as context
-from app.services.application_assistant.mistral_resume_match import _is_evidenced, score_job_against_resume
-from app.services.application_assistant.job_matching import match_job
+from autopilot import candidate_match_context as context
+from autopilot.mistral_resume_match import _is_evidenced, score_job_against_resume
+from autopilot.job_matching import match_job
 from tests.resume_baseline_fixture import baseline
 
 

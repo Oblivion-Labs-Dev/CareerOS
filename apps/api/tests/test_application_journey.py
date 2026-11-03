@@ -1,6 +1,6 @@
-from app.services.application_assistant.application_journey import assess_receipt, evidence_path, get_application_journey, DEFAULT_CONFIRMATION
+from autopilot.application_journey import assess_receipt, evidence_path, get_application_journey, DEFAULT_CONFIRMATION
 from app.db.store import session_scope, set_kv
-from app.services.application_assistant.persistence import save_autopilot_job
+from autopilot.persistence import save_autopilot_job
 
 
 def test_submitted_without_evidence_is_uncertain():

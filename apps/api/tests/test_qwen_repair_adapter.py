@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import pytest
-from app.services.repair.self_healing_prompt import SELF_HEALING_SYSTEM_PROMPT
-from app.services.repair.agent import get_agent_adapter
-from app.services.repair.qwen_adapter import QwenCodingAgentAdapter
-from app.services.repair.types import RepairTask, AgentWorkspace, AgentRun
+from autopilot.repair.self_healing_prompt import SELF_HEALING_SYSTEM_PROMPT
+from autopilot.repair.agent import get_agent_adapter
+from autopilot.repair.qwen_adapter import QwenCodingAgentAdapter
+from autopilot.repair.types import RepairTask, AgentWorkspace, AgentRun
 
 
 def test_self_healing_system_prompt_structure():
@@ -50,8 +50,8 @@ def test_qwen_adapter_prompt_and_execution_mocked(monkeypatch, tmp_path):
     adapter = QwenCodingAgentAdapter(llm_client=FakeLLMClient())
     
     # Mock git operations
-    monkeypatch.setattr("app.services.repair.qwen_adapter._git_available", lambda repo: True)
-    monkeypatch.setattr("app.services.repair.qwen_adapter._create_worktree", lambda repo, branch, path, run: None)
+    monkeypatch.setattr("autopilot.repair.qwen_adapter._git_available", lambda repo: True)
+    monkeypatch.setattr("autopilot.repair.qwen_adapter._create_worktree", lambda repo, branch, path, run: None)
 
     task = RepairTask(
         task_id="test-task-123",
@@ -68,7 +68,7 @@ def test_qwen_adapter_prompt_and_execution_mocked(monkeypatch, tmp_path):
 
     # Force worktree path
     monkeypatch.setattr(
-        "app.services.repair.qwen_adapter.uuid.uuid4",
+        "autopilot.repair.qwen_adapter.uuid.uuid4",
         lambda: "testrun12345678",
     )
 

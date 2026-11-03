@@ -6,9 +6,9 @@ from contextlib import contextmanager
 import pytest
 
 from app.db import store
-from app.services.application_assistant import autopilot_runner as module
-from app.services.application_assistant import playwright_autopilot_executor as executor
-from app.services.application_assistant import resume_diff_service
+from autopilot import autopilot_runner as module
+from autopilot import playwright_autopilot_executor as executor
+from autopilot import resume_diff_service
 
 
 def test_a_queued_role_below_senior_is_skipped_not_applied(monkeypatch):

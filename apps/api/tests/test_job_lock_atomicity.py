@@ -5,7 +5,7 @@ from __future__ import annotations
 import concurrent.futures
 
 from app.db.store import session_scope
-from app.services.application_assistant.persistence import (
+from autopilot.persistence import (
     claim_job_lock,
     get_autopilot_job,
     release_job_lock,
@@ -19,7 +19,7 @@ def _make_job(job_id: str) -> None:
 
 
 def _cleanup(job_id: str) -> None:
-    from app.services.application_assistant.persistence import delete_autopilot_job
+    from autopilot.persistence import delete_autopilot_job
 
     with session_scope() as db:
         delete_autopilot_job(db, job_id)

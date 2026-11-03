@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.db.store import now_iso
-from app.services.application_assistant.persistence import get_application_draft, update_application_draft
+from autopilot.persistence import get_application_draft, update_application_draft
 from notifications.gmail.imap import GmailImapClient
 
 

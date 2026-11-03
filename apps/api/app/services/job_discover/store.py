@@ -16,14 +16,14 @@ from typing import Any, Literal
 from sqlalchemy.orm import Session
 
 from app.db.store import get_kv, session_scope, set_kv, upsert_entity
-from app.services.application_assistant.candidate_match_context import (
+from autopilot.candidate_match_context import (
     accomplishment_text,
     extract_resume_text,
     normalize_profile_skills,
     work_experience_text,
 )
-from app.services.job_discover import apify_service, bigtech_scrapers, relevancy_engine, scraper_service
-from app.services.job_discover.h1b_sponsorship import apply_h1b_fields
+from jobs.discovery import apify_service, bigtech_scrapers, relevancy_engine, scraper_service
+from jobs.discovery.h1b_sponsorship import apply_h1b_fields
 
 logger = logging.getLogger("career_os.job_discover_store")
 
@@ -35,7 +35,7 @@ KV_KEY = "job_discover"
 # write production state is one refactor away from doing real damage.
 DATA_DIR = Path(
     os.environ.get("CAREEROS_JOB_DISCOVER_DATA_DIR")
-    or Path(__file__).resolve().parents[3] / "data" / "job_discover"
+    or Path(__file__).resolve().parents[2] / "apps" / "api" / "data" / "job_discover"
 )
 SNAPSHOT_FILE = DATA_DIR / "jobs_snapshot.json"
 
@@ -116,7 +116,7 @@ def _merge_jobs_into_snapshot(db: Session, updated_jobs: list[dict[str, Any]]) -
     if not updated_jobs:
         return
     snapshot = _load_snapshot(db)
-    from app.services.job_discover.dedup import cross_source_deduplicate
+    from jobs.discovery.dedup import cross_source_deduplicate
     merged = cross_source_deduplicate((snapshot.get("jobs") or []) + updated_jobs)
     snapshot["jobs"] = merged
     _persist_snapshot(db, snapshot)
@@ -152,7 +152,7 @@ def _job_key(job: dict[str, Any]) -> str:
 
 
 def _normalize_scraped_job(raw: dict[str, Any]) -> dict[str, Any]:
-    from app.services.job_discover.job_verification_engine import verify_and_normalize_job
+    from jobs.discovery.job_verification_engine import verify_and_normalize_job
     verified = verify_and_normalize_job(raw, discovery_source=str(raw.get("source") or "JobPilot Scraper"))
     job = {
         "id": verified.get("job_id") or _job_key(raw),
@@ -269,8 +269,8 @@ def _attach_heuristic_gaps(
     accomplishments: list[dict[str, Any]] | None = None,
     lightweight: bool = True,
 ) -> list[dict[str, Any]]:
-    from app.services.application_assistant.candidate_match_context import match_sources_used
-    from app.services.job_discover.gap_analysis import attach_gap_to_job
+    from autopilot.candidate_match_context import match_sources_used
+    from jobs.discovery.gap_analysis import attach_gap_to_job
 
     effective_profile = profile or {}
     analyzed_at = _utc_now()
@@ -302,7 +302,7 @@ def _attach_heuristic_gaps(
 
 
 def _merge_jobs(existing: list[dict[str, Any]], incoming: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    from app.services.job_discover.dedup import cross_source_deduplicate
+    from jobs.discovery.dedup import cross_source_deduplicate
     return cross_source_deduplicate(existing + incoming)
 
 
@@ -521,7 +521,7 @@ def _dedupe_import(
     existing, updated, invalid or failed. Matching is exactly what a scrape
     does - this only records which record each job landed in.
     """
-    from app.services.job_discover.dedup import DedupeIndex
+    from jobs.discovery.dedup import DedupeIndex
 
     index = DedupeIndex()
     index.extend(existing)
@@ -965,7 +965,7 @@ async def start_qwen_rescore_background(*, limit: int = 50, job_ids: list[str] |
         try:
             with session_scope() as db:
                 from app.db.store import list_entities
-                from app.services.application_assistant.qwen_job_match import score_jobs_batch_with_qwen
+                from autopilot.qwen_job_match import score_jobs_batch_with_qwen
 
                 snapshot = _load_snapshot(db)
                 profile = get_kv(db, "profile") or {}
@@ -1087,7 +1087,7 @@ def filter_jobs(
         needle = q.lower()
         aliases = {"bie", "bi engineer", "business intelligence engineer"}
         if needle.strip() in aliases:
-            from app.services.job_discover.browse_filters import title_matches
+            from jobs.discovery.browse_filters import title_matches
             filtered = [job for job in filtered if title_matches(job.get("title", ""), {"bie"})]
             needle = ""
         filtered = [
@@ -1343,7 +1343,7 @@ async def run_scrape(
             profile = get_kv(db, "profile") or {}
             raw_jobs: list[dict[str, Any]] = []
 
-            from app.services.job_discover.dedup import DedupeIndex
+            from jobs.discovery.dedup import DedupeIndex
 
             _scrape_dedupe_index = DedupeIndex()
             _scrape_dedupe_index.extend(existing_jobs)

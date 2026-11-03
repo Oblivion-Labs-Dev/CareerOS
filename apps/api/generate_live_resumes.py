@@ -1,6 +1,6 @@
 import asyncio
 from pathlib import Path
-from app.services.application_assistant.resume_diff_service import (
+from autopilot.resume_diff_service import (
     generate_role_tailoring_diff,
     render_tailored_resume_pdf,
 )

@@ -16,14 +16,14 @@ from __future__ import annotations
 
 import pytest
 
-from app.services.application_assistant.profile_answer_resolver import (
+from autopilot.profile_answer_resolver import (
     AnswerResolution,
     _resolve_employer_count,
     _resolve_originality_declaration,
     _resolve_timezone_location,
     candidate_timezone,
 )
-from app.services.application_assistant.question_classifier import (
+from autopilot.question_classifier import (
     QuestionType,
     classify_question,
 )
@@ -148,7 +148,7 @@ def test_education_month_and_year_are_both_classified(label, expected):
 
 
 def test_education_end_month_comes_from_the_recorded_date():
-    from app.services.application_assistant.profile_answer_resolver import (
+    from autopilot.profile_answer_resolver import (
         _resolve_education_end_month,
     )
 
@@ -159,7 +159,7 @@ def test_education_end_month_comes_from_the_recorded_date():
 
 
 def test_education_month_is_not_invented_when_unrecorded():
-    from app.services.application_assistant.profile_answer_resolver import (
+    from autopilot.profile_answer_resolver import (
         _resolve_education_end_month,
     )
 

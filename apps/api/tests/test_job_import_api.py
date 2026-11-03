@@ -164,8 +164,8 @@ def test_an_oversized_batch_is_refused(client, monkeypatch):
 
 def test_imported_jobs_enter_the_normal_preprocessor_path(client):
     """The queue preprocessor ingests the snapshot, so imports need no path of their own."""
-    from app.services.application_assistant.persistence import list_discovered_jobs
-    from app.services.application_assistant.queue_preprocessor import QueuePreprocessor
+    from autopilot.persistence import list_discovered_jobs
+    from autopilot.queue_preprocessor import QueuePreprocessor
 
     job_id = _post(client, [_job(30)]).json()["results"][0]["jobId"]
     QueuePreprocessor.get_instance()._ingest_scraper_snapshot()
@@ -179,15 +179,15 @@ def test_imported_jobs_enter_the_normal_preprocessor_path(client):
 # ── straight into the Autopilot queue ───────────────────────────────────────
 
 def _autopilot_rows(job_id):
-    from app.services.application_assistant.persistence import list_autopilot_jobs
-    from app.services.application_assistant.scraper_import import aa_job_id_for_scraper
+    from autopilot.persistence import list_autopilot_jobs
+    from autopilot.scraper_import import aa_job_id_for_scraper
 
     with session_scope() as db:
         return [j for j in list_autopilot_jobs(db) if j.get("jobId") == aa_job_id_for_scraper(job_id)]
 
 
 def test_imported_jobs_are_queued_immediately_even_when_the_queue_is_full(client, monkeypatch):
-    from app.services.application_assistant import queue_preprocessor
+    from autopilot import queue_preprocessor
 
     # As if the queue were already past its intake watermark.
     monkeypatch.setattr(queue_preprocessor, "HIGH_QUEUE_WATERMARK", 0)

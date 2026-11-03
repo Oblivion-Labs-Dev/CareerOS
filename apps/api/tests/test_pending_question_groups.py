@@ -8,7 +8,7 @@ what actually finishes work.
 
 from __future__ import annotations
 
-from app.services.application_assistant.pending_question_groups import (
+from autopilot.pending_question_groups import (
     group_pending_questions,
     summarise,
 )
@@ -155,7 +155,7 @@ def test_blank_questions_are_skipped():
 
 def _save(job: dict) -> None:
     from app.db.store import session_scope
-    from app.services.application_assistant.persistence import save_autopilot_job
+    from autopilot.persistence import save_autopilot_job
 
     with session_scope() as db:
         save_autopilot_job(db, dict(job))
@@ -163,7 +163,7 @@ def _save(job: dict) -> None:
 
 def _read(job_id: str) -> dict:
     from app.db.store import session_scope
-    from app.services.application_assistant.persistence import get_autopilot_job
+    from autopilot.persistence import get_autopilot_job
 
     with session_scope() as db:
         return get_autopilot_job(db, job_id)
@@ -171,7 +171,7 @@ def _read(job_id: str) -> dict:
 
 def _answer(**kwargs) -> dict:
     from app.db.store import session_scope
-    from app.services.application_assistant.pending_question_groups import (
+    from autopilot.pending_question_groups import (
         answer_question_group,
     )
 
@@ -214,7 +214,7 @@ def test_the_answer_is_saved_with_every_wording_seen():
     """So a later rephrasing of the same field matches it instead of asking
     again — the library matches by word overlap, not exact text."""
     from app.db.store import session_scope
-    from app.services.application_assistant.persistence import list_answer_library
+    from autopilot.persistence import list_answer_library
 
     _save({**_job("apjob_grp_lib", "Roblox", VISA), "status": "NEEDS_REVIEW"})
     try:
@@ -242,7 +242,7 @@ def test_an_empty_answer_is_refused():
 
 def _drop(*job_ids: str) -> None:
     from app.db.store import session_scope
-    from app.services.application_assistant.persistence import delete_autopilot_job
+    from autopilot.persistence import delete_autopilot_job
 
     with session_scope() as db:
         for job_id in job_ids:

@@ -3,8 +3,8 @@ import json
 import sys
 
 from app.db.store import session_scope, get_kv, list_entities
-from app.services.application_assistant.persistence import list_autopilot_jobs, list_discovered_jobs
-from app.services.application_assistant.job_filter_ranker import filter_and_rank_jobs
+from autopilot.persistence import list_autopilot_jobs, list_discovered_jobs
+from autopilot.job_filter_ranker import filter_and_rank_jobs
 
 with session_scope() as db:
     existing_autopilot = list_autopilot_jobs(db)

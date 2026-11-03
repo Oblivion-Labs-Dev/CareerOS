@@ -43,13 +43,13 @@ def fixture_server():
 class TestOpenReviewBrowser:
     def test_headed_prepare_keeps_session_alive(self, fixture_server):
         pytest.importorskip("playwright")
-        from app.services.application_assistant.browser_runner import (
+        from autopilot.browser_runner import (
             close_session,
             get_active_session,
             prepare_application,
             run_playwright,
         )
-        from app.services.application_assistant.providers.greenhouse import GreenhouseAdapter
+        from autopilot.providers.greenhouse import GreenhouseAdapter
 
         app_id = "test_open_review_session"
         adapter = GreenhouseAdapter()
@@ -75,15 +75,15 @@ class TestOpenReviewBrowser:
         from unittest.mock import patch
 
         from app.db.store import session_scope
-        from app.services.application_assistant.browser_runner import (
+        from autopilot.browser_runner import (
             close_session,
             get_active_session,
             prepare_application,
             run_playwright,
         )
-        from app.services.application_assistant.persistence import application_id_for_job, create_application_draft
-        from app.services.application_assistant.providers.greenhouse import GreenhouseAdapter
-        from app.services.application_assistant.qwen_agent import execute_application_open_review
+        from autopilot.persistence import application_id_for_job, create_application_draft
+        from autopilot.providers.greenhouse import GreenhouseAdapter
+        from autopilot.qwen_agent import execute_application_open_review
 
         adapter = GreenhouseAdapter()
         job_id = "job_force_reopen"
@@ -128,7 +128,7 @@ class TestOpenReviewBrowser:
         async def _run(force: bool):
             with session_scope() as db:
                 with patch(
-                    "app.services.application_assistant.agent.detect_provider",
+                    "autopilot.agent.detect_provider",
                     return_value=("greenhouse", adapter, True),
                 ):
                     return await execute_application_open_review(db, app_id, force_reopen=force)

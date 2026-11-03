@@ -11,8 +11,8 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from app.services.application_assistant import company_cap
-from app.services.application_assistant.company_cap import (
+from autopilot import company_cap
+from autopilot.company_cap import (
     COMPANY_APPLICATION_CAP,
     COMPANY_CAP_WINDOW_DAYS,
     hold_until,

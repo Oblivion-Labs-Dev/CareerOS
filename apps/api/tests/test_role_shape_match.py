@@ -16,7 +16,7 @@ from pathlib import Path
 
 import pytest
 
-from app.services.application_assistant import role_shape_match as rs
+from autopilot import role_shape_match as rs
 
 API_ROOT = Path(__file__).resolve().parents[1]
 
@@ -115,10 +115,14 @@ def test_a_posting_without_text_is_scored_on_its_title_not_zeroed(ctx):
 
 def test_scores_are_identical_across_processes():
     """String hashing differs per process; the score must not."""
+    # cwd is apps/api ('.'), which carries `tests.*`; the repo root (two levels
+    # up) carries the `autopilot` package after the modular-monolith refactor.
+    repo_root = str(API_ROOT.parents[1])
     script = (
         "import json,sys;sys.path.insert(0,'.');"
+        f"sys.path.insert(0,{repo_root!r});"
         "from tests.test_role_shape_match import CORPUS,PROFILE,JOBS;"
-        "from app.services.application_assistant import role_shape_match as rs;"
+        "from autopilot import role_shape_match as rs;"
         "ctx=rs.build_context(PROFILE,{},CORPUS,[j['description'] for j in JOBS]);"
         "print(json.dumps([repr(rs.score_role_shape(type('P',(),j)(),ctx)) for j in JOBS]))"
     )
@@ -186,7 +190,7 @@ def test_a_scoring_failure_leaves_jobs_unscored_instead_of_raising(monkeypatch):
 
 @pytest.fixture
 def llm_off(monkeypatch):
-    from app.services.application_assistant import queue_preprocessor
+    from autopilot import queue_preprocessor
 
     monkeypatch.setattr(queue_preprocessor, "LOCAL_LLM_ENABLED", False)
     monkeypatch.setattr("intelligence.corpus.story_index.load_corpus", lambda path=None: CORPUS)
@@ -196,7 +200,7 @@ def llm_off(monkeypatch):
 
 def _save_rows(rows):
     from app.db.store import session_scope
-    from app.services.application_assistant.persistence import save_autopilot_job
+    from autopilot.persistence import save_autopilot_job
 
     with session_scope() as db:
         for row in rows:
@@ -205,7 +209,7 @@ def _save_rows(rows):
 
 def _rows(ids):
     from app.db.store import session_scope
-    from app.services.application_assistant.persistence import list_autopilot_jobs
+    from autopilot.persistence import list_autopilot_jobs
 
     with session_scope() as db:
         return {j["id"]: j for j in list_autopilot_jobs(db) if j["id"] in ids}
@@ -213,7 +217,7 @@ def _rows(ids):
 
 def test_waiting_jobs_without_a_real_score_get_a_role_shape_one(llm_off):
     from app.db.store import session_scope
-    from app.services.application_assistant.persistence import upsert_discovered_job
+    from autopilot.persistence import upsert_discovered_job
 
     with session_scope() as db:
         upsert_discovered_job(db, {"id": "rs_disc_backend", "title": "Senior Backend Engineer",

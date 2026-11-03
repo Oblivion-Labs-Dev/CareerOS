@@ -3,7 +3,7 @@ import sys, io
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
 sys.path.insert(0, r"d:\1 - Projects\Projects\CareerOS\CareerOS\apps\api")
 from app.db.store import session_scope, get_kv
-from app.services.application_assistant.ats_plugin_reference import (
+from autopilot.ats_plugin_reference import (
     classify_canonical_key,
     extract_canonical_value,
 )

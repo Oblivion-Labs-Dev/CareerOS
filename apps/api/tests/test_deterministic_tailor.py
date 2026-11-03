@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import re
 
-from app.services.application_assistant.deterministic_tailor import (
+from autopilot.deterministic_tailor import (
     SAFE_SYNONYMS,
     align_to_posting,
     tailor,

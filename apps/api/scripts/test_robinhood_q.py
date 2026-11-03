@@ -2,8 +2,8 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from app.services.application_assistant.question_classifier import classify_question
-from app.services.application_assistant.profile_answer_resolver import resolve_answer
+from autopilot.question_classifier import classify_question
+from autopilot.profile_answer_resolver import resolve_answer
 
 q = "Have you ever worked for Robinhood as an employee, intern or contractor? Note that providing false or misleading information may result in disqualification from the hiring process.*"
 opts = ["--", "Yes", "No"]

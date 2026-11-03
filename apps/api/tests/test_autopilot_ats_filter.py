@@ -6,8 +6,8 @@ import pytest
 
 from app.db.store import session_scope
 from app.routers.application_assistant.autopilot import get_autopilot_jobs_list
-from app.services.application_assistant.ats_plugin_reference import ats_from_url
-from app.services.application_assistant.persistence import delete_autopilot_job, save_autopilot_job
+from autopilot.ats_plugin_reference import ats_from_url
+from autopilot.persistence import delete_autopilot_job, save_autopilot_job
 
 
 @pytest.mark.parametrize(

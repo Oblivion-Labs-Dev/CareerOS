@@ -13,13 +13,13 @@ import pytest
 
 from app.db.store import get_kv, session_scope, set_kv
 from app.routers.application_assistant.autopilot import approve_staged_answer
-from app.services.application_assistant.pending_question_groups import answer_question_group
-from app.services.application_assistant.persistence import (
+from autopilot.pending_question_groups import answer_question_group
+from autopilot.persistence import (
     delete_autopilot_job,
     get_autopilot_job,
     save_autopilot_job,
 )
-from app.services.application_assistant.profile_answer_resolver import resolve_answer
+from autopilot.profile_answer_resolver import resolve_answer
 
 QUESTION = "What languages do you speak and how proficient are you?*"
 

@@ -7,11 +7,11 @@ matched it, and the required field was submitted empty — Ramp rejected the
 application with "Missing entry for required field: What are your pronouns?".
 """
 
-from app.services.application_assistant.ats_plugin_reference import (
+from autopilot.ats_plugin_reference import (
     pick_best_matching_option,
     score_select_option_match,
 )
-from app.services.application_assistant.profile_answer_resolver import (
+from autopilot.profile_answer_resolver import (
     _find_decline_option,
     _match_option,
 )

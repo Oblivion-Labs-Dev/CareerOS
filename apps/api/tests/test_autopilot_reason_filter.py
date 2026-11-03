@@ -7,7 +7,7 @@ import pytest
 from app.db.store import session_scope
 from app.routers.application_assistant.autopilot import get_autopilot_jobs_list
 from analytics.outcomes import OTHER_REASON, reason_category
-from app.services.application_assistant.persistence import (
+from autopilot.persistence import (
     AUTOPILOT_JOBS_CACHE_KEY,
     delete_autopilot_job,
     save_autopilot_job,
