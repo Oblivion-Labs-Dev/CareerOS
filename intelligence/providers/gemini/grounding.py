@@ -91,7 +91,7 @@ def figure_set(text: str) -> set[str]:
 def _technologies(text: str) -> set[str]:
     """Named technologies in `text`, using the shared controlled vocabulary."""
     try:
-        from app.services.story_index import extract_tags
+        from intelligence.corpus.story_index import extract_tags
 
         return set(extract_tags(text or "").get("technologies") or set())
     except Exception:  # noqa: BLE001 - the corpus module is optional at runtime

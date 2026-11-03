@@ -152,7 +152,7 @@ def _synthesize_profile_fallback(
     empty and the application goes to review, which is what the candidate
     actually wants for a question nothing in their profile answers.
     """
-    from app.services.answer_engine import generate_answer
+    from intelligence.answer_engine import generate_answer
     engine_ans = generate_answer(question, company=company, role_title=role, profile=profile_data)
     if engine_ans:
         return engine_ans
@@ -224,7 +224,7 @@ def story_evidence_for(question: str, *, role: str = "", limit: int = 3) -> str:
     if not text:
         return ""
     try:
-        from app.services.story_index import get_index
+        from intelligence.corpus.story_index import get_index
 
         matches = get_index().rank(text, title=role, limit=limit)
     except Exception:  # noqa: BLE001 - evidence is an enrichment, never load-bearing
@@ -320,12 +320,12 @@ async def generate_theory_answer(
     # RAM, which is the whole reason this layer exists. Anything it will not
     # answer honestly - including being switched off for the application path -
     # falls through to the paths below unchanged.
-    from app.services.gemini.config import applications_enabled
+    from intelligence.providers.gemini.config import applications_enabled
 
     try:
         if not applications_enabled():
             raise _GeminiOffForApplications
-        from app.services.gemini.enrichment import answer_application_question
+        from intelligence.providers.gemini.enrichment import answer_application_question
 
         enriched = await answer_application_question(
             question,

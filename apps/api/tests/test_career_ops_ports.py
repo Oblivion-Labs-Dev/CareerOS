@@ -10,8 +10,8 @@ from app.services.application_assistant.greenhouse_schema import (
     enrich_field_from_schema,
     parse_greenhouse_url,
 )
-from app.services.job_search.posting_legitimacy import check_posting_legitimacy
-from app.services.market_trends import market_trends_summary
+from jobs.posting_legitimacy import check_posting_legitimacy
+from intelligence.market_trends import market_trends_summary
 from app.services.safe_write import atomic_write
 
 

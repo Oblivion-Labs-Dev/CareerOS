@@ -141,7 +141,7 @@ def story_relevance(description: str, title: str, config: TailoringConfig) -> di
     was.
     """
     try:
-        from app.services.story_index import get_index
+        from intelligence.corpus.story_index import get_index
 
         matches = get_index().rank(description, title=title, limit=int(config.story_retrieval_limit))
     except Exception:
@@ -421,7 +421,7 @@ def _evidence_coverage(description: str, title: str, config: TailoringConfig) ->
     RESUME-GAPS.md reports across the whole index.
     """
     try:
-        from app.services.story_index import get_index
+        from intelligence.corpus.story_index import get_index
 
         index = get_index()
         matches = index.select(description, title=title, limit=int(config.story_retrieval_limit))

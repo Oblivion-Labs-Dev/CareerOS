@@ -764,7 +764,7 @@ def _build_gemini_fallback(*, timeout: int, max_retries: int, confidence_thresho
     this module runs while applying to a job, so that switch applies here in
     full. Callers already handle a missing fallback by staying deterministic.
     """
-    from app.services.gemini.config import applications_enabled
+    from intelligence.providers.gemini.config import applications_enabled
 
     gemini_key = os.environ.get("GEMINI_API_KEY", "")
     if not gemini_key or not applications_enabled():
@@ -914,7 +914,7 @@ async def call_llm(system: str, prompt: str, settings: dict[str, Any] | None = N
                 return str(data_val)
     # Gemini Flash fallback via OpenRouter / LLM service
     try:
-        from app.services.llm import call_openrouter_json
+        from intelligence.llm.client import call_openrouter_json
         openrouter_res = await call_openrouter_json(prompt, system_instruction=system)
         if openrouter_res:
             return json.dumps(openrouter_res)

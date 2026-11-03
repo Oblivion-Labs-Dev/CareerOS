@@ -26,7 +26,7 @@ from collections import deque
 from pathlib import Path
 from typing import Any
 
-STATE_DIR = Path(__file__).resolve().parents[3] / "data" / "gemini"
+STATE_DIR = Path(__file__).resolve().parents[3] / "apps" / "api" / "data" / "gemini"
 CIRCUIT_FILE = STATE_DIR / "circuit.json"
 
 #: How stale a read of the shared circuit file may be before a process re-reads

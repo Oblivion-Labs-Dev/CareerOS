@@ -113,7 +113,7 @@ def score_tfidf(pair: Pair, ctx: Context) -> float:
 def score_naive_coverage(pair: Pair, ctx: Context) -> float:
     """Reproduces the failing approach so the leaderboard has its baseline."""
     try:
-        from app.services.story_index import get_index
+        from intelligence.corpus.story_index import get_index
 
         index = get_index()
         wanted = index.requirement_weights(pair.description, pair.title)

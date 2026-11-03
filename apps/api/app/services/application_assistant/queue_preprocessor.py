@@ -60,7 +60,7 @@ from app.services.application_assistant.persistence import (
     save_autopilot_job,
     upsert_discovered_job,
 )
-from app.services.intelligence.night_batch_config import (
+from intelligence.signals.night_batch_config import (
     HIGH_QUEUE_WATERMARK,
     LOW_QUEUE_WATERMARK,
 )
@@ -133,7 +133,7 @@ def _due_for_scheduled_rejection_reconcile(last_run_iso: str | None, now: dateti
         if now >= scheduled_today and (last_run is None or last_run < scheduled_today):
             return True
     return False
-# Queue depth is governed by high/low watermarks (app.services.intelligence.
+# Queue depth is governed by high/low watermarks (intelligence.signals.
 # night_batch_config) instead of a single fixed cap: intake pauses once QUEUED
 # reaches HIGH_QUEUE_WATERMARK, and resumes once it drops back to or below
 # LOW_QUEUE_WATERMARK, so Night Batch always has jobs prepared ahead of time

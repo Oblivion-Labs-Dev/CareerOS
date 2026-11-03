@@ -6,7 +6,7 @@ from fastapi.testclient import TestClient
 
 from app.db.store import EntityStore, KVStore, SessionLocal, get_entity, list_entities, set_kv, upsert_entity
 from app.routers.application_assistant.progress import db_session, router
-from app.services.career_progress import (
+from intelligence.career_progress import (
     acknowledge_milestone,
     complete_quest,
     preferences,

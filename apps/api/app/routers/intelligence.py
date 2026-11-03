@@ -9,8 +9,8 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.db.store import session_scope
-from app.services.answer_engine import generate_answer, load_custom_answers
-from app.services.intelligence import auto_apply, auto_apply_lanes, night_shift, signals, tasks
+from intelligence.answer_engine import generate_answer, load_custom_answers
+from intelligence.signals import auto_apply, auto_apply_lanes, night_shift, signals, tasks
 
 router = APIRouter(prefix="/intelligence", tags=["intelligence"])
 

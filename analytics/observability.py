@@ -810,7 +810,7 @@ class AlarmManager:
         return False, "OK"
 
     def _check_gemini_fallback_spike(self) -> tuple[bool, str]:
-        from app.services.gemini.telemetry import telemetry as gemini_telem
+        from intelligence.providers.gemini.telemetry import telemetry as gemini_telem
         if gemini_telem.fallbacks >= 8:
             return True, f"{gemini_telem.fallbacks} cloud fallbacks have been triggered."
         return False, "OK"

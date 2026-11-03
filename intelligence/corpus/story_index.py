@@ -479,7 +479,7 @@ def normalize_tag(value: str) -> str | None:
 # app/services/story_index.py -> app -> apps/api -> apps -> repo root
 CORPUS_PATH = Path(
     os.environ.get("CAREEROS_STORY_CORPUS_PATH")
-    or Path(__file__).resolve().parents[4] / "data" / "interview-story-corpus.json"
+    or Path(__file__).resolve().parents[2] / "data" / "interview-story-corpus.json"
 )
 
 # Tags that describe a story's own subject matter count for more than tags it

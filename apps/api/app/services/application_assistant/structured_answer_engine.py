@@ -154,14 +154,14 @@ async def resolve_level_3_gemini(
     technology and figure in the reply against the candidate's own documents
     before returning it.
     """
-    from app.services.gemini.config import applications_enabled
+    from intelligence.providers.gemini.config import applications_enabled
 
     if not applications_enabled():
         # Gemini is switched off for the application path; the local model and
         # the deterministic resolvers below answer on their own.
         return None
     try:
-        from app.services.gemini.enrichment import answer_application_question
+        from intelligence.providers.gemini.enrichment import answer_application_question
 
         enriched = await answer_application_question(
             question_text,
@@ -216,7 +216,7 @@ async def resolve_level_3_llm(
         # application" is the number that decides whether this layer is pulling
         # its weight or quietly creating manual work.
         try:
-            from app.services.gemini.telemetry import telemetry
+            from intelligence.providers.gemini.telemetry import telemetry
 
             telemetry.record_review_staging()
         except Exception:  # noqa: BLE001

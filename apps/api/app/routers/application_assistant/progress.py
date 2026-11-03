@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.orm import Session
 
 from app.routers.application_assistant._common import db_session
-from app.services.career_progress import acknowledge_milestone, complete_quest, progress_snapshot, save_preferences
+from intelligence.career_progress import acknowledge_milestone, complete_quest, progress_snapshot, save_preferences
 
 router = APIRouter(prefix="/application-assistant/progress", tags=["career-progress"])
 

@@ -19,7 +19,7 @@ from typing import Any
 from fastapi import APIRouter
 from pydantic import BaseModel, Field
 
-from app.services.story_index import (
+from intelligence.corpus.story_index import (
     APPROVAL_STATES,
     EVIDENCE_TIERS,
     build_evidence_brief,

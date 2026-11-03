@@ -12,8 +12,8 @@ import json
 
 import pytest
 
-from app.services import story_index as si
-from app.services.story_index import (
+from intelligence.corpus import story_index as si
+from intelligence.corpus.story_index import (
     Story,
     StoryIndex,
     build_evidence_brief,

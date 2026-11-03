@@ -673,7 +673,7 @@ class QueueScorer:
         documents: dict[str, Any],
         idf_documents: list[str],
     ) -> Context:
-        from app.services.story_index import load_corpus
+        from intelligence.corpus.story_index import load_corpus
 
         corpus_records = load_corpus()
         resume_key = _fingerprint(profile, documents, corpus_records)

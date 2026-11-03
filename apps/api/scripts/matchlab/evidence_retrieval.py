@@ -107,7 +107,7 @@ def load_bullets() -> list[Bullet]:
     """
     from app.db.store import list_entities, session_scope
     from resume.composer import _candidates
-    from app.services.story_index import load_corpus, normalize_tag
+    from intelligence.corpus.story_index import load_corpus, normalize_tag
 
     def authored(record: dict[str, Any]) -> frozenset[str]:
         tags: set[str] = set()
@@ -165,7 +165,7 @@ def load_postings(limit: int) -> list[tuple[str, str]]:
 
 def build_queries(bullets: list[Bullet], postings: list[tuple[str, str]]) -> list[Query]:
     from resume.scoring.evidence_match import extract_requirements
-    from app.services.story_index import flat_tags
+    from intelligence.corpus.story_index import flat_tags
 
     queries: list[Query] = []
     for name, description in postings:

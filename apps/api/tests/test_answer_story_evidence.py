@@ -53,7 +53,7 @@ def stub_index(monkeypatch):
     """Install a fake story index and hand the test its match list."""
     def _install(matches):
         index = _Index(matches)
-        import app.services.story_index as story_index
+        import intelligence.corpus.story_index as story_index
 
         monkeypatch.setattr(story_index, "get_index", lambda: index)
         return index
@@ -149,7 +149,7 @@ def test_an_empty_question_retrieves_nothing(stub_index):
 
 def test_a_broken_corpus_never_breaks_the_answer(monkeypatch):
     """Evidence is an enrichment. If it fails, the answer still gets written."""
-    import app.services.story_index as story_index
+    import intelligence.corpus.story_index as story_index
 
     def _boom():
         raise RuntimeError("corpus file is unreadable")

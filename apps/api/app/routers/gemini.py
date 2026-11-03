@@ -14,8 +14,8 @@ from typing import Any
 
 from fastapi import APIRouter
 
-from app.services.gemini.gateway import get_gateway
-from app.services.gemini.telemetry import telemetry
+from intelligence.providers.gemini.gateway import get_gateway
+from intelligence.providers.gemini.telemetry import telemetry
 
 router = APIRouter(prefix="/gemini", tags=["gemini"])
 

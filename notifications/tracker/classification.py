@@ -156,7 +156,7 @@ async def classify_text_with_llm_fallback(
         return category, label, confidence
 
     try:
-        from app.services.llm import call_openrouter_json
+        from intelligence.llm.client import call_openrouter_json
 
         result = await call_openrouter_json(
             f"Classify this recruiter email:\n\n{text[:1500]}",

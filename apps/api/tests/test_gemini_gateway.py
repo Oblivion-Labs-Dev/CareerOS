@@ -19,9 +19,9 @@ import asyncio
 
 import pytest
 
-from app.services.gemini import ambiguity, enrichment, grounding, match_gate
-from app.services.gemini import config as gemini_config
-from app.services.gemini.gateway import (
+from intelligence.providers.gemini import ambiguity, enrichment, grounding, match_gate
+from intelligence.providers.gemini import config as gemini_config
+from intelligence.providers.gemini.gateway import (
     CircuitState,
     GeminiGateway,
     GeminiRequest,
@@ -60,8 +60,8 @@ def gateway(tmp_path, monkeypatch):
     monkeypatch.setenv("GEMINI_API_KEY", "test-key-not-real")
     # Isolate the on-disk cache and the cross-process circuit file: the real
     # ones live under data/ and a test must never read or write them.
-    from app.services.gemini import gateway as gateway_module
-    from app.services.gemini import telemetry as telemetry_module
+    from intelligence.providers.gemini import gateway as gateway_module
+    from intelligence.providers.gemini import telemetry as telemetry_module
 
     monkeypatch.setattr(gateway_module, "CACHE_DIR", tmp_path / "cache")
     monkeypatch.setattr(telemetry_module, "CIRCUIT_FILE", tmp_path / "circuit.json")
@@ -297,8 +297,8 @@ CLEAR_JOB = {
 
 @pytest.mark.anyio
 async def test_unavailable_gemini_on_an_ambiguous_match_stages_for_review(gateway, monkeypatch):
-    monkeypatch.setattr("app.services.gemini.gateway.get_gateway", lambda: gateway)
-    monkeypatch.setattr("app.services.gemini.enrichment.get_gateway", lambda: gateway)
+    monkeypatch.setattr("intelligence.providers.gemini.gateway.get_gateway", lambda: gateway)
+    monkeypatch.setattr("intelligence.providers.gemini.enrichment.get_gateway", lambda: gateway)
     gateway.transport = Recorder(reply_error(503))
 
     decision = await match_gate.evaluate(
@@ -313,7 +313,7 @@ async def test_unavailable_gemini_on_an_ambiguous_match_stages_for_review(gatewa
 
 @pytest.mark.anyio
 async def test_confident_deterministic_match_never_calls_gemini(gateway, monkeypatch):
-    monkeypatch.setattr("app.services.gemini.enrichment.get_gateway", lambda: gateway)
+    monkeypatch.setattr("intelligence.providers.gemini.enrichment.get_gateway", lambda: gateway)
     transport = Recorder(reply_ok())
     gateway.transport = transport
 
@@ -326,7 +326,7 @@ async def test_confident_deterministic_match_never_calls_gemini(gateway, monkeyp
 
 @pytest.mark.anyio
 async def test_gemini_can_divert_to_review_but_never_forces_an_apply(gateway, monkeypatch):
-    monkeypatch.setattr("app.services.gemini.enrichment.get_gateway", lambda: gateway)
+    monkeypatch.setattr("intelligence.providers.gemini.enrichment.get_gateway", lambda: gateway)
     gateway.transport = Recorder(reply_ok(
         '{"decision": "SKIP", "primary_role_family": "data", "secondary_role_family": "",'
         ' "seniority_match": true, "critical_mismatch": true,'
@@ -343,7 +343,7 @@ async def test_gemini_can_divert_to_review_but_never_forces_an_apply(gateway, mo
 
 @pytest.mark.anyio
 async def test_an_unsure_gemini_does_not_override_the_deterministic_result(gateway, monkeypatch):
-    monkeypatch.setattr("app.services.gemini.enrichment.get_gateway", lambda: gateway)
+    monkeypatch.setattr("intelligence.providers.gemini.enrichment.get_gateway", lambda: gateway)
     gateway.transport = Recorder(reply_ok(
         '{"decision": "SKIP", "primary_role_family": "data", "secondary_role_family": "",'
         ' "seniority_match": true, "critical_mismatch": true, "critical_requirements": [],'
@@ -545,7 +545,7 @@ def test_grounding_refuses_when_there_is_no_corpus_at_all():
 
 @pytest.mark.anyio
 async def test_an_ungrounded_gemini_answer_is_discarded_not_submitted(gateway, monkeypatch):
-    monkeypatch.setattr("app.services.gemini.enrichment.get_gateway", lambda: gateway)
+    monkeypatch.setattr("intelligence.providers.gemini.enrichment.get_gateway", lambda: gateway)
     gateway.transport = Recorder(reply_ok(
         '{"answer": "I have six years of production Rust and Terraform experience.",'
         ' "evidence": ["fabricated"], "supported": true, "confidence": 0.95,'
@@ -565,7 +565,7 @@ async def test_an_ungrounded_gemini_answer_is_discarded_not_submitted(gateway, m
 
 @pytest.mark.anyio
 async def test_a_grounded_gemini_answer_is_accepted(gateway, monkeypatch):
-    monkeypatch.setattr("app.services.gemini.enrichment.get_gateway", lambda: gateway)
+    monkeypatch.setattr("intelligence.providers.gemini.enrichment.get_gateway", lambda: gateway)
     gateway.transport = Recorder(reply_ok(
         '{"answer": "At Amazon I built distributed services in Java on AWS.",'
         ' "evidence": ["Built distributed services in Java and Python on AWS"],'
@@ -633,7 +633,7 @@ def test_open_ended_questions_are_eligible(question):
 
 @pytest.mark.anyio
 async def test_a_deterministic_field_makes_no_api_call_at_all(gateway, monkeypatch):
-    monkeypatch.setattr("app.services.gemini.enrichment.get_gateway", lambda: gateway)
+    monkeypatch.setattr("intelligence.providers.gemini.enrichment.get_gateway", lambda: gateway)
     transport = Recorder(reply_ok())
     gateway.transport = transport
 
@@ -722,7 +722,7 @@ def test_a_posting_too_short_to_judge_is_not_worth_a_call():
 # ── title redaction for benchmark labels ─────────────────────────────────────
 
 def test_the_job_title_is_removed_from_the_body_before_labelling():
-    from app.services.gemini.title_redaction import strip_title
+    from intelligence.providers.gemini.title_redaction import strip_title
 
     body = (
         "Senior Platform Engineer\n"
@@ -813,7 +813,7 @@ async def test_gemini_tailoring_returns_bullets_in_the_local_models_shape(gatewa
 
     from app.services.application_assistant import resume_diff_service as tailoring
 
-    monkeypatch.setattr("app.services.gemini.gateway.get_gateway", lambda: gateway)
+    monkeypatch.setattr("intelligence.providers.gemini.gateway.get_gateway", lambda: gateway)
     monkeypatch.setattr(tailoring, "_GEMINI_TAILORING", True)
     # Gemini is off for the application path by default, and per-application
     # tailoring is part of that path; this test is about what the Gemini route
@@ -845,7 +845,7 @@ async def test_a_wrong_bullet_count_falls_back_instead_of_misaligning(gateway, m
 
     from app.services.application_assistant import resume_diff_service as tailoring
 
-    monkeypatch.setattr("app.services.gemini.gateway.get_gateway", lambda: gateway)
+    monkeypatch.setattr("intelligence.providers.gemini.gateway.get_gateway", lambda: gateway)
     monkeypatch.setattr(tailoring, "_GEMINI_TAILORING", True)
     # Gemini is off for the application path by default, and per-application
     # tailoring is part of that path; this test is about what the Gemini route

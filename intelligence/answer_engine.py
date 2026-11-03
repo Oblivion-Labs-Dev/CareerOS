@@ -16,7 +16,7 @@ from pathlib import Path
 
 import yaml
 
-ANSWERS_FILE = Path(__file__).resolve().parents[2] / "data" / "job_discover" / "answers.yaml"
+ANSWERS_FILE = Path(__file__).resolve().parents[1] / "apps" / "api" / "data" / "job_discover" / "answers.yaml"
 
 # ── Company context for personalized answers ─────────────────────────────────
 

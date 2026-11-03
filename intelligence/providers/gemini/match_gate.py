@@ -31,9 +31,9 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any
 
-from app.services.gemini import ambiguity, enrichment
-from app.services.gemini.grounding import Corpus
-from app.services.gemini.telemetry import telemetry
+from intelligence.providers.gemini import ambiguity, enrichment
+from intelligence.providers.gemini.grounding import Corpus
+from intelligence.providers.gemini.telemetry import telemetry
 
 logger = logging.getLogger("careeros.gemini.match_gate")
 

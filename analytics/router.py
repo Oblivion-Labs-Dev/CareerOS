@@ -270,7 +270,7 @@ def get_system_health(db: Session = Depends(db_session)) -> dict[str, Any]:
         }
 
     # 7. Gemini / Cloud Fallback
-    from app.services.gemini.telemetry import telemetry as gemini_telem
+    from intelligence.providers.gemini.telemetry import telemetry as gemini_telem
     gemini_key = os.environ.get("GEMINI_API_KEY", "")
     services["gemini_fallback"] = {
         "id": "gemini_fallback",
@@ -399,7 +399,7 @@ def get_autopilot_metrics(
         if j.get("geminiMatchGate", {}).get("consulted"):
             fallback_count += 1
 
-    from app.services.gemini.telemetry import telemetry as gemini_telem
+    from intelligence.providers.gemini.telemetry import telemetry as gemini_telem
     total_fallbacks = fallback_count
 
     avg_app_duration_sec = round(sum(app_durations) / len(app_durations), 1) if app_durations else None

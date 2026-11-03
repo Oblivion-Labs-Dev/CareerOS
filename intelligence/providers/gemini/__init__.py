@@ -17,7 +17,7 @@ Every call goes through `gateway.submit()`, which never raises and returns
 normal path and continues deterministically. Nothing here is load-bearing.
 """
 
-from app.services.gemini.gateway import (  # noqa: F401
+from intelligence.providers.gemini.gateway import (  # noqa: F401
     GeminiRequest,
     GeminiResult,
     Outcome,
@@ -28,7 +28,7 @@ from app.services.gemini.gateway import (  # noqa: F401
 
 # The telemetry *object* is deliberately not re-exported here. Binding the name
 # `telemetry` in the package namespace would shadow the `telemetry` submodule,
-# so `from app.services.gemini import telemetry` would hand back the counters
+# so `from intelligence.providers.gemini import telemetry` would hand back the counters
 # object instead of the module. Import it from its own module.
 
 __all__ = [

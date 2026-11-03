@@ -5,7 +5,7 @@ import pytest
 from fastapi import HTTPException
 
 from app.routers import api
-from app.services import llm
+from intelligence.llm import client as llm
 from tests.resume_baseline_fixture import baseline
 
 @pytest.fixture(autouse=True)

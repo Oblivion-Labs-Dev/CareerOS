@@ -65,7 +65,7 @@ def test_requirement_categories():
 
 
 def test_both_entrypoints_make_no_model_calls(monkeypatch, baseline):
-    from app.services import llm
+    from intelligence.llm import client as llm
     from app.services.application_assistant import resume_diff_service as service
     async def forbidden(*args, **kwargs):
         pytest.fail("Local resume composition must not call a model")

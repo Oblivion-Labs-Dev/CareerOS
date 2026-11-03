@@ -30,7 +30,7 @@ It used to. This module had its own throttle, its own retry loop and its own
 sense of when to give up, and so did every other thing in CareerOS that wanted
 to call Gemini. That is how a batch of 140 postings ends up competing with a
 live application for the same rate limit. All of it now goes through
-`app.services.gemini.gateway`, at the lowest priority in the queue, so a
+`intelligence.providers.gemini.gateway`, at the lowest priority in the queue, so a
 labelling run yields to anything a person is waiting on and can never be the
 reason an application went unanswered.
 
@@ -56,10 +56,10 @@ CACHE_DIR = API_ROOT / "data" / "matchlab_teacher_cache"
 if str(API_ROOT) not in os.sys.path:
     os.sys.path.insert(0, str(API_ROOT))
 
-from app.services.gemini import config as gemini_config  # noqa: E402
-from app.services.gemini import enrichment  # noqa: E402
-from app.services.gemini import schemas as gemini_schemas  # noqa: E402
-from app.services.gemini.title_redaction import strip_title  # noqa: F401,E402
+from intelligence.providers.gemini import config as gemini_config  # noqa: E402
+from intelligence.providers.gemini import enrichment  # noqa: E402
+from intelligence.providers.gemini import schemas as gemini_schemas  # noqa: E402
+from intelligence.providers.gemini.title_redaction import strip_title  # noqa: F401,E402
 
 MODEL = os.environ.get("MATCHLAB_TEACHER_MODEL", gemini_config.MODEL)
 

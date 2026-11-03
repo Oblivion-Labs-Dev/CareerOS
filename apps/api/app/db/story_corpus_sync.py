@@ -156,7 +156,7 @@ def _apply(record: dict[str, Any], story: dict[str, Any]) -> dict[str, Any]:
 def sync_story_corpus(db: Session) -> dict[str, int]:
     """Fold every corpus story into its accomplishment. Safe to run repeatedly."""
     from app.db.store import get_entity, upsert_entity
-    from app.services.story_index import load_corpus
+    from intelligence.corpus.story_index import load_corpus
 
     corpus = load_corpus()
     if not corpus:

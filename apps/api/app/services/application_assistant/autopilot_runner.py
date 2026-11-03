@@ -31,7 +31,7 @@ from app.services.application_assistant.domain import (
     IneligibilityReason,
 )
 from app.services.application_assistant.job_filter_ranker import filter_and_rank_jobs
-from app.services.intelligence.night_shift_config import is_tier_1
+from intelligence.signals.night_shift_config import is_tier_1
 from app.services.application_assistant.persistence import (
     application_identity,
     claim_application_identity,
@@ -1569,12 +1569,12 @@ class AutopilotRunner:
         the description there is nothing to be ambiguous *about*, so the gate
         steps aside rather than judging a posting it cannot read.
         """
-        from app.services.gemini.config import applications_enabled
+        from intelligence.providers.gemini.config import applications_enabled
 
         if not applications_enabled():
             return None  # Treated as "proceed", exactly like an unavailable gate.
         try:
-            from app.services.gemini import match_gate
+            from intelligence.providers.gemini import match_gate
 
             job_for_gate = dict(job_item)
             if not str(job_for_gate.get("description") or "").strip():

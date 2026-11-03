@@ -348,15 +348,15 @@ async def _complete_batch_via_gemini(prompt: str, expected: int) -> dict[str, An
     writer here, not a different set of rules - it gets no more latitude to
     invent than a local 4B model does.
     """
-    from app.services.gemini.config import applications_enabled
+    from intelligence.providers.gemini.config import applications_enabled
 
     # Per-application tailoring is part of the application path, so the
     # application-scoped switch governs it too, not just the tailoring flag.
     if not _GEMINI_TAILORING or not applications_enabled():
         return None
     try:
-        from app.services.gemini.gateway import GeminiRequest, Priority, get_gateway
-        from app.services.gemini.schemas import RESUME_TAILORING_VERSION
+        from intelligence.providers.gemini.gateway import GeminiRequest, Priority, get_gateway
+        from intelligence.providers.gemini.schemas import RESUME_TAILORING_VERSION
 
         result = await get_gateway().submit(GeminiRequest(
             task="resume_tailoring",

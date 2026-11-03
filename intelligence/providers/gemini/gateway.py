@@ -56,13 +56,13 @@ from enum import Enum, IntEnum
 from pathlib import Path
 from typing import Any
 
-from app.services.gemini import config as gemini_config
-from app.services.gemini.telemetry import read_circuit, telemetry, write_circuit
-from app.services.gemini.validation import validate
+from intelligence.providers.gemini import config as gemini_config
+from intelligence.providers.gemini.telemetry import read_circuit, telemetry, write_circuit
+from intelligence.providers.gemini.validation import validate
 
 logger = logging.getLogger("careeros.gemini")
 
-CACHE_DIR = Path(__file__).resolve().parents[3] / "data" / "gemini_cache"
+CACHE_DIR = Path(__file__).resolve().parents[3] / "apps" / "api" / "data" / "gemini_cache"
 
 
 class Priority(IntEnum):
@@ -219,7 +219,7 @@ class CircuitBreaker:
     # ── shared state ─────────────────────────────────────────────────────────
 
     def _sync_from_disk(self) -> None:
-        from app.services.gemini.telemetry import CIRCUIT_REFRESH_SECONDS
+        from intelligence.providers.gemini.telemetry import CIRCUIT_REFRESH_SECONDS
 
         now = time.time()
         if now - self._last_disk_read < CIRCUIT_REFRESH_SECONDS:

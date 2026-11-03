@@ -137,7 +137,7 @@ def test_scores_are_identical_across_processes():
 
 @pytest.fixture
 def scorer(monkeypatch):
-    monkeypatch.setattr("app.services.story_index.load_corpus", lambda path=None: CORPUS)
+    monkeypatch.setattr("intelligence.corpus.story_index.load_corpus", lambda path=None: CORPUS)
     return rs.QueueScorer(max_new_per_call=2)
 
 
@@ -189,7 +189,7 @@ def llm_off(monkeypatch):
     from app.services.application_assistant import queue_preprocessor
 
     monkeypatch.setattr(queue_preprocessor, "LOCAL_LLM_ENABLED", False)
-    monkeypatch.setattr("app.services.story_index.load_corpus", lambda path=None: CORPUS)
+    monkeypatch.setattr("intelligence.corpus.story_index.load_corpus", lambda path=None: CORPUS)
     monkeypatch.setattr(rs, "queue_scorer", rs.QueueScorer())
     return queue_preprocessor
 

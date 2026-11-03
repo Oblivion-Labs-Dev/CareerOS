@@ -28,11 +28,11 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
-from app.services.gemini import schemas
-from app.services.gemini.ambiguity import Uncertainty
-from app.services.gemini.gateway import GeminiRequest, Priority, get_gateway
-from app.services.gemini.grounding import Corpus, build_corpus, check, load_default_corpus
-from app.services.gemini.telemetry import telemetry
+from intelligence.providers.gemini import schemas
+from intelligence.providers.gemini.ambiguity import Uncertainty
+from intelligence.providers.gemini.gateway import GeminiRequest, Priority, get_gateway
+from intelligence.providers.gemini.grounding import Corpus, build_corpus, check, load_default_corpus
+from intelligence.providers.gemini.telemetry import telemetry
 
 logger = logging.getLogger("careeros.gemini.enrichment")
 
@@ -483,7 +483,7 @@ async def label_posting(
     nothing is blocked on it. It must never delay an application.
     """
     if strip_title is None:
-        from app.services.gemini.title_redaction import strip_title as strip_title_impl
+        from intelligence.providers.gemini.title_redaction import strip_title as strip_title_impl
 
         strip_title = strip_title_impl
 

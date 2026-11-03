@@ -27,14 +27,14 @@ from app.db.store import (
     tracker_summary,
     upsert_entity,
 )
-from app.services.answer_engine import generate_answer, load_custom_answers
+from intelligence.answer_engine import generate_answer, load_custom_answers
 from analytics.dashboard import render_api_dashboard
 from app.services.extension_packager import build_extension_zip, extension_info
 from app.services.job_discover import relevancy_engine
 from app.services.job_discover import store as job_discover
 from app.services.job_discover.url_import import autoextract_job_from_url
 from app.services.application_assistant.persistence import get_settings as get_aa_settings
-from app.services.llm import analyze_accomplishment, generate_resume_bullets_for_job
+from intelligence.llm.client import analyze_accomplishment, generate_resume_bullets_for_job
 from resume.ats_score import compute_ats_score
 from resume import resume_profiles as resume_profiles_service
 from resume.tailoring import (

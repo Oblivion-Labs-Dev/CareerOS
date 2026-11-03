@@ -24,7 +24,7 @@ from app.services.application_assistant.persistence import (
     list_application_drafts,
     list_discovered_jobs,
 )
-from app.services.llm import call_openrouter_json
+from intelligence.llm.client import call_openrouter_json
 
 router = APIRouter(prefix="/networking", tags=["networking"])
 

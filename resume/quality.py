@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import re
 
-from app.services.story_index import tag_category
+from intelligence.corpus.story_index import tag_category
 
 ACTION_VERB = re.compile(
     r"^(?:Built|Designed|Implemented|Led|Created|Delivered|Reduced|Improved|Developed|"

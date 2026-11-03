@@ -18,8 +18,8 @@ from resume import quality
 from resume.scoring import semantic
 from resume.scoring.bm25 import BM25Index
 from resume.scoring.fusion import reciprocal_rank_fusion
-from app.services.story_index import flat_tags as _flat_tags
-from app.services.story_index import has_unverified_metrics, resume_approved
+from intelligence.corpus.story_index import flat_tags as _flat_tags
+from intelligence.corpus.story_index import has_unverified_metrics, resume_approved
 
 VERSION = "local-evidence-v2"
 STOP = set("the and for with that this your you our are will have from into role work team years experience required preferred must should ability strong excellent skills knowledge including about using build develop".split())

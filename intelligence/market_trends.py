@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 DATA_CANDIDATES = [
-    Path(__file__).resolve().parents[2] / "data" / "market" / "AI_posting.csv",
+    Path(__file__).resolve().parents[1] / "apps" / "api" / "data" / "market" / "AI_posting.csv",
     Path(r"D:\1 - Projects\Projects\aijobsearch\ai-tracker\AI_posting.csv"),
 ]
 

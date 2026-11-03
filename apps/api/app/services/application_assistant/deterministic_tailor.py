@@ -159,7 +159,7 @@ def tailor(
     aligned = align_to_posting(master_bullets, posting, length_budget=length_budget)
 
     try:
-        from app.services.story_index import flat_tags
+        from intelligence.corpus.story_index import flat_tags
 
         requirements = sorted(flat_tags(posting))
     except Exception:  # noqa: BLE001
