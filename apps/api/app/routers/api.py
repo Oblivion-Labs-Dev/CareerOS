@@ -101,10 +101,6 @@ def db_session() -> Generator[Session, None, None]:
         yield db
 
 
-class ProfilePayload(BaseModel):
-    profile: dict[str, Any]
-
-
 class JobExtractPayload(BaseModel):
     url: str
     html: str | None = None
@@ -233,23 +229,9 @@ def health() -> dict[str, str]:
     return {"status": "ok", "service": "career-os-api"}
 
 
-@router.get("/profile")
-def get_profile(db: Session = Depends(db_session)) -> dict[str, Any]:
-    return {"profile": get_kv(db, "profile")}
-
-
-@router.post("/profile")
-def upsert_profile(payload: ProfilePayload, db: Session = Depends(db_session)) -> dict[str, Any]:
-    # Work-authorization facts are stored under several keys that grew up at
-    # different times, and the answer resolver trusts the structured
-    # workAuth.* booleans. Without this, editing the flat field in the Profile
-    # form changed nothing the resolver could see: the stale nested boolean
-    # kept winning, and applications kept going out with the old answer.
-    from app.services.profile_normalizer import normalize_work_authorization
-
-    profile = normalize_work_authorization(payload.profile)
-    set_kv(db, "profile", profile)
-    return {"success": True, "profile": profile}
+# GET/POST /profile moved to profile/router.py (Step 2 of the modular-monolith
+# refactor). The handlers are registered there, with no change to path or
+# behaviour.
 
 
 # GET/POST /api/db used to be defined here too, as a narrower stand-in that
@@ -1530,7 +1512,7 @@ async def tailor_resume_route(payload: ResumeTailorPayload, db: Session = Depend
             job_description = job_description or str(job.get("description") or "")
 
 
-    from app.services.settings.memory import active_memory_text
+    from profile.memory import active_memory_text
 
     try:
         result = await generate_resume_bullets_for_job(
@@ -1758,61 +1740,12 @@ async def test_resolve_field_route(payload: TestResolveRequest) -> dict[str, Any
     }
 
 
-# ── Settings: memory, public portfolio, job boards ─────────────────────────────
-
-class MemoryNotePayload(BaseModel):
-    text: str
-
-
-class PortfolioSettingsPayload(BaseModel):
-    isPublic: bool | None = None
-    slug: str | None = None
-
-
-@router.get("/settings/memory")
-def list_assistant_memory(db: Session = Depends(db_session)) -> dict[str, Any]:
-    from app.services.settings.memory import list_memory_notes
-
-    return {"success": True, "notes": list_memory_notes(db)}
-
-
-@router.post("/settings/memory")
-def add_assistant_memory(payload: MemoryNotePayload, db: Session = Depends(db_session)) -> dict[str, Any]:
-    from app.services.settings.memory import add_memory_note
-
-    try:
-        note = add_memory_note(db, payload.text)
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
-    return {"success": True, "note": note}
-
-
-@router.delete("/settings/memory/{note_id}")
-def delete_assistant_memory(note_id: str, db: Session = Depends(db_session)) -> dict[str, Any]:
-    from app.services.settings.memory import delete_memory_note
-
-    deleted = delete_memory_note(db, note_id)
-    if not deleted:
-        raise HTTPException(status_code=404, detail="Memory note not found")
-    return {"success": True}
-
-
-@router.get("/settings/portfolio")
-def get_portfolio_settings_route(db: Session = Depends(db_session)) -> dict[str, Any]:
-    from app.services.settings.portfolio import get_portfolio_settings
-
-    return {"success": True, "settings": get_portfolio_settings(db)}
-
-
-@router.patch("/settings/portfolio")
-def update_portfolio_settings_route(payload: PortfolioSettingsPayload, db: Session = Depends(db_session)) -> dict[str, Any]:
-    from app.services.settings.portfolio import save_portfolio_settings
-
-    try:
-        updated = save_portfolio_settings(db, payload.model_dump(exclude_none=True))
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
-    return {"success": True, "settings": updated}
+# ── Settings: job boards ───────────────────────────────────────────────────────
+#
+# /settings/memory, /settings/portfolio and /public/portfolio/{slug} moved to
+# profile/router.py (Step 2 of the modular-monolith refactor), unchanged in
+# path and behaviour. /settings/job-boards is a static stub unrelated to the
+# profile service, so it stays here.
 
 
 @router.get("/settings/job-boards")
@@ -1824,16 +1757,6 @@ def list_job_boards() -> dict[str, Any]:
             {"id": "naukri", "name": "Naukri", "connected": False},
         ],
     }
-
-
-@router.get("/public/portfolio/{slug}")
-def get_public_portfolio(slug: str, db: Session = Depends(db_session)) -> dict[str, Any]:
-    from app.services.settings.portfolio import build_public_portfolio
-
-    portfolio = build_public_portfolio(db, slug)
-    if portfolio is None:
-        raise HTTPException(status_code=404, detail="This portfolio isn't public.")
-    return {"success": True, "portfolio": portfolio}
 
 
 

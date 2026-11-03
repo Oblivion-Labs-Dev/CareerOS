@@ -97,6 +97,12 @@ from app.routers.matcher_benchmark import router as matcher_benchmark_router
 from app.routers.story_map import router as story_map_router
 from app.services.error_fix_tracker import error_fix_tracker, reconcile_error_history_on_startup, seed_error_fix_history_if_empty
 
+# New modular-monolith service routers. These live at the repo root and are
+# included alongside the legacy routers during the transition (Steps 2+). Each
+# router keeps its original paths so the frontend/extension are unaffected
+# until Step 11.
+from profile.router import router as profile_router
+
 log_dir = Path(__file__).resolve().parent.parent / "data" / "logs"
 log_dir.mkdir(parents=True, exist_ok=True)
 api_log_file = log_dir / "api.log"
@@ -396,6 +402,7 @@ app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 
 app.include_router(auth_router)
 app.include_router(router)
+app.include_router(profile_router)
 app.include_router(job_import_router)
 app.include_router(intelligence_router)
 app.include_router(repair_demo_router)
