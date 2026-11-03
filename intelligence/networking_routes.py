@@ -11,27 +11,22 @@ LLM-drafted (never auto-sent) outreach email + LinkedIn note per contact.
 
 from __future__ import annotations
 
-from collections.abc import Generator
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from app.db.store import get_kv, new_id, now_iso, session_scope, upsert_entity
+from app.db.store import get_kv, new_id, now_iso, upsert_entity
 from autopilot.persistence import (
     get_discovered_job,
     list_application_drafts,
     list_discovered_jobs,
 )
 from intelligence.llm.client import call_openrouter_json
+from shared.deps import db_session
 
 router = APIRouter(prefix="/networking", tags=["networking"])
-
-
-def db_session() -> Generator[Session, None, None]:
-    with session_scope() as db:
-        yield db
 
 
 class AddContactPayload(BaseModel):

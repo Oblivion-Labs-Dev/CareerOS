@@ -14,7 +14,7 @@ import asyncio
 import time
 from unittest.mock import patch
 
-import app.routers.application_assistant.autopilot as autopilot_module
+import autopilot.application_assistant.autopilot as autopilot_module
 
 
 def test_slow_status_computation_does_not_block_the_event_loop() -> None:

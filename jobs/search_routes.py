@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections.abc import Generator
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -16,7 +15,6 @@ from app.db.store import (
     list_entities,
     new_id,
     now_iso,
-    session_scope,
     upsert_entity,
 )
 from autopilot.greenhouse_schema import fetch_greenhouse_schema, parse_greenhouse_url
@@ -26,13 +24,9 @@ from jobs.report import build_analytics_summary, render_html_report
 from jobs.evaluation import evaluate_job_fit, rank_jobs
 from jobs.outcomes import list_outcome_archives, write_outcome_archive
 from intelligence.market_trends import market_trends_summary
+from shared.deps import db_session
 
 router = APIRouter(tags=["job-search"])
-
-
-def db_session() -> Generator[Session, None, None]:
-    with session_scope() as db:
-        yield db
 
 
 class JobEvaluatePayload(BaseModel):

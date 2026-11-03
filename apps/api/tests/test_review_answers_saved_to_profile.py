@@ -12,7 +12,7 @@ import copy
 import pytest
 
 from app.db.store import get_kv, session_scope, set_kv
-from app.routers.application_assistant.autopilot import approve_staged_answer
+from autopilot.application_assistant.autopilot import approve_staged_answer
 from autopilot.pending_question_groups import answer_question_group
 from autopilot.persistence import (
     delete_autopilot_job,

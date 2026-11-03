@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.db.store import delete_entity, get_entity, list_entities, upsert_entity
-from app.routers.application_assistant._common import db_session
+from ._common import db_session
 
 router = APIRouter(prefix="/application-assistant/browse-searches", tags=["browse-searches"])
 

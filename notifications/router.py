@@ -142,6 +142,27 @@ def _prepare_outreach_campaign(
     return prepared
 
 
+# ── Application tracker (pipeline / summary) ───────────────────────────────────
+#
+# Moved verbatim out of routers/api.py; these live in the tracker subservice.
+# Paths and behaviour are unchanged.
+
+@router.get("/tracker/summary")
+def get_tracker_summary(db: Session = Depends(db_session)) -> dict[str, Any]:
+    from app.db.store import tracker_summary
+    from notifications.tracker.outcomes import dashboard_outcomes
+
+    return {**tracker_summary(db), "outcomes": dashboard_outcomes(db)}
+
+
+@router.get("/tracker/pipeline")
+def get_tracker_pipeline(db: Session = Depends(db_session)) -> dict[str, Any]:
+    """Kanban view of the post-apply funnel: Applied -> Ghosted -> Interviewing -> Rejected -> Offer."""
+    from notifications.tracker import pipeline as tracker_pipeline
+
+    return tracker_pipeline.build_pipeline(db)
+
+
 # ── Gmail / recruiter email ────────────────────────────────────────────────────
 
 @router.post("/tracker/sync-gmail")

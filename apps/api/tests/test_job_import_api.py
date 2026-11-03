@@ -156,7 +156,7 @@ def test_a_job_that_breaks_normalization_fails_alone(client, monkeypatch):
 
 
 def test_an_oversized_batch_is_refused(client, monkeypatch):
-    from app.routers import job_import
+    from jobs import import_routes as job_import
 
     monkeypatch.setattr(job_import, "MAX_IMPORT_BATCH", 2)
     assert _post(client, [_job(20), _job(21), _job(22)]).status_code == 413

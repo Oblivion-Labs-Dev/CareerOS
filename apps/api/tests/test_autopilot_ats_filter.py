@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from app.db.store import session_scope
-from app.routers.application_assistant.autopilot import get_autopilot_jobs_list
+from autopilot.application_assistant.autopilot import get_autopilot_jobs_list
 from autopilot.ats_plugin_reference import ats_from_url
 from autopilot.persistence import delete_autopilot_job, save_autopilot_job
 

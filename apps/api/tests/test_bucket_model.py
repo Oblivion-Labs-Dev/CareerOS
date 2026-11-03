@@ -97,7 +97,7 @@ def _status(job_id):
 
 
 def test_retry_failed_requeues_technical_failures_but_never_a_dead_end(retry_jobs):
-    from app.routers.application_assistant.autopilot import _requeue_autopilot_jobs_by_status
+    from autopilot.application_assistant.autopilot import _requeue_autopilot_jobs_by_status
 
     _requeue_autopilot_jobs_by_status(("ERROR", "VALIDATION_FAILED"), retryable_failures=True)
 
@@ -193,7 +193,7 @@ def test_v3_moves_duplicates_to_skipped_without_rerunning_v2(v2_database):
 
 
 def test_requeue_bucket_never_requeues_a_duplicate(v2_database):
-    from app.routers.application_assistant.autopilot import requeue_bucket
+    from autopilot.application_assistant.autopilot import requeue_bucket
 
     with session_scope() as db:
         migrate_bucket_model(db)

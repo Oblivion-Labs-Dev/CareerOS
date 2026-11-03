@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.orm import Session
 
-from app.routers.application_assistant._common import db_session
+from ._common import db_session
 from intelligence.career_progress import acknowledge_milestone, complete_quest, progress_snapshot, save_preferences
 
 router = APIRouter(prefix="/application-assistant/progress", tags=["career-progress"])

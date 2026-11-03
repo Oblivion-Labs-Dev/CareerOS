@@ -120,6 +120,33 @@ def legacy_delete_logs() -> dict[str, Any]:
     return {"success": True}
 
 
+class AnalyticsEventPayload(BaseModel):
+    type: str
+    module: str | None = None
+    message: str
+    metadata: dict[str, Any] | None = None
+
+
+@top_level_router.post("/analytics/event")
+def track_event(payload: AnalyticsEventPayload, db: Session = Depends(db_session)) -> dict[str, Any]:
+    # Moved verbatim out of routers/api.py; path and behaviour unchanged.
+    from app.db.store import new_id, upsert_entity
+
+    event = upsert_entity(
+        db,
+        "career_event",
+        {
+            "id": new_id("evt_"),
+            "type": payload.type,
+            "module": payload.module,
+            "message": payload.message,
+            "metadata": payload.metadata or {},
+            "createdAt": now_iso(),
+        },
+    )
+    return {"success": True, "event": event}
+
+
 # ── System Health ─────────────────────────────────────────────────────────────
 
 @router.get("/health")

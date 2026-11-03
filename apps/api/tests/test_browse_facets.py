@@ -42,7 +42,7 @@ def test_series_boundaries_missing_durations_and_future_records():
 def test_saved_search_round_trip():
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
-    from app.routers.application_assistant.browse_searches import router
+    from autopilot.application_assistant.browse_searches import router
     app=FastAPI()
     app.include_router(router)
     client=TestClient(app)
@@ -59,11 +59,11 @@ def test_saved_search_round_trip():
 
 
 def test_options_exclude_queued_and_dismissed(monkeypatch):
-    from app.routers import api
+    from jobs import router as jobs_router
     from autopilot import scraper_import
-    monkeypatch.setattr(api.job_discover,"get_snapshot",lambda db:{"jobs":[{**JOBS[0],"id":"available"},{**JOBS[1],"id":"queued"},{**JOBS[2],"id":"hidden"}],"dismissedIds":["hidden"]})
+    monkeypatch.setattr(jobs_router.job_discover,"get_snapshot",lambda db:{"jobs":[{**JOBS[0],"id":"available"},{**JOBS[1],"id":"queued"},{**JOBS[2],"id":"hidden"}],"dismissedIds":["hidden"]})
     monkeypatch.setattr(scraper_import,"get_synced_scraper_job_ids",lambda db:{"queued"})
-    result=api.browse_filter_options(None)
+    result=jobs_router.browse_filter_options(None)
     assert result["titles"] == ["Senior Product Manager"]
     assert result["companies"] == ["Acme, Inc"]
 

@@ -4,7 +4,7 @@ from typing import Any
 import pytest
 from fastapi import HTTPException
 
-from app.routers import api
+from resume import router as api
 from intelligence.llm import client as llm
 from tests.resume_baseline_fixture import baseline
 

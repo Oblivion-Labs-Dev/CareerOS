@@ -1,7 +1,7 @@
 """Application Assistant API — aggregates the domain sub-routers into one
 router with the exact same paths/behavior as the former single 2000+ line
-module, so `from app.routers.application_assistant import router` keeps
-working unchanged for main.py.
+module. It now lives under the autopilot service package and is included by
+``autopilot.router`` (``from autopilot.application_assistant import router``).
 
 Split by domain for SRP: each area (settings, discovery, jobs, applications,
 answers, llm, qwen, diagnostics, autopilot, llm_metrics, tailoring/receipts)

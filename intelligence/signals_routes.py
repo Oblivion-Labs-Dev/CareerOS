@@ -8,16 +8,11 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from app.db.store import session_scope
 from intelligence.answer_engine import generate_answer, load_custom_answers
 from intelligence.signals import auto_apply, auto_apply_lanes, night_shift, signals, tasks
+from shared.deps import db_session
 
 router = APIRouter(prefix="/intelligence", tags=["intelligence"])
-
-
-def db_session():
-    with session_scope() as db:
-        yield db
 
 
 # ── Tasks / CIOS ────────────────────────────────────────────────────────────

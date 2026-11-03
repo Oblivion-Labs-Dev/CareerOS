@@ -15,7 +15,10 @@ from fastapi import APIRouter
 
 router = APIRouter(prefix="/matcher-benchmark", tags=["matcher-benchmark"])
 
-DATA = Path(__file__).resolve().parents[2] / "data"
+# This module now lives at <repo-root>/autopilot/, but the bench still writes
+# into apps/api/data (unchanged by the refactor), so resolve that path from the
+# repo root rather than relative to this file's old routers/ location.
+DATA = Path(__file__).resolve().parents[1] / "apps" / "api" / "data"
 
 FILES = {
     "leaderboard": "matchlab_final.json",

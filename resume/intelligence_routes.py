@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from app.db.store import get_kv, session_scope
+from app.db.store import get_kv
 from autopilot.llm_client import create_llm_client
 from autopilot.persistence import get_settings
 from resume.scoring.graph_builder import build_knowledge_graph
@@ -32,13 +32,9 @@ from resume.scanner import (
     load_accomplishments_for_person,
     run_resume_scan,
 )
+from shared.deps import db_session
 
 router = APIRouter(prefix="/resume-intelligence", tags=["resume-intelligence"])
-
-
-def db_session():
-    with session_scope() as db:
-        yield db
 
 
 class PersonPayload(BaseModel):

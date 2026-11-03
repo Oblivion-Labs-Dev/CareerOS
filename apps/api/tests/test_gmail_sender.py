@@ -42,7 +42,7 @@ def test_gmail_sender_send_success(mock_smtp_cls: MagicMock) -> None:
 
 
 def test_email_verify_returns_not_configured_when_unconfigured() -> None:
-    with patch("app.routers.api.settings") as mock_settings:
+    with patch("notifications.router.settings") as mock_settings:
         mock_settings.gmail_user = ""
         mock_settings.gmail_app_password = ""
         response = client.get("/email/verify")

@@ -80,30 +80,26 @@ from app.config import settings
 from app.db.store import init_db
 from shared.middleware.auth import AuthGateMiddleware
 from shared.middleware.metrics import MetricsMiddleware
-from app.routers.api import router
-from app.routers.application_assistant import router as application_assistant_router
 from app.routers.auth import router as auth_router
-from app.routers.intelligence import router as intelligence_router
-from app.routers.job_import import router as job_import_router
-from app.routers.job_search import router as job_search_router
-from app.routers.networking import router as networking_router
-from app.routers.repair_demo import router as repair_demo_router
-from app.routers.repair_manual import router as repair_manual_router
-from app.routers.resume_intelligence import router as resume_intelligence_router
-from app.routers.gemini import router as gemini_router
+from app.routers.core import router as core_router
 from analytics.router import router as diagnostic_router
 from analytics.router import top_level_router as analytics_top_level_router
 from notifications.gmail_archive_router import router as gmail_archive_router
-from app.routers.matcher_benchmark import router as matcher_benchmark_router
-from app.routers.story_map import router as story_map_router
 from analytics.error_tracker import error_fix_tracker, reconcile_error_history_on_startup, seed_error_fix_history_if_empty
 
-# New modular-monolith service routers. These live at the repo root and are
-# included alongside the legacy routers during the transition (Steps 2+). Each
-# router keeps its original paths so the frontend/extension are unaffected
-# until Step 11.
+# Modular-monolith service routers. Every former legacy router has been folded
+# into the owning service's router.py (resume/jobs/autopilot/intelligence) or an
+# already-existing service router (profile/analytics/notifications). Each keeps
+# its original paths, so the frontend/extension are unaffected. `auth` stays in
+# apps/api (it is cross-cutting, referenced by the auth middleware) and `core`
+# holds the few genuinely service-agnostic routes (dashboard, health, legacy
+# extension DB sync, extension download/info).
 from profile.router import router as profile_router
 from notifications.router import router as notifications_router
+from resume.router import router as resume_router
+from jobs.router import router as jobs_router
+from autopilot.router import router as autopilot_router
+from intelligence.router import router as intelligence_router
 
 log_dir = Path(__file__).resolve().parent.parent / "data" / "logs"
 log_dir.mkdir(parents=True, exist_ok=True)
@@ -403,22 +399,15 @@ static_dir = Path(__file__).resolve().parent / "static"
 app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 
 app.include_router(auth_router)
-app.include_router(router)
+app.include_router(core_router)
 app.include_router(profile_router)
 app.include_router(notifications_router)
 app.include_router(analytics_top_level_router)
-app.include_router(job_import_router)
+app.include_router(resume_router)
+app.include_router(jobs_router)
+app.include_router(autopilot_router)
 app.include_router(intelligence_router)
-app.include_router(repair_demo_router)
-app.include_router(repair_manual_router)
-app.include_router(application_assistant_router)
-app.include_router(resume_intelligence_router)
-app.include_router(job_search_router)
-app.include_router(networking_router)
-app.include_router(story_map_router)
-app.include_router(matcher_benchmark_router)
 app.include_router(gmail_archive_router)
-app.include_router(gemini_router)
 app.include_router(diagnostic_router)
 
 

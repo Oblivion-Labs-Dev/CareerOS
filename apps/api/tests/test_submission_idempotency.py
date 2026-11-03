@@ -89,7 +89,7 @@ def test_unverified_submission_is_not_filed_as_failed(attempted_job):
 
 def test_bulk_requeue_skips_a_maybe_submitted_job(attempted_job):
     """`Requeue all failed` must not sweep one of these back onto the queue."""
-    from app.routers.application_assistant.autopilot import (
+    from autopilot.application_assistant.autopilot import (
         _requeue_autopilot_jobs_by_status,
     )
 
@@ -106,7 +106,7 @@ def test_bulk_requeue_skips_a_maybe_submitted_job(attempted_job):
 
 def test_single_job_retry_endpoint_refuses_a_maybe_submitted_job(attempted_job):
     """The per-job retry button is an automatic path and must refuse too."""
-    from app.routers.application_assistant.autopilot import reprocess_single_autopilot_job
+    from autopilot.application_assistant.autopilot import reprocess_single_autopilot_job
 
     attempted_job["status"] = AutopilotJobStatus.SUBMISSION_UNKNOWN.value
     _save(attempted_job)
@@ -179,7 +179,7 @@ def test_missing_email_never_moves_a_job_back_to_the_queue(attempted_job):
     attempted_job["status"] = AutopilotJobStatus.SUBMISSION_UNKNOWN.value
     _save(attempted_job)
 
-    from app.routers.application_assistant.autopilot import (
+    from autopilot.application_assistant.autopilot import (
         _requeue_autopilot_jobs_by_status,
     )
 
@@ -484,6 +484,6 @@ def test_a_stale_marker_does_not_park_a_genuinely_retryable_attempt():
 
 def test_the_user_may_still_resolve_a_maybe_submitted_job_by_hand(attempted_job):
     """Automation cannot check the posting; the user can, and must be able to."""
-    from app.routers.application_assistant.autopilot import USER_RELABELLABLE_FROM
+    from autopilot.application_assistant.autopilot import USER_RELABELLABLE_FROM
 
     assert AutopilotJobStatus.SUBMISSION_UNKNOWN.value in USER_RELABELLABLE_FROM
