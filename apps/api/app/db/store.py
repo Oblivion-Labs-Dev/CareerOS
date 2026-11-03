@@ -2,16 +2,12 @@ import json
 import logging
 import os
 import re
-import uuid
-from collections.abc import Iterator
-from contextlib import contextmanager
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
-from sqlalchemy import JSON, Column, String, create_engine
-from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
+from sqlalchemy import JSON, Column, String
+from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.db.resume_corpus_seed import (
@@ -19,9 +15,20 @@ from app.db.resume_corpus_seed import (
     resume_corpus_seed_to_accomplishment,
 )
 
-
-class Base(DeclarativeBase):
-    pass
+# Database primitives now live in shared/db.py (cross-cutting infrastructure,
+# no business logic). Re-exported here so existing `from app.db.store import
+# engine / Base / session_scope / ...` call sites keep working during the
+# modular-monolith transition. This re-export block is removed at the end of
+# the refactor once every call site imports from shared.db directly.
+from shared.db import (  # noqa: F401
+    Base,
+    SessionLocal,
+    engine,
+    new_id,
+    now_iso,
+    session_scope,
+)
+from shared.db import configure_sqlite as _configure_sqlite
 
 
 class KVStore(Base):
@@ -56,89 +63,15 @@ def json_field(path: str):
     return func.json_extract(EntityStore.payload, literal_column(f"'{path}'"))
 
 
-DATA_DIR =Path(__file__).resolve().parents[2] / "data"
+# The SQLite file location is defined in shared/db.py (DB_PATH). The seed-file
+# paths below are business data owned by this module, so they stay here. They
+# are resolved relative to this file exactly as before.
+DATA_DIR = Path(__file__).resolve().parents[2] / "data"
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 DB_PATH = DATA_DIR / "career_os.db"
 PROFILE_SEED_PATH = DATA_DIR / "applypilot-profile.json"
 EXTENSION_DB_PATH = Path(__file__).resolve().parents[3] / "extension" / "db.json"
 RESUME_CORPUS_SEED_PATH = Path(__file__).resolve().parents[4] / "data" / "resume-corpus-initial.json"
-
-engine = create_engine(
-    settings.career_os_database_url
-    if not settings.career_os_database_url.startswith("sqlite:///./")
-    else f"sqlite:///{DB_PATH.as_posix()}",
-    connect_args={"check_same_thread": False, "timeout": 60.0},
-    pool_size=10,
-    max_overflow=20,
-    pool_recycle=300,
-    pool_pre_ping=True,
-)
-SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
-
-
-from sqlalchemy import event
-
-
-@event.listens_for(engine, "connect")
-def _set_sqlite_pragma(dbapi_connection, connection_record):
-    if "sqlite" in str(engine.url):
-        cursor = dbapi_connection.cursor()
-        cursor.execute("PRAGMA journal_mode=WAL")
-        cursor.execute("PRAGMA busy_timeout=60000")
-        cursor.execute("PRAGMA synchronous=NORMAL")
-        cursor.close()
-
-
-# Expression indexes over the JSON payload. The table only had an index on
-# entity_type, so every "which jobs are QUEUED" lookup loaded the whole
-# partition for its type and filtered in Python after parsing each row. These
-# push the two hottest predicates into SQLite:
-#
-#   status          - every queue and dashboard read filters on it
-#   applicationUrl  - the duplicate-application sweep looks up siblings by it,
-#                     which was a full scan on every submission
-#
-# CREATE INDEX IF NOT EXISTS is idempotent, so this runs safely at every start.
-_JSON_INDEXES: tuple[tuple[str, str], ...] = (
-    (
-        "ix_entities_status",
-        "CREATE INDEX IF NOT EXISTS ix_entities_status "
-        "ON entities (entity_type, json_extract(payload, '$.status'))",
-    ),
-    (
-        "ix_entities_application_url",
-        "CREATE INDEX IF NOT EXISTS ix_entities_application_url "
-        "ON entities (entity_type, json_extract(payload, '$.applicationUrl'))",
-    ),
-    (
-        # The discover page asks "which postings were added to the assistant"
-        # on nearly every request: 51 of ~11k discovered rows, found by a full
-        # scan that parsed every payload.
-        "ix_entities_added_to_assistant",
-        "CREATE INDEX IF NOT EXISTS ix_entities_added_to_assistant "
-        "ON entities (entity_type, json_extract(payload, '$.addedToAssistant'))",
-    ),
-)
-
-
-def _configure_sqlite() -> None:
-    if "sqlite" not in str(engine.url):
-        return
-    from sqlalchemy import text
-
-    with engine.connect() as conn:
-        conn.execute(text("PRAGMA journal_mode=WAL"))
-        conn.execute(text("PRAGMA busy_timeout=60000"))
-        # Reclaim space after the retention sweep deletes rows. Without this the
-        # file only ever grows: SQLite keeps freed pages for reuse and never
-        # returns them to the filesystem.
-        conn.execute(text("PRAGMA auto_vacuum=INCREMENTAL"))
-        for name, ddl in _JSON_INDEXES:
-            try:
-                conn.execute(text(ddl))
-            except Exception:  # noqa: BLE001 - an index is an optimisation, never a boot blocker
-                logging.getLogger("career_os.db").warning("Could not create %s", name)
-        conn.commit()
 
 
 def init_db() -> None:
@@ -247,28 +180,6 @@ def seed_extension_db_if_needed(db: Session) -> None:
     if has_applications and has_learned_answers and (has_resume or not extension_has_resume):
         return
     import_legacy_db(db, payload)
-
-
-@contextmanager
-def session_scope() -> Iterator[Session]:
-    db = SessionLocal()
-    try:
-        yield db
-        db.commit()
-    except Exception:
-        db.rollback()
-        raise
-    finally:
-        db.close()
-
-
-def now_iso() -> str:
-    return datetime.now(UTC).isoformat()
-
-
-def new_id(prefix: str = "") -> str:
-    value = str(uuid.uuid4())
-    return f"{prefix}{value}" if prefix else value
 
 
 def _pending_kv(db: Session, key: str) -> KVStore | None:
