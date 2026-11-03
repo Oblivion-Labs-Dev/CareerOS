@@ -10,7 +10,7 @@ from __future__ import annotations
 import threading
 import time
 
-from app.services.read_cache import ReadCache
+from shared.cache import ReadCache
 
 
 def test_concurrent_cold_start_calls_loader_once() -> None:

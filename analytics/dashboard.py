@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.db.store import get_kv, tracker_summary
 from analytics.error_tracker import error_fix_tracker
-from app.services.extension_packager import extension_info
+from analytics.extension_packager import extension_info
 from analytics.log_store import read_client_logs
 from autopilot.repair.log_source import log_inventory
 

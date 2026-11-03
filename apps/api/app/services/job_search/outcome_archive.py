@@ -7,10 +7,10 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from app.services.job_search.methodology import OUTCOME_STATUSES
-from app.services.safe_write import atomic_write
+from jobs.methodology import OUTCOME_STATUSES
+from shared.safe_write import atomic_write
 
-ARCHIVE_ROOT = Path(__file__).resolve().parents[3] / "data" / "applications"
+ARCHIVE_ROOT = Path(__file__).resolve().parents[1] / "apps" / "api" / "data" / "applications"
 
 
 def _slug(value: str) -> str:

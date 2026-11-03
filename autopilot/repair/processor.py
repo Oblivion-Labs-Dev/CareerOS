@@ -15,7 +15,7 @@ from autopilot.repair.log_source import log_inventory, log_source
 from autopilot.repair.sanitize import sanitize_log_entry
 from autopilot.repair.store import repair_task_store
 from autopilot.repair.types import AgentWorkspace, ReadLogOptions, RepairTask
-from app.services.structured_errors import get_git_commit_sha
+from shared.errors import get_git_commit_sha
 
 _run_lock = threading.Lock()
 _active_run = False

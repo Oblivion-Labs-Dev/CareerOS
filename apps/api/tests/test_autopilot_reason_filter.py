@@ -12,7 +12,7 @@ from autopilot.persistence import (
     delete_autopilot_job,
     save_autopilot_job,
 )
-from app.services.read_cache import read_cache
+from shared.cache import read_cache
 
 
 @pytest.mark.parametrize(

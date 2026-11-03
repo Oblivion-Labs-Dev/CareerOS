@@ -4,7 +4,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import urllib.request
 import urllib.error
 import json
-from app.services.auth import create_session_token, SESSION_COOKIE_NAME
+from shared.auth import create_session_token, SESSION_COOKIE_NAME
 
 token = create_session_token("admin")
 

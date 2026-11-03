@@ -78,8 +78,8 @@ from fastapi.staticfiles import StaticFiles
 
 from app.config import settings
 from app.db.store import init_db
-from app.middleware.auth import AuthGateMiddleware
-from app.middleware.metrics import MetricsMiddleware
+from shared.middleware.auth import AuthGateMiddleware
+from shared.middleware.metrics import MetricsMiddleware
 from app.routers.api import router
 from app.routers.application_assistant import router as application_assistant_router
 from app.routers.auth import router as auth_router
@@ -310,7 +310,7 @@ def _warm_autopilot_caches() -> None:
             get_autopilot_status_company_stats,
             list_autopilot_jobs,
         )
-        from app.services.read_cache import read_cache
+        from shared.cache import read_cache
 
         def _load_jobs() -> list:
             with session_scope() as db:

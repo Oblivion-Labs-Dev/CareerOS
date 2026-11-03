@@ -63,7 +63,7 @@ def test_the_endpoint_is_disabled_until_a_token_is_configured(monkeypatch):
 
 
 def test_the_session_login_gate_does_not_block_the_token_holder(client, monkeypatch):
-    from app.middleware import auth as auth_middleware
+    from shared.middleware import auth as auth_middleware
 
     monkeypatch.setattr(auth_middleware, "is_auth_configured", lambda: True)
     # No session cookie at all - only the import token.

@@ -26,13 +26,13 @@ def gated(monkeypatch):
     The gate is a no-op until a password is configured, so a fresh checkout is
     never locked out of itself. Tests have no password, hence the patch.
     """
-    monkeypatch.setattr("app.middleware.auth.is_auth_configured", lambda: True)
+    monkeypatch.setattr("shared.middleware.auth.is_auth_configured", lambda: True)
     return TestClient(app)
 
 
 @pytest.fixture
 def ungated(monkeypatch):
-    monkeypatch.setattr("app.middleware.auth.is_auth_configured", lambda: False)
+    monkeypatch.setattr("shared.middleware.auth.is_auth_configured", lambda: False)
     return TestClient(app)
 
 
@@ -71,7 +71,7 @@ def test_emptying_the_enforced_list_does_not_disable_the_gate():
     API through the instant the tuple became empty — turning "enforce
     everything" into "enforce nothing".
     """
-    from app.middleware import auth
+    from shared.middleware import auth
 
     assert auth._ENFORCED_PREFIXES == (), "deny-by-default is expressed as an empty tuple"
     assert not "/profile".startswith(auth._ENFORCED_PREFIXES), (

@@ -189,7 +189,7 @@ def _cached_autopilot_status() -> dict[str, Any]:
     """
     from autopilot.autopilot_runner import AutopilotRunner
     from app.db.store import session_scope
-    from app.services.read_cache import read_cache
+    from shared.cache import read_cache
 
     def _load() -> dict[str, Any]:
         runner = AutopilotRunner.get_instance()
@@ -355,7 +355,7 @@ def get_autopilot_stats() -> dict[str, Any]:
         get_autopilot_status_company_stats,
     )
     from app.db.store import session_scope
-    from app.services.read_cache import read_cache
+    from shared.cache import read_cache
 
     def _load_stats() -> dict[str, Any]:
         with session_scope() as db:
@@ -388,7 +388,7 @@ def get_autopilot_jobs_list(
         list_autopilot_jobs,
     )
     from app.db.store import session_scope
-    from app.services.read_cache import read_cache
+    from shared.cache import read_cache
 
     statuses = {s.strip().upper() for s in status.split(",")} if isinstance(status, str) and status else None
     search_str = search if isinstance(search, str) else ""
@@ -609,7 +609,7 @@ def get_staged_applications() -> dict[str, Any]:
         list_autopilot_jobs,
     )
     from app.db.store import session_scope
-    from app.services.read_cache import read_cache
+    from shared.cache import read_cache
 
     def _load_all_jobs() -> list[dict[str, Any]]:
         with session_scope() as db:

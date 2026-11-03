@@ -10,7 +10,10 @@ from app.config import settings
 
 BrowserKind = Literal["chrome", "edge", "firefox", "brave", "opera", "chromium"]
 
-EXTENSION_ROOT = Path(__file__).resolve().parents[3] / "extension"
+# The Chrome extension lives at apps/extension (unchanged). This module moved
+# from apps/api/app/services/extension_packager.py to analytics/ at the repo
+# root, so the path is resolved from there.
+EXTENSION_ROOT = Path(__file__).resolve().parents[1] / "apps" / "extension"
 EXTENSION_DIST = EXTENSION_ROOT / "dist"
 GECKO_EXTENSION_ID = "career-os@applypilot.dev"
 

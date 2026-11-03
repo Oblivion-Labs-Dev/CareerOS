@@ -6,7 +6,7 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException, Request, Response
 from pydantic import BaseModel
 
-from app.services.auth import (
+from shared.auth import (
     SESSION_COOKIE_NAME,
     SESSION_TTL_SECONDS,
     create_session_token,

@@ -3,7 +3,7 @@
 from ._common import *  # noqa: F401,F403
 
 from app.db.store import session_scope
-from app.services.read_cache import read_cache
+from shared.cache import read_cache
 
 # How stale a dashboard aggregate may get before a background refresh is
 # kicked off. The page polls every 15s, so a few seconds of drift is

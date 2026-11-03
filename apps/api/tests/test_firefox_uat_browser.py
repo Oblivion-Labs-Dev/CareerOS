@@ -2,8 +2,8 @@
 import asyncio
 import os
 import pytest
-from app.services.uat.firefox import BrowserConfig, TargetPolicy, FirefoxUAT
-from app.services.uat.fixtures import fixture_server
+from shared.uat.firefox import BrowserConfig, TargetPolicy, FirefoxUAT
+from shared.uat.fixtures import fixture_server
 
 pytestmark = pytest.mark.skipif(os.getenv('CAREEROS_FIREFOX_UAT') != '1', reason='Opt-in Firefox browser suite')
 PROFILE = {'firstName':'Test','lastName':'Candidate','fullName':'Test Candidate','email':'test@example.invalid',

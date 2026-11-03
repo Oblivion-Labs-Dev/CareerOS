@@ -2,7 +2,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
-from app.services.auth import SESSION_COOKIE_NAME, is_auth_configured, verify_session_token
+from shared.auth import SESSION_COOKIE_NAME, is_auth_configured, verify_session_token
 
 # Paths reachable without a session — the login flow itself, health checks used
 # by the dev tooling, and static assets that carry no data.

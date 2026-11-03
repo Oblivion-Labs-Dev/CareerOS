@@ -29,7 +29,7 @@ from app.db.store import (
 )
 from intelligence.answer_engine import generate_answer, load_custom_answers
 from analytics.dashboard import render_api_dashboard
-from app.services.extension_packager import build_extension_zip, extension_info
+from analytics.extension_packager import build_extension_zip, extension_info
 from jobs.discovery import relevancy_engine
 from jobs.discovery import store as job_discover
 from jobs.discovery.url_import import autoextract_job_from_url
@@ -512,7 +512,7 @@ def _processed_autopilot_identity(db: Session) -> tuple[set[str], set[str]]:
         normalize_application_url,
     )
     from autopilot.persistence import AUTOPILOT_JOBS_CACHE_KEY, list_autopilot_jobs
-    from app.services.read_cache import read_cache
+    from shared.cache import read_cache
 
     def _load_all_autopilot_jobs() -> list[dict[str, Any]]:
         with session_scope() as inner_db:

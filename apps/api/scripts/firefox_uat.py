@@ -19,9 +19,9 @@ from urllib.parse import urlsplit
 
 API = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(API))
-from app.services.uat.database import ReviewAdapter
-from app.services.uat.firefox import BrowserConfig, TargetPolicy, FirefoxUAT
-from app.services.uat.fixtures import fixture_server
+from shared.uat.database import ReviewAdapter
+from shared.uat.firefox import BrowserConfig, TargetPolicy, FirefoxUAT
+from shared.uat.fixtures import fixture_server
 
 SYNTHETIC = {'firstName':'Test','lastName':'Candidate','fullName':'Test Candidate','email':'test@example.invalid',
              'phone':'2065550100','country':'United States','linkedin':'https://example.invalid/test'}

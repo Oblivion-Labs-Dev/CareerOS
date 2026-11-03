@@ -14,7 +14,10 @@ def get_git_commit_sha() -> str:
         import subprocess
         from pathlib import Path
 
-        repo = Path(__file__).resolve().parents[4]
+        # Moved from apps/api/app/services/structured_errors.py to shared/.
+        # The repo root is one level up from shared/; git -C resolves the work
+        # tree from there just as the previous apps/ path did.
+        repo = Path(__file__).resolve().parents[1]
         result = subprocess.run(
             ["git", "-C", str(repo), "rev-parse", "--short", "HEAD"],
             capture_output=True,

@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from app.services.safe_write import atomic_write
+from shared.safe_write import atomic_write
 
 
 @dataclass(frozen=True)

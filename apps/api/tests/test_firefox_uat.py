@@ -4,9 +4,9 @@ import pytest
 import asyncio
 from types import SimpleNamespace
 
-from app.services.uat.firefox import BrowserConfig, TargetPolicy, proxy_from_url
-from app.services.uat.database import ReviewAdapter
-from app.services.uat.firefox import FirefoxUAT
+from shared.uat.firefox import BrowserConfig, TargetPolicy, proxy_from_url
+from shared.uat.database import ReviewAdapter
+from shared.uat.firefox import FirefoxUAT
 
 
 def test_proxy_credentials_and_validation():

@@ -92,7 +92,7 @@ def test_milestone_acknowledgement_is_persisted_once(db):
 
 
 def test_progress_requires_authentication_when_login_enabled(db, monkeypatch):
-    from app.middleware import auth
+    from shared.middleware import auth
 
     monkeypatch.setattr(auth, "is_auth_configured", lambda: True)
     monkeypatch.setattr(auth, "verify_session_token", lambda token: None)

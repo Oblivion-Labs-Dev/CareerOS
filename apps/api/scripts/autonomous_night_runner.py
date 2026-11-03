@@ -22,7 +22,7 @@ API_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(API_DIR))
 
 from app.config import settings
-from app.services.auth import SESSION_COOKIE_NAME, create_session_token
+from shared.auth import SESSION_COOKIE_NAME, create_session_token
 
 BASE_URL = "http://127.0.0.1:4000"
 

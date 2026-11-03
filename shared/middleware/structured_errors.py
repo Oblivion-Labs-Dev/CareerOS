@@ -6,7 +6,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 
 from app.config import settings
-from app.services.structured_errors import build_structured_error, forward_to_repair_orchestrator
+from shared.errors import build_structured_error, forward_to_repair_orchestrator
 
 
 class StructuredErrorMiddleware(BaseHTTPMiddleware):

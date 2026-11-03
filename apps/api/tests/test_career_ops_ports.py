@@ -12,7 +12,7 @@ from autopilot.greenhouse_schema import (
 )
 from jobs.posting_legitimacy import check_posting_legitimacy
 from intelligence.market_trends import market_trends_summary
-from app.services.safe_write import atomic_write
+from shared.safe_write import atomic_write
 
 
 def test_parse_greenhouse_url() -> None:

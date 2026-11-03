@@ -595,7 +595,7 @@ def _invalidate_autopilot_jobs_cache() -> None:
     # to the next `get()` — by which point the write's session has always
     # already closed — while still avoiding the eviction that forced a
     # synchronous rebuild on that next call.
-    from app.services.read_cache import read_cache
+    from shared.cache import read_cache
 
     read_cache.touch(AUTOPILOT_JOBS_CACHE_KEY)
     read_cache.touch(AUTOPILOT_STATS_CACHE_KEY)
