@@ -742,7 +742,7 @@ def _resolve_job_fields(payload: dict[str, Any]) -> dict[str, Any]:
     guard). Anything the caller supplied explicitly still wins; this only fills
     the gaps, and falls back to the board slug in the URL when the fetch fails.
     """
-    from app.services.job_discover.url_import import (
+    from jobs.discovery.url_import import (
         autoextract_job_from_url,
         guess_company_from_url,
     )
@@ -755,7 +755,7 @@ def _resolve_job_fields(payload: dict[str, Any]) -> dict[str, Any]:
     # An aggregator listing is not an application form. Resolve it to the
     # employer's own board first, so what gets stored is a URL the automation
     # can actually submit rather than a page it will never get past.
-    from app.services.job_discover.aggregator_resolve import (
+    from jobs.discovery.aggregator_resolve import (
         is_aggregator_url,
         resolve_aggregator_url,
     )
@@ -967,7 +967,7 @@ def resolve_aggregator_urls(
         list_autopilot_jobs,
         save_autopilot_job,
     )
-    from app.services.job_discover.aggregator_resolve import (
+    from jobs.discovery.aggregator_resolve import (
         is_aggregator_url,
         resolve_aggregator_url,
     )

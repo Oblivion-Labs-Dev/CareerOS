@@ -14,7 +14,7 @@ from autopilot.scraper_import import (
     scraper_sync_status,
     sync_scraper_jobs,
 )
-from app.services.job_discover import store as jd_store
+from jobs.discovery import store as jd_store
 
 
 @pytest.fixture

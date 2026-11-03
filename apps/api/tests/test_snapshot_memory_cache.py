@@ -3,7 +3,7 @@
 import json
 import os
 
-from app.services.job_discover import store
+from jobs.discovery import store
 
 
 def test_snapshot_is_parsed_once_and_refreshed_by_a_write(monkeypatch, tmp_path):

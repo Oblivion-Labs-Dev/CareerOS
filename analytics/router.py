@@ -166,7 +166,7 @@ def get_system_health(db: Session = Depends(db_session)) -> dict[str, Any]:
         }
 
     # 3. Job Scraper
-    from app.services.job_discover.store import SNAPSHOT_FILE, _scrape_status
+    from jobs.discovery.store import SNAPSHOT_FILE, _scrape_status
     if SNAPSHOT_FILE.is_file():
         indexed = _scrape_status.get("indexedJobs", 0)
         services["job_scraper"] = {

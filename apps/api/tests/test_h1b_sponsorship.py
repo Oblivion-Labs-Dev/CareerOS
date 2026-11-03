@@ -1,4 +1,4 @@
-from app.services.job_discover.h1b_sponsorship import apply_h1b_fields, check_h1b_sponsorship
+from jobs.discovery.h1b_sponsorship import apply_h1b_fields, check_h1b_sponsorship
 
 
 def test_detects_likely_sponsorship():

@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 from app.config import settings
 from app.db.store import session_scope
 from app.main import app
-from app.services.job_discover import store as jd_store
+from jobs.discovery import store as jd_store
 
 TOKEN = "test-import-token"
 AUTH = {"Authorization": f"Bearer {TOKEN}"}

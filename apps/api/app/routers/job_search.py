@@ -19,13 +19,13 @@ from app.db.store import (
     session_scope,
     upsert_entity,
 )
-from autopilot.greenhouse_schema import fetch_greenhouse_schema, parse_greenhouse_url
+from app.services.application_assistant.greenhouse_schema import fetch_greenhouse_schema, parse_greenhouse_url
 from jobs.discovery import store as job_discover_store
 from jobs.cover_letter_pipeline import generate_cover_letter_with_review
 from jobs.report import build_analytics_summary, render_html_report
 from jobs.evaluation import evaluate_job_fit, rank_jobs
 from jobs.outcomes import list_outcome_archives, write_outcome_archive
-from intelligence.market_trends import market_trends_summary
+from app.services.market_trends import market_trends_summary
 
 router = APIRouter(tags=["job-search"])
 

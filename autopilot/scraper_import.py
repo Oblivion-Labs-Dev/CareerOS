@@ -8,14 +8,14 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from app.db.store import get_kv, list_entities
-from autopilot.persistence import (
+from app.services.application_assistant.persistence import (
     create_application_draft,
     get_job_match,
     list_discovered_jobs,
     save_job_match,
     upsert_discovered_job,
 )
-from autopilot.url_validation import detect_provider_from_url
+from app.services.application_assistant.url_validation import detect_provider_from_url
 from jobs.discovery import store as jd_store
 
 SCRAPER_DISCOVERY_RUN_ID = "scraper_import"
@@ -93,7 +93,7 @@ def import_scraper_job_record(
     saved = upsert_discovered_job(db, job_data)
     match = get_job_match(db, saved["id"])
     if rescore and (not unchanged or not match):
-        from autopilot.candidate_match_context import match_job_with_context
+        from app.services.application_assistant.candidate_match_context import match_job_with_context
 
         profile = profile if profile is not None else (get_kv(db, "profile") or {})
         documents = get_kv(db, "documents") or {}
@@ -253,7 +253,7 @@ def get_synced_scraper_job_ids(db: Session) -> set[str]:
     # row: only a couple of dozen are flagged addedToAssistant, but the unfiltered
     # scan cost ~0.5s on every dashboard load.
     from app.db.store import list_entities_where_json
-    from autopilot.persistence import ENTITY_DISCOVERED_JOB
+    from app.services.application_assistant.persistence import ENTITY_DISCOVERED_JOB
 
     return {
         str(j.get("scraperJobId"))

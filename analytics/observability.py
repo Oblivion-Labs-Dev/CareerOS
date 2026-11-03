@@ -822,7 +822,7 @@ class AlarmManager:
         return False, "OK"
 
     def _check_scraper_stalled(self) -> tuple[bool, str]:
-        from app.services.job_discover.store import SNAPSHOT_FILE
+        from jobs.discovery.store import SNAPSHOT_FILE
         if not SNAPSHOT_FILE.is_file():
             return False, "Snapshot file not yet created"
         try:

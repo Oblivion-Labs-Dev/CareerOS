@@ -6,14 +6,14 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from app.services.job_discover.dedup import canonicalize_url, compute_job_fingerprint, deduplicate_jobs
-from app.services.job_discover.discovery.company_registry import JobSourceDiscoveryService
-from app.services.job_discover.sources.ashby import AshbySource
-from app.services.job_discover.sources.base import NormalizedJob
-from app.services.job_discover.sources.generic_jsonld import parse_jsonld_job_postings
-from app.services.job_discover.sources.greenhouse import GreenhouseSource
-from app.services.job_discover.sources.lever import LeverSource
-from app.services.job_discover.sources.workday import WorkdaySource
+from jobs.discovery.dedup import canonicalize_url, compute_job_fingerprint, deduplicate_jobs
+from jobs.discovery.discovery.company_registry import JobSourceDiscoveryService
+from jobs.discovery.sources.ashby import AshbySource
+from jobs.discovery.sources.base import NormalizedJob
+from jobs.discovery.sources.generic_jsonld import parse_jsonld_job_postings
+from jobs.discovery.sources.greenhouse import GreenhouseSource
+from jobs.discovery.sources.lever import LeverSource
+from jobs.discovery.sources.workday import WorkdaySource
 
 
 def test_canonicalize_url():

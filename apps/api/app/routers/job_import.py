@@ -120,7 +120,7 @@ def _validation_reason(exc: ValidationError) -> str:
 @router.post("/api/jobs/import/batch", dependencies=[Depends(require_import_token)])
 async def import_jobs_batch_route(payload: ImportBatchRequest) -> dict[str, Any]:
     from app.db.store import session_scope
-    from app.services.job_discover.store import import_jobs_batch
+    from jobs.discovery.store import import_jobs_batch
 
     if len(payload.jobs) > MAX_IMPORT_BATCH:
         raise HTTPException(status_code=413, detail=f"At most {MAX_IMPORT_BATCH} jobs per batch")

@@ -11,8 +11,8 @@ from __future__ import annotations
 
 import pytest
 
-from app.services.job_discover.google_cse_resolver import company_from_ats_url
-from app.services.job_discover.sources.google_cse import GoogleCseJobSource
+from jobs.discovery.google_cse_resolver import company_from_ats_url
+from jobs.discovery.sources.google_cse import GoogleCseJobSource
 
 
 @pytest.mark.parametrize(

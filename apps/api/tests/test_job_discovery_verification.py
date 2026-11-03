@@ -1,7 +1,7 @@
 """Test suite for Job Discovery, Extraction, Verification, Freshness, and Deduplication Subsystem."""
 
 import pytest
-from app.services.job_discover.job_verification_engine import (
+from jobs.discovery.job_verification_engine import (
     CanonicalSourceType,
     PostingDateConfidence,
     RemoteStatus,

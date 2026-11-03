@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import pytest
 
-from app.services.job_discover.google_cse_resolver import (
+from jobs.discovery.google_cse_resolver import (
     _is_applyable,
     _pick_best,
     get_usage,
@@ -98,7 +98,7 @@ def test_usage_resets_on_a_new_day():
     """The quota is daily, so a stale counter must not suppress lookups forever."""
     from app.db.store import session_scope, set_kv
 
-    from app.services.job_discover.google_cse_resolver import QUOTA_KV_KEY
+    from jobs.discovery.google_cse_resolver import QUOTA_KV_KEY
 
     with session_scope() as db:
         set_kv(db, QUOTA_KV_KEY, {"date": "1999-01-01", "count": 999})

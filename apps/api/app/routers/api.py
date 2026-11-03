@@ -27,14 +27,14 @@ from app.db.store import (
     tracker_summary,
     upsert_entity,
 )
-from intelligence.answer_engine import generate_answer, load_custom_answers
+from app.services.answer_engine import generate_answer, load_custom_answers
 from analytics.dashboard import render_api_dashboard
-from analytics.extension_packager import build_extension_zip, extension_info
+from app.services.extension_packager import build_extension_zip, extension_info
 from jobs.discovery import relevancy_engine
 from jobs.discovery import store as job_discover
 from jobs.discovery.url_import import autoextract_job_from_url
-from autopilot.persistence import get_settings as get_aa_settings
-from intelligence.llm.client import analyze_accomplishment, generate_resume_bullets_for_job
+from app.services.application_assistant.persistence import get_settings as get_aa_settings
+from app.services.llm import analyze_accomplishment, generate_resume_bullets_for_job
 from resume.ats_score import compute_ats_score
 from resume import resume_profiles as resume_profiles_service
 from resume.tailoring import (
@@ -44,7 +44,7 @@ from resume.tailoring import (
 )
 from resume.parsers.pdf_parser import parse_resume_into_profile
 from notifications.tracker import pipeline as tracker_pipeline
-from app.services.target_company_jobs import (
+from jobs.target_companies import (
     filter_jobs,
     format_whatsapp,
     get_snapshot,
@@ -314,14 +314,14 @@ class CompanyDiscoverPayload(BaseModel):
 
 @router.get("/jobs/companies")
 def list_target_companies() -> dict[str, Any]:
-    from app.services.job_discover.discovery.company_registry import CompanyRegistry
+    from jobs.discovery.discovery.company_registry import CompanyRegistry
     reg = CompanyRegistry()
     return {"success": True, "companies": reg.list_companies()}
 
 
 @router.post("/jobs/companies")
 def upsert_target_company(payload: CompanyRegistryPayload) -> dict[str, Any]:
-    from app.services.job_discover.discovery.company_registry import CompanyRegistry
+    from jobs.discovery.discovery.company_registry import CompanyRegistry
     reg = CompanyRegistry()
     reg.upsert_company(payload.company, payload.source, payload.config or {"careersUrl": payload.careersUrl})
     return {"success": True, "company": payload.company, "source": payload.source}
@@ -330,7 +330,7 @@ def upsert_target_company(payload: CompanyRegistryPayload) -> dict[str, Any]:
 @router.post("/jobs/companies/discover")
 async def discover_company_source(payload: CompanyDiscoverPayload) -> dict[str, Any]:
     import httpx
-    from app.services.job_discover.discovery.company_registry import JobSourceDiscoveryService
+    from jobs.discovery.discovery.company_registry import JobSourceDiscoveryService
     async with httpx.AsyncClient(timeout=10.0) as client:
         res = await JobSourceDiscoveryService.discover_source(client, payload.company, payload.careersUrl)
         return {
@@ -344,7 +344,7 @@ async def discover_company_source(payload: CompanyDiscoverPayload) -> dict[str, 
 @router.get("/jobs/discover/sources/health")
 def job_sources_health() -> dict[str, Any]:
     """Phase 19 Observability: Return runtime health status for all registered JobSourceAdapters."""
-    from app.services.job_discover.aggregation import job_aggregation_service
+    from jobs.discovery.aggregation import job_aggregation_service
     return {
         "success": True,
         "sources": job_aggregation_service.get_health_summary(),
@@ -370,7 +370,7 @@ def job_discover_sources_report() -> dict[str, Any]:
     This reports what the scrape actually run by /jobs/discover/scrape did,
     including sources that failed — those used to vanish into a bare except.
     """
-    from app.services.job_discover.scraper_service import LAST_SOURCE_REPORT
+    from jobs.discovery.scraper_service import LAST_SOURCE_REPORT
 
     counts = LAST_SOURCE_REPORT.get("counts") or {}
     errors = LAST_SOURCE_REPORT.get("errors") or {}
@@ -507,12 +507,12 @@ def _processed_autopilot_identity(db: Session) -> tuple[set[str], set[str]]:
     different posting ids at one employer are two different openings, and
     collapsing them would hide real jobs.
     """
-    from autopilot.job_filter_ranker import (
+    from app.services.application_assistant.job_filter_ranker import (
         generate_composite_job_key,
         normalize_application_url,
     )
-    from autopilot.persistence import AUTOPILOT_JOBS_CACHE_KEY, list_autopilot_jobs
-    from shared.cache import read_cache
+    from app.services.application_assistant.persistence import AUTOPILOT_JOBS_CACHE_KEY, list_autopilot_jobs
+    from app.services.read_cache import read_cache
 
     def _load_all_autopilot_jobs() -> list[dict[str, Any]]:
         with session_scope() as inner_db:
@@ -536,7 +536,7 @@ def _processed_autopilot_identity(db: Session) -> tuple[set[str], set[str]]:
 
 def _is_unprocessed(job: dict[str, Any], processed_keys: set[str], processed_urls: set[str]) -> bool:
     """Whether this discovered posting is absent from the Autopilot pipeline."""
-    from autopilot.job_filter_ranker import (
+    from app.services.application_assistant.job_filter_ranker import (
         generate_composite_job_key,
         normalize_application_url,
     )
@@ -575,7 +575,7 @@ def list_discovered_jobs(
     snapshot = job_discover.get_snapshot(db)
     freshness_filter = freshness if freshness in {"12", "24", "48", "72", "168", "336", "720", "all"} else "all"
     sort_option = sort if sort in {"relevancy", "date", "company", "recent", "most_recent"} else "relevancy"
-    from autopilot.scraper_import import get_synced_scraper_job_ids
+    from app.services.application_assistant.scraper_import import get_synced_scraper_job_ids
 
     synced_ids = get_synced_scraper_job_ids(db)
     dismissed_ids = set(snapshot.get("dismissedIds") or [])
@@ -586,7 +586,7 @@ def list_discovered_jobs(
         and job.get("id") not in dismissed_ids
         and _is_unprocessed(job, processed_keys, processed_urls)
     ]
-    from app.services.job_discover.browse_filters import filter_facets
+    from jobs.discovery.browse_filters import filter_facets
     available_jobs = filter_facets(available_jobs, specialties=specialties, seniorities=seniorities, work_modes=work_modes, experience=experience, companies=companies)
     jobs, total = job_discover.filter_jobs(
         available_jobs,
@@ -625,7 +625,7 @@ def list_discovered_jobs(
 @router.get("/jobs/discover/filter-options")
 def browse_filter_options(db: Session = Depends(db_session)):
     from jobs.discovery.browse_filters import filter_options
-    from autopilot.scraper_import import get_synced_scraper_job_ids
+    from app.services.application_assistant.scraper_import import get_synced_scraper_job_ids
     snapshot = job_discover.get_snapshot(db)
     excluded = get_synced_scraper_job_ids(db) | set(snapshot.get("dismissedIds") or [])
     processed_keys, processed_urls = _processed_autopilot_identity(db)
@@ -656,7 +656,7 @@ def job_discover_stats(db: Session = Depends(db_session)) -> dict[str, Any]:
 
 @router.get("/jobs/discover/locations")
 def job_discover_locations(db: Session = Depends(db_session)) -> dict[str, Any]:
-    from autopilot.scraper_import import get_synced_scraper_job_ids
+    from app.services.application_assistant.scraper_import import get_synced_scraper_job_ids
 
     snapshot = job_discover.get_snapshot(db)
     synced_ids = get_synced_scraper_job_ids(db)
@@ -814,7 +814,7 @@ def get_resume(db: Session = Depends(db_session)) -> dict[str, Any]:
 
 @router.post("/cover-letter/generate")
 async def generate_cover_letter(payload: CoverLetterGeneratePayload, db: Session = Depends(db_session)) -> dict[str, Any]:
-    from app.services.job_search.cover_letter_pipeline import generate_cover_letter_with_review
+    from jobs.cover_letter_pipeline import generate_cover_letter_with_review
 
     profile = get_kv(db, "profile") or {}
     company = payload.companyName or "the company"
@@ -1381,8 +1381,8 @@ async def get_benchmarks_route() -> dict[str, Any]:
 @router.post("/benchmarks/run")
 async def run_benchmarks_route() -> dict[str, Any]:
     """Execute full sequential benchmark comparing Ollama local models and Gemini API."""
-    from autopilot import llm_client
-    from autopilot.benchmark_suite import run_full_sequential_benchmark
+    from app.services.application_assistant import llm_client
+    from app.services.application_assistant.benchmark_suite import run_full_sequential_benchmark
 
     if not llm_client.LOCAL_LLM_ENABLED:
         raise HTTPException(status_code=409, detail="Local LLMs are switched off (CAREEROS_LOCAL_LLM=off).")
@@ -1406,13 +1406,13 @@ class TestResolveRequest(BaseModel):
 async def test_resolve_field_route(payload: TestResolveRequest) -> dict[str, Any]:
     """Test resolution of a specific question variation with rule resolver and model resolution."""
     import time
-    from autopilot.benchmark_dataset import BENCHMARK_PROFILE, BENCHMARK_RESUME_TEXT
+    from app.services.application_assistant.benchmark_dataset import BENCHMARK_PROFILE, BENCHMARK_RESUME_TEXT
     # The resolver is `resolve_answer`; this route still imported a name it had
     # before a rename, so every call returned 500 rather than a resolution.
-    from autopilot.profile_answer_resolver import resolve_answer
-    from autopilot.question_classifier import classify_question, QuestionType
-    from autopilot.cross_field_validator import validate_answers
-    from autopilot.submission_policy import SubmissionPolicy
+    from app.services.application_assistant.profile_answer_resolver import resolve_answer
+    from app.services.application_assistant.question_classifier import classify_question, QuestionType
+    from app.services.application_assistant.cross_field_validator import validate_answers
+    from app.services.application_assistant.submission_policy import SubmissionPolicy
 
     active_profile = payload.profile if payload.profile else BENCHMARK_PROFILE
     start_t = time.perf_counter()

@@ -1,4 +1,4 @@
-from app.services.job_discover.browse_filters import filter_options, filter_facets
+from jobs.discovery.browse_filters import filter_options, filter_facets
 from analytics.series import build_series
 from datetime import datetime, timezone
 

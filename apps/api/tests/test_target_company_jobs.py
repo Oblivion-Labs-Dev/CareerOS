@@ -29,7 +29,7 @@ DOCUSIGN_SAMPLE = {
 
 
 def test_filter_jobs_remote_and_washington() -> None:
-    from app.services.target_company_jobs import filter_jobs
+    from jobs.target_companies import filter_jobs
 
     jobs = [
         {"company": "Oracle", "title": "A", "tags": ["remote"], "active": True},
@@ -41,8 +41,8 @@ def test_filter_jobs_remote_and_washington() -> None:
 
 
 def test_refresh_target_company_jobs_route() -> None:
-    with patch("app.services.target_company_jobs.fetch_docusign_jobs") as mock_doc:
-        with patch("app.services.target_company_jobs.fetch_oracle_jobs") as mock_oracle:
+    with patch("jobs.target_companies.fetch_docusign_jobs") as mock_doc:
+        with patch("jobs.target_companies.fetch_oracle_jobs") as mock_oracle:
             mock_doc.return_value = [
                 {
                     "id": "29452",
@@ -78,8 +78,8 @@ def test_refresh_target_company_jobs_route() -> None:
 
 
 def test_whatsapp_endpoint() -> None:
-    with patch("app.services.target_company_jobs.fetch_docusign_jobs", return_value=[]):
-        with patch("app.services.target_company_jobs.fetch_oracle_jobs", return_value=[]):
+    with patch("jobs.target_companies.fetch_docusign_jobs", return_value=[]):
+        with patch("jobs.target_companies.fetch_oracle_jobs", return_value=[]):
             refreshed = client.post("/jobs/target-companies/refresh", json={"verifyOracle": False})
             response = client.get("/jobs/target-companies/whatsapp?company=all&location=all")
     assert refreshed.status_code == 200
@@ -90,9 +90,9 @@ def test_whatsapp_endpoint() -> None:
 
 
 def test_fetch_docusign_filters_senior_software() -> None:
-    from app.services.target_company_jobs import fetch_docusign_jobs
+    from jobs.target_companies import fetch_docusign_jobs
 
-    with patch("app.services.target_company_jobs._http_get_json", return_value=DOCUSIGN_SAMPLE):
+    with patch("jobs.target_companies._http_get_json", return_value=DOCUSIGN_SAMPLE):
         jobs = fetch_docusign_jobs()
     assert len(jobs) == 1
     assert jobs[0]["id"] == "29452"

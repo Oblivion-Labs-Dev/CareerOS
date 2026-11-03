@@ -81,7 +81,7 @@ def quick_add_application(payload: QuickAddApplicationPayload, db: Session = Dep
     Mirrors the scraper-import path (`upsert_discovered_job` -> `create_application_draft`)
     but for a single link the crawler never found, instead of a discovery run.
     """
-    from app.services.job_discover.url_import import autoextract_job_from_url
+    from jobs.discovery.url_import import autoextract_job_from_url
 
     valid, reason = validate_url(payload.url)
     if not valid:

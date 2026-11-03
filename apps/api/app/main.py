@@ -188,7 +188,7 @@ async def _drain_in_flight_work(grace_seconds: float) -> None:
 
     # Stop the scrape loop; a partial scrape is resumable, a wedged task is not.
     try:
-        from app.services.job_discover import store as job_discover_store
+        from jobs.discovery import store as job_discover_store
 
         task = getattr(job_discover_store, "_scrape_task", None)
         if task is not None and not task.done():

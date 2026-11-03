@@ -13,7 +13,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from app.db.store import init_db, session_scope  # noqa: E402
-from app.services.target_company_jobs import (  # noqa: E402
+from jobs.target_companies import (  # noqa: E402
     filter_jobs,
     format_whatsapp,
     merge_oracle_seed_entries,

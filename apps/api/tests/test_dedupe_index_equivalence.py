@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pytest
 
-from app.services.job_discover.dedup import (
+from jobs.discovery.dedup import (
     DedupeIndex,
     _legacy_cross_source_deduplicate,
     cross_source_deduplicate,

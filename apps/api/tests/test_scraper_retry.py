@@ -5,8 +5,8 @@ from __future__ import annotations
 import httpx
 import pytest
 
-from app.services.job_discover import scraper_service
-from app.services.job_discover.scraper_service import build_verified_ssl_context, fetch_with_retry
+from jobs.discovery import scraper_service
+from jobs.discovery.scraper_service import build_verified_ssl_context, fetch_with_retry
 
 
 @pytest.fixture(autouse=True)

@@ -148,7 +148,7 @@ def load_postings(limit: int) -> list[tuple[str, str]]:
         return postings[:limit]
 
     from app.db.store import session_scope
-    from app.services.job_discover import store as job_discover
+    from jobs.discovery import store as job_discover
 
     with session_scope() as db:
         snapshot = job_discover.get_snapshot(db)

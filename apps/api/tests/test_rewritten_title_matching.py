@@ -13,7 +13,7 @@ Measured effect of the fallback: jaabz 4/20 -> 5/20, LinkedIn 8/25 -> 9/25.
 
 from __future__ import annotations
 
-from app.services.job_discover.aggregator_resolve import _distinctive_tokens, _match_job
+from jobs.discovery.aggregator_resolve import _distinctive_tokens, _match_job
 
 
 def _board(*titles: str) -> list[dict[str, str]]:

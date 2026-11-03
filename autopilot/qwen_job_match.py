@@ -285,7 +285,7 @@ async def score_jobs_batch_with_qwen(
     semaphore = asyncio.Semaphore(max(1, concurrency))
 
     async def score_one(job: dict[str, Any]) -> dict[str, Any]:
-        from app.services.job_discover.gap_analysis import attach_gap_to_job
+        from jobs.discovery.gap_analysis import attach_gap_to_job
 
         async with semaphore:
             match = await score_job_fit_with_qwen(

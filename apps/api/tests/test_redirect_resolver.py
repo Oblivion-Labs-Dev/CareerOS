@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import pytest
 
-from app.services.job_discover.redirect_resolver import (
+from jobs.discovery.redirect_resolver import (
     _extract_body_redirect,
     _unwrap_nested_url,
     is_redirector,

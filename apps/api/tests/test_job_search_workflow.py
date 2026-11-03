@@ -5,10 +5,10 @@ from __future__ import annotations
 from fastapi.testclient import TestClient
 
 from app.main import app
-from app.services.job_search.cover_letter_pipeline import generate_cover_letter_with_review
-from app.services.job_search.html_report import build_analytics_summary, render_html_report
-from app.services.job_search.job_evaluation import evaluate_job_fit, rank_jobs
-from app.services.job_search.outcome_archive import render_outcome_markdown, write_outcome_archive
+from jobs.cover_letter_pipeline import generate_cover_letter_with_review
+from jobs.report import build_analytics_summary, render_html_report
+from jobs.evaluation import evaluate_job_fit, rank_jobs
+from jobs.outcomes import render_outcome_markdown, write_outcome_archive
 
 client = TestClient(app)
 
@@ -86,7 +86,7 @@ def test_cover_letter_template_pipeline() -> None:
 
 
 def test_outcome_archive_roundtrip(tmp_path, monkeypatch) -> None:
-    import app.services.job_search.outcome_archive as archive_mod
+    import jobs.outcomes as archive_mod
 
     monkeypatch.setattr(archive_mod, "ARCHIVE_ROOT", tmp_path)
 
@@ -194,7 +194,7 @@ def test_cover_letter_generate_api_uses_pipeline() -> None:
 
 
 def test_record_outcome_api(tmp_path, monkeypatch) -> None:
-    import app.services.job_search.outcome_archive as archive_mod
+    import jobs.outcomes as archive_mod
 
     monkeypatch.setattr(archive_mod, "ARCHIVE_ROOT", tmp_path)
 

@@ -20,41 +20,41 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import httpx
 import pytest
 
-from app.services.job_discover.aggregation import JobAggregationService, job_aggregation_service
-from app.services.job_discover.dedup import (
+from jobs.discovery.aggregation import JobAggregationService, job_aggregation_service
+from jobs.discovery.dedup import (
     canonicalize_url,
     compute_fuzzy_signature,
     compute_job_fingerprint,
     cross_source_deduplicate,
     merge_job_records,
 )
-from app.services.job_discover.freshness import (
+from jobs.discovery.freshness import (
     STATUS_ACTIVE,
     STATUS_CLOSED,
     STATUS_POSSIBLY_CLOSED,
     check_job_url_freshness,
     update_jobs_lifecycle_after_sync,
 )
-from app.services.job_discover.sources.arbeitnow import ArbeitnowSource
-from app.services.job_discover.sources.ashby import AshbySource
-from app.services.job_discover.sources.base import JobSourceAdapter, NormalizedJob, SourceHealth
-from app.services.job_discover.sources.bigtech import BigTechSourceAdapter
-from app.services.job_discover.sources.github_feed import GitHubFeedSource
-from app.services.job_discover.sources.greenhouse import GreenhouseSource
-from app.services.job_discover.sources.hackernews import HackerNewsSource
-from app.services.job_discover.sources.icims import ICIMSSource
-from app.services.job_discover.sources.jobicy import JobicySource
-from app.services.job_discover.sources.lever import LeverSource
-from app.services.job_discover.sources.oracle import OracleSource
-from app.services.job_discover.sources.personio import PersonioSource
-from app.services.job_discover.sources.recruitee import RecruiteeSource
-from app.services.job_discover.sources.remoteok import RemoteOKSource
-from app.services.job_discover.sources.remotive import RemotiveSource
-from app.services.job_discover.sources.themuse import TheMuseSource
-from app.services.job_discover.sources.serpapi_google_jobs import SerpApiGoogleJobsSource
-from app.services.job_discover.sources.smartrecruiters import SmartRecruitersSource
-from app.services.job_discover.sources.workable import WorkableSource
-from app.services.job_discover.sources.workday import WorkdaySource
+from jobs.discovery.sources.arbeitnow import ArbeitnowSource
+from jobs.discovery.sources.ashby import AshbySource
+from jobs.discovery.sources.base import JobSourceAdapter, NormalizedJob, SourceHealth
+from jobs.discovery.sources.bigtech import BigTechSourceAdapter
+from jobs.discovery.sources.github_feed import GitHubFeedSource
+from jobs.discovery.sources.greenhouse import GreenhouseSource
+from jobs.discovery.sources.hackernews import HackerNewsSource
+from jobs.discovery.sources.icims import ICIMSSource
+from jobs.discovery.sources.jobicy import JobicySource
+from jobs.discovery.sources.lever import LeverSource
+from jobs.discovery.sources.oracle import OracleSource
+from jobs.discovery.sources.personio import PersonioSource
+from jobs.discovery.sources.recruitee import RecruiteeSource
+from jobs.discovery.sources.remoteok import RemoteOKSource
+from jobs.discovery.sources.remotive import RemotiveSource
+from jobs.discovery.sources.themuse import TheMuseSource
+from jobs.discovery.sources.serpapi_google_jobs import SerpApiGoogleJobsSource
+from jobs.discovery.sources.smartrecruiters import SmartRecruitersSource
+from jobs.discovery.sources.workable import WorkableSource
+from jobs.discovery.sources.workday import WorkdaySource
 
 
 # ---------------------------------------------------------------------------
@@ -920,7 +920,7 @@ def test_circuit_breaker_and_health_summary():
 # ---------------------------------------------------------------------------
 
 def test_ats_fingerprinter_deterministic_evidence():
-    from app.services.job_discover.discovery.company_registry import JobSourceDiscoveryService
+    from jobs.discovery.discovery.company_registry import JobSourceDiscoveryService
 
     # 1. Greenhouse
     gh = JobSourceDiscoveryService.fingerprint_ats("https://boards.greenhouse.io/stripe/jobs/12345")
@@ -994,7 +994,7 @@ def test_ats_fingerprinter_deterministic_evidence():
 # ---------------------------------------------------------------------------
 
 def test_schema_org_jobposting_parser():
-    from app.services.job_discover.sources.structured_career_page import parse_jsonld_job_postings
+    from jobs.discovery.sources.structured_career_page import parse_jsonld_job_postings
 
     sample_html = """
     <html>
@@ -1067,7 +1067,7 @@ def test_schema_org_jobposting_parser():
 
 @pytest.mark.anyio
 async def test_himalayas_adapter_ingestion():
-    from app.services.job_discover.sources.himalayas import HimalayasSource
+    from jobs.discovery.sources.himalayas import HimalayasSource
 
     adapter = HimalayasSource()
     client = AsyncMock()
@@ -1114,7 +1114,7 @@ async def test_himalayas_adapter_ingestion():
 
 @pytest.mark.anyio
 async def test_weworkremotely_adapter_ingestion():
-    from app.services.job_discover.sources.weworkremotely import WeWorkRemotelySource
+    from jobs.discovery.sources.weworkremotely import WeWorkRemotelySource
 
     adapter = WeWorkRemotelySource()
     client = AsyncMock()
@@ -1158,12 +1158,12 @@ async def test_weworkremotely_adapter_ingestion():
 # ---------------------------------------------------------------------------
 
 def test_source_roles_classification():
-    from app.services.job_discover.sources.base import SourceRole
-    from app.services.job_discover.sources.greenhouse import GreenhouseSource
-    from app.services.job_discover.sources.hackernews import HackerNewsSource
-    from app.services.job_discover.sources.himalayas import HimalayasSource
-    from app.services.job_discover.sources.serpapi_google_jobs import SerpApiGoogleJobsSource
-    from app.services.job_discover.sources.structured_career_page import StructuredCareerPageAdapter
+    from jobs.discovery.sources.base import SourceRole
+    from jobs.discovery.sources.greenhouse import GreenhouseSource
+    from jobs.discovery.sources.hackernews import HackerNewsSource
+    from jobs.discovery.sources.himalayas import HimalayasSource
+    from jobs.discovery.sources.serpapi_google_jobs import SerpApiGoogleJobsSource
+    from jobs.discovery.sources.structured_career_page import StructuredCareerPageAdapter
 
     gh = GreenhouseSource()
     assert gh.role == SourceRole.AUTHORITATIVE

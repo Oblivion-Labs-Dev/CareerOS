@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from app.services.job_discover.dedup import (
+from jobs.discovery.dedup import (
     compute_cross_source_key,
     cross_source_deduplicate,
     locations_compatible,

@@ -14,7 +14,7 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from app.services.target_company_jobs import (  # noqa: E402
+from jobs.target_companies import (  # noqa: E402
     ORACLE_SEED_FILE,
     _load_oracle_seed,
     _location_tags,

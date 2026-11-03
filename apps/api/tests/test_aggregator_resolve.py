@@ -7,7 +7,7 @@ be skipped offline — it is the only way to catch an API whose shape changed.
 
 import pytest
 
-from app.services.job_discover.aggregator_resolve import (
+from jobs.discovery.aggregator_resolve import (
     _board_tokens,
     _match_job,
     _parse_himalayas,
