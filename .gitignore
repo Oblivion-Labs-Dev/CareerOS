@@ -13,11 +13,15 @@ __pycache__/
 .venv/
 venv/
 *.db
+*.db-shm
+*.db-wal
 *.sqlite3
+data/
 apps/api/data/
 # Scratch data directory for running Docker against a throwaway copy of the
 # database and browser profile instead of the live one (CAREEROS_DATA_DIR).
 apps/api/.docker-data/
+.docker-data/
 apps/extension/releases/
 apps/extension/db.json
 apps/extension/logs/
