@@ -322,20 +322,17 @@ async def scrape_greenhouse(
 ) -> list[dict]:
     """Scrape one Greenhouse board via their public JSON API."""
     url = f"https://boards-api.greenhouse.io/v1/boards/{slug}/jobs?content=true"
-    try:
-        resp = await fetch_with_retry(client, url, timeout=15)
-        if resp is None or resp.status_code != 200:
-            return []
-        # With content=true a board runs to several megabytes, and both the JSON
-        # parse and strip_html over every description are pure CPU. Dozens of
-        # boards are gathered concurrently, so leaving this on the event loop
-        # starved every API request — /health included — for as long as
-        # discovery ran, and the UI sat on "Loading applications…".
-        return await asyncio.to_thread(
-            _parse_greenhouse_board, resp.content, company, compiled, cutoff
-        )
-    except Exception:
+    resp = await fetch_with_retry(client, url, timeout=15)
+    if resp is None or resp.status_code != 200:
         return []
+    # With content=true a board runs to several megabytes, and both the JSON
+    # parse and strip_html over every description are pure CPU. Dozens of
+    # boards are gathered concurrently, so leaving this on the event loop
+    # starved every API request — /health included — for as long as
+    # discovery ran, and the UI sat on "Loading applications…".
+    return await asyncio.to_thread(
+        _parse_greenhouse_board, resp.content, company, compiled, cutoff
+    )
 
 
 # ── Lever Scraper ────────────────────────────────────────────────────────────
@@ -369,30 +366,27 @@ async def scrape_lever(
 ) -> list[dict]:
     """Scrape one Lever board via their public JSON API."""
     url = f"https://api.lever.co/v0/postings/{slug}"
-    try:
-        resp = await fetch_with_retry(client, url, timeout=15)
-        if resp is None or resp.status_code != 200:
-            return []
-        postings = resp.json()
-        if not isinstance(postings, list):
-            return []
-        jobs = []
-        for job in postings:
-            title = job.get("text", "")
-            # Lever uses createdAt (epoch ms)
-            created = job.get("createdAt", 0)
-            if created:
-                ts = datetime.fromtimestamp(created / 1000, tz=UTC).isoformat()
-            else:
-                ts = ""
-            if not matches_title(title, compiled):
-                continue
-            if not is_recent(ts, cutoff):
-                continue
-            jobs.append(flatten_lever(job, company))
-        return jobs
-    except Exception:
+    resp = await fetch_with_retry(client, url, timeout=15)
+    if resp is None or resp.status_code != 200:
         return []
+    postings = resp.json()
+    if not isinstance(postings, list):
+        return []
+    jobs = []
+    for job in postings:
+        title = job.get("text", "")
+        # Lever uses createdAt (epoch ms)
+        created = job.get("createdAt", 0)
+        if created:
+            ts = datetime.fromtimestamp(created / 1000, tz=UTC).isoformat()
+        else:
+            ts = ""
+        if not matches_title(title, compiled):
+            continue
+        if not is_recent(ts, cutoff):
+            continue
+        jobs.append(flatten_lever(job, company))
+    return jobs
 
 
 # ── Ashby Scraper ────────────────────────────────────────────────────────────
@@ -423,23 +417,20 @@ async def scrape_ashby(
 ) -> list[dict]:
     """Scrape one Ashby board via their public JSON API."""
     url = f"https://api.ashbyhq.com/posting-api/job-board/{slug}"
-    try:
-        resp = await fetch_with_retry(client, url, timeout=15)
-        if resp is None or resp.status_code != 200:
-            return []
-        data = resp.json()
-        jobs = []
-        for job in data.get("jobs", []):
-            title = job.get("title", "")
-            ts = job.get("updatedAt", job.get("publishedAt", ""))
-            if not matches_title(title, compiled):
-                continue
-            if not is_recent(ts, cutoff):
-                continue
-            jobs.append(flatten_ashby(job, company))
-        return jobs
-    except Exception:
+    resp = await fetch_with_retry(client, url, timeout=15)
+    if resp is None or resp.status_code != 200:
         return []
+    data = resp.json()
+    jobs = []
+    for job in data.get("jobs", []):
+        title = job.get("title", "")
+        ts = job.get("updatedAt", job.get("publishedAt", ""))
+        if not matches_title(title, compiled):
+            continue
+        if not is_recent(ts, cutoff):
+            continue
+        jobs.append(flatten_ashby(job, company))
+    return jobs
 
 
 # ── SmartRecruiters Scraper ──────────────────────────────────────────────────
@@ -621,23 +612,20 @@ async def scrape_workable(
 ) -> list[dict]:
     """Scrape one Workable board via their widget API."""
     url = f"https://apply.workable.com/api/v1/widget/accounts/{slug}"
-    try:
-        resp = await fetch_with_retry(client, url, timeout=15)
-        if resp is None or resp.status_code != 200:
-            return []
-        data = resp.json()
-        jobs = []
-        for job in data.get("jobs", []):
-            title = job.get("title", "")
-            ts = job.get("published_on", "")
-            if not matches_title(title, compiled):
-                continue
-            if not is_recent(ts, cutoff):
-                continue
-            jobs.append(flatten_workable(job, company))
-        return jobs
-    except Exception:
+    resp = await fetch_with_retry(client, url, timeout=15)
+    if resp is None or resp.status_code != 200:
         return []
+    data = resp.json()
+    jobs = []
+    for job in data.get("jobs", []):
+        title = job.get("title", "")
+        ts = job.get("published_on", "")
+        if not matches_title(title, compiled):
+            continue
+        if not is_recent(ts, cutoff):
+            continue
+        jobs.append(flatten_workable(job, company))
+    return jobs
 
 
 # ── YC Work at a Startup Scraper ────────────────────────────────────────────
