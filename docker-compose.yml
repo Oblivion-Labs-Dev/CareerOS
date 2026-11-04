@@ -6,12 +6,10 @@
 # it — on :4000. Ollama stays on the host. The database stays where it is.
 #
 # ── About the database ────────────────────────────────────────────────────────
-# CareerOS does not use MySQL. `apps/api/.env` sets
-# `CAREER_OS_DATABASE_URL=sqlite:///./data/career_os.db`, no MySQL driver is
-# installed, and `app/db/store.py` is SQLite-specific throughout (WAL pragmas,
-# json_extract/json_set, an ON CONFLICT upsert). So there is no database service
-# here and nothing is migrated: the container uses the *existing* database file
-# through the `apps/api/data` bind mount below, with its existing data.
+# CareerOS uses SQLite. `app/db/store.py` is SQLite-specific throughout (WAL
+# pragmas, json_extract/json_set, an ON CONFLICT upsert). There is no database
+# service and nothing is migrated: the container uses the existing database file
+# through the data/ bind mount below.
 #
 # ── Do not run this at the same time as the local dev servers ────────────────
 # Both write the same SQLite file and the same browser profile, and `main.py`
@@ -26,7 +24,7 @@ services:
   api:
     build:
       context: .
-      dockerfile: apps/api/Dockerfile
+      dockerfile: Dockerfile
       args:
         # Image size is dominated by PyTorch, not by CareerOS. See docs/docker.md.
         #   cpu (default) - CPU-only wheels, no CUDA. This is all the code can
@@ -65,7 +63,7 @@ services:
       # fail. The profile directory is pointed at the mounted volume so a
       # logged-in session survives `docker compose down`.
       AA_HEADLESS: ${AA_HEADLESS:-true}
-      AA_BROWSER_PROFILE_DIR: /app/apps/api/data/application_assistant/browser_profile
+      AA_BROWSER_PROFILE_DIR: /app/data/application_assistant/browser_profile
 
       # ── Safety ────────────────────────────────────────────────────────────
       # These are set explicitly because `env_file` below loads apps/api/.env,
@@ -87,18 +85,15 @@ services:
     env_file:
       # Optional: the real .env is gitignored and is not copied into the image.
       # Values above win, so Docker networking overrides local hostnames.
-      - path: ./apps/api/.env
+      - path: ./.env
         required: false
     volumes:
-      # The live database, browser profiles, screenshots, tailored resumes and
-      # traces. Read-write and deliberately the real directory — the task is to
-      # use the existing data, not a copy. Point CAREEROS_DATA_DIR elsewhere to
-      # work against a scratch copy instead.
-      - ${CAREEROS_DATA_DIR:-./apps/api/data}:/app/apps/api/data
-      # Source for hot reload. The data mount above is nested inside this path
-      # and takes precedence, so it is not shadowed.
-      - ./apps/api/app:/app/apps/api/app:ro
-      - ./apps/api/tests:/app/apps/api/tests:ro
+      # Runtime data: DB, browser profiles, screenshots, tailored resumes, traces.
+      # Point CAREEROS_DATA_DIR to a scratch copy to avoid touching live data.
+      - ${CAREEROS_DATA_DIR:-./data}:/app/data
+      # Source hot-reload mounts.
+      - ./app:/app/app:ro
+      - ./tests:/app/tests:ro
       # Embedding weights, so the resume ranker does not fall back to BM25 after
       # every rebuild. Named volume: these are downloaded artifacts, not source.
       - careeros-models:/models

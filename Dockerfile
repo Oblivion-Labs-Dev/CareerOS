@@ -29,7 +29,7 @@ ENV PYTHONUNBUFFERED=1 \
     HF_HOME=/models \
     SENTENCE_TRANSFORMERS_HOME=/models
 
-WORKDIR /app/apps/api
+WORKDIR /app
 
 # Dependencies first, so edits to application code do not reinstall the world.
 # PyTorch arrives via sentence-transformers and dominates both the image size
@@ -48,8 +48,8 @@ ARG TORCH_VARIANT=cpu
 ARG INSTALL_ML=true
 ARG INSTALL_DEV=true
 
-COPY apps/api/requirements.txt ./requirements.txt
-COPY apps/api/requirements-dev.txt ./requirements-dev.txt
+COPY requirements.txt ./requirements.txt
+COPY requirements-dev.txt ./requirements-dev.txt
 
 # CPU-only torch goes in first so that when pip resolves sentence-transformers
 # below, the torch requirement is already satisfied and the CUDA build is never
@@ -87,20 +87,26 @@ RUN if [ "$INSTALL_DEV" = "true" ]; then \
 # is a headed flow and is documented as a local-only workflow in docs/docker.md.
 RUN playwright install chromium
 
-# Repository-root seed data. `store.py` resolves the resume corpus and
-# `story_index.py` the interview story corpus as parents[4]/data/..., i.e.
-# /app/data — outside the API's own tree. Without these the story index has no
-# corpus, which silently degrades the evidence retrieval that resume tailoring
-# is built on.
+# Seed data for the story index and resume corpus — read by app/db/store.py
+# at /app/data/ (the same path as the runtime data mount).
 COPY data/resume-corpus-initial.json data/interview-story-corpus.json /app/data/
 
-# Application code. Bind-mounted over by compose in development, so this layer
-# exists to make the image runnable on its own.
-COPY apps/api ./
+# Application code. All service packages and the app/ core live at the repo
+# root. Bind-mounted over by compose in development; this layer makes the image
+# runnable standalone.
+COPY app ./app
+COPY resume ./resume
+COPY jobs ./jobs
+COPY autopilot ./autopilot
+COPY profile ./profile
+COPY intelligence ./intelligence
+COPY notifications ./notifications
+COPY analytics ./analytics
+COPY shared ./shared
+COPY main.py ./main.py
 
 # The data directory is always a mount. Creating it here means the container
-# still starts (with an empty database) when someone runs the image without
-# compose, rather than failing on a missing path.
+# starts with an empty database when run without compose.
 RUN mkdir -p data/application_assistant/screenshots \
              data/application_assistant/tailored_resumes \
              data/application_assistant/traces \
@@ -122,4 +128,4 @@ HEALTHCHECK --interval=15s --timeout=5s --start-period=90s --retries=5 \
 # One worker, always. `main.py` refuses to start with more, because Autopilot
 # state — browser sessions, task handles, the scrape task, the read cache — is
 # process-local. Reload is off by default; compose turns it on for development.
-CMD ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "4000"]
+CMD ["python", "-m", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "4000"]

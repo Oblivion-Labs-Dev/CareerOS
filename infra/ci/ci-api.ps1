@@ -1,7 +1,7 @@
 #Requires -Version 5.1
 $ErrorActionPreference = "Stop"
 $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
-$ApiDir = Join-Path $RepoRoot "apps\api"
+$ApiDir = Join-Path $RepoRoot "."
 
 function Get-ApiPython {
     $venvPy = Join-Path $ApiDir ".venv\Scripts\python.exe"

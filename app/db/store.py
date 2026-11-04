@@ -66,12 +66,17 @@ def json_field(path: str):
 # The SQLite file location is defined in shared/db.py (DB_PATH). The seed-file
 # paths below are business data owned by this module, so they stay here. They
 # are resolved relative to this file exactly as before.
-DATA_DIR = Path(__file__).resolve().parents[2] / "data"
+# After moving app/ to the repo root, parents[2] == repo root for both
+# apps/api/app/db/ (old) and app/db/ (new), so DATA_DIR stays correct.
+# Extension and corpus were using parents[3]/[4] which no longer work;
+# they are now siblings of app/ at the repo root.
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+DATA_DIR = _REPO_ROOT / "data"
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 DB_PATH = DATA_DIR / "career_os.db"
 PROFILE_SEED_PATH = DATA_DIR / "applypilot-profile.json"
-EXTENSION_DB_PATH = Path(__file__).resolve().parents[3] / "extension" / "db.json"
-RESUME_CORPUS_SEED_PATH = Path(__file__).resolve().parents[4] / "data" / "resume-corpus-initial.json"
+EXTENSION_DB_PATH = _REPO_ROOT / "extension" / "db.json"
+RESUME_CORPUS_SEED_PATH = _REPO_ROOT / "data" / "resume-corpus-initial.json"
 
 
 def init_db() -> None:
