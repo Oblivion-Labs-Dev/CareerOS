@@ -108,7 +108,10 @@ export function AppSidebar() {
   const brand = (
     <Link href="/applications" className="brand" aria-label="CareerOS Autopilot">
       <span className="brand-mark" aria-hidden><span className="brand-orbit" /></span>
-      CareerOS
+      <span className="brand-name">
+        CareerOS
+        <span className="brand-byline">by Oblivion Labs</span>
+      </span>
     </Link>
   );
 

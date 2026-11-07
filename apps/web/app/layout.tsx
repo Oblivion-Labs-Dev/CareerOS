@@ -69,8 +69,8 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "CareerOS — AI Career Operating System",
-  description: "AI-powered career operating system. ApplyPilot autofill, application tracking, and career intelligence.",
+  title: "CareerOS · a product of Oblivion Labs",
+  description: "CareerOS by Oblivion Labs: a free, self-hosted job-search assistant that finds, ranks, fills and tracks applications for any role.",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

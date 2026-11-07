@@ -162,7 +162,7 @@ export function LandingPage() {
       </section>
       </main>
 
-      <footer className="landing-footer">CareerOS · Built on Arsenal · ApplyPilot MVP in progress</footer>
+      <footer className="landing-footer">CareerOS · a product of Oblivion Labs · free and open source (MIT)</footer>
     </div>
   );
 }

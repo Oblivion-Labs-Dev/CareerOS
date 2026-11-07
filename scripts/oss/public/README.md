@@ -1,5 +1,7 @@
 # CareerOS
 
+*A product of Oblivion Labs.*
+
 CareerOS is a free, self-hosted job-search assistant that runs on your own computer. It finds
 openings on company job boards, ranks them against your resume, tailors a resume and cover letter
 for each one, fills in application forms for you, and tracks every application, recruiter and
@@ -54,11 +56,13 @@ preferred locations. Two files let you tune that:
   {"preset": "neutral", "preferred_locations": ["Austin", "TX", "Remote"]}
   ```
 
-- **What a good match looks like for you.** Copy
-  `apps/api/app/services/application_assistant/resume_match_profile.json`, raise the
-  `family_fit` for the kinds of roles you want (`product`, `program`, `design`, `analytics`,
-  `backend`, `frontend`, `ml`, `data`, ...), list your skills and point `CAREEROS_MATCH_PROFILE`
-  at your copy.
+- **What a good match looks like for you.** This is automatic: when you upload a resume,
+  CareerOS reads your skills, the kind of role you do and your level from it (no AI call) and
+  saves them to `apps/api/data/profile/match_profile.json`. Jobs are then ranked against that.
+  If it cannot read enough from the resume, the upload page says so. To fine-tune it, copy that
+  file, raise the `family_fit` for the kinds of roles you want (`product`, `program`, `design`,
+  `analytics`, `backend`, `frontend`, `ml`, `data`, ...), adjust your skills and point
+  `CAREEROS_MATCH_PROFILE` at your copy.
 
 With Docker, put these files in `careeros-data/` and use paths like
 `/app/apps/api/data/my_profile.json`. A file that is set but cannot be found or read fails with a
@@ -66,11 +70,12 @@ clear error rather than quietly ranking jobs the wrong way.
 
 ## Turning on automation
 
-CareerOS is safe by default: it can open applications and fill them in, but it **never presses
-the final Submit button and never sends email** until you turn that on.
+Autopilot fills in applications and **presses the final Submit button by default**. It never
+sends email until you connect an account. You are responsible for what gets sent, so review a few
+filled-in applications first.
 
-- **Let Autopilot submit applications:** set `ALLOW_REAL_SUBMISSION=true` in `.env` and restart.
-  Review a few filled-in applications first; you are responsible for what gets sent.
+- **Fill forms but never submit:** set `ALLOW_REAL_SUBMISSION=false` in `.env` and restart.
+  Autopilot then stops before Submit on every application and tells you so.
 - **Email (recruiter outreach, verification codes):** connect Gmail with an app password, see
   [docs/email.md](./docs/email.md).
 

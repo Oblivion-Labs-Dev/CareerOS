@@ -645,6 +645,26 @@ a {
   box-shadow: 0 4px 12px var(--accent-glow);
 }
 
+.brand-name {
+  display: flex;
+  flex-direction: column;
+  line-height: 1;
+}
+
+.brand-byline {
+  margin-top: 0.3rem;
+  font-family: var(--font-sans);
+  font-size: 0.62rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
+.app-mobile-header .brand-byline {
+  display: none;
+}
+
 .brand:hover {
   color: var(--accent);
 }
