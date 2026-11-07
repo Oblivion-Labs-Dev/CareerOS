@@ -25,7 +25,7 @@ def _read_manifest_version() -> str:
 
 def extension_info() -> dict[str, Any]:
     dist_ready = EXTENSION_DIST.is_dir() and (EXTENSION_DIST / "manifest.json").is_file()
-    api_base = settings.career_os_api_public_url or "http://localhost:8000"
+    api_base = settings.career_os_api_public_url or "http://localhost:4000"
     store_urls = {
         "chrome": settings.career_os_chrome_web_store_url.strip() or None,
         "edge": settings.career_os_edge_addons_url.strip() or None,
@@ -59,7 +59,7 @@ def _firefox_manifest(original: dict[str, Any]) -> dict[str, Any]:
         }
     }
     host_permissions = list(patched.get("host_permissions", []))
-    api_base = (settings.career_os_api_public_url or "http://localhost:8000").rstrip("/")
+    api_base = (settings.career_os_api_public_url or "http://localhost:4000").rstrip("/")
     if f"{api_base}/*" not in host_permissions:
         host_permissions.append(f"{api_base}/*")
     patched["host_permissions"] = host_permissions
@@ -83,7 +83,7 @@ def build_extension_zip(browser: BrowserKind = "chromium") -> tuple[bytes, str]:
 
     manifest = json.loads((EXTENSION_DIST / "manifest.json").read_text(encoding="utf-8"))
     version = str(manifest.get("version", "0.0.0"))
-    api_base = (settings.career_os_api_public_url or "http://localhost:8000").rstrip("/")
+    api_base = (settings.career_os_api_public_url or "http://localhost:4000").rstrip("/")
 
     use_firefox = browser in ("firefox",)
     slug = "applypilot-firefox" if use_firefox else "applypilot-chromium"

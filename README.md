@@ -33,7 +33,7 @@ Phase 1 focuses on profile sync, resume storage, job extraction, autofill detect
 **Windows**
 
 ```bat
-git clone <careeros-repo-url> CareerOS
+git clone https://github.com/Oblivion-Labs-Dev/CareerOS.git CareerOS
 cd CareerOS
 setup.bat
 ```
@@ -41,7 +41,7 @@ setup.bat
 **macOS / Linux**
 
 ```bash
-git clone <careeros-repo-url> CareerOS
+git clone https://github.com/Oblivion-Labs-Dev/CareerOS.git CareerOS
 cd CareerOS
 chmod +x setup.sh scripts/setup.sh
 ./setup.sh
@@ -75,14 +75,14 @@ cp .env.example .env
 # Install JS dependencies
 pnpm install
 
-# Terminal 1 — API (port 8000)
+# Terminal 1 — API (port 4000)
 cd apps/api
 python -m venv .venv
 .venv\Scripts\activate   # Windows
 pip install -r requirements.txt
 pnpm dev
 
-# Terminal 2 — Web dashboard (port 3000)
+# Terminal 2 — Web dashboard (port 5000)
 pnpm dev:web
 
 # Terminal 3 — Extension
@@ -94,9 +94,9 @@ pnpm --filter @career-os/extension build
 
 | Check | Command / URL |
 |-------|----------------|
-| API health | `curl http://localhost:8000/health` |
-| Dashboard | http://localhost:3000/dashboard |
-| Roadmap | http://localhost:3000/roadmap |
+| API health | `curl http://localhost:4000/health` |
+| Dashboard | http://localhost:5000/dashboard |
+| Roadmap | http://localhost:5000/roadmap |
 | Extension | Build output in `apps/extension/dist` |
 
 ## Apps & packages
@@ -121,4 +121,4 @@ CareerOS started out alongside the Arsenal repository and has since absorbed eve
 
 ## License
 
-Private — Oblivion Labs.
+All rights reserved — Oblivion Labs. No open-source license has been chosen yet.

@@ -33,7 +33,7 @@ pnpm --filter @career-os/extension lint:firefox
 1. Open `about:debugging#/runtime/this-firefox`
 2. Click **Load Temporary Add-on**
 3. Select `apps/extension/dist/manifest.json`
-4. Visit http://localhost:3000/features — version should appear when wired
+4. Visit http://localhost:5000/features — version should appear when wired
 
 Extension ID (fixed): `career-os@applypilot.dev`
 
