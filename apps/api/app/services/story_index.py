@@ -146,7 +146,7 @@ TECHNOLOGY_VOCABULARY: dict[str, tuple[str, ...]] = {
         "playwright", "selenium", "browser automation", "e2e test", "end-to-end test",
     ),
     # Security / identity
-    "Microsoft Purview": ("purview", "insider risk", "insider risk management"),
+    "Microsoft Purview": ("purview", "insider risk"),
     "Microsoft Defender": ("defender", "xdr", "edr"),
     "Microsoft Entra": ("entra", "active directory", "azure ad"),
     "Conditional Access": ("conditional access",),
