@@ -2,6 +2,11 @@ import json
 import sqlite3
 
 from app.services.recruiter_outreach_roles import load_open_jobs, rank_roles, tailor_emails
+import pytest
+
+# Scores are pinned to a sample backend/platform engineer resume read.
+pytestmark = pytest.mark.usefixtures("engineer_match_profile")
+
 
 BODY = (
     "Hi Steve,\n\nI hope you're doing well.\n"

@@ -97,7 +97,7 @@
   font-size: 1.55rem;
   font-weight: 700;
   line-height: 1;
-  color: #fff;
+  color: var(--text, #fff);
   letter-spacing: -0.02em;
 }
 
@@ -106,7 +106,7 @@
   font-size: 1.125rem;
   font-weight: 650;
   line-height: 1.25;
-  color: #fff;
+  color: var(--text, #fff);
   letter-spacing: -0.015em;
   white-space: nowrap;
   overflow: hidden;
@@ -137,7 +137,7 @@
   font-family: var(--font-figure, monospace);
   font-size: 0.95rem;
   font-weight: 600;
-  color: #fff;
+  color: var(--text, #fff);
 }
 
 .miniStatLabel {
@@ -212,7 +212,7 @@
 .jobTitleText {
   font-size: 0.75rem;
   font-weight: 600;
-  color: #fff;
+  color: var(--text, #fff);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -260,7 +260,7 @@
 .sectionHeading {
   font-size: 0.95rem;
   font-weight: 650;
-  color: #fff;
+  color: var(--text, #fff);
   margin: 0;
 }
 

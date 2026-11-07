@@ -1,0 +1,286 @@
+{
+  "_about": "Sample backend/platform engineer profile used by the tests, so match scoring is checked against a fixed resume read whatever profile the app ships with.",
+  "resume_file": "sample-resume.pdf",
+  "years_experience": 8,
+  "seniority": 3,
+  "family_fit": {
+    "backend": 1.0,
+    "platform": 1.0,
+    "ml": 0.95,
+    "security": 0.9,
+    "infrastructure": 0.85,
+    "sre": 0.75,
+    "fullstack": 0.75,
+    "data": 0.65,
+    "frontend": 0.35,
+    "mobile": 0.1,
+    "": 0.75,
+    "embedded": 0.15
+  },
+  "seniority_fit": {
+    "0": 0.1,
+    "1": 0.35,
+    "2": 0.85,
+    "3": 1.0,
+    "4": 0.95,
+    "5": 0.35
+  },
+  "skills": {
+    "java": {
+      "re": "\\bjava\\b(?!\\s*script)",
+      "have": 1.0
+    },
+    "csharp": {
+      "re": "c#|\\.net\\b|dotnet",
+      "have": 1.0
+    },
+    "python": {
+      "re": "\\bpython\\b",
+      "have": 1.0
+    },
+    "cpp": {
+      "re": "c\\+\\+",
+      "have": 0.7
+    },
+    "typescript": {
+      "re": "typescript|\\bnode(?:\\.js|js)?\\b|javascript",
+      "have": 0.9
+    },
+    "react": {
+      "re": "\\breact\\b(?!\\s*native)",
+      "have": 0.6
+    },
+    "sql": {
+      "re": "\\bsql\\b|postgres|mysql|relational database",
+      "have": 0.85,
+      "generic": true
+    },
+    "kql": {
+      "re": "\\bkql\\b|kusto",
+      "have": 1.0
+    },
+    "distributed": {
+      "re": "distributed system|high.scale|large.scale|scalab|high.throughput|low.latency",
+      "have": 1.0,
+      "generic": true
+    },
+    "microservices": {
+      "re": "microservice|service.oriented|\\bsoa\\b",
+      "have": 1.0,
+      "generic": true
+    },
+    "api": {
+      "re": "\\brest(?:ful)?\\b|\\bgrpc\\b|graphql|\\bapis?\\b",
+      "have": 1.0,
+      "generic": true
+    },
+    "event_driven": {
+      "re": "event.driven|kafka|kinesis|event hub|\\bsqs\\b|\\bsns\\b|pub/?sub|message queue|rabbitmq|streaming",
+      "have": 0.85
+    },
+    "aws": {
+      "re": "\\baws\\b|amazon web services|\\bec2\\b|\\bs3\\b|lambda|dynamodb|step functions|cloudwatch|\\bcdk\\b|sagemaker|bedrock",
+      "have": 1.0
+    },
+    "azure": {
+      "re": "\\bazure\\b|cosmos ?db",
+      "have": 1.0
+    },
+    "gcp": {
+      "re": "\\bgcp\\b|google cloud|bigquery",
+      "have": 0.45
+    },
+    "kubernetes": {
+      "re": "kubernetes|\\bk8s\\b|\\becs\\b|\\beks\\b",
+      "have": 0.9
+    },
+    "docker": {
+      "re": "docker|container",
+      "have": 0.9,
+      "generic": true
+    },
+    "iac": {
+      "re": "terraform|infrastructure as code|\\biac\\b|cloudformation|pulumi",
+      "have": 0.7
+    },
+    "cicd": {
+      "re": "ci/cd|continuous (?:integration|delivery|deployment)|github actions|jenkins",
+      "have": 0.9,
+      "generic": true
+    },
+    "nosql": {
+      "re": "nosql|dynamodb|cosmos|mongodb|cassandra",
+      "have": 0.85
+    },
+    "redis": {
+      "re": "\\bredis\\b|caching|memcache",
+      "have": 0.9,
+      "generic": true
+    },
+    "observability": {
+      "re": "observability|monitoring|grafana|prometheus|opentelemetry|datadog|\\bslos?\\b|telemetry",
+      "have": 0.9,
+      "generic": true
+    },
+    "llm": {
+      "re": "\\bllms?\\b|large language model|generative ai|\\bgenai\\b|gpt|prompt engineering",
+      "have": 1.0
+    },
+    "agents": {
+      "re": "agentic|ai agents?|\\bagents?\\b|\\bmcp\\b|model context protocol|langchain|langgraph|tool.use",
+      "have": 1.0
+    },
+    "rag": {
+      "re": "\\brag\\b|retrieval.augmented|vector (?:search|database|store)|embeddings?|semantic search",
+      "have": 1.0
+    },
+    "llm_eval": {
+      "re": "llm evaluation|evals?\\b|langsmith",
+      "have": 0.9
+    },
+    "ml_classic": {
+      "re": "machine learning|\\bml\\b|xgboost|regression|forecasting|recommendation",
+      "have": 0.75
+    },
+    "deep_learning": {
+      "re": "pytorch|tensorflow|deep learning|neural net|\\bcnn\\b|model training",
+      "have": 0.4
+    },
+    "ml_research": {
+      "re": "phd|research scientist|publications|neurips|icml|cvpr",
+      "have": 0.05
+    },
+    "cuda": {
+      "re": "\\bcuda\\b|gpu kernel|triton kernel",
+      "have": 0.05
+    },
+    "security": {
+      "re": "security|threat|detection|\\bsiem\\b|\\bdlp\\b|insider risk|identity|zero trust|vulnerab|incident response|\\bsoc\\b",
+      "have": 0.9
+    },
+    "compliance_gov": {
+      "re": "fedramp|government cloud|govcloud|compliance",
+      "have": 0.7
+    },
+    "auth": {
+      "re": "oauth|\\bsso\\b|authentication|authorization|\\biam\\b|entra",
+      "have": 0.75
+    },
+    "playwright": {
+      "re": "playwright|selenium|test automation",
+      "have": 0.8
+    },
+    "linux": {
+      "re": "\\blinux\\b|kernel|unix",
+      "have": 0.6
+    },
+    "go": {
+      "re": "\\bgolang\\b|\\bgo\\b(?= |,|/|\\))(?!\\s+(?:to|above|beyond|live|deep|through|from|with|on|in|for|back|out|the|a|an|and|get|after|forward|further))",
+      "have": 0.15
+    },
+    "rust": {
+      "re": "\\brust\\b",
+      "have": 0.05
+    },
+    "ruby": {
+      "re": "\\bruby\\b|\\brails\\b",
+      "have": 0.05
+    },
+    "scala": {
+      "re": "\\bscala\\b",
+      "have": 0.1
+    },
+    "kotlin": {
+      "re": "\\bkotlin\\b",
+      "have": 0.2
+    },
+    "php": {
+      "re": "\\bphp\\b|laravel",
+      "have": 0.05
+    },
+    "elixir": {
+      "re": "\\belixir\\b|erlang",
+      "have": 0.0
+    },
+    "swift_ios": {
+      "re": "\\bswift\\b|\\bios\\b|objective.c|swiftui",
+      "have": 0.0
+    },
+    "android": {
+      "re": "android|jetpack",
+      "have": 0.0
+    },
+    "frontend_deep": {
+      "re": "\\bcss\\b|figma|design system|accessibility|webpack|vue|angular|svelte",
+      "have": 0.3
+    },
+    "spark_data": {
+      "re": "\\bspark\\b|airflow|\\bdbt\\b|snowflake|databricks|\\betl\\b|data warehouse|hadoop",
+      "have": 0.35
+    },
+    "salesforce": {
+      "re": "salesforce|apex\\b|\\bsfdc\\b",
+      "have": 0.0
+    },
+    "embedded": {
+      "re": "embedded|firmware|\\brtos\\b|fpga|verilog|microcontroller",
+      "have": 0.05
+    },
+    "robotics": {
+      "re": "robotics|\\bros\\b|slam\\b|motion planning|autonomous vehicle|perception",
+      "have": 0.05
+    },
+    "blockchain": {
+      "re": "blockchain|solidity|smart contract|web3|ethereum",
+      "have": 0.05
+    },
+    "game_engine": {
+      "re": "unreal|unity3d|\\bunity\\b|game engine",
+      "have": 0.0
+    },
+    "haskell": {
+      "re": "\bhaskell\b|\bocaml\b|\bclojure\b|\bf#|\berlang\b",
+      "have": 0.05
+    },
+    "daml": {
+      "re": "\bdaml\b",
+      "have": 0.05
+    },
+    "forgerock": {
+      "re": "forgerock|ping ?identity|\bokta workforce\b|sailpoint|cyberark",
+      "have": 0.05
+    },
+    "enterprise_apps": {
+      "re": "servicenow|workday|\bsap\b|oracle ebs|peoplesoft|guidewire|\bpega\b|mulesoft|dynamics 365|sharepoint",
+      "have": 0.05
+    },
+    "legacy": {
+      "re": "\bcobol\b|mainframe|\bperl\b|\bvb\\.?net\b|\bdelphi\b",
+      "have": 0.05
+    },
+    "scientific": {
+      "re": "\bmatlab\b|labview|simulink|\bfortran\b",
+      "have": 0.05
+    },
+    "networking_deep": {
+      "re": "\bbgp\b|\bospf\b|\bmpls\b|\btcp/ip stack\b|network protocols|wireshark|\bdpdk\b",
+      "have": 0.05
+    }
+  },
+  "domains": {
+    "security": "security|threat|detection|insider risk|data protection|zero trust|identity",
+    "ai_agents": "agentic|ai agents?|llm|generative ai|genai|rag\\b",
+    "developer_platform": "developer platform|developer experience|internal platform|developer tools|devtools",
+    "commerce_fulfillment": "e-?commerce|fulfillment|inventory|supply chain|retail|marketplace",
+    "cloud": "cloud platform|cloud infrastructure|cloud.native|multi.cloud"
+  },
+  "penalties": {
+    "years_over": 10,
+    "years_penalty": 0.12,
+    "clearance_re": "security clearance|ts/sci|top secret|secret clearance|active clearance|polygraph|clearance (?:is )?required|dod clearance|\\(cleared\\)|\\bcleared\\b",
+    "clearance_penalty": 0.25,
+    "cap": 15,
+    "years_cap": 12,
+    "language_re": "japanese|korean|mandarin|chinese|cantonese|german|french|spanish|portuguese|italian|dutch|polish|ukrainian|russian|hebrew|arabic|turkish|hindi|vietnamese|thai|swedish|danish|norwegian|finnish|czech|hungarian|romanian|greek|indonesian"
+  }
+}

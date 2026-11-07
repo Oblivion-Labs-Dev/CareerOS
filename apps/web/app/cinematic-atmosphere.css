@@ -1,0 +1,195 @@
+/* Optional CareerOS cinematic layer. Standard atmosphere leaves existing styles intact. */
+html[data-atmosphere="cinematic"] {
+  --cinematic-gold: #d0a76b;
+  --cinematic-edge: color-mix(in srgb, var(--accent) 20%, transparent);
+  --cinematic-shadow: 0 18px 42px rgba(2, 7, 20, 0.34), inset 0 1px 0 rgba(255, 255, 255, 0.055);
+  --cinematic-surface: color-mix(in srgb, var(--card) 91%, #253252);
+}
+
+html[data-atmosphere="cinematic"][data-theme="dark"] {
+  --surface-0: #111329;
+  --surface-1: #191b37;
+  --surface-2: #202342;
+  --bg: #111329;
+  --bg-elevated: #202342;
+  --card: #1a1c39;
+  --card-hover: #242747;
+  --bg-surface: #1a1c39;
+  --border: rgba(154, 169, 222, 0.18);
+  --border-strong: rgba(173, 191, 244, 0.28);
+  --shadow-card: var(--cinematic-shadow);
+  --gradient-mesh:
+    radial-gradient(ellipse 52% 38% at 14% 0%, rgba(87, 100, 196, 0.2), transparent 72%),
+    radial-gradient(ellipse 48% 40% at 82% 4%, rgba(108, 73, 153, 0.18), transparent 70%),
+    radial-gradient(ellipse 60% 46% at 54% 80%, rgba(37, 97, 128, 0.1), transparent 72%);
+}
+
+html[data-atmosphere="cinematic"][data-theme="light"] {
+  --cinematic-gold: #a56c30;
+  --cinematic-edge: rgba(76, 104, 156, 0.2);
+  --cinematic-shadow: 0 14px 32px rgba(56, 66, 96, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.96);
+  --surface-0: #f1edf0;
+  --surface-1: #fffaf5;
+  --surface-2: #ffffff;
+  --bg: #f5eef0;
+  --bg-elevated: #fffaf5;
+  --card: #fffdfb;
+  --card-hover: #ffffff;
+  --bg-surface: #fffaf5;
+  --border: rgba(80, 91, 128, 0.16);
+  --border-strong: rgba(65, 87, 135, 0.26);
+  --text: #202139;
+  --text-secondary: #42445e;
+  --muted: #5e627b;
+  --shadow-card: var(--cinematic-shadow);
+  --gradient-mesh:
+    radial-gradient(ellipse 58% 40% at 12% 0%, rgba(247, 193, 166, 0.27), transparent 72%),
+    radial-gradient(ellipse 48% 42% at 86% 4%, rgba(178, 190, 231, 0.24), transparent 74%),
+    linear-gradient(180deg, #f8eee9 0%, #f3f1f8 68%, #f1f4fa 100%);
+}
+
+html[data-atmosphere="cinematic"] body {
+  background-color: var(--surface-0);
+  background-image:
+    var(--gradient-mesh),
+    linear-gradient(180deg, #171936 0%, #111329 68%, #111329 100%);
+  background-attachment: fixed;
+}
+
+/* cos-light-mode.css paints body and every layout wrapper a flat #f8fafc with
+   !important, which hid the dawn paper and the backdrop; cinematic light lets the
+   body carry the background and keeps the wrappers clear. */
+html[data-atmosphere="cinematic"][data-theme="light"] body {
+  background-color: var(--surface-0) !important;
+  background-image: var(--gradient-mesh) !important;
+}
+html[data-atmosphere="cinematic"][data-theme="light"] :is(.shell, .app-stage, .main, .page-content, .aa-page) {
+  background-color: transparent !important;
+}
+
+html[data-atmosphere="cinematic"] body::before {
+  position: fixed;
+  z-index: 0;
+  inset: 0;
+  pointer-events: none;
+  content: "";
+  opacity: 0.035;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 180 180' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.86' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.5'/%3E%3C/svg%3E");
+}
+
+html[data-atmosphere="cinematic"][data-theme="light"] body::before { opacity: 0.018; }
+
+/* The backdrop sits at z-index -1 inside an isolated stacking context, so it
+   paints behind the page without changing how any page element is positioned
+   (the sidebar is position: fixed and the skip link is absolutely placed). */
+html[data-atmosphere="cinematic"] :is(.shell, .landing) { isolation: isolate; }
+html[data-atmosphere="cinematic"] .main {
+  --card: var(--cinematic-surface);
+  --bg-surface: var(--cinematic-surface);
+  --surface-1: var(--cinematic-surface);
+  --surface-2: color-mix(in srgb, var(--cinematic-surface) 78%, var(--accent) 7%);
+  --card-edge: var(--cinematic-edge);
+  --shadow-card: var(--cinematic-shadow);
+  background: transparent;
+}
+
+/* The route canvas (reference-match.css) is near-opaque. Here its top lets
+   the scene through and it turns solid where dense content sits. */
+html[data-atmosphere="cinematic"] :is(.applications-control-page, .main > :not(.applications-control-page):not(.autopilot-loading)) {
+  border-color: var(--cinematic-edge);
+  background:
+    linear-gradient(180deg, rgba(17, 19, 41, 0.42) 0, rgba(17, 19, 41, 0.78) 300px, rgba(17, 19, 41, 0.94) 520px);
+}
+
+html[data-atmosphere="cinematic"][data-theme="light"] :is(.applications-control-page, .main > :not(.applications-control-page):not(.autopilot-loading)) {
+  background:
+    linear-gradient(180deg, rgba(250, 243, 240, 0.22) 0, rgba(245, 238, 240, 0.8) 300px, #f1ebee 520px);
+}
+
+html[data-atmosphere="cinematic"] .cinematic-backdrop {
+  position: fixed;
+  z-index: -1;
+  inset: 0 0 auto;
+  height: clamp(300px, 36vw, 430px);
+  overflow: hidden;
+  pointer-events: none;
+  -webkit-mask-image: linear-gradient(to bottom, #000 0%, #000 42%, rgba(0, 0, 0, 0.72) 70%, transparent 100%);
+  mask-image: linear-gradient(to bottom, #000 0%, #000 42%, rgba(0, 0, 0, 0.72) 70%, transparent 100%);
+}
+
+/* Scrim: keeps page titles readable where they sit over the art. */
+html[data-atmosphere="cinematic"] .cinematic-backdrop::after {
+  position: absolute;
+  inset: 0;
+  content: "";
+  background:
+    linear-gradient(90deg, rgba(17, 19, 41, 0.62), rgba(17, 19, 41, 0.08) 58%, rgba(17, 19, 41, 0.06)),
+    linear-gradient(180deg, rgba(17, 19, 41, 0.1) 0%, rgba(17, 19, 41, 0.06) 48%, #111329 100%);
+}
+
+/* Light: the night painting is lifted into a soft dawn wash instead of being
+   hidden, so the same scene reads as daybreak behind paper-coloured cards. */
+html[data-atmosphere="cinematic"][data-theme="light"] .cinematic-scene-art {
+  filter: sepia(0.42) saturate(1.15) hue-rotate(-12deg) brightness(1.55) contrast(0.78);
+  opacity: 0.72;
+}
+
+html[data-atmosphere="cinematic"][data-theme="light"] .cinematic-backdrop::after {
+  background:
+    linear-gradient(90deg, rgba(248, 239, 235, 0.66), rgba(248, 239, 235, 0.1) 58%, rgba(226, 231, 246, 0.08)),
+    linear-gradient(180deg, rgba(246, 235, 232, 0.04) 0%, rgba(245, 239, 243, 0.18) 48%, #f5eef0 100%);
+}
+
+.cinematic-scene {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+html[data-atmosphere="cinematic"] .career-thread-glow,
+html[data-atmosphere="cinematic"] .career-thread-light { fill: none; stroke-linecap: round; stroke-linejoin: round; }
+html[data-atmosphere="cinematic"] .career-thread-glow { stroke: #ffd79a; stroke-width: 10; opacity: 0.16; filter: url(#career-thread-soften); }
+html[data-atmosphere="cinematic"] .career-thread-light {
+  stroke: #fff1d6;
+  stroke-width: 5;
+  stroke-dasharray: 0.05 0.95;
+  stroke-dashoffset: 0;
+  opacity: 0.85;
+  animation: career-thread-travel 16s linear infinite;
+}
+
+@keyframes career-thread-travel { to { stroke-dashoffset: -1; } }
+html[data-atmosphere="cinematic"] .cinematic-backdrop[data-page-hidden="true"] .career-thread-light { animation-play-state: paused; }
+
+html[data-atmosphere="cinematic"] :is(.glass-card, .panel, .workflow-panel, .dashboard-panel, .dashboard-metric-card, .data-panel, .aa-panel, .aa-stat-card, .stat-card, .focus-panel, .intelligence-panel, .landing-feature-item, .landing-cta-band, .landing-stat) {
+  border-color: var(--cinematic-edge);
+  box-shadow: var(--cinematic-shadow);
+}
+
+html[data-atmosphere="cinematic"] :is(header.app-topbar, aside.sidebar, .landing-nav, .landing-footer) {
+  border-color: var(--cinematic-edge);
+  box-shadow: 0 10px 28px rgba(3, 8, 22, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+html[data-atmosphere="cinematic"] :is(.main h1, .main .page-title, .main .cos-page-header h1, .main .aa-page-header h1, .main .workflow-hero h1, .main .toc-hero h1, .landing-title, .landing-section-title) {
+  font-family: var(--font-display, Georgia), "Times New Roman", serif;
+  font-weight: 400;
+  letter-spacing: -0.035em;
+}
+
+html[data-atmosphere="cinematic"] .main h1,
+html[data-atmosphere="cinematic"] .main .page-title { font-size: clamp(2rem, 3vw, 2.75rem); line-height: 1.04; }
+
+.atmosphere-toggle[aria-pressed="true"] { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 42%, var(--border)); }
+.atmosphere-toggle:focus-visible { outline: 3px solid color-mix(in srgb, var(--accent) 58%, white); outline-offset: 3px; }
+
+@media (max-width: 720px) {
+  html[data-atmosphere="cinematic"] .cinematic-backdrop { height: 300px; }
+  html[data-atmosphere="cinematic"] .main h1,
+  html[data-atmosphere="cinematic"] .main .page-title { font-size: clamp(1.8rem, 8vw, 2.3rem); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html[data-atmosphere="cinematic"] .career-thread-light { animation: none !important; opacity: 0; }
+}

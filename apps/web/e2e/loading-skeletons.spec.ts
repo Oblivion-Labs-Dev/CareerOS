@@ -37,7 +37,9 @@ test("the dashboard shows content-shaped placeholders while matches load @skelet
 
   await page.goto("/dashboard");
 
-  const pending = page.getByRole("status", { name: "Loading matches" });
+  // The match grid's loading label became "Curating target roles..." when the
+  // dashboard was redesigned in 86bb2ec.
+  const pending = page.getByRole("status", { name: "Curating target roles..." });
   await expect(pending, "the data wait should be shown, not a bare text line").toBeVisible({
     timeout: 20_000,
   });

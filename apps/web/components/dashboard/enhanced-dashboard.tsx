@@ -7,6 +7,8 @@ import { ApplicationInsights } from "@/components/dashboard/application-insights
 import { SearchIntelligence } from "./search-intelligence";
 import { OnboardingWizardModal } from "@/components/profile/onboarding-wizard-modal";
 import { ProgressProvider } from "@/components/career-progress/progress-provider";
+import { ProgressHeader } from "@/components/career-progress/progress-header";
+import { QuestBoard } from "@/components/career-progress/quest-board";
 import { EmptyState } from "@/components/ui/feedback";
 import { WorkspaceLoading } from "@/components/ui/workspace-loading";
 import { useCareerWorkspace } from "@/hooks/use-career-workspace";
@@ -111,6 +113,8 @@ export function EnhancedDashboard({ initialTopJobs }: EnhancedDashboardProps) {
             Fits cleanly in a single screen without requiring scrolling
             ============================================================ */}
         <div className={styles.primaryViewport}>
+          {/* Page title + weekly goal (restored: dropped unintentionally in 86bb2ec/6e40a72) */}
+          <ProgressHeader />
           {error ? <p className={minimalStyles.errorBanner}>{error}</p> : null}
 
           {/* 3 Sleek, Compact Status Tiles */}
@@ -242,6 +246,9 @@ export function EnhancedDashboard({ initialTopJobs }: EnhancedDashboardProps) {
             <ApplicationAnalytics />
           </section>
         </div>
+
+        {/* Career progress quests and milestones */}
+        <QuestBoard />
 
         {/* ============================================================
             2. AFTER SCROLL: Deeper Drilldowns & Match Cards

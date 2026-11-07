@@ -4,7 +4,9 @@ import { expect, test } from "@playwright/test";
  *  questions resolve to an exact option instead of being declined. */
 test("set race/ethnicity to South Asian via the Profile page", async ({ page }) => {
   test.setTimeout(240_000);
-  await page.goto("/profile", { waitUntil: "domcontentloaded" });
+  // In the default Lab profile stepper (65dcbb4, 0136a3b) the EEO field lives
+  // on the "Screening & voluntary" step.
+  await page.goto("/profile?step=screening", { waitUntil: "domcontentloaded" });
 
   const field = page.getByLabel(/Race \/ ethnicity/i);
   await field.waitFor({ state: "visible", timeout: 60_000 });

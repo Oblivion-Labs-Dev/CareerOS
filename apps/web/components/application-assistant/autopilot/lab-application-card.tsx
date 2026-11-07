@@ -138,6 +138,9 @@ export function LabApplicationCard({ job, reason, detailed, onDetails }: {
   const when = job.status === "SUBMITTED" && job.submittedAt
     ? `Submitted ${relativeTime(job.submittedAt)}`
     : job.updatedAt ? `Updated ${relativeTime(job.updatedAt)}` : null;
+  // A paced job is queued and wanted, not stuck: the countdown stays on the
+  // front so a held posting does not read as a stalled queue.
+  const paced = capCountdown(job);
 
   return (
     <article
@@ -191,7 +194,9 @@ export function LabApplicationCard({ job, reason, detailed, onDetails }: {
       </div>
       <footer className={styles.footer}>
         <span>{job.location || "Location not listed"}</span>
-        {when ? <span>{when}</span> : null}
+        {paced ? (
+          <span className={styles.paced} title={paced.detail}>{paced.label}</span>
+        ) : when ? <span>{when}</span> : null}
       </footer>
     </article>
   );

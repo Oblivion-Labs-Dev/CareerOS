@@ -15,6 +15,7 @@ import "./design-language.css";
 // Lab's matte material, scoped to html[data-material="matte"]; loads after
 // everything so its overrides win while Lab is chosen.
 import "./matte-material.css";
+import "./cinematic-atmosphere.css";
 
 const inter = Inter({
   subsets: ["latin"],
@@ -80,11 +81,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       className={`${inter.variable} ${outfit.variable} ${geist.variable} ${instrumentSerif.variable} ${jetbrainsMono.variable}`}
     >
       <body className={geist.className}>
-        {/* Set the material before first paint so Lab users never see a frame
-            of glass. Mirrors useCardStyle: anything but "classic" is Lab. */}
+        {/* Set visual preferences before first paint to avoid theme/material flashes. */}
         <script
           dangerouslySetInnerHTML={{
-            __html: `try{document.documentElement.dataset.material=localStorage.getItem("careeros.cardStyle")==="classic"?"glass":"matte"}catch(e){document.documentElement.dataset.material="matte"}`,
+            __html: `try{document.documentElement.dataset.material=localStorage.getItem("careeros.cardStyle")==="classic"?"glass":"matte";document.documentElement.dataset.atmosphere=localStorage.getItem("careeros.atmosphere")==="standard"?"standard":"cinematic"}catch(e){document.documentElement.dataset.material="matte";document.documentElement.dataset.atmosphere="cinematic"}`,
           }}
         />
         <NextTopLoader color="var(--accent)" height={2} showSpinner={false} shadow={false} crawlSpeed={120} speed={180} zIndex={2000} />

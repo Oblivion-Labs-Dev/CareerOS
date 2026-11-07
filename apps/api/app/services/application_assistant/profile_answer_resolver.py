@@ -2235,6 +2235,9 @@ def _resolve_how_heard(res: AnswerResolution, profile: dict, opts: list[str]) ->
             matched = _match_option(neutral, default) or _match_option(neutral, "LinkedIn")
         else:
             matched = _match_option(neutral, default)
+        # The candidate's real channel is not listed: "Other" is the honest
+        # answer. Exact match only, so "Other job board" is never picked.
+        matched = matched or next((o for o in neutral if o.strip().lower() == "other"), None)
 
         if not matched:
             res.resolution_method = UNKNOWN_METHOD

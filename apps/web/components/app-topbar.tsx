@@ -8,6 +8,7 @@ import { NAV_GROUPS } from "@/lib/nav-config";
 import { CareerIcon } from "@/components/ui/career-icon";
 import { useBackendStatus } from "@/hooks/use-backend-status";
 import { ThemeMorphButton } from "@/components/ui/theme-morph-button";
+import { useAtmosphere } from "@/hooks/use-atmosphere";
 
 const DIRECT_ACTIONS = [
   { label: "Open Autopilot", href: "/applications", detail: "Autopilot" },
@@ -21,6 +22,7 @@ export function AppTopbar() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const backendOnline = useBackendStatus();
+  const [atmosphere, setAtmosphere] = useAtmosphere();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [activeIndex, setActiveIndex] = useState(0);
@@ -151,6 +153,20 @@ export function AppTopbar() {
             <kbd>⌘ K</kbd>
           </button>
           <ThemeMorphButton />
+          <button
+            type="button"
+            className="app-topbar-icon-button atmosphere-toggle"
+            aria-label="Cinematic atmosphere"
+            aria-pressed={atmosphere === "cinematic"}
+            title="Cinematic atmosphere"
+            onClick={() => setAtmosphere(atmosphere === "cinematic" ? "standard" : "cinematic")}
+          >
+            <svg aria-hidden="true" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M3 18.5h18M5 16l4-4 3 2 6-7" />
+              <path d="M15 7h3v3" />
+              <circle cx="5" cy="7" r="1" fill="currentColor" stroke="none" />
+            </svg>
+          </button>
           <Link className="app-topbar-icon-button" href="/applications?tab=review" aria-label="Open Review Center">
             <CareerIcon name="bell" size={18} />
           </Link>

@@ -92,12 +92,12 @@ export function ProfileDocumentsSection({ onProfileSynced }: Props) {
               <label className="profile-documents-dropzone">
                 <input
                   type="file"
-                  accept=".pdf,.txt,.doc,.docx"
+                  accept=".pdf,.docx,.rtf,.txt"
                   disabled={uploading}
                   onChange={(e) => void handleUpload(e.target.files?.[0] || null)}
                 />
                 <strong>{uploading ? "Uploading…" : "Upload resume"}</strong>
-                <span className="muted">PDF, DOCX, DOC, or TXT</span>
+                <span className="muted">PDF, DOCX, RTF or TXT</span>
               </label>
               {resume?.name ? (
                 <div className="profile-documents-current">

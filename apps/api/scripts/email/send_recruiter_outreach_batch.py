@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import json
 import random
 import sys
@@ -29,7 +30,8 @@ from app.services.outreach_campaign_store import (
 )
 
 DEFAULT_EMAILS = Path(__file__).resolve().parent / "personalized_recruiter_emails.json"
-DEFAULT_RESUME_PDF = Path(r"D:\3 - Resources\Docs\Interview\Resume\Akshay_Borse_Resume.pdf")
+# Your resume: CAREEROS_RESUME_PATH, else data/resume.pdf (see .env.example).
+DEFAULT_RESUME_PDF = Path(os.environ.get("CAREEROS_RESUME_PATH") or ROOT.parents[1] / "data" / "resume.pdf")
 DEFAULT_RESULTS = ROOT / "data" / "recruiter_outreach_campaigns.json"
 DEFAULT_DELAY_SECONDS = 8.0
 MIN_DELAY_SECONDS = 2.0

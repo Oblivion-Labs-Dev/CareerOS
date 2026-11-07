@@ -1,4 +1,10 @@
+import pytest
+
 from app.services.application_assistant.profile_match import profile_match
+
+# Scores are pinned to a sample backend/platform engineer resume read.
+pytestmark = pytest.mark.usefixtures("engineer_match_profile")
+
 
 BACKEND = """Requirements:
 - 5+ years building distributed systems and microservices in Java or Python

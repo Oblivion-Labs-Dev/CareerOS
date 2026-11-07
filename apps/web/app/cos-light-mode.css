@@ -244,3 +244,18 @@
 [data-theme="light"] .stroke-white\/10 {
   stroke: rgba(15, 23, 42, 0.1) !important;
 }
+
+/* reference-match.css paints every plain .main button a dark navy gradient
+   with no light variant, so their dark labels vanished on light pages. */
+[data-theme="light"] .main :is(.btn, .btn-secondary, .btn-ghost):not(.btn-primary) {
+  color: var(--text);
+  background: var(--card);
+  border-color: var(--border-strong);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
+}
+
+[data-theme="light"] .main :is(.btn, .btn-secondary, .btn-ghost):not(.btn-primary):hover:not(:disabled) {
+  color: var(--text);
+  background: var(--card-hover);
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border-strong));
+}

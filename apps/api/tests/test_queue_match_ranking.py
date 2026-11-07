@@ -13,6 +13,9 @@ from __future__ import annotations
 
 import pytest
 
+# These pin the author's hand-tuned order, the opt-in "owner" ranking preset.
+pytestmark = pytest.mark.usefixtures("owner_ranking_preset")
+
 from app.services.application_assistant.job_filter_ranker import (
     ROLE_RANK_FORWARD_DEPLOYED,
     ROLE_RANK_PRINCIPAL,

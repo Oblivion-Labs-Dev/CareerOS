@@ -4,6 +4,7 @@ import Link from "next/link";
 import { GlassCard, ScrollReveal, cn, primaryLinkClassName, secondaryLinkClassName } from "@career-os/ui";
 import { LandingFirefoxInstall } from "@/components/landing-firefox-install";
 import { LandingNav } from "@/components/landing-nav";
+import { CinematicBackdrop } from "@/components/cinematic/cinematic-backdrop";
 
 const MODULES = [
   {
@@ -48,6 +49,7 @@ const STATS = [
 export function LandingPage() {
   return (
     <div className="landing">
+      <CinematicBackdrop />
       <LandingNav />
 
       <main>

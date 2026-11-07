@@ -2,33 +2,27 @@
 
 from __future__ import annotations
 
-import base64
-import io
 from typing import Any
 
-from pypdf import PdfReader
 from sqlalchemy.orm import Session
 
 from app.db.store import list_entities, new_id, upsert_entity
 from app.services.resume_intelligence.persistence import save_scan
 from app.services.resume_intelligence.qwen_services import extract_resume_with_qwen
-from app.services.resume_parser import parse_resume_fields
+from app.services.resume_parser import parse_resume_fields, read_resume_text
 
 
 def extract_text_from_upload(*, text: str = "", base64_data: str = "", mime_type: str = "", filename: str = "") -> str:
+    """Pasted text, or the uploaded file's text via the shared resume reader.
+
+    Raises ValueError with the reason when a file can't be read, instead of
+    decoding a Word or binary file into garbage.
+    """
     if text.strip():
         return text.strip()
     if not base64_data:
         return ""
-    raw = base64.b64decode(base64_data)
-    is_pdf = "pdf" in mime_type.lower() or filename.lower().endswith(".pdf")
-    if is_pdf:
-        reader = PdfReader(io.BytesIO(raw))
-        return "\n".join(page.extract_text() or "" for page in reader.pages).strip()
-    try:
-        return raw.decode("utf-8", errors="ignore").strip()
-    except Exception:
-        return ""
+    return read_resume_text({"base64": base64_data, "type": mime_type, "name": filename}).strip()
 
 
 def deterministic_scan_fields(text: str) -> dict[str, Any]:

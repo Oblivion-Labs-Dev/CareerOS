@@ -1,0 +1,69 @@
+# CareerOS for everyday use: no hot reload, no source mounts.
+#
+#   docker compose -f docker-compose.prod.yml up -d --build
+#
+# Dashboard on http://localhost:5000, API on http://localhost:4000.
+# Everything you create (database, browser sign-ins, tailored resumes) lives in
+# ./careeros-data on your machine, so rebuilding or updating keeps it.
+#
+# Safe by default: nothing is ever submitted to an employer and no email is sent
+# until you turn it on yourself (see "Turning on automation" in README.md).
+#
+# For development with hot reload use docker-compose.yml instead. Do not run
+# both at once against the same data folder: the API is single-process and two
+# copies writing one SQLite file can corrupt application state.
+
+name: careeros
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+      args:
+        TORCH_VARIANT: ${CAREEROS_TORCH_VARIANT:-cpu}
+        # false gives a much smaller image; resume ranking then uses BM25.
+        INSTALL_ML: ${CAREEROS_INSTALL_ML:-true}
+        INSTALL_DEV: "false"
+    image: careeros-api:prod
+    ports:
+      - "127.0.0.1:4000:4000"
+    env_file:
+      - path: ./.env
+        required: false
+    environment:
+      CAREER_OS_DATABASE_URL: sqlite:///./data/career_os.db
+      CAREER_OS_DEV_MODE: "false"
+      AA_HEADLESS: "true"
+      AA_BROWSER_PROFILE_DIR: /app/apps/api/data/application_assistant/browser_profile
+      # Your resume: put it at ./careeros-data/resume.pdf, or upload it in the app.
+      CAREEROS_RESUME_PATH: ${CAREEROS_RESUME_PATH:-/app/apps/api/data/resume.pdf}
+      # Final "Submit" clicks are refused unless you set this to true in .env.
+      ALLOW_REAL_SUBMISSION: ${ALLOW_REAL_SUBMISSION:-false}
+      CAREEROS_LIVE_APPLY: ${CAREEROS_LIVE_APPLY:-0}
+      WEB_CONCURRENCY: "1"
+      PYTHONUNBUFFERED: "1"
+    volumes:
+      - ${CAREEROS_DATA_DIR:-./careeros-data}:/app/apps/api/data
+      - careeros-models:/models
+    shm_size: "1gb"
+    restart: unless-stopped
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      target: prod
+    image: careeros-web:prod
+    ports:
+      - "127.0.0.1:5000:5000"
+    environment:
+      CAREER_OS_API_PUBLIC_URL: http://api:4000
+      NEXT_TELEMETRY_DISABLED: "1"
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  careeros-models:

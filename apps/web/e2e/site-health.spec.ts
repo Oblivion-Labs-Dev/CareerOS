@@ -75,9 +75,15 @@ test.describe("CareerOS web health", () => {
     await page.goto("/profile");
 
     await expect(page.getByRole("heading", { name: "Profile", level: 1 })).toBeVisible();
-    await expect(page.locator(".profile-data-card").first()).toBeVisible();
-    await expect(page.getByText(/roles saved|No work history saved yet/i)).toBeVisible();
-    await expect(page.getByText(/saved answers|No answers saved yet/i)).toBeVisible();
+    // Lab is the default card style (65dcbb4), and in Lab the profile is a
+    // stepper (0136a3b): the sections are steps in a rail, not stacked cards.
+    await expect(page.getByRole("navigation", { name: "Profile sections" })).toBeVisible();
+
+    await page.goto("/profile?step=experience");
+    await expect(page.getByRole("heading", { name: /^\d+ roles?$|No work history saved yet/i })).toBeVisible();
+
+    await page.goto("/profile?step=tailoring");
+    await expect(page.getByRole("heading", { name: /\d+ learned answers|No learned answers yet/i })).toBeVisible();
   });
 
   test("apply outreach page shows recruiter campaign dashboard", async ({ page }) => {

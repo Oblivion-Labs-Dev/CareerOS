@@ -149,10 +149,19 @@ test("a rate-limited job shows its countdown and still offers Apply", async ({ p
   await expect(card("expired")).not.toContainText(/Paced/);
 
   // The override: Apply is offered, enabled, and labelled so it does not look
-  // like it will bounce off the limit.
-  const applyHeld = card("held-day").getByRole("button", { name: /Apply anyway/ });
+  // like it will bounce off the limit. Since the Lab card became the default
+  // (65dcbb4) the actions live in the details popup the card opens, not on
+  // the card face.
+  const close = page.getByRole("button", { name: "Close", exact: true });
+  await card("free").click();
+  await expect(page.getByRole("button", { name: /^Apply →/ })).toBeEnabled();
+  await expect(page.getByRole("button", { name: /Apply anyway/ })).toHaveCount(0);
+  await close.click();
+  await expect(close).toBeHidden();
+
+  await card("held-day").click();
+  const applyHeld = page.getByRole("button", { name: /Apply anyway/ });
   await expect(applyHeld).toBeEnabled();
-  await expect(card("free").getByRole("button", { name: /^Apply →/ })).toBeEnabled();
 
   await applyHeld.click();
   await expect

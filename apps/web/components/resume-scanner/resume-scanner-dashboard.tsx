@@ -248,7 +248,7 @@ export function ResumeScannerDashboard({ embedded = false, profileName = "" }: P
             <input
               type="file"
               aria-label="Upload resume file"
-              accept=".pdf,.txt,.doc,.docx"
+              accept=".pdf,.docx,.rtf,.txt"
               onChange={(e) => void handleFileUpload(e.target.files?.[0] || null)}
             />
             <textarea

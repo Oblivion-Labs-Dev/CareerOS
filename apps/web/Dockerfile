@@ -6,15 +6,15 @@
 # have to be installed and built inside the image or the app cannot resolve its
 # own imports.
 #
-# This targets development (`next dev`), which is what the task asks for —
-# hot reload with the source bind-mounted. A production image would add a
-# `next build` stage and run `next start`; that is deliberately out of scope.
+# Two targets. `dev` (docker-compose.yml) runs `next dev` with the source
+# bind-mounted for hot reload. `prod` (docker-compose.prod.yml) builds once and
+# runs `next start`, with no source mount.
 # Node 24, matching the local toolchain (v24.19.0). Not Node 20: pnpm 11
 # requires the `node:sqlite` built-in, which does not exist before 22.5, and the
 # install dies with ERR_UNKNOWN_BUILTIN_MODULE. The root package.json says
 # `engines: node >=20`, which is true of the application but not of the package
 # manager the lockfile was written by.
-FROM node:24-bookworm-slim
+FROM node:24-bookworm-slim AS dev
 
 ENV NODE_ENV=development \
     NEXT_TELEMETRY_DISABLED=1 \
@@ -65,3 +65,9 @@ HEALTHCHECK --interval=15s --timeout=5s --start-period=60s --retries=5 \
 # Binds 0.0.0.0 so the port is reachable from the host; the local workflow's
 # package.json script already does the same.
 CMD ["pnpm", "exec", "next", "dev", "--hostname", "0.0.0.0", "--port", "5000"]
+
+# ── Production ──────────────────────────────────────────────────────────────
+FROM dev AS prod
+ENV NODE_ENV=production     WATCHPACK_POLLING=false     CHOKIDAR_USEPOLLING=false
+RUN pnpm exec next build
+CMD ["pnpm", "exec", "next", "start", "--hostname", "0.0.0.0", "--port", "5000"]

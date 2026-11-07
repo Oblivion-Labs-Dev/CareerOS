@@ -21,7 +21,7 @@ from app.services.application_assistant.browser_pool import DEFAULT_POOLED_LAUNC
 
 def run_browse_jobs_e2e():
     print("[E2E] Starting Playwright test against CareerOS portal...")
-    artifacts_dir = os.path.abspath("C:/Users/amsbo/.gemini/antigravity-ide/brain/0e7db33c-fada-4cab-8bf0-9957069ec425")
+    artifacts_dir = os.path.abspath(os.environ.get("CAREEROS_E2E_ARTIFACTS") or "test-artifacts")
     os.makedirs(artifacts_dir, exist_ok=True)
     screenshot_path = os.path.join(artifacts_dir, "browse_jobs_cards_portal.png")
 

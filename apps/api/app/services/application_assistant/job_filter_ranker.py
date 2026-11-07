@@ -10,6 +10,10 @@ from sqlalchemy.orm import Session
 
 from app.services.application_assistant.domain import AutopilotJobStatus
 from app.services.application_assistant.persistence import list_autopilot_jobs
+from app.services.application_assistant.ranking_preferences import (
+    get_ranking_preferences,
+    matches_preferred_location,
+)
 
 
 DEFAULT_MIN_MATCH_SCORE = 60.0
@@ -414,6 +418,22 @@ def is_washington_location(job: dict[str, Any]) -> bool:
     return bool(loc_l) and not _DC_LOCATION.search(loc_l) and bool(_WA_LOCATION.search(loc_l))
 
 
+def is_preferred_location(job: dict[str, Any]) -> bool:
+    """Whether the posting is in one of the user's preferred locations.
+
+    The places come from ranking_preferences.json. With none listed, the owner
+    preset keeps its Washington State preference and the neutral preset
+    prefers nowhere.
+    """
+    prefs = get_ranking_preferences()
+    if prefs.preferred_locations:
+        loc = job.get("location") or ""
+        if not loc and isinstance(job.get("metadata"), dict):
+            loc = job["metadata"].get("location") or ""
+        return matches_preferred_location(loc, prefs.preferred_locations)
+    return prefs.owner_taste and is_washington_location(job)
+
+
 def role_priority_rank(title: str) -> int:
     """Rank of a title in the candidate's role order; higher applies first."""
     title_l = _MEMBER_OF_TECHNICAL_STAFF.sub("software engineer", (title or "").lower())
@@ -441,6 +461,11 @@ def role_location_priority_bonus(job: dict[str, Any]) -> float:
     Bellevue, Redmond and the rest of WA) beats the rest of the US.
     Management and non-engineering titles get nothing.
     """
+    location_tier = 1 if is_preferred_location(job) else 0
+    if not get_ranking_preferences().owner_taste:
+        # Neutral preset: no built-in role order, so every role family
+        # (PM, TPM, design, data, ...) is ranked on location alone here.
+        return location_tier * LOCATION_TIER_WEIGHT
     title_l = (job.get("title") or "").lower()
     if is_management_title(title_l) or _has_marker(title_l, _NON_ENGINEERING_MARKERS):
         return 0.0
@@ -453,7 +478,6 @@ def role_location_priority_bonus(job: dict[str, Any]) -> float:
     ))
     if not is_engineering:
         return 0.0
-    location_tier = 1 if is_washington_location(job) else 0
     return location_tier * LOCATION_TIER_WEIGHT + role_priority_rank(title_l) * ROLE_RANK_WEIGHT
 
 
@@ -1006,7 +1030,9 @@ def role_application_tier(job: dict[str, Any]) -> float:
 def queue_priority_score(job: dict[str, Any]) -> float:
     """The single number the persistent queue is ordered by.
 
-    Lexicographic, highest first:
+    With the neutral preset (the default, ranking_preferences.py) it is the
+    recency band, then the user's preferred locations, then match score. The
+    owner preset below is lexicographic, highest first:
     1. Owner's application family: AI/ML engineering, Forward Deployed, Senior
        Software Engineer, then everything else (role_application_tier).
     2. Recency band (last 24 hours, 1-3 days, 3-7 days, 7-14 days, 14-30 days, older).
@@ -1022,6 +1048,15 @@ def queue_priority_score(job: dict[str, Any]) -> float:
     international_penalty = (
         INTERNATIONAL_QUEUE_PENALTY if is_international_location(job) else 0.0
     )
+    if not get_ranking_preferences().owner_taste:
+        # Neutral preset (any user): recency band, preferred location, then
+        # the match score against the user's own resume.
+        return (
+            posting_recency_bonus(job)
+            + role_location_priority_bonus(job)
+            + float(job.get("matchScore") or 0.0)
+            - international_penalty
+        )
     ai_priority_bonus = (
         AI_ROLE_PRIORITY_BONUS if _is_ai_priority_role(job.get("title") or "") else 0.0
     )

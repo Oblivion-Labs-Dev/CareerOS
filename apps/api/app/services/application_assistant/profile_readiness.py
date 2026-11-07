@@ -112,6 +112,29 @@ def _has_text(value: Any) -> bool:
 # check so the mapping back to the declining resolver stays legible.
 
 
+def _check_full_name(profile: dict[str, Any]) -> ReadinessGap | None:
+    """Every ATS asks for a name; the name resolvers answer nothing without one."""
+    if _has_text(profile.get("fullName")) or (
+        _has_text(profile.get("firstName")) and _has_text(profile.get("lastName"))
+    ):
+        return None
+    return ReadinessGap(profile_key="fullName", raw_label="Full name", question="What is your full name?")
+
+
+def _check_email(profile: dict[str, Any]) -> ReadinessGap | None:
+    """_resolve_email answers nothing without a profile email."""
+    if "@" in str(profile.get("email") or ""):
+        return None
+    return ReadinessGap(profile_key="email", raw_label="Email", question="What email should employers use?")
+
+
+def _check_phone(profile: dict[str, Any]) -> ReadinessGap | None:
+    """_resolve_phone declines without a number, and phone is required on most boards."""
+    if sum(ch.isdigit() for ch in str(profile.get("phone") or "")) >= 7:
+        return None
+    return ReadinessGap(profile_key="phone", raw_label="Phone", question="What phone number should employers use?")
+
+
 def _check_english_level(profile: dict[str, Any]) -> ReadinessGap | None:
     """_resolve_english_proficiency declines without a recorded level."""
     if _has_text(profile.get("englishLevel") or profile.get("englishProficiency")):
@@ -271,6 +294,9 @@ def _check_demographics(profile: dict[str, Any]) -> ReadinessGap | None:
 
 
 _BLOCKING_CHECKS: tuple[Callable[[dict[str, Any]], ReadinessGap | None], ...] = (
+    _check_full_name,
+    _check_email,
+    _check_phone,
     _check_english_level,
     _check_citizenship_country,
     _check_timezone,

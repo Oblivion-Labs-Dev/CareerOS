@@ -22,6 +22,49 @@ router = APIRouter(prefix="/api/onboarding", tags=["onboarding"])
 
 ONBOARDING_SECTIONS = [
     {
+        "id": "contact_resume",
+        "title": "Contact & Resume",
+        "description": "Upload your resume first: it fills in your work history, education and most of what follows.",
+        "questions": [
+            {
+                "key": "resume",
+                "label": "Resume (PDF, DOCX, RTF or TXT)",
+                "type": "resume",
+                "covers": ["workExperience", "education"],
+                "required": True,
+                "help": "Your work history and education are read from it. Check them on the Profile page afterwards.",
+            },
+            {
+                "key": "fullName",
+                "label": "Full name",
+                "type": "text",
+                "required": True,
+                "help": "As it should appear on applications.",
+            },
+            {
+                "key": "email",
+                "label": "Email",
+                "type": "text",
+                "required": True,
+                "help": "Where employers will reply.",
+            },
+            {
+                "key": "phone",
+                "label": "Phone",
+                "type": "text",
+                "required": True,
+                "help": "Required by most application forms.",
+            },
+            {
+                "key": "linkedin",
+                "label": "LinkedIn profile URL",
+                "type": "text",
+                "required": False,
+                "help": "Many forms ask for it; leave blank if you don't have one.",
+            },
+        ],
+    },
+    {
         "id": "work_auth",
         "title": "Work Authorization & Sponsorship",
         "description": "Crucial legal screening questions asked by 100% of US employers.",
@@ -232,6 +275,9 @@ ONBOARDING_SECTIONS = [
 ]
 
 
+_UPLOAD_KEYS = {q["key"] for s in ONBOARDING_SECTIONS for q in s["questions"] if q["type"] == "resume"}
+
+
 class OnboardingAnswersPayload(BaseModel):
     answers: dict[str, Any] = Field(default_factory=dict)
 
@@ -246,6 +292,10 @@ def get_onboarding_questions(request: Request, db: Session = Depends(db_session)
     # Flatten questions to check for missing items
     flattened_keys = [q["key"] for s in ONBOARDING_SECTIONS for q in s["questions"]]
     current_values = {k: profile.get(k) for k in flattened_keys if profile.get(k) is not None}
+    # The resume lives with the documents, not in the profile.
+    resume = (get_kv(db, "documents", user_id=user_id) or {}).get("defaultResume") or {}
+    if resume.get("base64"):
+        current_values["resume"] = resume.get("name") or "Uploaded resume"
 
     return {
         "success": True,
@@ -264,6 +314,8 @@ def save_onboarding_answers(payload: OnboardingAnswersPayload, request: Request,
 
     # Merge answers into profile
     for k, v in payload.answers.items():
+        if k in _UPLOAD_KEYS:
+            continue  # uploaded through /documents/resume, not stored as an answer
         if v is not None and v != "":
             profile[k] = v
 

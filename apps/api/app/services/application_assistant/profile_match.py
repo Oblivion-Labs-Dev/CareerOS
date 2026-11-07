@@ -17,6 +17,7 @@ from __future__ import annotations
 import html
 import json
 import math
+import os
 import re
 from dataclasses import dataclass
 from functools import lru_cache
@@ -27,6 +28,8 @@ from .role_shape_match import (_MUST_MARKERS, _NICE_MARKERS, _RESP_MARKERS, dete
                                detect_seniority)
 
 PROFILE_PATH = Path(__file__).with_name("resume_match_profile.json")
+#: Points at your own profile file instead of the bundled one.
+PROFILE_ENV = "CAREEROS_MATCH_PROFILE"
 MATCH_METHOD = "profile"
 
 #: Where in a posting a skill is mentioned decides how much it counts.
@@ -144,7 +147,11 @@ def load_profile(path: Path = PROFILE_PATH) -> Profile:
 
 @lru_cache(maxsize=1)
 def default_profile() -> Profile:
-    return load_profile()
+    override = os.environ.get(PROFILE_ENV, "").strip()
+    if override and not Path(override).is_file():
+        # A typo here would silently score every job against the wrong resume.
+        raise FileNotFoundError(f"{PROFILE_ENV}={override} does not exist")
+    return load_profile(Path(override) if override else PROFILE_PATH)
 
 
 def _embedded_score(title: str, body: str) -> float:

@@ -75,19 +75,63 @@ ASSISTED_PROFILE_DIR = Path(
 )
 SCREENSHOTS_DIR.mkdir(parents=True, exist_ok=True)
 
-PRIMARY_RESUME_PATH = Path(r"D:\3 - Resources\Docs\Interview\Resume\Akshay_Borse_Resume.pdf")
-FALLBACK_RESUME_PATH = Path(__file__).resolve().parents[3] / "data" / "Akshay_Borse_Resume.pdf"
+def _configured_resume_path() -> Path | None:
+    """The resume file named by CAREEROS_RESUME_PATH, if set.
+
+    Each user points this at their own resume (see .env.example). There is no
+    built-in personal default: with no resume the run pauses (see
+    test_missing_resume_pauses_run) instead of attaching somebody else's file.
+    """
+    raw = (os.environ.get("CAREEROS_RESUME_PATH") or "").strip()
+    return Path(raw) if raw else None
+
+
+FALLBACK_RESUME_PATH = Path(__file__).resolve().parents[3] / "data" / "resume.pdf"
 
 
 def get_active_resume_path(profile: dict[str, Any]) -> str:
     candidate_path = profile.get("resumePath")
     if candidate_path and Path(candidate_path).exists():
         return str(Path(candidate_path).resolve())
-    if PRIMARY_RESUME_PATH.exists():
-        return str(PRIMARY_RESUME_PATH.resolve())
+    configured = _configured_resume_path()
+    if configured is not None and configured.exists():
+        return str(configured.resolve())
     if FALLBACK_RESUME_PATH.exists():
         return str(FALLBACK_RESUME_PATH.resolve())
     return ""
+
+
+def resume_display_name(profile: dict[str, Any], resolved_path: Path) -> str:
+    """The filename an employer sees for the uploaded resume.
+
+    "First_Last_Resume.pdf" from the profile; failing that, the configured
+    resume's own filename; failing that, the file's own name.
+    """
+    first = re.sub(r"[^A-Za-z0-9-]", "", str(profile.get("firstName") or ""))
+    last = re.sub(r"[^A-Za-z0-9-]", "", str(profile.get("lastName") or ""))
+    suffix = resolved_path.suffix or ".pdf"
+    if first and last:
+        return f"{first}_{last}_Resume{suffix}"
+    configured = _configured_resume_path()
+    if configured is not None:
+        return configured.name
+    return resolved_path.name
+
+
+def application_location_query(profile: dict[str, Any]) -> tuple[str, str]:
+    """(full location, text to type into a location typeahead) from the profile.
+
+    Both are empty when the profile has no location: typing a made-up city
+    puts a false claim on a real application, so the field is left for review.
+    """
+    city_full = str(profile.get("location") or "").strip()
+    if city_full.lower() in ("none", "null"):
+        city_full = ""
+    city = str(profile.get("city") or "").strip()
+    if not city_full and city:
+        city_full = city
+    city_search = (city or city_full.split(",")[0]).strip()
+    return city_full, city_search
 
 
 _UPLOAD_STAGING_DIR = Path(__file__).resolve().parents[3] / "data" / "application_assistant" / "resume_uploads"
@@ -110,7 +154,7 @@ def get_resume_upload_payload(profile: dict[str, Any]) -> str:
     if not resolved:
         return ""
     resolved_path = Path(resolved)
-    display_name = PRIMARY_RESUME_PATH.name  # "Akshay_Borse_Resume.pdf"
+    display_name = resume_display_name(profile, resolved_path)
     if resolved_path.name == display_name:
         return resolved
     try:
@@ -1214,7 +1258,7 @@ async def _trim_overlong_fields(page: Any, errors: list[str]) -> bool:
 
 
 async def _phone_digits_only(page: Any) -> bool:
-    """Regions rejects "(425) 336-9852" as an invalid format; the country code has its own select."""
+    """Regions rejects "(425) 555-0142" as an invalid format; the country code has its own select."""
     changed = False
     for inp in await page.locator('input[type="tel"], input[name*="phone" i], input[id*="phone" i]').all():
         try:
@@ -2642,7 +2686,7 @@ async def _fill_standard_and_react_fields(
     filled_ids: dict[str, str] = {}
 
     # 1. Standard text fields (First Name, Last Name, Email, Phone)
-    first = profile.get("firstName", "Akshay")
+    first = str(profile.get("firstName") or "")
     if await _fill_first_visible(
         page,
         ["#first_name", "input[name='job_application[first_name]']", "input[name*='first_name' i]", "input[id*='first_name' i]"],
@@ -2650,7 +2694,7 @@ async def _fill_standard_and_react_fields(
     ):
         filled["First Name"] = first
 
-    last = profile.get("lastName", "Borse")
+    last = str(profile.get("lastName") or "")
     if await _fill_first_visible(
         page,
         ["#last_name", "input[name='job_application[last_name]']", "input[name*='last_name' i]", "input[id*='last_name' i]"],
@@ -2695,11 +2739,8 @@ async def _fill_standard_and_react_fields(
 
     # Fill Location (City) if requested
     loc_input = page.locator(_APPLICATION_LOCATION_INPUT).first
-    if await loc_input.count() > 0 and await loc_input.is_visible():
-        city_full = profile.get("location") or "Seattle, WA"
-        if city_full.strip().lower() in ("akshay", "akshay borse", "none", ""):
-            city_full = "Seattle, WA"
-        city_search = (profile.get("city") or city_full.split(",")[0]).strip() or "Seattle"
+    city_full, city_search = application_location_query(profile)
+    if city_search and await loc_input.count() > 0 and await loc_input.is_visible():
         try:
             await loc_input.focus()
             await loc_input.press_sequentially(city_search, delay=50)

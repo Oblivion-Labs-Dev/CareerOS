@@ -3,18 +3,24 @@
 from __future__ import annotations
 
 import csv
+import os
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
 DATA_CANDIDATES = [
     Path(__file__).resolve().parents[2] / "data" / "market" / "AI_posting.csv",
-    Path(r"D:\1 - Projects\Projects\aijobsearch\ai-tracker\AI_posting.csv"),
 ]
 
 
+def _candidates() -> list[Path]:
+    """The bundled CSV location, preceded by CAREEROS_MARKET_CSV when set."""
+    override = (os.environ.get("CAREEROS_MARKET_CSV") or "").strip()
+    return ([Path(override)] if override else []) + DATA_CANDIDATES
+
+
 def _resolve_csv_path() -> Path | None:
-    for candidate in DATA_CANDIDATES:
+    for candidate in _candidates():
         if candidate.is_file():
             return candidate
     return None

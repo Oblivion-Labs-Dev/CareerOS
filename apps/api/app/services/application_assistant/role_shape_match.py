@@ -55,6 +55,31 @@ from typing import Any, Protocol
 # Android once may just be describing a client the team supports.
 
 ROLE_FAMILIES: dict[str, dict[str, tuple[str, ...]]] = {
+    # Non-engineering families come first: on a tie ("Platform Product Manager",
+    # "Security Program Manager") the job is the PM or TPM role, not the domain.
+    "product": {
+        "title": (r"product manager", r"product owner", r"head of product",
+                  r"product lead", r"\bapm\b"),
+        "body": (r"roadmap", r"product strategy", r"\bprds?\b", r"customer discovery",
+                 r"product requirements", r"go.to.market", r"product vision"),
+    },
+    "program": {
+        "title": (r"program manager", r"\btpm\b", r"project manager",
+                  r"delivery manager", r"scrum master"),
+        "body": (r"cross.functional", r"program management", r"milestones",
+                 r"dependencies", r"stakeholders", r"release planning", r"risk register"),
+    },
+    "design": {
+        "title": (r"designer", r"\bux\b", r"user research", r"ux research"),
+        "body": (r"figma", r"prototyp", r"usability", r"user research",
+                 r"interaction design", r"design system", r"wirefram"),
+    },
+    "analytics": {
+        "title": (r"data analyst", r"business analyst", r"\bbi\b", r"business intelligence",
+                  r"analytics manager", r"product analyst"),
+        "body": (r"tableau", r"looker", r"power bi", r"dashboards", r"a/b test",
+                 r"\bsql\b", r"metrics"),
+    },
     "frontend": {
         "title": (r"front.?end", r"\bui\b", r"web developer", r"javascript engineer"),
         "body": (r"react", r"typescript", r"css", r"single.page", r"browser",
@@ -134,6 +159,12 @@ FAMILY_AFFINITY: dict[tuple[str, str], float] = {
     ("fullstack", "frontend"): 0.70,
     ("fullstack", "mobile"): 0.35,
     ("frontend", "mobile"): 0.55,
+    ("product", "program"): 0.60,
+    ("product", "design"): 0.50,
+    ("product", "analytics"): 0.50,
+    ("analytics", "data"): 0.70,
+    ("analytics", "ml"): 0.40,
+    ("design", "frontend"): 0.45,
 }
 
 
@@ -151,7 +182,10 @@ SENIORITY_LEVELS: tuple[tuple[str, int], ...] = (
     (r"\bjunior\b|\bassociate\b|\bentry.level\b|\bi{1,2}\b(?!\w)", 1),
     (r"\bsenior\b|\bsr\.?\b|\bsenior[- ]level\b|\biii\b", 3),
     (r"\bstaff\b|\bprincipal\b|\blead\b|\barchitect\b|\bdistinguished\b", 4),
-    (r"\bmanager\b|\bdirector\b|\bhead of\b|\bvp\b", 5),
+    # "Product/Program/Project Manager" is an individual-contributor title, not
+    # people management, so it keeps the level its other words give it.
+    (r"(?<!product )(?<!program )(?<!project )(?<!delivery )\bmanager\b"
+     r"|\bdirector\b|\bhead of\b|\bvp\b", 5),
 )
 DEFAULT_SENIORITY = 2  # plain "Software Engineer"
 

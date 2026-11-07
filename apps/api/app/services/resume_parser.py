@@ -14,51 +14,185 @@ PHONE_RE = re.compile(r"(?:\+?1[-.\s]?)?(?:\(?\d{3}\)?[-.\s]?)\d{3}[-.\s]?\d{4}\
 YEARS_RE = re.compile(r"(\d{1,2})\+?\s*years?\s+(?:of\s+)?experience", re.I)
 
 
+_W = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
+_OLE_MAGIC = b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"
+_UNREADABLE = "Could not extract text from resume"
+
+
+def _docx_part_text(xml_content: bytes) -> list[str]:
+    paragraphs = []
+    for p in ET.fromstring(xml_content).iter(f"{_W}p"):
+        pieces: list[str] = []
+        for node in p.iter():
+            if node.tag == f"{_W}t" and node.text:
+                pieces.append(node.text)
+            elif node.tag == f"{_W}tab":
+                pieces.append("\t")
+            elif node.tag in (f"{_W}br", f"{_W}cr"):
+                pieces.append("\n")
+        line = "".join(pieces)
+        if line.strip():
+            paragraphs.append(line)
+    return paragraphs
+
+
 def extract_docx_text(raw_bytes: bytes) -> str:
-    """Extract readable text from a Word DOCX package without external dependencies."""
+    """Readable text from a Word DOCX package, without external dependencies.
+
+    Headers come first because many templates put the name and contact details
+    there; tabs and line breaks are kept because templates align dates with
+    them, and dropping them glues the title onto the dates.
+    """
     try:
         with zipfile.ZipFile(io.BytesIO(raw_bytes)) as z:
-            xml_content = z.read("word/document.xml")
-            tree = ET.fromstring(xml_content)
-            paragraphs = []
-            for p in tree.iter("{http://schemas.openxmlformats.org/wordprocessingml/2006/main}p"):
-                texts = [
-                    node.text
-                    for node in p.iter("{http://schemas.openxmlformats.org/wordprocessingml/2006/main}t")
-                    if node.text
-                ]
-                if texts:
-                    paragraphs.append("".join(texts))
+            names = z.namelist()
+            headers = sorted(n for n in names if re.fullmatch(r"word/header\d*\.xml", n))
+            footers = sorted(n for n in names if re.fullmatch(r"word/footer\d*\.xml", n))
+            paragraphs: list[str] = []
+            for part in [*headers, "word/document.xml", *footers]:
+                paragraphs.extend(_docx_part_text(z.read(part)))
             return "\n".join(paragraphs)
     except Exception:
         return ""
 
 
-def extract_text_from_attachment(attachment: dict[str, Any] | None) -> str:
-    """Extract clean text from PDF, DOCX, or plain text attachments.
+def _rtf_to_text(raw: str) -> str:
+    """Plain text from an RTF document: enough for a resume, no layout."""
+    out: list[str] = []
+    skip_depth: list[int] = []
+    depth = 0
+    i = 0
+    destinations = {"fonttbl", "colortbl", "stylesheet", "info", "pict", "header", "footer",
+                    "listtable", "listoverridetable", "rsidtbl", "generator", "themedata",
+                    "colorschememapping", "datastore", "latentstyles"}
+    pending_skip = 0
+    while i < len(raw):
+        ch = raw[i]
+        skipping = bool(skip_depth) and depth >= skip_depth[-1]
+        if ch == "{":
+            depth += 1
+            i += 1
+            if raw.startswith("\\*", i):
+                skip_depth.append(depth)
+            continue
+        if ch == "}":
+            if skip_depth and depth == skip_depth[-1]:
+                skip_depth.pop()
+            depth -= 1
+            i += 1
+            continue
+        if ch == "\\":
+            m = re.match(r"\\([a-zA-Z]+)(-?\d+)? ?|\\'([0-9a-fA-F]{2})|\\(.)", raw[i:])
+            if not m:
+                i += 1
+                continue
+            i += m.end()
+            word, arg, hexcode, symbol = m.groups()
+            if skipping:
+                continue
+            if word:
+                if word in destinations:
+                    skip_depth.append(depth)
+                elif word in ("par", "line", "row", "sect", "page"):
+                    out.append("\n")
+                elif word in ("tab", "cell"):
+                    out.append("\t")
+                elif word == "u" and arg:
+                    code = int(arg)
+                    out.append(chr(code + 65536 if code < 0 else code))
+                    pending_skip = 1
+            elif hexcode:
+                if pending_skip:
+                    pending_skip -= 1
+                else:
+                    out.append(bytes([int(hexcode, 16)]).decode("cp1252", errors="replace"))
+            elif symbol in ("\\", "{", "}"):
+                out.append(symbol)
+            elif symbol == "~":
+                out.append(" ")
+            continue
+        if ch in "\r\n":
+            i += 1
+            continue
+        if not skipping:
+            if pending_skip:
+                pending_skip -= 1
+            else:
+                out.append(ch)
+        i += 1
+    return "".join(out)
 
-    Uses PyMuPDF (fitz) for high-fidelity multi-column layout parsing when available,
-    falling back to pypdf, and native XML parsing for Word .docx files.
+
+def _decode_text(raw: bytes) -> str:
+    """Plain text in whichever encoding the file declares, or a clear refusal."""
+    if raw.startswith(b"\xef\xbb\xbf"):
+        text = raw[3:].decode("utf-8", errors="replace")
+    elif raw.startswith((b"\xff\xfe", b"\xfe\xff")):
+        text = raw.decode("utf-16", errors="replace")
+    else:
+        try:
+            text = raw.decode("utf-8")
+        except UnicodeDecodeError:
+            text = raw.decode("cp1252", errors="replace")
+    sample = text[:4000]
+    control = sum(1 for c in sample if (ord(c) < 32 and c not in "\t\r\n\f") or c == "\ufffd")
+    if sample and control / len(sample) > 0.05:
+        raise ValueError(
+            f"{_UNREADABLE}: this file is not a format CareerOS can read. Upload a PDF, DOCX, RTF or TXT file."
+        )
+    return text
+
+
+def _normalise_text(text: str) -> str:
+    """Typographic look-alikes as plain characters.
+
+    PDF and Word exports often write spaces as no-break spaces and hyphens as
+    soft or non-breaking hyphens; left alone they break every phone number and
+    date range ("Jan 2021­ Present") the parser looks for. A soft
+    hyphen inside a word is only a line-break hint, so it is dropped there.
+    """
+    text = re.sub(r"[  -   　]", " ", text)
+    text = re.sub(r"[​‌‍⁠﻿]", "", text)
+    text = re.sub(r"[‐‑‒−]", "-", text)
+    text = re.sub(r"(?<=[\d\s])­|­(?=[\d\s])", "-", text)
+    return text.replace("­", "")
+
+
+def read_resume_text(attachment: dict[str, Any] | None) -> str:
+    """Text of an uploaded resume, normalised, or a ValueError saying why not."""
+    return _normalise_text(_read_resume_text(attachment))
+
+
+def _read_resume_text(attachment: dict[str, Any] | None) -> str:
+    """Text of an uploaded resume, or a ValueError saying why it can't be read.
+
+    PDFs go through PyMuPDF (good with multi-column layouts) with pypdf as a
+    fallback; Word .docx is read natively; RTF and plain text are decoded. A file
+    that cannot be read is refused rather than decoded into garbage, because
+    that garbage would otherwise be written into the profile.
     """
     if not attachment or not attachment.get("base64"):
-        return ""
+        raise ValueError(f"{_UNREADABLE}: no file content")
     try:
         raw = base64.b64decode(attachment["base64"], validate=True)
     except Exception:
-        return ""
+        raise ValueError(f"{_UNREADABLE}: the upload is not valid base64") from None
 
     name = str(attachment.get("name") or "").lower()
     mime = str(attachment.get("type") or attachment.get("mimeType") or "").lower()
 
-    # 1. Word DOCX documents
-    if name.endswith(".docx") or "word" in mime or "officedocument" in mime:
-        text = extract_docx_text(raw)
-        if text.strip():
-            return text
+    if raw.startswith(_OLE_MAGIC) or name.endswith(".doc") or mime == "application/msword":
+        raise ValueError(
+            f"{_UNREADABLE}: old Word .doc files can't be read. Save it as DOCX or PDF and upload again."
+        )
 
-    # 2. PDF documents
-    if "pdf" in mime or name.endswith(".pdf"):
-        # Try PyMuPDF first for superior multi-column layout handling
+    if name.endswith(".docx") or "officedocument" in mime or raw.startswith(b"PK\x03\x04"):
+        text = extract_docx_text(raw)
+        if not text.strip():
+            raise ValueError(f"{_UNREADABLE}: the Word file is damaged or empty. Save it again as DOCX or PDF.")
+        return text
+
+    if "pdf" in mime or name.endswith(".pdf") or raw.startswith(b"%PDF"):
         try:
             import pymupdf
 
@@ -68,18 +202,38 @@ def extract_text_from_attachment(attachment: dict[str, Any] | None) -> str:
                 return extracted
         except Exception:
             pass
-
-        # Fallback to pypdf
         try:
             reader = PdfReader(io.BytesIO(raw))
-            return "\n".join(page.extract_text() or "" for page in reader.pages)
+            extracted = "\n".join(page.extract_text() or "" for page in reader.pages)
         except Exception:
-            return ""
+            extracted = ""
+        if not extracted.strip():
+            raise ValueError(
+                f"{_UNREADABLE}: the PDF has no readable text (it may be a scan). Export it with text, or upload DOCX."
+            )
+        return extracted
 
-    # 3. Plain text / markdown fallback
+    if name.endswith(".rtf") or "rtf" in mime or raw.lstrip().startswith(b"{\\rtf"):
+        try:
+            rtf = raw.decode("utf-8")
+        except UnicodeDecodeError:
+            rtf = raw.decode("cp1252", errors="replace")
+        text = _rtf_to_text(rtf)
+        if not text.strip():
+            raise ValueError(f"{_UNREADABLE}: the RTF file is empty.")
+        return text
+
+    text = _decode_text(raw)
+    if not text.strip():
+        raise ValueError(f"{_UNREADABLE}: the file is empty.")
+    return text
+
+
+def extract_text_from_attachment(attachment: dict[str, Any] | None) -> str:
+    """Text of an attachment, or "" when it can't be read (see read_resume_text)."""
     try:
-        return raw.decode("utf-8", errors="ignore")
-    except Exception:
+        return read_resume_text(attachment)
+    except ValueError:
         return ""
 
 
@@ -147,6 +301,25 @@ Resume text:
         return None
 
 
+def _name_line(lines: list[str]) -> str:
+    """The first header line that reads like a person's name, or "".
+
+    A heading ("SUMMARY") or a contact line is never a name; when nothing fits,
+    the name stays unknown for the user to fill in instead of being guessed.
+    """
+    from app.services.resume_structure import _SECTION_PATTERNS
+
+    for line in lines:
+        if any(pattern.match(line) for pattern in _SECTION_PATTERNS.values()):
+            continue
+        if EMAIL_RE.search(line) or re.search(r"\d|https?://|www\.|[|@]", line):
+            continue
+        words = line.split()
+        if 1 <= len(words) <= 5 and all(re.fullmatch(r"[^\W\d_][\w.'’-]*,?", w) for w in words):
+            return line
+    return ""
+
+
 def parse_resume_fields(
     text: str,
     profile: dict[str, Any],
@@ -183,9 +356,10 @@ def parse_resume_fields(
         extracted["yearsExperience"] = updated["yearsExperience"]
 
     lines = [line.strip() for line in text.splitlines() if line.strip()]
-    if lines and not updated.get("fullName"):
-        updated["fullName"] = lines[0]
-        parts = lines[0].split()
+    name_line = _name_line(lines[:8])
+    if name_line and not updated.get("fullName"):
+        updated["fullName"] = name_line
+        parts = name_line.split()
         if len(parts) >= 2:
             updated["firstName"] = parts[0]
             updated["lastName"] = " ".join(parts[1:])
@@ -250,9 +424,7 @@ async def parse_resume_into_profile_async(
     if not needs_parse:
         return {"profile": profile, "extracted": {}, "textPreview": ""}
 
-    text = extract_text_from_attachment(resume)
-    if not text.strip():
-        raise ValueError("Could not extract text from resume")
+    text = read_resume_text(resume)
 
     # Attempt structured LLM extraction
     llm_data = await parse_resume_with_llm(text)
@@ -280,9 +452,7 @@ def parse_resume_into_profile(
     if not needs_parse:
         return {"profile": profile, "extracted": {}, "textPreview": ""}
 
-    text = extract_text_from_attachment(resume)
-    if not text.strip():
-        raise ValueError("Could not extract text from resume")
+    text = read_resume_text(resume)
 
     updated, extracted = parse_resume_fields(text, profile)
     return {

@@ -15,6 +15,9 @@ from app.services.application_assistant.profile_readiness import (
 )
 
 COMPLETE = {
+    "fullName": "Jordan Lee",
+    "email": "jordan.lee@example.com",
+    "phone": "(512) 555-0199",
     "englishLevel": "Proficient",
     "citizenshipCountry": "India",
     "state": "Washington",
@@ -45,6 +48,9 @@ def test_a_complete_profile_is_ready():
         ("workExperience", "workExperience"),
         ("education", "education"),
         ("workAuth", "sponsorship"),
+        ("fullName", "fullName"),
+        ("email", "email"),
+        ("phone", "phone"),
     ],
 )
 def test_removing_one_answer_produces_exactly_that_gap(dropped, expected_key):
@@ -60,7 +66,7 @@ def test_an_empty_profile_blocks_on_everything():
     report = evaluate_profile_readiness({})
 
     assert report.ready is False
-    assert len(report.blocking) == 7
+    assert len(report.blocking) == 10
 
 
 def test_a_missing_profile_is_handled():
@@ -214,7 +220,7 @@ def test_a_run_is_refused_when_the_profile_cannot_answer():
 
     assert result.get("refused") is True
     assert result.get("reason") == "profile_incomplete"
-    assert result["readiness"]["blockingCount"] == 7
+    assert result["readiness"]["blockingCount"] == 10
     assert "missing" in result["message"]
 
 

@@ -1,0 +1,28 @@
+{
+  "_about": "Neutral starting profile: no family, skill or domain preference, so every role is scored on its posting alone. Replace it with a read of your own resume (see 'Make matching yours' in README.md), or point CAREEROS_MATCH_PROFILE at your own file.",
+  "resume_file": "",
+  "years_experience": null,
+  "seniority": null,
+  "family_fit": {
+    "": 0.75
+  },
+  "seniority_fit": {
+    "0": 0.75,
+    "1": 0.85,
+    "2": 1.0,
+    "3": 1.0,
+    "4": 0.9,
+    "5": 0.75
+  },
+  "skills": {},
+  "domains": {},
+  "penalties": {
+    "years_over": 99,
+    "years_penalty": 0.0,
+    "clearance_re": "security clearance|ts/sci|top secret|secret clearance|active clearance|polygraph|clearance (?:is )?required",
+    "clearance_penalty": 0.0,
+    "cap": 15,
+    "years_cap": 99,
+    "language_re": ""
+  }
+}

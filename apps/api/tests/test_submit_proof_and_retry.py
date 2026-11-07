@@ -166,10 +166,22 @@ def test_development_env_is_gated_outside_tests_too(monkeypatch):
     assert live_submission_refusal(FORM) is None
 
 
-def test_the_owners_instance_and_production_are_not_gated(monkeypatch):
+def test_a_fresh_install_never_submits_until_the_user_opts_in(monkeypatch):
+    monkeypatch.delenv("CAREEROS_LIVE_APPLY", raising=False)
+    monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
+    monkeypatch.delenv("ALLOW_REAL_SUBMISSION", raising=False)
+    for env in ("", "production"):
+        monkeypatch.setenv("CAREEROS_ENV", env)
+        assert "ALLOW_REAL_SUBMISSION=true" in live_submission_refusal(FORM)
+    monkeypatch.setenv("ALLOW_REAL_SUBMISSION", "false")
+    assert "Real submission is off" in live_submission_refusal(FORM)
+
+
+def test_an_opted_in_instance_and_production_are_not_gated(monkeypatch):
     monkeypatch.delenv("CAREEROS_LIVE_APPLY", raising=False)
     monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
     monkeypatch.delenv("CAREEROS_ENV", raising=False)
+    monkeypatch.setenv("ALLOW_REAL_SUBMISSION", "true")
     assert live_submission_refusal(FORM) is None
     monkeypatch.setenv("CAREEROS_ENV", "production")
     assert live_submission_refusal(FORM) is None

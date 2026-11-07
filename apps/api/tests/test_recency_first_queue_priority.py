@@ -11,6 +11,9 @@ from __future__ import annotations
 from datetime import datetime, timezone, timedelta
 import pytest
 
+# These pin the author's hand-tuned order, the opt-in "owner" ranking preset.
+pytestmark = pytest.mark.usefixtures("owner_ranking_preset")
+
 from app.services.application_assistant.job_filter_ranker import (
     extract_posting_datetime,
     posting_recency_bonus,

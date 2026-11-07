@@ -18,7 +18,14 @@ export function ApplicationJourney({ jobId, view = "Journey" }: { jobId: string;
     const controller = new AbortController();
     setData(null); setError(false);
     fetch(`/api/backend/application-assistant/jobs/${encodeURIComponent(jobId)}/journey`, { signal: controller.signal, cache: "no-store" })
-      .then(async response => { if (!response.ok) throw new Error("Unavailable"); return response.json() as Promise<Journey>; })
+      .then(async response => {
+        if (!response.ok) throw new Error("Unavailable");
+        const value = await response.json() as Partial<Journey> | null;
+        // A malformed payload must show this panel's own error state; reading
+        // `assessment.state` off it used to crash the whole Applications page.
+        if (!value?.assessment || !Array.isArray(value.events) || !Array.isArray(value.evidence)) throw new Error("Malformed journey");
+        return value as Journey;
+      })
       .then(value => { if (!controller.signal.aborted) setData(value); })
       .catch(() => { if (!controller.signal.aborted) setError(true); });
     return () => controller.abort();

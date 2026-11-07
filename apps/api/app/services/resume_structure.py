@@ -222,6 +222,50 @@ def parse_education(lines: list[str]) -> list[dict[str, Any]]:
     return entries
 
 
+_TITLE_WORD = re.compile(
+    r"\b(engineer|developer|architect|manager|lead|director|specialist|intern|consultant"
+    r"|analyst|scientist|designer|administrator|vp|president|officer|coordinator|associate"
+    r"|member|fellow|sde|swe|mts|head|owner|researcher|strategist|recruiter|writer"
+    r"|producer|representative|executive|technician|programmer)s?\b",
+    re.I,
+)
+
+#: "Austin, TX", "Remote", "London, UK": a place, not an employer.
+_LOCATION_CASED = re.compile(r"^[A-Z][A-Za-z .'-]+,\s*[A-Z]{2,3}(?:\s*\(.*\))?$")
+
+_ENTRY_SPLIT = re.compile(r"\t+|\s{2,}|\s*[|·•]\s*|\s+[-–—]\s+")
+
+
+def _is_location(part: str) -> bool:
+    lowered = part.strip().lower()
+    if lowered.split(" ")[0] in ("remote", "hybrid", "onsite", "on-site"):
+        return True
+    return bool(_LOCATION_CASED.match(part.strip()))
+
+
+def _split_entry_line(text: str) -> list[str]:
+    """A role line's fields: "Title, Company — City, ST" -> three parts.
+
+    The comma and the word "at" only separate fields when the piece names a job
+    title, so "Austin, TX" or "Acme, Inc." are never cut in half.
+    """
+    parts: list[str] = []
+    for piece in (p.strip() for p in _ENTRY_SPLIT.split(text)):
+        if not piece:
+            continue
+        if _TITLE_WORD.search(piece) and not _is_location(piece):
+            at = re.split(r"\s+at\s+|\s+@\s+", piece, maxsplit=1)
+            if len(at) == 2 and _TITLE_WORD.search(at[0]):
+                parts.extend(x.strip() for x in at if x.strip())
+                continue
+            comma = piece.split(",", 1)
+            if len(comma) == 2 and _TITLE_WORD.search(comma[0]) and not _TITLE_WORD.search(comma[1]):
+                parts.extend(x.strip() for x in comma if x.strip())
+                continue
+        parts.append(piece)
+    return parts
+
+
 def parse_experience(lines: list[str]) -> list[dict[str, Any]]:
     """Employment entries.
 
@@ -230,12 +274,6 @@ def parse_experience(lines: list[str]) -> list[dict[str, Any]]:
     read from that line and the one above it.
     """
     entries: list[dict[str, Any]] = []
-    title_keywords = (
-        "engineer", "developer", "architect", "manager", "lead", "director",
-        "specialist", "intern", "consultant", "analyst", "scientist", "designer",
-        "administrator", "vp", "president", "officer", "coordinator", "associate",
-        "member", "fellow", "sde", "swe", "mts"
-    )
 
     for index, line in enumerate(lines):
         if _NOISE.match(line):
@@ -249,7 +287,7 @@ def parse_experience(lines: list[str]) -> list[dict[str, Any]]:
 
         # Strip the date out; what remains on the line is company and/or title.
         remainder = _DATE_RANGE.sub("", line).strip(" |,-–—\t")
-        parts = [p.strip() for p in re.split(r"\s{2,}|\s*[|·•]\s*|\s+[-–—]\s+", remainder) if p.strip()]
+        parts = _split_entry_line(remainder)
 
         if len(parts) < 2:
             previous = lines[index - 1].strip() if index > 0 else ""
@@ -261,23 +299,19 @@ def parse_experience(lines: list[str]) -> list[dict[str, Any]]:
                 and not _DATE_RANGE.search(previous)
                 and len(previous) < 90
             ):
-                parts = [
-                    p.strip() for p in re.split(r"\s{2,}|\s*[|·•]\s*", previous) if p.strip()
-                ] + parts
+                parts = _split_entry_line(previous) + parts
 
-        company = parts[0] if parts else ""
-        title = parts[1] if len(parts) > 1 else ""
-        location = parts[2] if len(parts) > 2 else ""
-
-        # Intelligently swap if parts[0] is clearly a job title and parts[1] is a company
-        if len(parts) > 1:
-            p0_lower = parts[0].lower()
-            p1_lower = parts[1].lower()
-            p0_has_title = any(kw in p0_lower for kw in title_keywords)
-            p1_has_title = any(kw in p1_lower for kw in title_keywords)
-            if p0_has_title and not p1_has_title:
-                title = parts[0]
-                company = parts[1]
+        location = next((p for p in parts if _is_location(p)), "")
+        fields = [p for p in parts if p != location]
+        titled = [p for p in fields if _TITLE_WORD.search(p)]
+        if titled and len(titled) < len(fields):
+            title = titled[0]
+            company = next(p for p in fields if p != title)
+        else:
+            company = fields[0] if fields else ""
+            title = fields[1] if len(fields) > 1 else ""
+        if not location and len(fields) > 2:
+            location = next((p for p in fields if p not in (company, title)), "")
 
         entry: dict[str, Any] = {}
         if company:

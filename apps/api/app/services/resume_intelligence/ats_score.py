@@ -38,11 +38,15 @@ def compute_ats_score(
             ],
         }
 
-    text = extract_text_from_upload(
-        base64_data=resume.get("base64", ""),
-        mime_type=resume.get("mimeType") or resume.get("type") or "",
-        filename=resume.get("name") or "",
-    )
+    try:
+        text = extract_text_from_upload(
+            base64_data=resume.get("base64", ""),
+            mime_type=resume.get("mimeType") or resume.get("type") or "",
+            filename=resume.get("name") or "",
+        )
+    except ValueError:
+        # Reported below as a failed "Parseable text" check, not hidden.
+        text = ""
 
     checklist: list[dict[str, Any]] = []
 

@@ -2,11 +2,14 @@
 
 import { useEffect, useState } from "react";
 import { getClientApiBaseUrl } from "@/lib/api";
+import { parseResumeIntoProfile, uploadDefaultResume } from "@/lib/documents-api";
 
 export type OnboardingQuestion = {
   key: string;
   label: string;
-  type: "text" | "number" | "select" | "boolean";
+  type: "text" | "number" | "select" | "boolean" | "resume";
+  /** Profile keys this question fills (the resume step fills work history and education). */
+  covers?: string[];
   options?: string[];
   required?: boolean;
   help?: string;
@@ -33,6 +36,9 @@ export function OnboardingWizardModal({ open, onClose, onSaved }: Props) {
   const [saving, setSaving] = useState(false);
   const [savedSuccess, setSavedSuccess] = useState(false);
   const [error, setError] = useState("");
+  const [resumeBusy, setResumeBusy] = useState(false);
+  const [resumeNote, setResumeNote] = useState("");
+  const [resumeError, setResumeError] = useState("");
 
   useEffect(() => {
     if (!open) return;
@@ -68,6 +74,39 @@ export function OnboardingWizardModal({ open, onClose, onSaved }: Props) {
 
   const handleChange = (key: string, value: any) => {
     setAnswers((prev) => ({ ...prev, [key]: value }));
+  };
+
+  const handleResume = async (key: string, file: File | undefined) => {
+    if (!file) return;
+    setResumeBusy(true);
+    setResumeError("");
+    setResumeNote("");
+    try {
+      const saved = await uploadDefaultResume(file);
+      handleChange(key, saved.name || file.name);
+      // The parse can fail (a scan, an old .doc) after the upload succeeded;
+      // say so plainly so the user knows to fill the rest by hand.
+      const { profile, extracted } = await parseResumeIntoProfile(true);
+      setAnswers((prev) => {
+        const next = { ...prev };
+        for (const question of sections.flatMap((section) => section.questions)) {
+          const value = profile[question.key];
+          const blank = next[question.key] === undefined || next[question.key] === "";
+          if (blank && value !== undefined && value !== null && value !== "") next[question.key] = value;
+        }
+        return next;
+      });
+      const found = Object.keys(extracted || {});
+      setResumeNote(
+        found.length
+          ? `Read from your resume: ${found.join(", ")}. Check the details below.`
+          : "Resume saved. Your profile already had these details.",
+      );
+    } catch (err) {
+      setResumeError(err instanceof Error ? err.message : "Could not read that resume");
+    } finally {
+      setResumeBusy(false);
+    }
   };
 
   const handleNext = () => {
@@ -301,7 +340,28 @@ export function OnboardingWizardModal({ open, onClose, onSaved }: Props) {
                         <p style={{ margin: "0 0 0.5rem", fontSize: "0.75rem", color: "#94a3b8" }}>{q.help}</p>
                       )}
 
-                      {q.type === "select" && q.options ? (
+                      {q.type === "resume" ? (
+                        <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+                          <input
+                            type="file"
+                            accept=".pdf,.docx,.rtf,.txt"
+                            aria-label={q.label}
+                            disabled={resumeBusy}
+                            onChange={(e) => void handleResume(q.key, e.target.files?.[0])}
+                          />
+                          {resumeBusy && <p role="status" style={{ margin: 0, fontSize: "0.8rem" }}>Reading your resume…</p>}
+                          {!resumeBusy && val && !resumeError && (
+                            <p role="status" style={{ margin: 0, fontSize: "0.8rem" }}>
+                              {resumeNote || `Using ${String(val)}. Upload again to replace it.`}
+                            </p>
+                          )}
+                          {resumeError && (
+                            <p role="alert" style={{ margin: 0, fontSize: "0.8rem", color: "#f87171" }}>
+                              {resumeError}
+                            </p>
+                          )}
+                        </div>
+                      ) : q.type === "select" && q.options ? (
                         <select
                           className="control"
                           value={val ?? ""}

@@ -117,6 +117,7 @@ services:
     build:
       context: .
       dockerfile: apps/web/Dockerfile
+      target: dev
     image: careeros-web:dev
     ports:
       - "5000:5000"

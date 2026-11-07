@@ -65,7 +65,7 @@ jobs:
         working-directory: CareerOS/apps/api
       - run: python -m compileall app
         working-directory: CareerOS/apps/api
-      - run: pytest tests -q
+      - run: pytest tests -q -m "not network"
         working-directory: CareerOS/apps/api
 
   web-e2e:

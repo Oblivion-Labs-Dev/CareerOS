@@ -178,6 +178,7 @@
   white-space: nowrap;
 }
 .footer span + span { flex: none; }
+.footer .paced { color: var(--text-strong, inherit); font-weight: 600; }
 
 /* Summary block at the top of the details popup: plain words, real facts,
    and the actions that used to sit on the card's back. */

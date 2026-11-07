@@ -4,11 +4,13 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_RESUME_PATH = Path(r"D:\3 - Resources\Docs\Interview\Resume\Akshay_Borse_Resume.pdf")
+# Your resume: CAREEROS_RESUME_PATH, else data/resume.pdf (see .env.example).
+DEFAULT_RESUME_PATH = Path(os.environ.get("CAREEROS_RESUME_PATH") or ROOT.parents[1] / "data" / "resume.pdf")
 sys.path.insert(0, str(ROOT))
 
 from app.config import settings  # noqa: E402

@@ -12,6 +12,8 @@ test("dashboard metrics agree with backend records", async ({ page }) => {
     if (!result.hasMore) break;
     offset += result.jobs.length;
   }
+  // Since 86bb2ec the dashboard keeps Search intelligence behind its own tab.
+  await page.getByRole("tab", { name: "Search Intelligence" }).click();
   const section = page.getByRole("region", { name: "Search intelligence" });
   await expect(section.getByRole("status")).toContainText(`All ${records.length} application records`);
   const strong = records.filter(job => job.status === "QUEUED" && typeof job.matchScore === "number" && job.matchScore >= 80).length;

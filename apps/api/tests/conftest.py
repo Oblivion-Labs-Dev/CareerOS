@@ -45,6 +45,10 @@ _TEST_ENV = {
     # it at a file that does not exist: a test that needs a baseline uses the
     # synthetic one in tests/resume_baseline_fixture.py, which sets its own path.
     "CAREEROS_APPROVED_RESUME_PATH": str(_TEST_STATE_DIR / "no-approved-resume.pdf"),
+    # The queue ranks with the neutral preset a fresh checkout gets, whatever
+    # config/ranking_preferences.json says on this machine. Tests of the
+    # owner's hand-tuned order opt in with the owner_ranking_preset fixture.
+    "CAREEROS_RANKING_PREFERENCES": str(_TEST_STATE_DIR / "no-ranking-preferences.json"),
 }
 _PREVIOUS_ENV = {key: os.environ.get(key) for key in _TEST_ENV}
 os.environ.update(_TEST_ENV)
@@ -130,3 +134,28 @@ def isolate_candidate_manifest(request, monkeypatch):
 
     real = request.node.get_closest_marker("real_candidate_manifest") is not None
     monkeypatch.setattr(profile_answer_resolver, "_MANIFEST_CACHE", None if real else [])
+
+
+@pytest.fixture
+def owner_ranking_preset(tmp_path, monkeypatch):
+    """Rank the queue with the original author's preset (ranking_preferences.py)."""
+    from app.services.application_assistant import ranking_preferences
+
+    path = tmp_path / "ranking_preferences.json"
+    path.write_text('{"preset": "owner"}', encoding="utf-8")
+    monkeypatch.setenv("CAREEROS_RANKING_PREFERENCES", str(path))
+    ranking_preferences.clear_cache()
+    yield
+    ranking_preferences.clear_cache()
+
+
+@pytest.fixture
+def engineer_match_profile(monkeypatch):
+    """Score with a fixed sample engineer profile, not whatever profile the app ships."""
+    from app.services.application_assistant import profile_match
+
+    path = Path(__file__).parent / "fixtures" / "engineer_match_profile.json"
+    monkeypatch.setenv(profile_match.PROFILE_ENV, str(path))
+    profile_match.default_profile.cache_clear()
+    yield
+    profile_match.default_profile.cache_clear()
