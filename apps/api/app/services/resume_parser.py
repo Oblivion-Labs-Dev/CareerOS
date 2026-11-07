@@ -1,5 +1,6 @@
 import base64
 import io
+import logging
 import re
 import xml.etree.ElementTree as ET
 import zipfile
@@ -8,6 +9,25 @@ from typing import Any
 from pypdf import PdfReader
 
 from app.services.profile_normalizer import normalize_work_authorization
+
+logger = logging.getLogger(__name__)
+
+
+def refresh_match_profile(text: str, profile: dict[str, Any], resume: dict[str, Any]) -> dict[str, Any]:
+    """Rebuild the job-match profile from this resume; report failure, never hide it."""
+    from app.services.application_assistant.match_profile_builder import write_match_profile
+
+    try:
+        path = write_match_profile(
+            text,
+            title=str(profile.get("currentTitle") or profile.get("targetRole") or ""),
+            years=profile.get("yearsExperience"),
+            resume_file=str(resume.get("name") or ""),
+        )
+    except Exception as exc:  # noqa: BLE001 - the parse itself still succeeded
+        logger.exception("Could not build the job-match profile from the resume")
+        return {"ok": False, "error": str(exc)}
+    return {"ok": True, "path": str(path)}
 
 EMAIL_RE = re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b")
 PHONE_RE = re.compile(r"(?:\+?1[-.\s]?)?(?:\(?\d{3}\)?[-.\s]?)\d{3}[-.\s]?\d{4}\b")
@@ -434,6 +454,7 @@ async def parse_resume_into_profile_async(
         "profile": updated,
         "extracted": extracted,
         "textPreview": text[:1200],
+        "matchProfile": refresh_match_profile(text, updated, resume),
     }
 
 
@@ -459,4 +480,5 @@ def parse_resume_into_profile(
         "profile": updated,
         "extracted": extracted,
         "textPreview": text[:1200],
+        "matchProfile": refresh_match_profile(text, updated, resume),
     }

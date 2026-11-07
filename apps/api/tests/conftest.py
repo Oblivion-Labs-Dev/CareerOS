@@ -136,6 +136,17 @@ def isolate_candidate_manifest(request, monkeypatch):
     monkeypatch.setattr(profile_answer_resolver, "_MANIFEST_CACHE", None if real else [])
 
 
+@pytest.fixture(autouse=True)
+def isolate_generated_match_profile(tmp_path, monkeypatch):
+    """Parsing a resume writes data/profile/match_profile.json; keep tests off the real one."""
+    from app.services.application_assistant import match_profile_builder, profile_match
+
+    monkeypatch.setattr(match_profile_builder, "GENERATED_PROFILE_PATH", tmp_path / "generated_match_profile.json")
+    profile_match.default_profile.cache_clear()
+    yield
+    profile_match.default_profile.cache_clear()
+
+
 @pytest.fixture
 def owner_ranking_preset(tmp_path, monkeypatch):
     """Rank the queue with the original author's preset (ranking_preferences.py)."""

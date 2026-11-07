@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { getClientApiBaseUrl } from "@/lib/api";
-import { parseResumeIntoProfile, uploadDefaultResume } from "@/lib/documents-api";
+import { matchProfileProblem, parseResumeIntoProfile, uploadDefaultResume } from "@/lib/documents-api";
 
 export type OnboardingQuestion = {
   key: string;
@@ -86,7 +86,8 @@ export function OnboardingWizardModal({ open, onClose, onSaved }: Props) {
       handleChange(key, saved.name || file.name);
       // The parse can fail (a scan, an old .doc) after the upload succeeded;
       // say so plainly so the user knows to fill the rest by hand.
-      const { profile, extracted } = await parseResumeIntoProfile(true);
+      const { profile, extracted, matchProfile } = await parseResumeIntoProfile(true);
+      setResumeError(matchProfileProblem(matchProfile));
       setAnswers((prev) => {
         const next = { ...prev };
         for (const question of sections.flatMap((section) => section.questions)) {

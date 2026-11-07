@@ -31,6 +31,13 @@ export async function uploadDefaultResume(file: File): Promise<StoredResume> {
   return res.resume;
 }
 
-export async function parseResumeIntoProfile(force = false): Promise<{ profile: Record<string, unknown>; extracted: Record<string, unknown> }> {
+/** Whether the job-match profile could be rebuilt from this resume. */
+export type MatchProfileStatus = { ok: true; path: string } | { ok: false; error: string };
+
+export function matchProfileProblem(status: MatchProfileStatus | undefined): string {
+  return status && !status.ok ? `Job matching could not read your skills from this resume (${status.error}), so jobs are ranked without them.` : "";
+}
+
+export async function parseResumeIntoProfile(force = false): Promise<{ profile: Record<string, unknown>; extracted: Record<string, unknown>; matchProfile?: MatchProfileStatus }> {
   return postJson("/api/parse-resume", { force });
 }

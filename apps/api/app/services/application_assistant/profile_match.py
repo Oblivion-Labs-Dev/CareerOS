@@ -151,7 +151,22 @@ def default_profile() -> Profile:
     if override and not Path(override).is_file():
         # A typo here would silently score every job against the wrong resume.
         raise FileNotFoundError(f"{PROFILE_ENV}={override} does not exist")
-    return load_profile(Path(override) if override else PROFILE_PATH)
+    return load_profile(Path(override) if override else resolve_profile_path())
+
+
+def resolve_profile_path() -> Path:
+    """Which profile file to score with when no override is set.
+
+    A bundled profile that names a resume was tuned by hand and wins. Otherwise
+    the profile generated from the uploaded resume is used, and the neutral
+    bundled one only until a resume has been parsed.
+    """
+    from app.services.application_assistant.match_profile_builder import GENERATED_PROFILE_PATH
+
+    bundled = json.loads(PROFILE_PATH.read_text(encoding="utf-8"))
+    if bundled.get("resume_file"):
+        return PROFILE_PATH
+    return GENERATED_PROFILE_PATH if GENERATED_PROFILE_PATH.is_file() else PROFILE_PATH
 
 
 def _embedded_score(title: str, body: str) -> float:

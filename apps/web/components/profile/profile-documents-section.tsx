@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { fetchDefaultResume, parseResumeIntoProfile, uploadDefaultResume, type StoredResume } from "@/lib/documents-api";
+import { fetchDefaultResume, matchProfileProblem, parseResumeIntoProfile, uploadDefaultResume, type StoredResume } from "@/lib/documents-api";
 
 type Props = {
   onProfileSynced?: () => void;
@@ -55,6 +55,7 @@ export function ProfileDocumentsSection({ onProfileSynced }: Props) {
     setMessage("");
     try {
       const result = await parseResumeIntoProfile(true);
+      setError(matchProfileProblem(result.matchProfile));
       const extracted = Object.keys(result.extracted || {});
       setMessage(
         extracted.length
