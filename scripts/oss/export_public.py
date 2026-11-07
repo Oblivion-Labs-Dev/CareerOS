@@ -72,6 +72,7 @@ SUBSTITUTIONS: list[tuple[str, str]] = [
     ("Akshay", "Alex"), ("AKSHAY", "ALEX"), ("akshay", "alex"),
     ("Borse", "Rivera"), ("BORSE", "RIVERA"), ("borse", "rivera"),
     (r"D:\3 - Resources\Docs\Interview\Resume", r"C:\path\to\your\resume-folder"),
+    (r"D:\3 - Resources", r"C:\path\to\your\files"),
 ]
 _PHONE = re.compile(r"(\(?425\)?[\s.\-]?)336([\s.\-]?)9852")
 
@@ -79,6 +80,9 @@ _PHONE = re.compile(r"(\(?425\)?[\s.\-]?)336([\s.\-]?)9852")
 # (the benchmark cases stay grounded in it) with fictional employers.
 _FICTIONAL_RESUME = [
     ("Microsoft Purview Insider Risk Management", "Northwind Sentinel"),
+    ("Agent Adaptive Protection", "Agent Risk Controls"),
+    ("Adaptive Protection", "Adaptive Risk Controls"),
+    ("Insider Risk Management", "Risk Analytics"),
     ("Microsoft Purview", "Northwind Sentinel"), ("Purview", "Sentinel"),
     ("Microsoft", "Northwind Systems"), ("Amazon", "Contoso Cloud"),
     ("Northeastern University", "Lakeside State University"),
@@ -86,6 +90,8 @@ _FICTIONAL_RESUME = [
 ]
 FILE_SUBSTITUTIONS: dict[str, list[tuple[str, str]]] = {
     "apps/api/app/services/application_assistant/benchmark_dataset.py": _FICTIONAL_RESUME,
+    "apps/api/app/services/application_assistant/resume_diff_service.py": _FICTIONAL_RESUME,
+    "apps/extension/scripts/resumeParser.test.js": _FICTIONAL_RESUME,
 }
 
 LEAK_PATTERNS = [
