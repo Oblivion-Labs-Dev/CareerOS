@@ -14,7 +14,6 @@ test("a malformed journey shows the panel's error, not a crashed page", async ({
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
   await page.context().addCookies([{ name: "co_session", value: "isolated-ui-fixture", url: baseURL! }]);
-  await page.addInitScript(() => window.localStorage.setItem("careeros.cardStyle", "classic"));
   await page.route("**/api/**", async (route) => {
     const url = new URL(route.request().url());
     if (route.request().method() !== "GET") return route.fulfill({ json: { success: true } });

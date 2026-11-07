@@ -12,8 +12,8 @@ import "./cos-light-mode.css";
 // Last: re-expresses the global classes the 37 pages already use in the shared
 // token language, so the whole app inherits one design language at once.
 import "./design-language.css";
-// Lab's matte material, scoped to html[data-material="matte"]; loads after
-// everything so its overrides win while Lab is chosen.
+// Lab's matte material, scoped to html[data-material="matte"] (always set on
+// <html> below); loads after everything so its overrides win.
 import "./matte-material.css";
 import "./cinematic-atmosphere.css";
 
@@ -76,6 +76,7 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html
+      data-material="matte"
       lang="en"
       suppressHydrationWarning
       className={`${inter.variable} ${outfit.variable} ${geist.variable} ${instrumentSerif.variable} ${jetbrainsMono.variable}`}
@@ -84,7 +85,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         {/* Set visual preferences before first paint to avoid theme/material flashes. */}
         <script
           dangerouslySetInnerHTML={{
-            __html: `try{document.documentElement.dataset.material=localStorage.getItem("careeros.cardStyle")==="classic"?"glass":"matte";document.documentElement.dataset.atmosphere=localStorage.getItem("careeros.atmosphere")==="standard"?"standard":"cinematic"}catch(e){document.documentElement.dataset.material="matte";document.documentElement.dataset.atmosphere="cinematic"}`,
+            __html: `try{document.documentElement.dataset.atmosphere=localStorage.getItem("careeros.atmosphere")==="standard"?"standard":"cinematic"}catch(e){document.documentElement.dataset.atmosphere="cinematic"}`,
           }}
         />
         <NextTopLoader color="var(--accent)" height={2} showSpinner={false} shadow={false} crawlSpeed={120} speed={180} zIndex={2000} />

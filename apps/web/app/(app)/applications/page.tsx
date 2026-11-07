@@ -10,8 +10,6 @@ import { LatencyDiagnosticsCenter } from "@/components/application-assistant/lat
 import { RecruiterInbox } from "@/components/tracker/recruiter-inbox";
 import { PipelineKanban } from "@/components/tracker/pipeline-kanban";
 import styles from "@/components/application-assistant/autopilot/control-center.module.css";
-import { CardStyleSwitch } from "@/components/ui/lab-kpi-card";
-import { useCardStyle } from "@/hooks/use-card-style";
 
 function ApplicationQueueLoading() {
   return (
@@ -68,7 +66,6 @@ export default function ApplicationsPage() {
 function ApplicationsPageInner() {
   const searchParams = useSearchParams();
   const tab = searchParams.get("tab") || "autopilot";
-  const [cardStyle, setCardStyle] = useCardStyle();
 
   // Legacy standalone surfaces kept intact at their original routes.
   if (tab === "tracker") {
@@ -125,10 +122,9 @@ function ApplicationsPageInner() {
         >
           Autopilot
         </Link>
-        {/* Lab folds the dashboard's chart and outcome figures into the
-            Autopilot view, so its separate tab only exists in Classic.
-            ?tab=dashboard still resolves for old links. */}
-        {cardStyle === "classic" || view === "dashboard" ? (
+        {/* The Autopilot view holds the dashboard's chart and outcome figures,
+            so this tab only shows when an old ?tab=dashboard link opens it. */}
+        {view === "dashboard" ? (
           <Link
             href="/applications?tab=dashboard"
             role="tab"
@@ -140,7 +136,6 @@ function ApplicationsPageInner() {
           </Link>
         ) : null}
       </nav>
-      {view === "autopilot" ? <CardStyleSwitch value={cardStyle} onChange={setCardStyle} /> : null}
       </div>
       <Suspense fallback={<ApplicationQueueLoading />}>
         {view === "dashboard" ? (

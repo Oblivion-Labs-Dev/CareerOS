@@ -23,9 +23,7 @@ import styles from "./control-center.module.css";
 import { NightBatchCard, type NightBatchConfig } from "./night-batch-card";
 import { LastUpdatePanel } from "./last-update-panel";
 import { LabKpiCard } from "@/components/ui/lab-kpi-card";
-import { CountUp } from "@/components/count-up";
 import labStyles from "@/components/ui/lab-kpi-card.module.css";
-import { useCardStyle } from "@/hooks/use-card-style";
 import { ProgressProvider } from "@/components/career-progress/progress-provider";
 import { ApplicationAnalytics } from "@/components/dashboard/application-analytics";
 import { getClientApiBaseUrl } from "@/lib/api";
@@ -251,7 +249,6 @@ export function AutopilotControlCenter({
   // In Review (NEEDS_REVIEW + STAGED) + Manual Review — the true system-wide
   // total, not a count derived from the capped recent-jobs sample.
   const needsReviewCount = (statusCounts.NEEDS_REVIEW || 0) + (statusCounts.STAGED || 0) + (statusCounts.MANUAL_REVIEW || 0);
-  const [cardStyle] = useCardStyle();
 
   // Pause/stop only. Starting a run goes through the Night Batch card, which is
   // the single place a batch is configured — there is deliberately no second
@@ -374,7 +371,6 @@ export function AutopilotControlCenter({
       <div className={styles.overviewGrid}>
           <div className={styles.mainCol}>
             {/* ── Operational metrics ── */}
-            {cardStyle === "lab" ? (
               <div className={labStyles.grid}>
                 <LabKpiCard
                   label="Submitted today"
@@ -459,32 +455,6 @@ export function AutopilotControlCenter({
                   action={{ href: "/applications?tab=review", label: "Open review" }}
                 />
               </div>
-            ) : (
-            <div className={styles.metricGrid}>
-              <div className={styles.metric} data-tone="success">
-                <div className={styles.metricValue}><CountUp value={statsLoading ? null : today.submitted} /></div>
-                <div className={styles.metricLabel}>Submitted today</div>
-                {today.submitted24h > today.submitted && (
-                  <div className={styles.metricHint}>{today.submitted24h} in last 24h</div>
-                )}
-              </div>
-              <div className={styles.metric} data-tone="info">
-                <div className={styles.metricValue}><CountUp value={cumulative ? cumulative.submitted : null} delayMs={60} /></div>
-                <div className={styles.metricLabel}>Total submitted</div>
-              </div>
-              <div className={styles.metric} data-tone="active">
-                <div className={styles.metricValue}>
-                  {successRate == null ? <span className={styles.unknownValue}>—</span> : <CountUp value={successRate} suffix="%" delayMs={120} />}
-                </div>
-                <div className={styles.metricLabel}>Success rate</div>
-                <div className={styles.metricHint}>submitted ÷ (submitted + review + failed)</div>
-              </div>
-              <div className={styles.metric} data-tone="attention">
-                <div className={styles.metricValue}><CountUp value={statsLoading ? null : needsReviewCount} delayMs={180} /></div>
-                <div className={styles.metricLabel}>Need your review</div>
-              </div>
-            </div>
-            )}
           </div>
 
       </div>
@@ -496,20 +466,11 @@ export function AutopilotControlCenter({
 
       {controlError && <div className={styles.empty}>{controlError}</div>}
 
-      {cardStyle === "lab" ? (
-        <>
-          {overview}
-          <ProgressProvider>
-            <ApplicationAnalytics chartOnly />
-          </ProgressProvider>
-          {batchRow}
-        </>
-      ) : (
-        <>
-          {batchRow}
-          {overview}
-        </>
-      )}
+      {overview}
+      <ProgressProvider>
+        <ApplicationAnalytics chartOnly />
+      </ProgressProvider>
+      {batchRow}
 
       <div id="application-workspace">
         <AutopilotApplicationsView

@@ -117,29 +117,3 @@ export function LabKpiCard({ label, value, icon, accent, hint, meter, insight, a
     </div>
   );
 }
-
-/** Classic / Lab pill switch for the metric card look. */
-export function CardStyleSwitch({
-  value,
-  onChange,
-}: {
-  value: "classic" | "lab";
-  onChange: (next: "classic" | "lab") => void;
-}) {
-  return (
-    <div className={styles.switch} role="radiogroup" aria-label="Metric card style">
-      {(["classic", "lab"] as const).map((option) => (
-        <button
-          key={option}
-          type="button"
-          role="radio"
-          aria-checked={value === option}
-          data-active={value === option}
-          onClick={() => onChange(option)}
-        >
-          {option === "classic" ? "Classic" : "Lab"}
-        </button>
-      ))}
-    </div>
-  );
-}

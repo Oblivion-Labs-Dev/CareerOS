@@ -1,6 +1,5 @@
 "use client";
 
-import { transitionSurface } from "@/lib/surface-transition";
 import { useApplicationScroll } from "@/hooks/use-application-scroll";
 import { WorkspaceLoading } from "@/components/ui/workspace-loading";
 import { useSessionState } from "@/hooks/use-session-state";
@@ -21,10 +20,8 @@ import type { AutopilotJobRow } from "./job-types";
 import { FILTERS, INELIGIBILITY_LABELS, REASON_FILTER_TABS, SORTS, STATUS_VIEWS, SUBMITTED_DRILLDOWN, getJobReasonMeta, type ReasonMeta, type StatusFilter, type SortMode } from "./job-presentation";
 import { PAGE_SIZE, useApplicationPages } from "./use-application-pages";
 import { ApplicationDetails } from "./application-details";
-import detailStyles from "./application-details.module.css";
 import { ApplicationCard, CardActions, cardReason } from "./application-card";
 import { LabJobSummary } from "./lab-application-card";
-import { useCardStyle } from "@/hooks/use-card-style";
 import { StackedApplicationGroup } from "./stacked-application-group";
 import stackStyles from "./stacked-application-group.module.css";
 import { QuickAddJobPanel } from "./quick-add-job-panel";
@@ -83,11 +80,8 @@ export function AutopilotApplicationsView({
   const [confirmRequeue, setConfirmRequeue] = useState<RequeueBucket | null>(null);
   const [detail, setDetail] = useState<AutopilotJobRow | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
-  // Lab opens a centred popup that flips up out of the clicked card; Classic
-  // keeps the slide-in drawer with its shared-element monogram.
-  const [cardStyle] = useCardStyle();
-  const flipDetails = cardStyle === "lab";
-  const openDetails = (job: AutopilotJobRow) => (flipDetails ? setDetail(job) : transitionSurface(() => setDetail(job)));
+  // Details open in a centred popup that flips up out of the clicked card.
+  const openDetails = (job: AutopilotJobRow) => setDetail(job);
   const [note, setNote] = useState<string | null>(null);
   const [answerDrafts, setAnswerDrafts] = useState<Record<string, string>>({});
   useEffect(() => {
@@ -643,10 +637,9 @@ export function AutopilotApplicationsView({
       <SidePanelPortal
         open={Boolean(detail)}
         onClose={() => setDetail(null)}
-        panelClassName={flipDetails ? "" : detailStyles.panel}
         ariaLabelledBy="application-details-title"
         backdropAriaLabel="Close application details"
-        variant={flipDetails ? "flip" : "side"}
+        variant="flip"
         originEl={() =>
           detail
             ? document.querySelector<HTMLElement>(`[data-card-variant="lab"][data-job-id="${CSS.escape(detail.id)}"]`)
@@ -665,7 +658,7 @@ export function AutopilotApplicationsView({
             onSkip={() => void skipJob(detail)}
             onSetState={(status, label) => void setJobState(detail, status, label)}
             busy={busy === detail.id}
-            lead={flipDetails ? (() => {
+            lead={(() => {
               // The row in the grid is refreshed after an action; the opened
               // snapshot is not, so the summary reads the live one.
               const live = visible.find((row) => row.id === detail.id) ?? detail;
@@ -684,7 +677,7 @@ export function AutopilotApplicationsView({
                   }
                 />
               );
-            })() : undefined}
+            })()}
           />
         )}
       </SidePanelPortal>

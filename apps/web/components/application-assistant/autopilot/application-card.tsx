@@ -1,10 +1,6 @@
-import { identityTransition } from "@/lib/surface-transition";
-import { useSurfaceDepth } from "@/hooks/use-surface-depth";
 import type { AutopilotJobRow } from "./job-types";
-import { useCountUp } from "./use-count-up";
-import { INELIGIBILITY_LABELS, capCountdown, getJobReasonMeta, relativeTime, statusView } from "./job-presentation";
+import { INELIGIBILITY_LABELS, capCountdown } from "./job-presentation";
 import styles from "./application-card.module.css";
-import { useCardStyle } from "@/hooks/use-card-style";
 import { LabApplicationCard } from "./lab-application-card";
 
 export type CardProps = {
@@ -12,20 +8,16 @@ export type CardProps = {
   onAssistedFill?: () => void; onRetry?: () => void;
 };
 
-/** Classic stays the default; Lab is the opt-in flip card from the Classic/Lab switch. */
+/** The Lab flip card; its actions live in the details popup it opens. */
 export function ApplicationCard(props: CardProps) {
-  const [cardStyle] = useCardStyle();
-  if (cardStyle === "lab") {
-    return (
-      <LabApplicationCard
-        job={props.job}
-        reason={cardReason(props.job)}
-        detailed={props.detailed ?? false}
-        onDetails={props.onDetails}
-      />
-    );
-  }
-  return <ClassicApplicationCard {...props} />;
+  return (
+    <LabApplicationCard
+      job={props.job}
+      reason={cardReason(props.job)}
+      detailed={props.detailed ?? false}
+      onDetails={props.onDetails}
+    />
+  );
 }
 
 export function cardReason(job: AutopilotJobRow): string | null {
@@ -34,88 +26,6 @@ export function cardReason(job: AutopilotJobRow): string | null {
     : job.status === "REJECTED"
       ? (job.rejectionEvidence?.subject ? `From: "${job.rejectionEvidence.subject}"` : "Marked rejected")
       : job.skipReason || job.lastError || null;
-}
-
-function ClassicApplicationCard({ job, busy, onDetails, onApply, onAssistedFill, onRetry, detailed = false }: CardProps) {
-  const surface = useSurfaceDepth(job.status);
-  const status = statusView(job.status);
-  const score = typeof job.matchScore === "number" && Number.isFinite(job.matchScore)
-    ? Math.max(0, Math.min(100, Math.round(job.matchScore))) : null;
-  // Dial and number are driven by one animated value so they cannot disagree
-  // mid-sweep: both climb from zero to the real score together.
-  const shownScore = useCountUp(score);
-  const initials = (job.company || "?").split(/\s+/).slice(0, 2).map(word => word[0]).join("").toUpperCase();
-  // Held by the per-employer rate limit. Recomputed from the stored expiry on
-  // each render rather than trusted as a flag, so the badge clears itself when
-  // the window rolls even if the row has not been rewritten yet.
-  const paced = capCountdown(job);
-  const isPostProcessing = ["manual", "review", "failed", "ineligible", "skipped", "unverified"].includes(status.key);
-  const reasonMeta = isPostProcessing ? getJobReasonMeta(job) : null;
-  const isCaptcha = reasonMeta?.tone === "captcha";
-  const reason = cardReason(job);
-  return (
-    // The whole card opens the dossier — there is no separate View button to
-    // aim for. Inner controls stop propagation so Apply and Autofill still do
-    // their own thing. Changing which bucket a job sits in lives in the side
-    // panel, not here.
-    <article
-      ref={surface}
-      className={`${styles.card} appCard`}
-      title={reason || undefined}
-      data-status={status.key}
-      data-captcha={isCaptcha ? "true" : undefined}
-      data-job-id={job.id}
-      role="button"
-      tabIndex={0}
-      aria-label={`Open details for ${job.title || "this role"} at ${job.company || "this company"}`}
-      onClick={onDetails}
-      onKeyDown={(event) => {
-        if (event.target !== event.currentTarget) return;
-        if (event.key === "Enter" || event.key === " ") {
-          event.preventDefault();
-          onDetails();
-        }
-      }}
-    >
-      <div className={styles.identity}>
-        <span className={styles.monogram} style={{viewTransitionName: detailed ? "none" : identityTransition(job.id)}} aria-hidden="true">{initials}</span>
-        <div className={styles.company}>{job.company || "Unknown company"}</div>
-        <span className={styles.status}><i />{status.label}</span>
-      </div>
-      {reasonMeta && (
-        <div className={styles.reasonTag} data-tone={reasonMeta.tone} title={reasonMeta.explanation}>
-          <span aria-hidden="true">{reasonMeta.icon}</span>
-          <span className={styles.reasonTagText}>{reasonMeta.label}</span>
-        </div>
-      )}
-      {paced && (
-        // A paced job is queued and wanted, not stuck — so this is a countdown
-        // next to the status rather than a second status. Apply still works and
-        // overrides the limit, which the tooltip says so the button does not
-        // look like it will be refused.
-        <p className={styles.paced} title={paced.detail}>
-          <span aria-hidden="true">⏳</span>
-          <span>{paced.label}</span>
-        </p>
-      )}
-      <p className={styles.title}>{job.title || "Unknown role"}</p>
-      <p className={styles.location}>{job.location || "Location not listed"}</p>
-      {score !== null && (
-        <div className={styles.dossier}>
-          <div className={styles.fit}>
-            <span className={styles.matchScore} aria-label={`${score}% match`}>{shownScore ?? score}%</span>
-          </div>
-        </div>
-      )}
-      {reason && <p className={styles.reason}>{reason}</p>}
-      <footer className={styles.footer}>
-        <span>{job.status === "SUBMITTED" && job.submittedAt ? `Submitted ${relativeTime(job.submittedAt)}` : job.updatedAt ? `Updated ${relativeTime(job.updatedAt)}` : "Application workspace"}</span>
-        <span className={styles.actions}>
-          <CardActions job={job} busy={busy} onApply={onApply} onAssistedFill={onAssistedFill} onRetry={onRetry} />
-        </span>
-      </footer>
-    </article>
-  );
 }
 
 /** Apply / Autofill / Retry, shared by both card looks so they cannot drift. */

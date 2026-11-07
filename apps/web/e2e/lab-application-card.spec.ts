@@ -1,11 +1,10 @@
 import { expect, test, type Page } from "@playwright/test";
 
 /**
- * The Lab flip look for application cards. Lab is the default; Classic stays
- * reachable through the Classic/Lab switch. A click flips the card open into a
- * centred popup that explains where it stands, with its actions, and keeps
- * every Classic behaviour: Apply still sends, and an unscored job
- * shows a dash rather than a made-up number.
+ * The Lab flip look for application cards, the only card look. A click flips
+ * the card open into a centred popup that explains where it stands, with its
+ * actions: Apply still sends, and an unscored job shows a dash rather than a
+ * made-up number.
  *
  * Every API call is a local fixture, so nothing is ever really applied to.
  */
@@ -46,7 +45,7 @@ async function mockApi(page: Page, baseURL: string, applied: string[]) {
 
 const card = (page: Page, id: string) => page.locator(`article[data-job-id="${id}"]`);
 
-test("Lab is the default application card; Classic is still a saved choice", async ({ page, baseURL }) => {
+test("Lab is the only application card, even with an old Classic choice saved", async ({ page, baseURL }) => {
   await mockApi(page, baseURL!, []);
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto("/applications?tab=applications");
@@ -61,10 +60,14 @@ test("Lab is the default application card; Classic is still a saved choice", asy
   await expect(activity).toContainText("Initech");
   await expect(activity).not.toContainText("Nothing has run yet");
 
+  // The Classic/Lab switch is gone, and a Classic choice saved by an older
+  // build no longer brings the old cards back.
+  await expect(page.getByRole("radiogroup", { name: "Metric card style" })).toHaveCount(0);
   await page.evaluate(() => window.localStorage.setItem("careeros.cardStyle", "classic"));
   await page.reload();
   await expect(card(page, "lab-queued")).toBeVisible({ timeout: 60_000 });
-  await expect(card(page, "lab-queued")).not.toHaveAttribute("data-card-variant", "lab");
+  await expect(card(page, "lab-queued")).toHaveAttribute("data-card-variant", "lab");
+  await expect(page.locator("html")).toHaveAttribute("data-material", "matte");
 });
 
 test("Settings no longer offers the retired application card styles", async ({ page, baseURL }) => {
@@ -150,9 +153,8 @@ test("Lab cards sit flat in the grid and a click flips open the details popup", 
   await expect(page.locator(".aa-flip-dialog")).toHaveCount(0);
 });
 
-test("Classic still slides the dossier in from the side; only the theme switch reveals in a circle", async ({ page, baseURL }) => {
+test("Opening a card flips its details up; only the theme switch reveals in a circle", async ({ page, baseURL }) => {
   await mockApi(page, baseURL!, []);
-  await page.addInitScript(() => window.localStorage.setItem("careeros.cardStyle", "classic"));
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto("/applications?tab=applications");
   await expect(card(page, "lab-queued")).toBeVisible({ timeout: 60_000 });
@@ -160,8 +162,8 @@ test("Classic still slides the dossier in from the side; only the theme switch r
   // Regression: the theme's circular reveal was bound to every view
   // transition, so opening the dossier played as an expanding circle.
   const opening = await animationsAfter(page, 'article[data-job-id="lab-unscored"]');
-  expect(opening).toContain("aa-wizard-panel-in");
   expect(opening).not.toContain("theme-reveal");
+  await expect(page.locator(".aa-flip-dialog")).toBeVisible();
   await expect(page.getByRole("dialog")).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(page.getByRole("dialog")).toHaveCount(0);

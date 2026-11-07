@@ -6,8 +6,7 @@
    top bar, side panel, cards and the landing page. Glass (translucent
    fills over backdrop blur) is replaced by solid faces.
 
-   Scoped to html[data-material="matte"], which MaterialSync sets while the
-   viewer has Lab chosen, so Classic still shows the old material untouched.
+   Scoped to html[data-material="matte"], which the root layout always sets.
    Loaded last so its token overrides win over the .main blocks in
    reference-match.css. */
 
