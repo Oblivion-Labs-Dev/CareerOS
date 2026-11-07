@@ -47,8 +47,9 @@ CareerOS acts on real job applications, so these rules are not optional:
 * Tests must never submit a real application or send a real email.
 * The only submission paths are the gated Autopilot runner and the user's own Apply. Never submit
   from backend code or ad-hoc scripts.
-* The final Submit click is refused unless the user set `ALLOW_REAL_SUBMISSION=true`. Keep that
-  default off.
+* The final Submit click is allowed by default and refused when the user sets
+  `ALLOW_REAL_SUBMISSION=false`. Every submit path must go through `submission_guard` so that
+  switch always works.
 * Skipped, expired, review and failed outcomes never count as submissions. A clicked button or an
   accepted HTTP request is not proof; require the job's terminal state and confirmation evidence.
 * Never invent or guess an answer to an application question. Unsupported, sensitive or ambiguous

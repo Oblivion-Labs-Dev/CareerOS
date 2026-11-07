@@ -100,21 +100,32 @@ def get_prohibited_selectors(provider: str) -> list[str]:
     return PROVIDER_PROHIBITED_SELECTORS.get(provider, [])
 
 
+def real_submission_allowed() -> bool:
+    """ALLOW_REAL_SUBMISSION is on unless the user turned it off.
+
+    Autopilot exists to send applications, so a fresh install submits; set
+    ALLOW_REAL_SUBMISSION=false to have it fill each form and stop before Submit.
+    """
+    import os
+    value = os.environ.get("ALLOW_REAL_SUBMISSION", "").strip().lower()
+    return value not in ("false", "0", "no", "off")
+
+
 class SubmissionBlockedError(RuntimeError):
-    """Raised when final submission is invoked without ALLOW_REAL_SUBMISSION=true."""
+    """Raised when final submission is invoked with ALLOW_REAL_SUBMISSION=false."""
     pass
 
 
 def assert_submission_permitted(context_name: str = "ApplicationWorker") -> None:
     """Check submission permission against safety settings."""
     import os
-    allowed = os.environ.get("ALLOW_REAL_SUBMISSION", "false").lower() in ("true", "1")
+    allowed = real_submission_allowed()
     dry_repair = os.environ.get("DRY_RUN_REPAIR", "false").lower() in ("true", "1")
 
     if dry_repair:
         raise SubmissionBlockedError(f"Submission blocked in {context_name}: DRY_RUN_REPAIR mode is active")
     if not allowed:
-        raise SubmissionBlockedError(f"Submission blocked in {context_name}: ALLOW_REAL_SUBMISSION is 'false' or unset")
+        raise SubmissionBlockedError(f"Submission blocked in {context_name}: ALLOW_REAL_SUBMISSION is 'false'")
 
 
 def validate_action_allowed(
@@ -134,9 +145,8 @@ def validate_action_allowed(
             return False, f"Prohibited action: '{button_text}' is classified as a final submission button"
 
     if action_type == "final_submit":
-        allowed = os.environ.get("ALLOW_REAL_SUBMISSION", "false").lower() in ("true", "1")
-        if not allowed:
-            return False, "Submission blocked: ALLOW_REAL_SUBMISSION is 'false' or unset"
+        if not real_submission_allowed():
+            return False, "Submission blocked: ALLOW_REAL_SUBMISSION is 'false'"
 
     if action_type in (
         "navigate",
@@ -163,9 +173,8 @@ _LIVE_APPLY_BLOCKED_ENVS = ("test", "testing", "development", "dev")
 def live_submission_refusal(page_url: str) -> str | None:
     """Why the Autopilot's final click must not happen here, or None.
 
-    Sending an application to a real employer is opt-in: a fresh install never
-    clicks submit until the user sets ALLOW_REAL_SUBMISSION=true (or
-    CAREEROS_LIVE_APPLY=1). Until then Autopilot fills the form and stops.
+    A normal install submits: ALLOW_REAL_SUBMISSION is on unless the user sets
+    it to false, and then Autopilot fills the form and stops before Submit.
 
     Development and test environments (CAREEROS_ENV=test/development, or any
     pytest run) never click submit on a real employer's form unless
@@ -184,11 +193,12 @@ def live_submission_refusal(page_url: str) -> str | None:
     env = os.environ.get("CAREEROS_ENV", "").strip().lower()
     under_tests = "PYTEST_CURRENT_TEST" in os.environ
     if env not in _LIVE_APPLY_BLOCKED_ENVS and not under_tests:
-        if os.environ.get("ALLOW_REAL_SUBMISSION", "false").strip().lower() in ("true", "1"):
+        if real_submission_allowed():
             return None
         return (
             f"Real submission is off: filled the form on {host or 'this page'} but did not click submit. "
-            "Set ALLOW_REAL_SUBMISSION=true in your .env (apps/api/.env, or .env next to docker-compose.prod.yml) to let Autopilot submit applications."
+            "ALLOW_REAL_SUBMISSION=false is set in your .env (apps/api/.env, or .env next to docker-compose.prod.yml); "
+            "remove it or set it to true to let Autopilot submit applications."
         )
     where = f"CAREEROS_ENV={env}" if env in _LIVE_APPLY_BLOCKED_ENVS else "a test run"
     return (

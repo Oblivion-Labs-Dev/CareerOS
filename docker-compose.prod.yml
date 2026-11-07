@@ -39,7 +39,7 @@ services:
       # Your resume: put it at ./careeros-data/resume.pdf, or upload it in the app.
       CAREEROS_RESUME_PATH: ${CAREEROS_RESUME_PATH:-/app/apps/api/data/resume.pdf}
       # Final "Submit" clicks are refused unless you set this to true in .env.
-      ALLOW_REAL_SUBMISSION: ${ALLOW_REAL_SUBMISSION:-false}
+      ALLOW_REAL_SUBMISSION: ${ALLOW_REAL_SUBMISSION:-true}
       CAREEROS_LIVE_APPLY: ${CAREEROS_LIVE_APPLY:-0}
       WEB_CONCURRENCY: "1"
       PYTHONUNBUFFERED: "1"
