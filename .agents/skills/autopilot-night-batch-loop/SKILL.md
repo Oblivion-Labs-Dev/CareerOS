@@ -61,23 +61,18 @@ Open the night's entry in `NIGHT_BATCH_DECISIONS.md` (see "Morning Handoff") wit
 
 ---
 
-## Fresh-Jobs-First Intake (last 24 hours — pulled every tick)
+## Fresh-Jobs-First Intake (last pull to today — dynamic refresh)
 
-Postings published in the **last 24 hours** are pulled on **each tick of the night loop** and applied to before anything already waiting in the queue. Run this at the start of the night loop and on every 30-minute tick. The runner's own 14-day scrape also covers the last 24 hours, so if a 14-day scrape is already running, wait for it or let it complete. If a scrape returns 409 (already running), check status until it finishes.
+Postings published since the **last pull** (checked dynamically from `lastScrapedAt` to today) are pulled on **each tick of the night loop** and applied to before anything already waiting in the queue. When asked to refresh daily jobs, always check when it last pulled and pull from there to today (calculating `hours = max(1, ceil(now - last_scraped) + 1)` or omitting `hours` so the endpoint automatically calculates the delta from `lastScrapedAt`), ensuring zero missed jobs across offline days or weekends. The runner's own 14-day scrape also covers this window. If a scrape returns 409 (already running), check status until it finishes.
 
-### Step 1: Pull the last 24 hours of postings
+### Step 1: Pull postings from last pull to today
 Run this **before** `POST /application-assistant/autopilot/start`. Starting the runner also starts the queue preprocessor, which immediately launches its own 14-day (`hours=336`) scrape, and only one scrape can run at a time.
 ```bash
+# Leaving "hours" omitted automatically computes the gap from lastScrapedAt to now:
 curl -s -X POST http://127.0.0.1:4000/jobs/discover/scrape \
   -H "Content-Type: application/json" \
-  -d '{"hours": 24, "roles": "swe", "mode": "ats"}'
+  -d '{"roles": "swe", "mode": "ats"}'
 ```
-- `409 Scrape already running`: wait for the running scrape to finish (a 14-day scrape also covers the last 24 hours), then re-run the 24-hour pull.
-- Poll until `running` is `false` and read `lastResult`:
-  ```bash
-  curl -s http://127.0.0.1:4000/jobs/discover/status
-  ```
-- The scrape merges into the existing snapshot; it does not drop older postings.
 
 ### Step 2: Get the fresh postings into the queue
 The queue preprocessor copies the snapshot into discovered jobs and enqueues eligible ones within one cycle (~30s) once the runner (or `POST /application-assistant/autopilot/queue-preparation/start`) is running. Hard filters, duplicate checks and company blacklist still apply.

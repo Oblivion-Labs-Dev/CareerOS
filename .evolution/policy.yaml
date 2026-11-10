@@ -17,6 +17,7 @@ worktree:
   setup:
     - pnpm install --frozen-lockfile --prefer-offline
     - pnpm --filter @career-os/core build
+    - pnpm --filter @career-os/ui build
 budgets:
   max_experiments: 6
   max_accepted: 4
@@ -105,20 +106,20 @@ checks:
   - name: pytest-related
     # conftest.py isolates the database, browser profile, discovery data and models, so a
     # focused run is safe while the night batch is live.
-    run: '"{main}/apps/api/.venv/Scripts/python.exe" -m pytest -q -p no:cacheprovider -m "not network" {related_tests}'
+    run: 'python -m pytest -q -p no:cacheprovider -m "not network" {related_tests}'
     cwd: apps/api
     when: ["apps/api/**/*.py"]
     timeout_minutes: 20
   - name: pytest-safety
     # The application-safety regressions AGENTS.md names; they run on every API change.
-    run: '"{main}/apps/api/.venv/Scripts/python.exe" -m pytest -q -p no:cacheprovider tests/test_autopilot_run_handoff.py tests/test_autopilot_tailoring_mode.py tests/test_healing_response.py'
+    run: 'python -m pytest -q -p no:cacheprovider tests/test_autopilot_run_handoff.py tests/test_autopilot_tailoring_mode.py tests/test_healing_response.py'
     cwd: apps/api
     when: ["apps/api/app/**/*.py"]
     required: true
     timeout_minutes: 15
   - name: pytest-full
     # dev-server-restart: never run the whole suite while the dev backend holds :4000.
-    run: '"{main}/apps/api/.venv/Scripts/python.exe" -m pytest -q -p no:cacheprovider -m "not network"'
+    run: 'python -m pytest -q -p no:cacheprovider -m "not network"'
     cwd: apps/api
     when: ["apps/api/**/*.py"]
     requires_port_free: 4000
@@ -135,7 +136,7 @@ metrics:
       - "packages/**"
   - name: web_js_gzip
     kind: size
-    path: apps/web/.next/static/chunks
+    path: apps/web/.next-prod/static/chunks
     glob: "**/*.js"
     gzip: true
     better: lower

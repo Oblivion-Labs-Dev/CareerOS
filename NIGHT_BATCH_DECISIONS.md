@@ -6,6 +6,99 @@ exists so decision-worthy events don't need to interrupt the user overnight.
 
 ---
 
+## 2026-11-05 (night) — stack restarted, Ashby radio fix, run + loop armed (in progress)
+
+**Wrong-answer defect fixed (top)**
+- Ashby EEO radios were submitted on the wrong option (Render, Crusoe screenshots: Race "Hispanic or Latino" ticked though the resolver said "Asian (Not Hispanic or Latino)"). Cause: the loose pass of `_select_radio_option` ticked the first option whose text sat inside the answer, including a negated "Not Hispanic or Latino". Fixed: negated mentions don't match, and more than one loose match leaves the field empty for review. Regression test `apps/api/tests/test_radio_fuzzy_match_wrong_option.py`.
+- Not explained yet: the same screenshots show Gender "Male" although the resolver returns "Decline to self-identify" for those options. Needs a live Ashby DOM look. Only one Ashby job was ever submitted (Supabase, 2026-10-21), so check its EEO answers by hand.
+
+**State**
+- Stack restarted 08:58 UTC (prod web, API :4000) to load the radio fix and the resume-path fix.
+- Fresh pull 08:49 UTC: 404 roles (15,489 indexed).
+- Stale run `aprun_953d1452` (heartbeat 19:02 UTC yesterday, no workers) stopped; new run `aprun_2be8bfce-cef8-43ed-8cc0-3f36cf0428d9` started 09:01 UTC (`targetProcessCount: 100`, `concurrency: 1`).
+- Sentinel PID 4624.
+
+**Update 09:35 UTC**
+- Owner removed the match floor: run settings `minMatchScore: 0`; 460 jobs parked only for "below the 60% floor" requeued (121 job-boards.greenhouse, 26 boards.greenhouse, 92 Ashby, 26 Lever, rest other boards).
+- New Gmail app password was in the root `.env`, but the API loads `apps/api/.env`, which still had the old one, so the xAI Greenhouse code (email arrived 3s after submit, subject "…to SpaceXSI") was missed and xAI ended SUBMISSION_UNKNOWN. Synced the value into `apps/api/.env`; offline replay now finds the code. The poller also hid AUTHENTICATIONFAILED at DEBUG and waited 150s; it now fails fast with an ERROR. Regression test `apps/api/tests/test_gmail_code_auth_failure_is_loud.py`.
+- xAI (gh:5285276007) needs a manual check: the code expired with the attempt.
+
+**Tally ~10:50 UTC (run `aprun_77f7a0dc`)**
+- SUBMITTED 8: Beast Industries, Caylent, Xai (Network C++), Scale AI, Flagship Pioneering, Grafana Labs, Nebius, Bluefish Labs.
+- NEEDS_REVIEW 9, all on required answers we have no saved value for: Captivation (polygraph), Trm Labs (why leaving), Discord (essay), PhysicsX (why this role), OpenAI (start date), Writer (why Writer), Edison Scientific (culture essay), Enablecomp (background-check consent), Torc Robotics (target base salary).
+- Not submitted: Instructure, Grammarly, Clera. An Ashby reCAPTCHA image challenge appeared after the submit click (screenshot `apps/api/data/application_assistant/screenshots/apjob_29c77547-…_confirmation.png`). Not bypassed. They are recorded as SUBMISSION_UNKNOWN but the screenshot shows they were not sent.
+- Aspirion FAILED with empty lastError: the reason is in `ineligibilityReason` = POSTING_EXPIRED. Not a silent failure.
+- Grammarly screenshot: Ashby yes/no button question "Are you authorized to be employed in the US?" left unselected. This is a fill gap and needs a follow-up.
+
+**Decisions needed from the owner**
+1. Ashby captcha: keep Ashby jobs in the queue, skip them, or send them to review as "finish by hand".
+2. Default answers for: start date / notice period, background-check consent, target base salary range.
+3. Essay answers (or permission to draft from the resume) for the review jobs above.
+4. Manual check whether Xai Training/Inference (gh:5285276007) went through.
+
+**Why 0 submissions since 2026-10-30**
+- Queue (3,424 QUEUED) has 2 Greenhouse jobs and no Lever/Ashby; the rest is Amazon, Himalayas, Apple, Google, Microsoft, Workday etc., which have never produced submissions. 227 of the last 409 jobs were below the 60% floor.
+- Greenhouse security codes: `GMAIL_APP_PASSWORD` still rejected (`AUTHENTICATIONFAILED`, re-checked tonight). Owner must create a new app password.
+- Ashby: every recent attempt hit reCAPTCHA or "flagged as possible spam". Not bypassed; needs an owner decision (skip Ashby or apply by hand).
+- Resume path moved: fixed earlier (uncommitted), now live.
+
+**Other**
+- "When can you start a new role?" is unresolved (OpenAI, Tillster, Micron). Needs a saved answer.
+- Crusoe Tel Aviv on-site reached the form despite a non-US location.
+- Optum / UnitedHealth need account creation.
+
+---
+
+## 2026-11-04 (night) — fresh pull, run resumed, loop armed (in progress)
+
+**State**
+- API was down at start; restarted the stack 10:49 UTC (prod web, API :4000).
+- Fresh pull 10:50–10:54 UTC: 22h window since last pull (2026-11-03 14:47 UTC), 456 roles fetched (14,856 indexed).
+- Run `aprun_953d1452-5b9a-43a5-91ec-9c66a39e12ca` had a 12h-stale heartbeat and no workers; restarted 10:54 UTC (`targetProcessCount: 100`, `concurrency: 1`, submittable boards only). Queue 3,228.
+- Sentinel PID 14632 (30-min ticks, log `$env:TEMP\careerOS-nightloop.log`).
+
+**Owner decisions (before leaving)**
+- When submittable boards run dry: keep triaging the other boards (no pause).
+- Saved "willing to work from the office(s) listed" → Yes, and "valid driver's license" → Yes; 4 + 4 jobs requeued.
+
+**Lost time**
+- Run paused 10:55 UTC after 1 job: "No submittable-board jobs left" (`submittableBoardsStrict` defaults to true, which pauses instead of falling back). Sat idle until 16:14 UTC. Restarted with `"submittableBoardsStrict": false` to honour "keep triaging"; runner resumed 16:14 UTC.
+- Sentinel ticks 06:37–07:41 local fired but the agent was not woken until 08:13 local.
+
+**Daytime bugs**
+- **Resume upload not landing (top blocker):** Evolutioniq — Senior SWE (CCC Auto / Agentic) passed review, clicked Submit, then page said "Resume/CV is required" → NEEDS_REVIEW. Same "Resume/CV*" group holds 18 jobs in /readiness. Greenhouse file input; needs a live-browser fix.
+- Loft Orbital — Ground Software Engineer - Core: NEEDS_REVIEW, DOM mismatch on "If you selected Yes to requiring sponsorship … specify your current [visa]" (fill bug, Lever).
+
+**Carried over**
+- Gmail IMAP still needs a fresh `GMAIL_APP_PASSWORD` (Greenhouse security codes → SUBMISSION_UNKNOWN without it).
+
+---
+
+## 2026-11-03 (night) — dynamic daily gap intake & loop rearmed
+
+**State**
+- Refreshed target company jobs: DocuSign 16 jobs updated.
+- Dynamic daily scrape gap implemented: `POST /jobs/discover/scrape` now checks `lastScrapedAt` and dynamically pulls from the last pull time to today (`hours = max(1, ceil(now - last_scraped) + 1)`), ensuring 0 missed postings across offline windows.
+- Regression tests added & verified: `apps/api/tests/test_scrape_hours_since_last_pull.py` (3 passed).
+- First batch run `aprun_829d6e2d-c806-410e-9ac5-26a850b554ed` ran 08:52–12:47 UTC (~4 hrs), processed 50 jobs (350 total worker lifecycle transitions), 38 skipped on match floor (<60%), 40 ineligible (outside US), 9 SUBMISSION_UNKNOWN, paused at 12:47 UTC when submittable boards ran dry.
+- Active run restarted: Run ID `aprun_953d1452-5b9a-43a5-91ec-9c66a39e12ca` (targetProcessCount: 100, concurrency: 1, submittableBoardsOnly: true).
+- Sentinel running: PID 28344 (30-minute tick logging to `$env:TEMP\careerOS-nightloop.log` with dynamic scrape gap).
+
+**Headline**
+- 50 jobs processed, 38 skipped on match threshold (<60%), 40 marked ineligible, 9 SUBMISSION_UNKNOWN.
+- Run active in sequential mode (`concurrency=1`).
+
+**Check by hand (SUBMISSION_UNKNOWN)**
+- Verkada — Senior Backend Engineer: submitted, but Greenhouse security code was not intercepted because Gmail IMAP credentials returned authentication failure (`[AUTHENTICATIONFAILED] Invalid credentials`).
+- Together AI — Senior Software Engineer, Observability & Together Cloud Platform: same Greenhouse security code wait.
+- Reducto — Backend/AI Engineer & Juniper Square — Staff SWE: Greenhouse form validation flagged missing fields in DOM.
+- Pivotal Health, Etched, Ellipsis Health, Pattern: form and submit button remained active.
+
+**Important Attention Item**
+- Gmail IMAP authentication failed (`[AUTHENTICATIONFAILED] Invalid credentials (Failure)`). The `GMAIL_APP_PASSWORD` in `.env` needs to be updated with a fresh Google App Password so the automated Greenhouse 8-character verification code interceptor can complete verification autonomously.
+
+---
+
 ## 2026-10-30 (night) — loop armed after browser-crash recovery
 
 **State**

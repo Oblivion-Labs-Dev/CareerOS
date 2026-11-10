@@ -1,5 +1,7 @@
 import json
 import logging
+import math
+from datetime import datetime, timezone
 from collections.abc import Generator
 from pathlib import Path
 from typing import Any
@@ -383,7 +385,7 @@ def update_oracle_seed(payload: TargetCompanyOracleSeedPayload, db: Session = De
 
 
 class JobDiscoverScrapePayload(BaseModel):
-    hours: int = Field(default=168, ge=1, le=2160)
+    hours: int | None = Field(default=None, ge=1, le=2160)
     roles: str = ""
     mode: str = "ats"
 
@@ -489,10 +491,31 @@ async def start_job_discover_scrape(payload: JobDiscoverScrapePayload | None = N
     try:
         body = payload or JobDiscoverScrapePayload()
         mode = body.mode if body.mode in {"ats", "bigtech", "apify", "all"} else "ats"
-        result = await job_discover.start_scrape_background(hours=body.hours, roles=body.roles, mode=mode)  # type: ignore[arg-type]
+        hours = body.hours
+        last_pulled_at: str | None = None
+        if hours is None:
+            # Check when it last pulled and pull from there to today
+            with session_scope() as db_session_ctx:
+                snapshot = job_discover.get_snapshot(db_session_ctx)
+                last_scraped = snapshot.get("scrapedAt") or job_discover.get_status().get("lastScrapedAt")
+                if last_scraped:
+                    try:
+                        dt = datetime.fromisoformat(str(last_scraped).replace("Z", "+00:00"))
+                        now = datetime.now(timezone.utc)
+                        diff_hours = (now - dt).total_seconds() / 3600.0
+                        # Pull from last scrape time to now (+ 1 hr buffer for boundary jobs)
+                        hours = max(1, math.ceil(diff_hours) + 1)
+                        last_pulled_at = str(last_scraped)
+                    except Exception as err:
+                        logger.warning("Could not compute hours from lastScrapedAt: %s", err)
+                        hours = 24
+                else:
+                    hours = 24
+        hours = min(max(1, hours), 2160)
+        result = await job_discover.start_scrape_background(hours=hours, roles=body.roles, mode=mode)  # type: ignore[arg-type]
         if not result.get("success"):
             raise HTTPException(status_code=409, detail=result.get("error", "Scrape already running"))
-        return result
+        return {**result, "hours": hours, "lastPulledAt": last_pulled_at}
     except HTTPException:
         raise
     except Exception as exc:
