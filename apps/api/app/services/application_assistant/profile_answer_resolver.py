@@ -2658,6 +2658,20 @@ def _resolve_salary_currency(res: AnswerResolution, profile: dict, opts: list[st
     res.confidence = 1.0
 
 
+#: "$154,000 - $175,000", "$170k-$220k", "$90,000 to $120,000".
+_SALARY_RANGE = re.compile(
+    r"\$\s?(\d[\d,]*(?:\.\d+)?\s*[kK]?)\s*(?:-|–|—|to)\s*\$?\s?(\d[\d,]*(?:\.\d+)?)\s*([kK])?"
+)
+
+
+def _money_value(text: str) -> float | None:
+    m = re.search(r"(\d[\d,]*(?:\.\d+)?)\s*([kK])?", text or "")
+    if not m:
+        return None
+    value = float(m.group(1).replace(",", ""))
+    return value * 1000 if m.group(2) else value
+
+
 def _resolve_salary(res: AnswerResolution, profile: dict, opts: list[str]) -> None:
     # "Does your salary expectation fall within our estimated range?" is a
     # yes/no question that merely mentions salary. Resolving it to the
@@ -2672,8 +2686,28 @@ def _resolve_salary(res: AnswerResolution, profile: dict, opts: list[str]) -> No
         k in q_low for k in ("fall within", "within our", "within the range",
                              "within this range", "align with the range",
                              "comfortable with the range", "within our estimated",
-                             "accept the listed salary range", "accept the salary range")
+                             "accept the listed salary range", "accept the salary range",
+                             "align with the posted range", "within your expectations",
+                             "meet your compensation expectations",
+                             "meets your compensation expectations",
+                             "reviewed the salary range")
     )
+    yes_no = (
+        bool(opts) and any(re.match(r"\s*(?:yes|no)\b", o, re.I) for o in opts)
+    ) or (not opts and bool(re.match(r"\s*(?:do|does|is|are|have|can|will|would)\b", q_low)))
+    posted = _SALARY_RANGE.search(res.question or "")
+    if asks_within_range and yes_no and posted:
+        # "The range is $90,000-$120,000. Does this meet your expectations?"
+        # is only a yes when the top of the range reaches the recorded figure.
+        expected = _money_value(str(profile.get("salaryExpectations") or ""))
+        top = _money_value(posted.group(2) + (posted.group(3) or ""))
+        if expected is None or top is None or top < expected:
+            res.blocking_errors.append(
+                "The posted range tops out below the recorded salary expectation; "
+                "whether to accept it is the candidate's call."
+            )
+            res.confidence = 0.0
+            return
     if asks_within_range:
         matched = _match_option(opts, "Yes") if opts else None
         res.answer = matched or "Yes"
@@ -2791,10 +2825,15 @@ def _resolve_english_proficiency(res: AnswerResolution, profile: dict, opts: lis
         # instead of descriptive text — "Fluent"/"Professional"/"Native"
         # share no substring with "C2", so a descriptive-text match always
         # missed and left the field unresolved.
-        cefr_opts = {o.strip().upper() for o in opts}
-        if cefr_opts & {"A1", "A2", "B1", "B2", "C1", "C2"}:
-            band = _CEFR_FOR_LEVEL.get(target.lower(), "C1")
-            matched = _match_option(opts, band) or _match_option(opts, "C1")
+        # Options may also lead with the code: "C2: Proficient.", "B1 - Intermediate".
+        cefr_of: dict[str, str] = {}
+        for o in opts:
+            m = re.match(r"\s*([ABC][12])\b", o, re.I)
+            if m:
+                cefr_of.setdefault(m.group(1).upper(), o)
+        band = _CEFR_FOR_LEVEL.get(target.lower())
+        if cefr_of:
+            matched = cefr_of.get(band or "C1") or cefr_of.get("C1")
         else:
             matched = (
                 _match_option(opts, target)
@@ -2802,6 +2841,13 @@ def _resolve_english_proficiency(res: AnswerResolution, profile: dict, opts: lis
                 or _match_option(opts, "Professional")
                 or _match_option(opts, "Native")
             )
+            if not matched and band == "C2":
+                # "Basic / Intermediate / Upper intermediate / Advanced
+                # conversational level": a top-level speaker takes the top rung
+                # of a ladder that never says "fluent".
+                top = [o for o in opts if re.search(r"\b(?:advanced|expert)\b", o, re.I)]
+                if len(top) == 1:
+                    matched = top[0]
         if not matched:
             res.blocking_errors.append(
                 f"The recorded English level is {target!r}, but none of the offered "
@@ -3600,23 +3646,66 @@ def _resolve_gpa(res: AnswerResolution, profile: dict, opts: list[str]) -> None:
     wants_graduate = any(
         k in question for k in ("graduate gpa", "grad gpa", "master", "postgraduate", "phd")
     ) and "undergraduate" not in question
-    if wants_graduate:
-        for key in ("graduateGpa", "gradGpa", "gpaGraduate"):
-            if str(profile.get(key) or "").strip():
-                _resolve_from_profile(res, profile, opts, key)
-                return
-    for key in ("undergraduateGpa", "gpa"):
-        if str(profile.get(key) or "").strip():
-            _resolve_from_profile(res, profile, opts, key)
-            return
-    # Match how _resolve_citizenship signals "no honest answer available":
-    # leave it unanswered so the question reaches the candidate, and say why.
-    res.answer = None
-    res.confidence = 0.0
-    res.resolution_method = UNKNOWN_METHOD
-    res.blocking_errors.append(
-        "No GPA recorded in the profile; refusing to invent an academic record."
+    graduate_keys = ("graduateGpa", "gradGpa", "gpaGraduate")
+    order: tuple[str, ...] = graduate_keys if wants_graduate else ()
+    order += ("undergraduateGpa", "gpa")
+    if "undergraduate" not in question and not wants_graduate:
+        # A cumulative or unspecified GPA question, with only a graduate GPA on
+        # record, is answered with that one rather than left blank.
+        order += graduate_keys
+    key = next((k for k in order if str(profile.get(k) or "").strip()), None)
+    if key is None:
+        # Match how _resolve_citizenship signals "no honest answer available":
+        # leave it unanswered so the question reaches the candidate, and say why.
+        res.answer = None
+        res.confidence = 0.0
+        res.resolution_method = UNKNOWN_METHOD
+        res.blocking_errors.append(
+            "No GPA recorded in the profile; refusing to invent an academic record."
+        )
+        return
+    raw = str(profile.get(key)).strip()
+    num = re.search(r"\d+(?:\.\d+)?", raw)
+    value = float(num.group()) if num else None
+    threshold = re.search(
+        r"(\d\.\d{1,2})\s*(?:or\s+(?:higher|above|greater|better|more)|\+)"
+        r"|(?:at\s+least|equal\s+to\s+or\s+(?:higher|greater)\s+than|minimum\s+(?:of\s+)?|above|over)"
+        r"\s*(?:an?\s+)?(?:gpa\s+of\s+)?(\d\.\d{1,2})",
+        question,
     )
+    if threshold and value is not None:
+        bar = float(threshold.group(1) or threshold.group(2))
+        answer = "Yes" if value >= bar else "No"
+        if opts:
+            matched = _match_option(opts, answer) or _match_yes_no_sentence_option(opts, answer)
+            if not matched:
+                return
+            res.answer = matched
+            res.resolution_method = PROFILE_OPTION_MAPPING
+        else:
+            res.answer = answer
+            res.resolution_method = DETERMINISTIC_RULE
+        res.profile_key = key
+        res.source_value = raw
+        res.confidence = 1.0
+        return
+    if opts and value is not None and not _match_option(opts, raw):
+        # "3.8 out of 4.0 / 3.7 out of 4.0 / ...": the highest band not above
+        # the recorded GPA, so 3.77 never rounds up to a 3.8 it is not.
+        bands = []
+        for o in opts:
+            m = re.match(r"\s*(\d\.\d{1,2})\b", o)
+            if m:
+                bands.append((float(m.group(1)), o))
+        fitting = [b for b in bands if b[0] <= value + 1e-9]
+        if fitting:
+            res.answer = max(fitting)[1]
+            res.resolution_method = PROFILE_OPTION_MAPPING
+            res.profile_key = key
+            res.source_value = raw
+            res.confidence = 1.0
+        return
+    _resolve_from_profile(res, profile, opts, key)
 
 def _resolve_transcript(res: AnswerResolution, profile: dict, opts: list[str]) -> None:
     if opts:

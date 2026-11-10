@@ -5536,6 +5536,11 @@ indexed); queue 2207 → 2284, 10 submittable. Run `aprun_3f08a301…` 12:46–1
    5-days-in-office and hybrid preferences, years-of-experience and stack essays, GPA/transcript, start date,
    notice period, board/spouse questions, Canadian province, "within 120 miles of NY/Atlanta/...", Vista
    portfolio-company and assessment history, and cover letters (the sweep only had the template letter).
+   - Answered by the user later that day and now resolved without review: start date (2 weeks after an offer),
+     5 days in office (yes), GPA (graduate GPA; thresholds compared, option bands rounded down), English (top
+     level), startup experience (yes), staffing supplier (no), salary-range yes/no (yes when the range reaches
+     the recorded $140k, otherwise still review), relocation plans in 12 months and serving notice (no). The
+     yes/no facts are profile screening answers; the logic and tests are in `test_candidate_answered_questions.py`.
    Portal blockers: account required (72), below floor (34), submit button not found (20), Phenom, DOM
    mismatch, reCAPTCHA.
 5. **Fixes made** (uncommitted, in the working tree, deployed 12:19 UTC; regression tests in
