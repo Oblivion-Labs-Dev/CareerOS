@@ -29,6 +29,10 @@ from app.config import settings
 
 logger = logging.getLogger("career_os.greenhouse_verification")
 
+
+class GmailAuthError(Exception):
+    """Gmail rejected the configured credentials; retrying cannot help."""
+
 # How long to keep watching for the security-code step to appear after the
 # submit click. Long enough to cover a slow board, short enough that a form
 # which never asks for a code is not held up meaningfully.
@@ -87,7 +91,12 @@ def _poll_gmail_for_code_once(
     try:
         client = imaplib.IMAP4_SSL("imap.gmail.com", timeout=10)
         try:
-            client.login(user, app_pw)
+            try:
+                client.login(user, app_pw)
+            except imaplib.IMAP4.error as auth_ex:
+                # A rejected password fails identically on every retry, so it
+                # must surface now instead of hiding as a 150s "timed out".
+                raise GmailAuthError(str(auth_ex)) from auth_ex
             client.select("INBOX", readonly=True)
 
             # Search specifically for security code emails
@@ -221,11 +230,15 @@ def _poll_gmail_for_code_once(
                             return code
 
             client.logout()
+        except GmailAuthError:
+            raise
         except Exception:
             try:
                 client.logout()
             except Exception:
                 pass
+    except GmailAuthError:
+        raise
     except Exception as ex:
         logger.debug("IMAP poll attempt error (will retry): %s", ex)
 
@@ -261,9 +274,19 @@ async def fetch_latest_greenhouse_verification_code(
     clean_company = re.sub(r"[^a-zA-Z0-9 ]", "", company).strip()
 
     while time.time() < deadline:
-        code = await asyncio.to_thread(
-            _poll_gmail_for_code_once, user, app_pw, company, clean_company, since_timestamp, log_callback
-        )
+        try:
+            code = await asyncio.to_thread(
+                _poll_gmail_for_code_once, user, app_pw, company, clean_company, since_timestamp, log_callback
+            )
+        except GmailAuthError:
+            msg = (
+                "Gmail rejected GMAIL_USER/GMAIL_APP_PASSWORD (AUTHENTICATIONFAILED); "
+                f"cannot read the Greenhouse security code for {company}. Update the app password in apps/api/.env."
+            )
+            logger.error(msg)
+            if log_callback:
+                log_callback(msg, "error")
+            return None
         if code:
             return code
         await asyncio.sleep(poll_interval)

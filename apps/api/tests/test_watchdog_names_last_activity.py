@@ -41,6 +41,9 @@ def test_watchdog_timeout_reports_the_last_activity(monkeypatch, tmp_path):
     monkeypatch.setattr(job_filter_ranker, "evaluate_hard_filters", lambda *args: (True, ""))
     monkeypatch.setattr(resume_diff_service, "generate_role_tailoring_diff", generate)
     monkeypatch.setattr(executor, "execute_live_playwright_submission", hanging_submit)
+    resume = tmp_path / "resume.pdf"
+    resume.write_bytes(b"%PDF-1.4")
+    monkeypatch.setenv("CAREEROS_RESUME_PATH", str(resume))
 
     asyncio.run(runner._execute_application_pipeline("run", job))
 

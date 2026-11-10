@@ -20,7 +20,12 @@ class EmployerReached(Exception):
     pass
 
 
-def _run(monkeypatch, tmp_path, *, score, tailoring_mode, override=False, floor=60.0):
+def _run(monkeypatch, tmp_path, *, score, tailoring_mode, override=False, floor=60.0, resume=True):
+    resume_path = tmp_path / "resume.pdf"
+    if resume:
+        resume_path.write_bytes(b"%PDF-1.4")
+    monkeypatch.setenv("CAREEROS_RESUME_PATH", str(resume_path))
+    monkeypatch.setattr(executor, "FALLBACK_RESUME_PATH", tmp_path / "no-fallback.pdf")
     runner = module.AutopilotRunner()
     runner.min_match_score = floor
     job = {

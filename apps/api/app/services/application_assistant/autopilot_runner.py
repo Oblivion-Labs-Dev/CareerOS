@@ -246,6 +246,20 @@ def is_browser_install_missing(detail: str) -> bool:
     return "executable doesn't exist" in (detail or "").lower()
 
 
+RESUME_MISSING_PAUSE_REASON = (
+    "No resume file found (the profile's resumePath, CAREEROS_RESUME_PATH and the "
+    "data/ fallback are all missing). Run paused rather than submitting applications "
+    "without a resume; set CAREEROS_RESUME_PATH (see .env.example) and restart the run."
+)
+
+
+class ResumeMissingError(RuntimeError):
+    """No resume file exists, so every job would be submitted without one."""
+
+    def __init__(self) -> None:
+        super().__init__(RESUME_MISSING_PAUSE_REASON)
+
+
 TRANSIENT_ERRORS = {
     ApplicationErrorType.NAVIGATION_TIMEOUT.value,
     ApplicationErrorType.NETWORK_ERROR.value,
@@ -1750,7 +1764,9 @@ class AutopilotRunner:
             # this posting: every later job would fail the same way. Hand the job
             # back untouched and pause the run so it cannot drain the queue into
             # review (found live: 711 healthy jobs parked as BROWSER_CRASH).
-            if is_browser_install_missing(exc_detail):
+            resume_missing = isinstance(exc, ResumeMissingError)
+            if resume_missing or is_browser_install_missing(exc_detail):
+                pause_reason = RESUME_MISSING_PAUSE_REASON if resume_missing else BROWSER_MISSING_PAUSE_REASON
                 job_item["status"] = AutopilotJobStatus.QUEUED.value
                 job_item["attemptCount"] = attempt - 1
                 with self._run_update_lock:
@@ -1759,21 +1775,24 @@ class AutopilotRunner:
                         r = get_autopilot_run(db, run_id)
                         if r:
                             r["status"] = AutopilotRunStatus.PAUSED.value
-                            r["pauseReason"] = BROWSER_MISSING_PAUSE_REASON
+                            r["pauseReason"] = pause_reason
                             r["lastHeartbeatAt"] = now_iso()
                             r["currentJobId"] = None
                             save_autopilot_run(db, r)
                 error_store.record_error(
-                    error=f"Playwright browser missing: {exc_detail.splitlines()[0]}",
+                    error=(
+                        "Resume file missing" if resume_missing
+                        else f"Playwright browser missing: {exc_detail.splitlines()[0]}"
+                    ),
                     service="autopilot",
                     severity="critical",
                     stage="APPLY",
                     retries=attempt,
                     status="open",
                     playwright_error=exc_detail,
-                    logs=[BROWSER_MISSING_PAUSE_REASON],
+                    logs=[pause_reason],
                 )
-                self.log_event(BROWSER_MISSING_PAUSE_REASON, level="error")
+                self.log_event(pause_reason, level="error")
                 return
 
             err_type = self._classify_error(Exception(exc_detail))
@@ -2414,6 +2433,13 @@ class AutopilotRunner:
             with session_scope() as db:
                 save_autopilot_job(db, job_item)
             return
+
+        # Never submit without a resume: Greenhouse and others reject the form
+        # ("Resume/CV is required"), and every later job would fail the same
+        # way. Found live 2026-11-03 after the resume folder was moved and
+        # get_active_resume_path silently returned "" for 26 submissions.
+        if not get_active_resume_path(submission_profile):
+            raise ResumeMissingError()
 
         with session_scope() as db:
             save_autopilot_job(db, job_item)

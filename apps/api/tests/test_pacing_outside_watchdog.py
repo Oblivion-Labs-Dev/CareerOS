@@ -66,6 +66,9 @@ def test_a_pending_gap_does_not_time_out_the_submission(monkeypatch, tmp_path):
     monkeypatch.setattr(job_filter_ranker, "evaluate_hard_filters", lambda *args: (True, ""))
     monkeypatch.setattr(resume_diff_service, "generate_role_tailoring_diff", generate)
     monkeypatch.setattr(executor, "execute_live_playwright_submission", submit)
+    resume = tmp_path / "resume.pdf"
+    resume.write_bytes(b"%PDF-1.4")
+    monkeypatch.setenv("CAREEROS_RESUME_PATH", str(resume))
 
     asyncio.run(runner._execute_application_pipeline("run", job))
 

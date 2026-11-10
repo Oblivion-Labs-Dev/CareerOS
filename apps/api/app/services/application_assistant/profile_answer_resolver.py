@@ -1182,7 +1182,72 @@ def _resolve_city(res: AnswerResolution, profile: dict, opts: list[str]) -> None
     location = str(profile.get("location") or "").strip()
     if location:
         city_fallback = location.split(",")[0].strip() or None
+    if opts and _resolve_office_radius(res, profile, opts, city_fallback):
+        return
     _resolve_from_profile(res, profile, opts, "city", fallback=city_fallback)
+
+
+# Approximate coordinates of common office hubs, used only to answer "are you
+# within N miles of our <offices>? which one?" when every listed office is
+# clearly out of range. Anything not in this table leaves the question alone.
+_OFFICE_HUBS: dict[str, tuple[float, float, str]] = {
+    "new york": (40.71, -74.01, "NY"), "jersey city": (40.73, -74.08, "NJ"),
+    "boston": (42.36, -71.06, "MA"), "philadelphia": (39.95, -75.17, "PA"),
+    "washington": (38.91, -77.04, "DC"), "atlanta": (33.75, -84.39, "GA"),
+    "miami": (25.76, -80.19, "FL"), "chicago": (41.88, -87.63, "IL"),
+    "austin": (30.27, -97.74, "TX"), "dallas": (32.78, -96.80, "TX"),
+    "houston": (29.76, -95.37, "TX"), "denver": (39.74, -104.99, "CO"),
+    "phoenix": (33.45, -112.07, "AZ"), "los angeles": (34.05, -118.24, "CA"),
+    "san diego": (32.72, -117.16, "CA"), "san francisco": (37.77, -122.42, "CA"),
+    "san jose": (37.34, -121.89, "CA"), "portland": (45.52, -122.68, "OR"),
+    "seattle": (47.61, -122.33, "WA"), "salt lake city": (40.76, -111.89, "UT"),
+    "minneapolis": (44.98, -93.27, "MN"), "detroit": (42.33, -83.05, "MI"),
+    "pittsburgh": (40.44, -79.99, "PA"), "nashville": (36.16, -86.78, "TN"),
+    "raleigh": (35.78, -78.64, "NC"), "toronto": (43.65, -79.38, "ON"),
+    "vancouver": (49.28, -123.12, "BC"), "montreal": (45.50, -73.57, "QC"),
+}
+_NONE_OPTION_RE = re.compile(r"^\s*(?:none(?:\s+of\s+(?:the\s+above|these))?|neither|no|not\s+applicable|n/?a)\s*\.?\s*$", re.I)
+
+
+def _miles(a: tuple[float, float], b: tuple[float, float]) -> float:
+    import math
+    la1, lo1, la2, lo2 = map(math.radians, (a[0], a[1], b[0], b[1]))
+    h = math.sin((la2 - la1) / 2) ** 2 + math.cos(la1) * math.cos(la2) * math.sin((lo2 - lo1) / 2) ** 2
+    return 3958.8 * 2 * math.asin(math.sqrt(h))
+
+
+def _resolve_office_radius(res: AnswerResolution, profile: dict, opts: list[str], city: str | None) -> bool:
+    """FanDuel (Greenhouse): "Are you located within 120 miles of the New York,
+    ... or Los Angeles office? If so, which location?" with a "None" option.
+
+    Picks the candidate's own city when it is an option, and "None" only when
+    every office is a known hub at least 250 miles beyond the radius from every
+    known hub in the candidate's state. Otherwise returns False and the normal
+    lookup runs (which leaves it for review if nothing matches).
+    """
+    m = re.search(r"within\s+(\d{1,4})\s*(?:miles|mi\b|km)", res.question or "", re.I)
+    if not m:
+        return False
+    none_opt = next((o for o in opts if _NONE_OPTION_RE.match(str(o))), None)
+    offices = [o for o in opts if o is not none_opt]
+    if city:
+        own = next((o for o in offices if str(o).strip().lower() == city.lower()), None)
+        if own:
+            res.answer, res.resolution_method, res.profile_key, res.confidence = own, PROFILE_EXACT, "city", 1.0
+            return True
+    if not none_opt or not offices:
+        return False
+    state = str(profile.get("state") or "").strip().lower()
+    abbr = next((k for k, v in _STATE_ABBREVIATIONS.items() if v == state), state).upper()
+    home = [(la, lo) for la, lo, st in _OFFICE_HUBS.values() if st == abbr]
+    hubs = [_OFFICE_HUBS.get(str(o).strip().lower()) for o in offices]
+    if not home or any(h is None for h in hubs):
+        return False
+    radius = float(m.group(1)) * (0.621 if "km" in m.group(0).lower() else 1.0)
+    if all(_miles(hp, (h[0], h[1])) > radius + 250 for hp in home for h in hubs):
+        res.answer, res.resolution_method, res.profile_key, res.confidence = none_opt, PROFILE_EXACT, "city+state", 0.95
+        return True
+    return False
 
 _CITY_WORD = "city"
 _STATE_WORD = "state"
@@ -1282,6 +1347,13 @@ def _resolve_address(res: AnswerResolution, profile: dict, opts: list[str]) -> N
         or ""
     ).strip() or None
     q = res.question or ""
+    if opts and len(opts) >= 5 and any(
+        re.fullmatch(r"\s*(?:united\s+states(?:\s+of\s+america)?|usa|us|u\.s\.a?\.?)\s*", str(o), re.I) for o in opts
+    ):
+        # Greenhouse (Cloudbeds) labels a country dropdown "Address": a street
+        # line can never match a list of countries, so answer the country.
+        _resolve_country(res, profile, opts)
+        return
     if addr_fallback and not opts and re.search(r"\b(?:home|mailing|residential|full|permanent)\s+address\b", q, re.I) \
             and not re.search(r"street|line\s*1", q, re.I):
         # A single "Home address" box wants the whole address, not one line.
@@ -2997,6 +3069,14 @@ def _resolve_timezone_location(res: AnswerResolution, profile: dict, opts: list[
             or _match_option(opts, iana)
             or _match_option(opts, display.split(" (")[0])
         )
+        if not matched:
+            # Options can be bare abbreviations (Veeva on Lever: PST/MST/CST/EST);
+            # "Pacific Time (PT)" then matches PT, PST or PDT exactly, never a
+            # neighbouring zone.
+            abbr = re.search(r"\(([A-Z])T\)", display)
+            if abbr:
+                wanted = {abbr.group(1) + s for s in ("T", "ST", "DT")}
+                matched = next((o for o in opts if str(o).strip().upper() in wanted), None)
         if not matched and " (" in display:
             # Bare zone names ("Eastern", "Pacific"): the exact first word only.
             zone = display.split()[0].lower()

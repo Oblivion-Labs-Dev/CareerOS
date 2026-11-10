@@ -734,6 +734,9 @@ _CLASSIFICATION_RULES: list[tuple[QuestionType, list[str]]] = [
     (QuestionType.CURRENT_COMPANY, [
         r"^(what\s+is\s+your\s+)?current\s*(company|employer)",
         r"current\s*/\s*previous\s+employer",
+        # Ashby "Current/Last Company" (Plaid) and bare "Last Company".
+        r"^(?:current|present)\s*/\s*(?:last|previous|prior|most\s+recent|former)\s+(?:company|employer)",
+        r"^(?:last|previous|prior|former)\s+(?:company|employer)\b",
         r"name\s+of\s+your\s+current\s*(or\s+most\s+recent)?\s*(company|employer)",
         r"most\s+recent.*(company|employer)",
         r"company\s*name",
@@ -891,6 +894,9 @@ _CLASSIFICATION_RULES: list[tuple[QuestionType, list[str]]] = [
         r"end\s*year",
         r"\bend-year\b",
         r"graduation\s*year",
+        # Pear VC (Ashby): "Year Of Graduation"; also "What year did you graduate?".
+        r"^\s*year\s+of\s+graduation\b",
+        r"^\s*(?:what|which)\s+year\s+did\s+you\s+graduate\b",
     ]),
     (QuestionType.GPA, [r"\bgpa\b", r"grade\s*point\s*average"]),
     (QuestionType.TEST_SCORE, [
@@ -968,6 +974,8 @@ _CLASSIFICATION_RULES: list[tuple[QuestionType, list[str]]] = [
         r"where\s+(have\s+you|did\s+you)\s+learn(ed)?\s+about",
         r"learn\s*about.*employer",
         r"how\s+did\s+you\s+learn\s+about\s+(?:the|this|our)\s+(?:position|role|job|opening)",
+        # "How did you learn about Traversal?" / "...about us?" (Ashby).
+        r"^\s*how\s+did\s+you\s+(?:first\s+)?learn\s+about\s+(?:us|[A-Z][\w&.\- ]{0,40})\s*\??\s*$",
         r"how.*first\s+learn",
         # DoorDash: "How much did content from the DoorDash Engineering blog
         # influence your decision to apply for a role at DoorDash?"

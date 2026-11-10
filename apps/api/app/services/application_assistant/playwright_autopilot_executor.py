@@ -907,6 +907,70 @@ async def _tick_checkbox(chk: Any) -> bool:
     return await chk.is_checked()
 
 
+_LEVER_CHECKBOX_GROUPS_JS = """() => Array.from(document.querySelectorAll('ul[data-qa="checkboxes"]')).map((ul, gi) => {
+    const boxes = Array.from(ul.querySelectorAll('input[type="checkbox"]'));
+    const card = ul.closest('li.application-question, .application-question, li');
+    const head = card && card.querySelector('.application-label .text, .application-label');
+    return {
+        gi,
+        visible: !!(ul.offsetParent || ul.getClientRects().length),
+        question: head ? head.innerText.trim() : '',
+        required: !!(card && card.querySelector('.required')),
+        checked: boxes.some(b => b.checked),
+        options: boxes.map(b => {
+            const alt = b.closest('label') && b.closest('label').querySelector('.application-answer-alternative');
+            return ((alt && alt.innerText) || b.value || '').trim();
+        }),
+    };
+})"""
+
+
+async def _fill_lever_checkbox_groups(
+    page: Any, profile: dict[str, Any], answer_lib: Any, filled: dict[str, Any], filled_ids: dict[str, Any]
+) -> None:
+    """Answer Lever multiple-choice cards rendered as a list of checkboxes.
+
+    Lever draws some custom questions as <ul data-qa="checkboxes"> whose boxes
+    share one name, with no fieldset or legend, so the other group passes
+    never see them (Spotify's "previously employed by Spotify?" went to review
+    empty). The question is resolved once with its options and only the
+    matching box is ticked, by property-set so no real click can trip
+    Lever's hCaptcha.
+    """
+    try:
+        groups = await page.evaluate(_LEVER_CHECKBOX_GROUPS_JS)
+    except Exception as exc:
+        logger.debug("Lever checkbox group discovery error: %s", exc)
+        return
+    for group in groups or []:
+        try:
+            options = [" ".join(o.split()) for o in group.get("options") or []]
+            group_lbl = " ".join((group.get("question") or "").split()).rstrip("✱* ").strip()
+            if not group.get("visible") or group.get("checked") or len(options) < 2 or not all(options) or not group_lbl:
+                continue
+            resolution = resolve_answer(question_text=group_lbl, profile=profile, options=options,
+                                        answer_lib=answer_lib, field_id=f"lever-checkboxes-{group['gi']}")
+            if not resolution.answer or resolution.blocking_errors or resolution.answer not in options:
+                continue
+            if resolution.question_type in {t.value for t in VOLUNTEER_ONLY_TYPES} and not group.get("required"):
+                continue
+            box = page.locator('ul[data-qa="checkboxes"]').nth(group["gi"]).locator('input[type="checkbox"]').nth(options.index(resolution.answer))
+            await box.evaluate("""el => {
+                const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'checked').set;
+                setter.call(el, true);
+                el.dispatchEvent(new Event('click', { bubbles: true }));
+                el.dispatchEvent(new Event('input', { bubbles: true }));
+                el.dispatchEvent(new Event('change', { bubbles: true }));
+            }""")
+            if not await box.is_checked():
+                logger.info("Lever checkbox card did not register via property-set; leaving '%s' for review.", group_lbl[:50])
+                continue
+            filled[group_lbl[:50]] = resolution.answer
+            filled_ids[group_lbl[:50]] = f"lever-checkboxes-{group['gi']}"
+        except Exception as exc:
+            logger.debug("Lever checkbox group fill error: %s", exc)
+
+
 def _affirms_checkbox(answer: Any) -> bool:
     """True only for an answer that means "tick this box".
 
@@ -1617,6 +1681,34 @@ async def _fill_native_selects(
     return picked
 
 
+def _numeric_value_for_number_input(value: Any) -> str | None:
+    """The form of `value` an <input type="number"> accepts, or None if it has none.
+
+    Playwright refuses to type "(425) 336-9852" into a number input, so a phone
+    field rendered that way stayed empty (Ashby, Freed). Plain numbers keep
+    their decimal point; phone-style values drop their punctuation.
+    """
+    text = str(value or "").strip()
+    plain = text.replace(",", "").replace("$", "").strip()
+    try:
+        float(plain)
+        return plain
+    except ValueError:
+        pass
+    digits = re.sub(r"[\s()\-+.]", "", text)
+    return digits if digits.isdigit() else None
+
+
+async def _fill_respecting_type(el: Any, value: Any, **kwargs: Any) -> None:
+    """el.fill(value), converting the value first when el is a number input."""
+    text = str(value)
+    if (await el.get_attribute("type") or "").lower() == "number":
+        numeric = _numeric_value_for_number_input(text)
+        if numeric is not None:
+            text = numeric
+    await el.fill(text, **kwargs)
+
+
 async def _fill_first_visible(page_or_frame: Any, selectors: list[str], value: str) -> bool:
     """Safely fill the first visible, editable input matching any selector with quick timeout."""
     for sel in selectors:
@@ -1627,7 +1719,7 @@ async def _fill_first_visible(page_or_frame: Any, selectors: list[str], value: s
                 el = loc.nth(i)
                 if await el.is_visible():
                     await el.scroll_into_view_if_needed(timeout=2500)
-                    await el.fill(str(value), timeout=3500)
+                    await _fill_respecting_type(el, value, timeout=3500)
                     return True
         except Exception:
             continue
@@ -1683,6 +1775,7 @@ async def _select_radio_option(page_or_frame: Any, field_id: str, value: str) ->
             candidates = (option_value.lower(), label.lower())
             if wanted and any(wanted == candidate for candidate in candidates if candidate):
                 return await _tick_checkbox(radio)
+        fuzzy_matches = []
         for index in range(await radios.count()):
             radio = radios.nth(index)
             radio_id = await radio.get_attribute("id") or ""
@@ -1704,8 +1797,20 @@ async def _select_radio_option(page_or_frame: Any, field_id: str, value: str) ->
                 )
                 if is_gender_collision:
                     continue
-                if wanted and (wanted in candidate or candidate in wanted):
-                    return await _tick_checkbox(radio)
+                # "Asian (Not Hispanic or Latino)" mentions "Hispanic or
+                # Latino" only to negate it - that is not a match for it.
+                negated = candidate in wanted and re.search(
+                    r"\bnot\s*\(?\s*" + re.escape(candidate), wanted
+                )
+                if wanted and not negated and (wanted in candidate or candidate in wanted):
+                    fuzzy_matches.append(radio)
+                    break
+        # Fail closed: more than one loose match is a guess, and a wrong
+        # radio (seen live on Ashby EEO groups) is worse than an empty one.
+        if len(fuzzy_matches) == 1:
+            return await _tick_checkbox(fuzzy_matches[0])
+        if len(fuzzy_matches) > 1:
+            logger.info("Radio %s: %d loose matches for %r, leaving it for review", field_id, len(fuzzy_matches), value)
     except Exception as exc:
         logger.debug("Radio selection error for %s: %s", field_id, exc)
     return False
@@ -3149,6 +3254,8 @@ async def _fill_standard_and_react_fields(
         except Exception as exc:
             logger.debug("Phenom checkbox group fill error: %s", exc)
             continue
+
+    await _fill_lever_checkbox_groups(page, profile, answer_lib, filled, filled_ids)
 
     # Ashby renders a choice question as loose checkboxes with no <fieldset>
     # and no <legend>, so the pass above cannot see it. The only thing tying
@@ -4597,7 +4704,7 @@ async def _execute_live_playwright_submission_impl(
                             else:
                                 # Never coerce an unknown field to the literal string "None"
                                 if fix_val and str(fix_val).lower() not in ("none", "null", "undefined", ""):
-                                    await elem.fill(str(fix_val))
+                                    await _fill_respecting_type(elem, fix_val)
                                     filled_fields[f_label or f_id] = str(fix_val)
                                     filled_field_ids[f_label or f_id] = f_id
                                     if log_callback:

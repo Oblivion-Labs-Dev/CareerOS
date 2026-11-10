@@ -291,3 +291,12 @@ def test_a_role_shape_row_scored_against_another_resume_is_rescored(llm_off):
     # Once every row carries the current resume key there is nothing left to do,
     # so the loop can idle instead of rewriting the same rows every cycle.
     assert preprocessor._role_shape_rescore_queue() == 0
+
+
+def test_seniority_roman_numerals_and_manager_titles():
+    from app.services.application_assistant.role_shape_match import detect_seniority
+    assert detect_seniority("Senior Software Engineer I, Core Objects") == 3
+    assert detect_seniority("Software Engineer II, Delivery") == 2
+    assert detect_seniority("Software Engineer I") == 1
+    assert detect_seniority("Senior Engineering Manager") == 5
+    assert detect_seniority("Staff Software Engineer") == 4

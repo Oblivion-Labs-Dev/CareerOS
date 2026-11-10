@@ -178,14 +178,17 @@ def family_affinity(a: str, b: str) -> float:
 
 
 SENIORITY_LEVELS: tuple[tuple[str, int], ...] = (
-    (r"\bintern\b|\bnew grad\b|\bgraduate\b", 0),
-    (r"\bjunior\b|\bassociate\b|\bentry.level\b|\bi{1,2}\b(?!\w)", 1),
-    (r"\bsenior\b|\bsr\.?\b|\bsenior[- ]level\b|\biii\b", 3),
-    (r"\bstaff\b|\bprincipal\b|\blead\b|\barchitect\b|\bdistinguished\b", 4),
+    # First match wins, so the strongest signal comes first: "Senior Software
+    # Engineer I" is senior, "Senior Engineering Manager" a manager, and
+    # "Engineer II" the default mid level.
     # "Product/Program/Project Manager" is an individual-contributor title, not
     # people management, so it keeps the level its other words give it.
     (r"(?<!product )(?<!program )(?<!project )(?<!delivery )\bmanager\b"
      r"|\bdirector\b|\bhead of\b|\bvp\b", 5),
+    (r"\bintern\b|\bnew grad\b|\bgraduate\b", 0),
+    (r"\bstaff\b|\bprincipal\b|\blead\b|\barchitect\b|\bdistinguished\b", 4),
+    (r"\bsenior\b|\bsr\.?\b|\bsenior[- ]level\b|\biii\b", 3),
+    (r"\bjunior\b|\bassociate\b|\bentry.level\b|\bi\b(?!\w)", 1),
 )
 DEFAULT_SENIORITY = 2  # plain "Software Engineer"
 
