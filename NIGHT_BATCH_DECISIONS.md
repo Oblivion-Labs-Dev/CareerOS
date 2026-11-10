@@ -5517,3 +5517,71 @@ indexed); queue 2207 → 2284, 10 submittable. Run `aprun_3f08a301…` 12:46–1
      with no named field, on two reruns after every resolved field filled.
    - Charlie Health — Staff Platform Engineer (`apjob_302d51ac-…`): "Which US timezone" is a custom dropdown whose
      options were not captured, so the resolver answers "America/Los_Angeles" and the filler matches no option.
+## 2026-11-10 (night) — fresh pull, run started, 30-minute loop armed (in progress)
+
+1. **Headline**: started 11:28 UTC, run `aprun_8e15c3f9-d67d-405e-93ec-462e3ebec712` (`concurrency 1`,
+   `submittableBoardsOnly` on). Sentinel PID 4116 (log `%TEMP%\careerOS-nightloop.log`).
+   - Pull 11:27 UTC covered the 118 h since the last pull (2026-11-05 14:48 UTC): 708 roles fetched, 15,931
+     indexed. First prep cycle enqueued 183 (1,071 deduped). Queue 4,194 (134 under 24 h), 1,308 on company
+     holds, 333 submittable and free of holds. Fresh postings are at the head.
+   - Startup: the API was down and `pnpm dev` stopped at an interactive "reinstall node_modules?" prompt.
+     Fixed with `CI=true pnpm install --frozen-lockfile`, then a restart.
+   - Pre-start check of the uncommitted fixes in the tree: focused API suite 1,269 passed, 1 failed
+     (`test_answer_resolution_pipeline::test_how_heard_fallback_to_other`). It fails the same way on committed
+     HEAD `76985b6`, so it predates those fixes. Daytime item.
+2. **Submissions**: the first run (stopped at 12:00 UTC for a deploy) processed 87: 3 submitted (Coinbase was
+   the 3rd) and 63 skipped. Second run `aprun_27b93320-89be-4a86-b9a5-c98426b2a12f` started 12:31 UTC.
+3. **Check by hand**: none yet.
+4. **Questions only the user can answer**: these stay in NEEDS_REVIEW on purpose. Salary acknowledgements,
+   5-days-in-office and hybrid preferences, years-of-experience and stack essays, GPA/transcript, start date,
+   notice period, board/spouse questions, Canadian province, "within 120 miles of NY/Atlanta/...", Vista
+   portfolio-company and assessment history, and cover letters (the sweep only had the template letter).
+   Portal blockers: account required (72), below floor (34), submit button not found (20), Phenom, DOM
+   mismatch, reCAPTCHA.
+5. **Fixes made** (uncommitted, in the working tree, deployed 12:19 UTC; regression tests in
+   `test_question_classifier_regressions.py`):
+   - Earlier tonight:
+     - timezone (IANA display names, region groups, bare zone names)
+     - "do not currently hold" clearance
+     - legal age not-applicable / over 18
+     - bare "Language" dropdown
+     - IRCA, under-18 work permit, and previous/former employee
+   - From an audit of the "resolvable" review jobs, answers that were confidently wrong:
+     - a friend's email, and an email-consent choice, were both answered with the candidate's address
+     - "already live in the SF area" was answered Yes
+     - a misspelled "located near Cincinnati, OH" was left blank
+     - a GitHub CI/CD skill rating was answered with the GitHub URL
+     - "Vista portfolio company" was answered with the website
+     - salary currency was answered "United States" (new `SALARY_CURRENCY` type)
+     - English proficiency was routed to preferred language
+     - the visa-status follow-up was answered "Yes" instead of H-1B
+     - the Cisco employee-ID and ITW "worked within" questions
+     - "College Degree" option mapping (no more invented "Bachelor's Degree" fallback when options exist)
+   - Focused suite: 666 passed, 1 failed (the same pre-existing failure).
+   - After a re-sweep, requeued only the 70 jobs whose answers were all correct (88 resolvable, minus any
+     with a cover letter, a "None" answer, a radius question, a foreign-residence question or an email
+     consent).
+6. **Daytime bugs**:
+   - duplicate queue rows: "Metropolis — Senior AI Engineer" is queued twice
+   - filler: Coinbase "Could not heal [End date year]: Locator.fill timeout", twice before submit
+   - Coupang's email-consent field reaches the resolver with no options, so it is still filled with an address
+   - "I reside in a different country and have a valid work visa there" resolves Yes from a saved screening
+     answer
+   - requeue follow-up (04:45): of the 70 requeued, 15 came back. Netflix ×4: "Upload your resume/CV cannot be
+     left blank" (the upload isn't registering). Samsara ×3, Scale AI, Ergo: "This field is required" on a
+     field the filler didn't set. 6 more fell below the 60% match floor (the earlier answer sweep doesn't apply
+     the floor).
+   - scrape hang (09:01): the ATS scrape stuck at "89/90 ATS boards", with no progress for 35 min. The 20-minute
+     stale guard (`_maybe_clear_stale_scrape`) never fired on its own, and the sentinel's 5-minute wait didn't
+     break out either. I cancelled it by hand via `/jobs/discover/scrape/cancel`, keeping partial results.
+     Needs a per-board timeout, and the stale check should also run from the status endpoint.
+7. **Decisions for the user**: your saved answer to "Do you have professional experience with TypeScript or
+   Go? If so, which one?" is "8" (user_approved_group, 2026-10-22). It went out on Sword Health tonight.
+   It reads like years rather than a language; consider changing it to e.g. "Yes - TypeScript".
+   Also: once Greenhouse/Lever/Ashby run out, the runner keeps triaging other boards
+   into the manual list (default; the owner was not asked before leaving).
+8. **Nightly evolution**: not run yet.
+9. **Queue exhausted (07:25)**: the runner paused itself with "No submittable-board jobs left in the queue".
+   The Greenhouse, Lever and Ashby jobs are used up, and the 38 requeued jobs still waiting are on Paylocity,
+   Recruitee, Crelate, Workday-style and similar portals. It hasn't been restarted: forcing those boards
+   would only add more manual-review items.

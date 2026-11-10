@@ -1082,7 +1082,19 @@ def _resolve_full_name(res: AnswerResolution, profile: dict, opts: list[str]) ->
         res.source_value = full
         res.confidence = 1.0
 
+_SOMEONE_ELSES_EMAIL = re.compile(
+    r"\b(?:friend|referr\w*|reference|manager|supervisor|emergency|spouse|partner['’]s|colleague)\b", re.I
+)
+
+
 def _resolve_email(res: AnswerResolution, profile: dict, opts: list[str]) -> None:
+    # "Your friend's email address" wants someone else's address, and a choice
+    # between "Agree / Do not agree to receive notifications by email" is a
+    # consent, not an address. Neither is the candidate's email.
+    if _SOMEONE_ELSES_EMAIL.search(res.question or ""):
+        return
+    if opts and not any("@" in o for o in opts):
+        return
     # Submit a taggable +career variant of the candidate's own email as the
     # form's contact address rather than the bare profile email, so
     # confirmations and replies are filterable without changing delivery.
@@ -1512,7 +1524,9 @@ def _resolve_work_authorized(res: AnswerResolution, profile: dict, opts: list[st
                 opt_l = opt.lower()
                 if _DENIES_AUTHORIZATION.search(opt):
                     continue
-                if opt_l.startswith("yes") or ("authorized" in opt_l and "not" not in opt_l and "unauthorized" not in opt_l) or "visa" in opt_l or "h-1b" in opt_l or "work authorization" in opt_l or "eligible" in opt_l or "source of right" in opt_l:
+                if re.search(r"\bnot\s+be\s+able\b|\bunable\b|\bcannot\b", opt_l):
+                    continue
+                if opt_l.startswith("yes") or re.search(r"\bwill\s+be\s+able\s+to\s+provide\b", opt_l) or ("authorized" in opt_l and "not" not in opt_l and "unauthorized" not in opt_l) or "visa" in opt_l or "h-1b" in opt_l or "work authorization" in opt_l or "eligible" in opt_l or "source of right" in opt_l:
                     yes_opts.append(opt)
             # "Yes, and I will not require sponsorship" / "Yes, but I will
             # require sponsorship" each also state a sponsorship position.
@@ -1553,7 +1567,8 @@ def _resolve_work_authorized(res: AnswerResolution, profile: dict, opts: list[st
 _ASKS_VISA_TYPE = re.compile(
     r"what\s+is\s+your\s+(?:current\s+)?(?:work\s+authori[sz]ation|visa|immigration)\s+status"
     r"|(?:list|specify|describe)\s+the\s+type\s+of\s+(?:support|sponsorship|visa|assistance)"
-    r"|what\s+(?:type|kind)\s+of\s+(?:visa|sponsorship|work\s+authori[sz]ation)",
+    r"|what\s+(?:type|kind)\s+of\s+(?:visa|sponsorship|work\s+authori[sz]ation)"
+    r"|(?:specify|state|list|provide)\s+your\s+(?:current\s+)?(?:visa|work\s+authori[sz]ation|immigration)\b",
     re.I,
 )
 
@@ -1881,7 +1896,7 @@ def _resolve_clearance_eligibility(res: AnswerResolution, profile: dict, opts: l
 
 _NO_CLEARANCE = re.compile(
     r"^\s*no\b|\bnone\b|\bno\s+(?:active\s+|us\s+|u\.s\.\s+)?(?:security\s+)?clearance|"
-    r"\b(?:do|does)\s+not\s+(?:have|hold)\b|\bnever\s+held\b|\bnot\s+applicable\b|^\s*n/?a\s*$",
+    r"\b(?:do|does)\s+not\s+(?:currently\s+)?(?:have|hold)\b|\bnever\s+held\b|\bnot\s+applicable\b|^\s*n/?a\s*$",
     re.I,
 )
 _CLAIMS_CLEARANCE = re.compile(r"^\s*yes\b|\bi\s+(?:currently\s+)?(?:hold|held|have\s+held)\s+a\b", re.I)
@@ -2418,6 +2433,7 @@ _PLACE_COMMITMENT_PATTERNS = (
     r"office\s+(?:is\s+)?(?:located\s+)?in\b",
     r"in-?\s?office\s+in\b",
     r"willing\s+to\s+(?:move|relocate)",
+    r"\balready\s+(?:live|living|reside|residing|located|based)\b",
 )
 
 
@@ -2451,10 +2467,23 @@ def _asks_to_commit_to_a_place(question: str, profile: dict) -> bool:
     return True
 
 
+# "Ae you locted in or near Cincinnati" - typos in real postings.
 _PRESENT_LOCATION_QUESTION = re.compile(
-    r"\b(?:are\s+you|do\s+you)\s+(?:currently\s+)?(?:located|live|living|reside|residing|based)\b", re.I
+    r"\b(?:are|ae|re)\s+you\s+(?:currently\s+)?(?:loc?a?ted|live|living|reside|residing|based)\b"
+    r"|\bdo\s+you\s+(?:currently\s+)?(?:live|reside|residing|based)\b"
+    r"|\balready\s+(?:live|living|reside|residing|located|based)\b",
+    re.I,
 )
-_RELOCATION_ALTERNATIVE = re.compile(r"\bor\b[^?]*\b(?:willing|open|able)\b|relocat", re.I)
+# "in or near Cincinnati, OH and willing to commute" is one place, not an
+# either/or between living there and being willing.
+_RELOCATION_ALTERNATIVE = re.compile(r"\bor\b(?!\s+near\b)[^?]*\b(?:willing|open|able)\b|relocat", re.I)
+# Metro areas named without a state.
+_METRO_STATES = {
+    r"\bsf\b": "ca", r"san\s+francisco": "ca", r"bay\s+area": "ca", r"mountain\s+view": "ca",
+    r"silicon\s+valley": "ca", r"los\s+angeles": "ca", r"san\s+diego": "ca", r"\bnyc\b": "ny",
+    r"new\s+york\s+city": "ny", r"\bboston\b": "ma", r"\bchicago\b": "il", r"\baustin\b": "tx",
+    r"\bdenver\b": "co", r"\batlanta\b": "ga", r"\bmiami\b": "fl",
+}
 
 
 def _present_location_answer(question: str, profile: dict) -> str | None:
@@ -2475,6 +2504,9 @@ def _present_location_answer(question: str, profile: dict) -> str | None:
     # Abbreviations count only in capitals: ", or Mexico" is not Oregon.
     named = [a.lower() for a in re.findall(r",\s*([A-Z]{2})\b", question) if a.lower() in _STATE_ABBREVIATIONS]
     named += [a for a, n in _STATE_ABBREVIATIONS.items() if re.search(rf"\b{n}\b", text)]
+    named += [st for pat, st in _METRO_STATES.items() if re.search(pat, text)]
+    if abbrev and abbrev in named:
+        return None
     return "No" if named else None
 
 
@@ -2594,6 +2626,37 @@ def _resolve_timezone_availability(res: AnswerResolution, profile: dict, opts: l
         res.answer = answer
         res.resolution_method = DETERMINISTIC_RULE
     res.confidence = 0.85
+
+_COUNTRY_CURRENCIES = {
+    "united states": ("USD", "US Dollar"), "usa": ("USD", "US Dollar"), "us": ("USD", "US Dollar"),
+    "canada": ("CAD", "Canadian Dollar"), "united kingdom": ("GBP", "Pound"), "uk": ("GBP", "Pound"),
+    "india": ("INR", "Rupee"), "germany": ("EUR", "Euro"), "france": ("EUR", "Euro"),
+    "netherlands": ("EUR", "Euro"), "ireland": ("EUR", "Euro"), "spain": ("EUR", "Euro"),
+    "australia": ("AUD", "Australian Dollar"), "singapore": ("SGD", "Singapore Dollar"),
+}
+
+
+def _resolve_salary_currency(res: AnswerResolution, profile: dict, opts: list[str]) -> None:
+    """"What currency should we use for your desired salary?" - the currency of
+    the candidate's country, never the country name."""
+    country = str(profile.get("country") or "").strip().lower()
+    found = _COUNTRY_CURRENCIES.get(country)
+    if not found:
+        return
+    code, name = found
+    if opts:
+        hits = [o for o in opts if re.search(rf"\b{code}\b", o) or name.lower() in o.lower()]
+        if len(hits) != 1:
+            return
+        res.answer = hits[0]
+        res.resolution_method = PROFILE_OPTION_MAPPING
+    else:
+        res.answer = code
+        res.resolution_method = PROFILE_EXACT
+    res.profile_key = "country"
+    res.source_value = profile.get("country")
+    res.confidence = 1.0
+
 
 def _resolve_salary(res: AnswerResolution, profile: dict, opts: list[str]) -> None:
     # "Does your salary expectation fall within our estimated range?" is a
@@ -2825,7 +2888,10 @@ def candidate_timezone(profile: dict) -> tuple[str, str] | None:
     """
     explicit = str(profile.get("timezone") or profile.get("timeZone") or "").strip()
     if explicit:
-        return (explicit, explicit)
+        # An IANA id ("America/Los_Angeles") also gets its display name, or
+        # options such as "Pacific" / "Pacific Time" can never match it.
+        display = next((d for i, d in _STATE_TIMEZONES.values() if i == explicit), explicit)
+        return (explicit, display)
 
     haystacks = [
         str(profile.get("state") or ""),
@@ -2865,12 +2931,30 @@ def _resolve_timezone_location(res: AnswerResolution, profile: dict, opts: list[
         return
 
     iana, display = resolved
-    if opts:
+    region_groups = opts and any(re.search(r"\btime\s*zones\b", str(o), re.I) for o in opts)
+    if region_groups:
+        # Region-group dropdowns ("American Time Zones", "Asia Pacific Time
+        # Zones"): fuzzy matching "Pacific Time" picked "Asia Pacific". Only the
+        # one group naming the candidate's continent counts.
+        region = [o for o in opts if iana.startswith("America/") and re.match(r"\s*americ", str(o), re.I)]
+        if len(region) != 1:
+            res.blocking_errors.append(
+                f"The candidate is in {display}; no single offered time-zone group matches it."
+            )
+            res.confidence = 0.0
+            return
+        res.answer = region[0]
+        res.resolution_method = PROFILE_OPTION_MAPPING
+    elif opts:
         matched = (
             _match_option(opts, display)
             or _match_option(opts, iana)
             or _match_option(opts, display.split(" (")[0])
         )
+        if not matched and " (" in display:
+            # Bare zone names ("Eastern", "Pacific"): the exact first word only.
+            zone = display.split()[0].lower()
+            matched = next((o for o in opts if str(o).strip().lower() == zone), None)
         if not matched:
             res.blocking_errors.append(
                 f"The candidate is in {display}, but none of the offered options "
@@ -3272,7 +3356,7 @@ def _question_names_a_prior_employer(question: str, profile: dict) -> str | None
 
 # "a Sony company" / "a Roper company or any of its subsidiaries" name an employer group.
 _KIND_OF_COMPANY = re.compile(
-    r"\b(?:worked|employed)\s+(?:for|at|with|in)\s+an?\s+"
+    r"\b(?:worked|employed)\s+(?:for|at|with|in)\s+an?\s+(?!position\b)"
     r"(?![\w&.'-]+\s+(?:company|companies|entity|entities|subsidiary|affiliate|brand)\b)",
     re.I,
 )
@@ -3310,6 +3394,11 @@ def _resolve_company_history(res: AnswerResolution, profile: dict, opts: list[st
     # "Have you worked for a Data Product company?" names a kind of company,
     # not an employer; whether past employers count is the candidate's call.
     if _KIND_OF_COMPANY.search(res.question or ""):
+        return
+    # Vista: "employed by a Vista portfolio company, or ever taken a
+    # pre-employment assessment with one" - the profile records neither which
+    # employers an investor owns nor which assessments were taken.
+    if re.search(r"portfolio\s+compan|pre-?\s?employment\s+assessment", res.question or "", re.I):
         return
     prior = _question_names_a_prior_employer(res.question, profile)
     if prior:
@@ -3462,6 +3551,19 @@ def _resolve_degree(res: AnswerResolution, profile: dict, opts: list[str]) -> No
     if _resolve_degree_attainment(res, profile, opts):
         return
     _resolve_education_history(res, profile, opts, "degree", 0)
+    if not res.answer and opts:
+        # "High School / Some College / College Degree": a bachelor's or higher
+        # is the college degree. Anything else is left for the candidate rather
+        # than answered with a value that is not one of the options.
+        held = max((_degree_level(str(e.get("degree") or "")) or 0 for e in _education_entries(profile) if e), default=0)
+        college = [o for o in opts if re.search(r"\b(?:college|university)\s+degree\b", o, re.I)
+                   and not re.search(r"\bsome\b|\bno\b", o, re.I)]
+        if held >= 3 and len(college) == 1:
+            res.answer = college[0]
+            res.resolution_method = PROFILE_OPTION_MAPPING
+            res.profile_key = "education[].degree"
+            res.confidence = 1.0
+        return
     if not res.answer:
         _resolve_from_profile(res, profile, opts, "degree", fallback="Bachelor's Degree")
 
@@ -3699,6 +3801,8 @@ def _resolve_preferred_language(res: AnswerResolution, profile: dict, opts: list
     has_natural_lang_opts = any(o.strip().lower() in natural_languages for o in (opts or []))
     is_natural_lang_q = bool(re.search(r"\b(spoken|communication|native|first|primary)\s+language\b|\blanguage\s+preference\b", res.question or "", re.I))
 
+    if not has_natural_lang_opts and re.fullmatch(r"\s*languages?\s*\*?\s*", res.question or "", re.I):
+        return  # bare "Language" box: spoken or programming language is unknown
     if has_natural_lang_opts or (is_natural_lang_q and not any("python" in o.lower() for o in (opts or []))):
         default = "English"
     else:
@@ -3783,6 +3887,7 @@ _RESOLVERS: dict[QuestionType, Any] = {
     QuestionType.EMPLOYMENT_GAP: _resolve_employment_gap,
     QuestionType.ORIGINALITY_DECLARATION: _resolve_originality_declaration,
     QuestionType.SALARY: _resolve_salary,
+    QuestionType.SALARY_CURRENCY: _resolve_salary_currency,
     QuestionType.NOTICE_PERIOD: _resolve_notice_period,
     QuestionType.SMS_CONSENT: _resolve_sms_consent,
     QuestionType.MARKETING_CONSENT: _resolve_marketing_consent,
@@ -3812,6 +3917,15 @@ _RESOLVERS: dict[QuestionType, Any] = {
 def _resolve_legal_age(res: AnswerResolution, profile: dict, opts: list[str]) -> None:
     # "Are you under 18?" shares this type; the adult candidate's answer there is No.
     answer = "No" if re.search(r"\bunder\b", res.question or "", re.I) else "Yes"
+    if opts and answer == "No":
+        # "If you are under 18, do you have a work permit?" - "No, I do not have
+        # a work permit" misstates it; the adult's answer is the not-applicable one.
+        na = [o for o in opts if re.search(r"not\s+applicable|\b(?:over|older\s+than)\s+18\b|\b18\s+or\s+older\b", o, re.I)]
+        if len(na) == 1:
+            res.answer = na[0]
+            res.resolution_method = DETERMINISTIC_RULE
+            res.confidence = 1.0
+            return
     if opts:
         res.answer = _match_option(opts, answer) or answer
     else:

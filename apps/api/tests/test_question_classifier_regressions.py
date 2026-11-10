@@ -1143,3 +1143,158 @@ def test_education_employment_documentation_on_resume_classified_as_background_c
     q = "If requested, would you be able to provide documentation reflecting the education and employment history listed on your resume?"
     assert _t(q) == QuestionType.BACKGROUND_CHECK
 
+
+
+# ── NEEDS_REVIEW sweep, 2026-11-10: deterministic questions that held jobs ──
+
+_PNW = {**_AUBURN, "timezone": "America/Los_Angeles"}
+
+
+def _r(question, profile, opts):
+    from app.services.application_assistant.profile_answer_resolver import resolve_answer
+    return resolve_answer(question, profile, opts)
+
+
+def test_explicit_iana_timezone_matches_bare_zone_name_option():
+    # The profile records "America/Los_Angeles"; that string was used as the
+    # display name too, so a dropdown of "Pacific"/"Eastern"/... never matched.
+    opts = ["Newfoundland", "Atlantic", "Eastern", "Central", "Mountain", "Pacific"]
+    assert _r("Which time zone do you currently reside in?*", _PNW, opts).answer == "Pacific"
+
+
+def test_explicit_iana_timezone_matches_region_group_option():
+    opts = ["American Time Zones", "Asia Pacific Time Zones",
+            "Europe, Middle East or Africa Time Zones", "Indian Ocean Time Zones"]
+    assert _r("What time zone are you in?", _PNW, opts).answer == "American Time Zones"
+
+
+def test_timezone_with_no_matching_option_still_blocks():
+    r = _r("What time zone are you located in?", _PNW, ["UTC", "UTC +1", "Other"])
+    assert r.answer is None and r.blocking_errors
+
+
+def test_no_clearance_option_with_currently_between_not_and_hold():
+    opts = ["I do not currently hold an active U.S. DoD security clearance.", "Confidential", "Secret", "Top Secret"]
+    r = _r("Do you currently hold an active DoD security clearance? If yes, please specify the clearance level.*",
+           {**_AUBURN, "securityClearance": "No"}, opts)
+    assert r.answer == opts[0]
+
+
+def test_bare_language_dropdown_with_spoken_languages_is_english():
+    assert _r("Language", _AUBURN, ["English", "Spanish"]).answer == "English"
+
+
+def test_bare_language_without_options_is_not_guessed():
+    # "Python" would be the programming-language default; a bare "Language"
+    # text box is ambiguous, so it stays a pending question.
+    assert _r("Language", _AUBURN, None).answer is None
+
+
+def test_previous_employee_of_unlisted_company_is_no():
+    profile = {**_AUBURN, "workExperience": [{"company": "Microsoft"}, {"company": "Amazon"}]}
+    assert _t("Are you a previous Employee of PayPal or any of its subsidiaries?") == QuestionType.COMPANY_HISTORY
+    assert _r("Are you a previous Employee of PayPal or any of its subsidiaries?", profile, ["Yes", "No"]).answer == "No"
+
+
+def test_former_employee_of_listed_company_is_yes():
+    profile = {**_AUBURN, "workExperience": [{"company": "Microsoft"}, {"company": "Amazon"}]}
+    assert _r("Are you a former employee of Amazon?", profile, ["Yes", "No"]).answer == "Yes"
+
+
+def test_under_18_work_permit_picks_not_applicable_over_18():
+    q = "If you are under 18, do you have a work permit if required by applicable state law?"
+    opts = ["Yes, I have a valid work permit.", "No, I do not have a work permit.", "Not applicable (I am over 18)"]
+    assert _t(q) == QuestionType.LEGAL_AGE
+    assert _r(q, _AUBURN, opts).answer == "Not applicable (I am over 18)"
+
+
+def test_irca_documentation_question_for_authorized_candidate():
+    q = ("Under the Immigration Reform and Control Act of 1986, you will be required to fill out a "
+         "certification of your eligibility to work in the U.S. and provide documentation.")
+    opts = ["I understand and will be able to provide documentation", "I will not be able to provide documentation"]
+    profile = {**_AUBURN, "workAuth": {"authorizedToWorkInUS": True, "requiresSponsorshipNowOrFuture": True}}
+    assert _r(q, profile, opts).answer == opts[0]
+    assert _r(q, {**_AUBURN, "workAuth": {"authorizedToWorkInUS": False}}, opts).answer != opts[0]
+
+
+# --- Confidently wrong answers found auditing "resolvable" NEEDS_REVIEW jobs, 2026-11-10 ---
+_ME = {**_AUBURN, "email": "me@example.com", "github": "https://github.com/me",
+       "website": "https://me.example.com", "relocate": "Yes", "englishLevel": "Fluent",
+       "education": [{"school": "SCU", "degree": "Master's Degree", "discipline": "Computer Science"}],
+       "workExperience": [{"company": "Microsoft"}, {"company": "Amazon"}],
+       "workAuth": {"authorizedToWorkInUS": True, "requiresSponsorshipNowOrFuture": True,
+                    "authorizationType": "H-1B"}}
+
+
+def test_friends_email_is_not_the_candidates_email():
+    assert "@" not in str(_r("*Your friend’s email address", _ME, None).answer or "")
+
+
+def test_email_consent_choice_is_not_answered_with_an_address():
+    q = "4. (Optional) Coupang and its affiliate or subsidiary company* will send recruitment notifications by email"
+    opts = ["Agree to receive recruitment notifications by email", "Do not agree to receive recruitment notifications by email"]
+    assert "@" not in str(_r(q, _ME, opts).answer or "")
+
+
+def test_already_live_in_sf_area_is_no_for_washington_candidate():
+    q = ("This role requires someone to already live in the SF area and to be onsite at our Mountain View "
+         "office 2x/week. Does this match your profile?")
+    assert _r(q, _ME, ["--Select--", "Yes", "No"]).answer == "No"
+
+
+def test_misspelled_located_near_other_state_city_is_no():
+    q = "Ae you locted in or near Cincinnati, OH and willing to commute to office 2-3 days a week?"
+    assert _r(q, _ME, None).answer == "No"
+
+
+def test_github_ci_cd_experience_rating_is_not_the_profile_url():
+    q = "How would you rate your experience with CI/CD using GitHub?"
+    opts = ["Expert - design and optimize CI/CD architecture for teams",
+            "Regularly build and maintain CI/CD pipelines using GitHub"]
+    assert _t(q) != QuestionType.GITHUB
+    assert _r(q, _ME, opts).answer != "https://github.com/me"
+
+
+def test_vista_portfolio_company_is_not_a_website_question():
+    q = ("Are you currently employed by a Vista portfolio company? Or have you ever taken a pre-employment "
+         "assessment with a Vista portfolio company? Here is a list of current Vista portfolio companies: "
+         "https://www.vistaequitypartners.com/companies/")
+    assert _t(q) != QuestionType.WEBSITE
+    assert _r(q, _ME, None).answer is None
+
+
+def test_salary_currency_is_not_the_country_name():
+    q = "What currency should we use for your desired salary? Please select the currency of the country you live in."
+    assert _r(q, _ME, None).answer == "USD"
+    assert _r(q, _ME, ["EUR - Euro", "USD - US Dollar", "INR - Indian Rupee"]).answer == "USD - US Dollar"
+
+
+def test_english_proficiency_after_primary_language_preamble():
+    q = ("English is our primary language for written and verbal communication. How would you describe "
+         "your English proficiency?")
+    opts = ["Fluent/Native - Full proficiency in all contexts", "Advanced - Confident in most professional and social situations"]
+    assert _t(q) == QuestionType.ENGLISH_PROFICIENCY
+    assert _r(q, _ME, opts).answer == opts[0]
+
+
+def test_sponsorship_follow_up_asks_for_the_visa_status():
+    q = ("If you selected “Yes” to requiring sponsorship now or in the future, please specify your current visa "
+         "or work authorization status (e.g. H-1B, TN, OPT, etc.)")
+    assert _r(q, _ME, None).answer == "H-1B"
+
+
+def test_issued_company_employee_id_is_company_history():
+    q = "Have you ever been issued a Cisco Employee ID or Cisco Email Address?"
+    assert _t(q) == QuestionType.COMPANY_HISTORY
+    assert _r(q, _ME, ["Yes", "No"]).answer == "No"
+
+
+def test_worked_within_other_company_is_not_the_location():
+    q = ("Do you currently or have you previously worked for a position within ITW or any of its subsidiaries, "
+         "in any of our locations, either as an employee or through an employment agency?")
+    assert _r(q, _ME, ["Yes", "No"]).answer == "No"
+
+
+def test_highest_education_maps_to_coarse_college_degree_option():
+    q = "What is your highest level of education?"
+    assert _r(q, _ME, ["High School", "College Degree", "Some College"]).answer == "College Degree"

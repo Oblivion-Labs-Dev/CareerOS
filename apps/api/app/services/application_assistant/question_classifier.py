@@ -108,6 +108,9 @@ class QuestionType(str, Enum):
     #: zone are you in" leaves the field invalid and the application blocked.
     TIMEZONE_LOCATION = "TIMEZONE_LOCATION"
     SALARY = "SALARY"
+    #: "What currency should we use for your desired salary?" - wants a
+    #: currency code, not the country name COUNTRY used to answer it with.
+    SALARY_CURRENCY = "SALARY_CURRENCY"
 
     #: "How many companies have you worked for since your degree?" — a count
     #: drawn from work history. It mentions "degree" only to date the window,
@@ -335,6 +338,42 @@ _CLASSIFICATION_RULES: list[tuple[QuestionType, list[str]]] = [
     # WORK_AUTHORIZED's "Yes" there reads as needing it.
     (QuestionType.SPONSORSHIP_REQUIRED, [
         r"what\s+(?:type\s+of\s+|kind\s+of\s+)?(?:visa\s+)?sponsorship\s+(?:would|will|do)\s+you",
+    ]),
+    (QuestionType.WORK_AUTHORIZED, [
+        # IRCA / I-9: "you will be required to fill out a certification of your
+        # eligibility to work ... and provide documentation". Fell to
+        # SPONSORSHIP_REQUIRED's "immigration", which has no answer for it.
+        r"immigration\s+reform\s+and\s+control\s+act",
+    ]),
+    (QuestionType.LEGAL_AGE, [
+        # "If you are under 18, do you have a work permit if required by
+        # applicable state law?" - "state law" sent it to STATE.
+        r"\bunder\s+(?:the\s+age\s+of\s+)?18\b.{0,60}work\s+permit",
+    ]),
+    (QuestionType.COMPANY_HISTORY, [
+        # "Are you a previous Employee of PayPal ...?" - only "current" was covered.
+        r"^\s*are\s+you\s+an?\s+(?:previous|former|past|prior)\s+(?:employee|contractor)\s+(?:at|of|for|with)\s+(?!(?:a|an|any|the)\b)",
+        # Cisco: "Have you ever been issued a Cisco Employee ID or Cisco Email
+        # Address?" - "email" sent it to EMAIL, which answered an address.
+        r"have\s+you\s+(?:ever\s+)?been\s+issued\s+an?\s+.{0,40}employee\s+id",
+        # ITW: "Do you currently or have you previously worked for a position
+        # within ITW or any of its subsidiaries, in any of our locations" -
+        # "locations" sent it to the location resolver ("Auburn, WA").
+        r"have\s+you\s+(?:previously|ever|formerly)\s+worked\s+(?:for|at)\s+(?:a\s+position\s+)?(?:within|at|for|with)\s+\S+.{0,40}subsidiar",
+    ]),
+    (QuestionType.SALARY_CURRENCY, [
+        r"\bcurrency\b.{0,60}\b(?:salary|compensation|pay)\b",
+        r"\b(?:salary|compensation|pay)\b.{0,60}\bcurrency\b",
+    ]),
+    (QuestionType.ENGLISH_PROFICIENCY, [
+        # "English is our primary language ... How would you describe your
+        # English proficiency?" - "primary language" sent it to PREFERRED_LANGUAGE.
+        r"\benglish\s+(?:language\s+)?(?:proficiency|fluency|level)\b",
+    ]),
+    (QuestionType.PREFERRED_LANGUAGE, [
+        # Phenom/Workday bare "Language" dropdown; the resolver answers only
+        # when the options are spoken languages.
+        r"^\s*languages?\s*\*?\s*$",
     ]),
     (QuestionType.WORK_AUTHORIZED, [
         # Every "authori[sz]" spelling below accepts both the American and the
@@ -772,9 +811,13 @@ _CLASSIFICATION_RULES: list[tuple[QuestionType, list[str]]] = [
         r"programming\s+language.*coding\s+interview",
     ]),
     (QuestionType.LINKEDIN, [r"linkedin"]),
-    (QuestionType.GITHUB, [r"\bgithub\b(?!\s*copilot)"]),
+    # "How would you rate your experience with CI/CD using GitHub?" is a skill
+    # rating, not a request for the profile URL.
+    (QuestionType.GITHUB, [r"^(?!.*\b(?:experience|rate|familiar|proficien|skill)).*\bgithub\b(?!\s*copilot)"]),
     (QuestionType.WEBSITE, [
-        r"portfolio",
+        # "a Vista portfolio company" is an investor's holdings, not the
+        # candidate's portfolio.
+        r"portfolio(?!\s+compan)",
         r"website",
         r"where\s+can\s+we\s+see\s+(?:some\s+of\s+)?your\s+work",
         r"personal\s*site",
