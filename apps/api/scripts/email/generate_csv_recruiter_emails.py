@@ -93,11 +93,36 @@ def parse_company_templates(docx_path: Path) -> dict[str, dict[str, str]]:
     return templates
 
 
+# Header spellings seen across recruiter exports, mapped to the canonical names used below.
+HEADER_ALIASES = {
+    "first name": "First name",
+    "last name": "Last name",
+    "email": "Email",
+    "work email": "Email",
+    "title": "Title",
+    "job title": "Title",
+    "linkedin": "Linkedin",
+    "linkedin url": "Linkedin",
+    "company": "Company",
+    "email status": "Email Status",
+}
+
+
+def canonical_header(cell: str) -> str:
+    cleaned = cell.strip().lstrip("﻿").strip()
+    return HEADER_ALIASES.get(cleaned.lower(), cleaned)
+
+
 def load_csv_rows(csv_path: Path) -> list[dict[str, str]]:
-    with csv_path.open(encoding="utf-8", errors="ignore", newline="") as handle:
+    with csv_path.open(encoding="utf-8-sig", errors="ignore", newline="") as handle:
         rows = list(csv.reader(handle))
-    header_idx = next(i for i, row in enumerate(rows) if row and row[0].strip() == "First name")
-    header = rows[header_idx]
+    header_idx = next(
+        (i for i, row in enumerate(rows) if row and canonical_header(row[0]) == "First name"),
+        None,
+    )
+    if header_idx is None:
+        raise SystemExit(f"No 'First name' header row found in {csv_path}")
+    header = [canonical_header(cell) for cell in rows[header_idx]]
     parsed: list[dict[str, str]] = []
     for raw in rows[header_idx + 1 :]:
         if not any(cell.strip() for cell in raw):
@@ -170,6 +195,7 @@ def build_personalized(rows: list[dict[str, str]], template_map: dict[str, dict[
                 "email": email,
                 "title": (row.get("Title") or "").strip(),
                 "linkedin": (row.get("Linkedin") or "").strip(),
+                "emailStatus": (row.get("Email Status") or "").strip() or None,
                 "subject": template["subject"],
                 "body": body,
             }

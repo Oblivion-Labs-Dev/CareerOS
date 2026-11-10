@@ -374,6 +374,12 @@ def main() -> int:
     parser.add_argument("--label", help="Custom campaign label for the dashboard")
     args = parser.parse_args()
 
+    # Names like "Őrs" are outside cp1252; when output goes to a log file on Windows,
+    # printing them would crash the batch mid-campaign. Replace unencodable characters instead.
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(errors="replace")
+
     one_per_company = not args.allow_same_company and args.one_per_company
     skip_already_sent = args.skip_already_sent and not args.allow_already_sent
 

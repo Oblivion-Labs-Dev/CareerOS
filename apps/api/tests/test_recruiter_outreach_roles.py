@@ -1,7 +1,15 @@
 import json
 import sqlite3
 
-from app.services.recruiter_outreach_roles import load_open_jobs, rank_roles, tailor_emails
+from datetime import date
+
+from app.services.recruiter_outreach_roles import (
+    board_slug_candidates,
+    extract_mission,
+    load_open_jobs,
+    rank_roles,
+    tailor_emails,
+)
 import pytest
 
 # Scores are pinned to a sample backend/platform engineer resume read.
@@ -88,3 +96,4 @@ def test_rank_roles_cleans_mojibake_and_dedupes_titles():
     jobs = [{"company": "Acme", "title": "Senior Software Engineer � Backend", "description": BACKEND}] * 2
     roles = rank_roles(jobs, min_score=0)
     assert [r.title for r in roles] == ["Senior Software Engineer - Backend"]
+
