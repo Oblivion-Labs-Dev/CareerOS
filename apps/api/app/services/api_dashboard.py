@@ -62,7 +62,7 @@ def _build_boot_payload(db: Session) -> dict[str, Any]:
     recent_logs = read_client_logs(limit=8)
     ext = extension_info()
     web_url = _web_dashboard_url()
-    api_url = (settings.career_os_api_public_url or "http://localhost:8000").rstrip("/")
+    api_url = (settings.career_os_api_public_url or "http://localhost:4000").rstrip("/")
 
     return {
         "webUrl": web_url,

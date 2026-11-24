@@ -26,7 +26,7 @@ class Settings(BaseSettings):
     openrouter_api_key: str = ""
     openrouter_base_url: str = "https://openrouter.ai/api/v1"
     apify_token: str = ""
-    career_os_api_public_url: str = "http://localhost:8000"
+    career_os_api_public_url: str = "http://localhost:4000"
     career_os_chrome_web_store_url: str = ""
     career_os_edge_addons_url: str = ""
     career_os_firefox_addons_url: str = ""

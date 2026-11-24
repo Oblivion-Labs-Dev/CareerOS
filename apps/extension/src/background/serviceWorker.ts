@@ -76,7 +76,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     console.log('[ApplyPilot Background] Handling generate-ai-answer:', message);
     (async () => {
       try {
-        const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
         console.log('[ApplyPilot Background] Calling API endpoint:', `${apiUrl}/application-assistant/generate-answer`);
         const response = await fetch(`${apiUrl}/application-assistant/generate-answer`, {
           method: 'POST',
